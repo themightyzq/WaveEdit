@@ -1,0 +1,92 @@
+# Build directories
+build/
+builds/
+Builds/
+cmake-build-*/
+
+# JUCE-generated files
+JuceLibraryCode/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Compiled object files
+*.o
+*.obj
+*.lo
+*.slo
+
+# Compiled dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled static libraries
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+# Platform-specific
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.VC.opendb
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+xcuserdata/
+*.xcworkspace/
+DerivedData/
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+
+# Auto-generated binaries
+*.ilk
+*.pdb
+*.exp
+*.idb
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Audio test files (exclude large test audio files)
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.aiff
+!test_fixtures/*.wav
