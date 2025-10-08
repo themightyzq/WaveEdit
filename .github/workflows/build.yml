@@ -1,0 +1,150 @@
+name: Build WaveEdit
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            cmake_generator: "Xcode"
+            artifact_name: WaveEdit-macOS
+            artifact_path: build/WaveEdit_artefacts/Release/WaveEdit.app
+
+          - name: Windows
+            os: windows-latest
+            cmake_generator: "Visual Studio 17 2022"
+            artifact_name: WaveEdit-Windows
+            artifact_path: build/WaveEdit_artefacts/Release/WaveEdit.exe
+
+          - name: Linux
+            os: ubuntu-latest
+            cmake_generator: "Unix Makefiles"
+            artifact_name: WaveEdit-Linux
+            artifact_path: build/WaveEdit_artefacts/Release/WaveEdit
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            ladspa-sdk \
+            libcurl4-openssl-dev \
+            libfreetype6-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libwebkit2gtk-4.0-dev \
+            libglu1-mesa-dev \
+            mesa-common-dev
+
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.22.x'
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G "${{ matrix.cmake_generator }}" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          echo "Checking build artifacts..."
+          if [ -e "${{ matrix.artifact_path }}" ]; then
+            echo "✅ Build artifact found: ${{ matrix.artifact_path }}"
+            ls -lh "${{ matrix.artifact_path }}"
+          else
+            echo "❌ Build artifact not found: ${{ matrix.artifact_path }}"
+            echo "Contents of build directory:"
+            find build -type f -name "WaveEdit*" || true
+            exit 1
+          fi
+
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: |
+          cd build/WaveEdit_artefacts/Release
+          zip -r ../../../WaveEdit-macOS.zip WaveEdit.app
+
+      - name: Package Windows executable
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd build/WaveEdit_artefacts/Release
+          7z a ../../../WaveEdit-Windows.zip WaveEdit.exe
+
+      - name: Package Linux binary
+        if: runner.os == 'Linux'
+        run: |
+          cd build/WaveEdit_artefacts/Release
+          tar -czf ../../../WaveEdit-Linux.tar.gz WaveEdit
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: WaveEdit-macOS.zip
+          retention-days: 30
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: WaveEdit-Windows.zip
+          retention-days: 30
+
+      - name: Upload Linux artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: WaveEdit-Linux.tar.gz
+          retention-days: 30
+
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+
+    steps:
+      - name: Check build status
+        run: |
+          echo "## Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS | ${{ needs.build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows | ${{ needs.build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux | ${{ needs.build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY

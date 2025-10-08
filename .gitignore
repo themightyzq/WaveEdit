@@ -93,7 +93,7 @@ $RECYCLE.BIN/
 
 # Claude Code / AI development files
 .claude/
-CLAUDE.md
+# Note: CLAUDE.md is checked into the repo as project documentation
 *_SUMMARY.md
 *_GUIDE.md
 *_CHECKLIST.md
