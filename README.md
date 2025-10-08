@@ -31,15 +31,29 @@
 
 ## Features
 
-### Current (Phase 1 - MVP)
+### ⚠️ Current Status (Phase 1 - 70% Complete)
 
-- ✅ Open and save WAV files (16/24/32-bit, up to 192kHz)
+**WaveEdit is under active development. The infrastructure is solid, but critical integrations are in progress.**
+
+**What Works Right Now** ✅:
+- ✅ Open WAV files (16/24/32-bit, up to 192kHz) - drag & drop or file dialog
 - ✅ High-performance waveform display with smooth zoom and scroll
-- ✅ Playback controls: play, pause, stop, loop selection
-- ✅ Sample-accurate selection and editing
-- ✅ Cut, copy, paste, delete operations
-- ✅ Single-level undo/redo
+- ✅ Playback controls: play, pause, stop, loop
+- ✅ Sample-accurate selection (click-drag with visual highlighting)
 - ✅ Sound Forge-compatible keyboard shortcuts
+- ✅ Recent files tracking and settings persistence
+
+**In Progress** ⚠️ (Implementing This Week):
+- ⚠️ **Save/Save As functionality** - Infrastructure ready, file writing in progress
+- ⚠️ **Edit playback** - Cut/copy/paste modify buffer, but playback doesn't reflect edits yet
+- ⚠️ **Waveform updates after edits** - Edits work internally, visual update in progress
+
+**Not Yet Implemented** ❌:
+- ❌ Undo/redo (planned for Phase 2)
+- ❌ DSP effects (fade, normalize) - Phase 2
+- ❌ Multi-format support (FLAC, MP3) - Phase 4
+
+**See [TODO.md](TODO.md) for detailed status and roadmap.**
 
 ### Planned (Phase 2-4)
 
@@ -73,7 +87,35 @@ Download the latest release for your platform from the [Releases](https://github
 - C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
 - JUCE 7.x (included as submodule)
 
-**Clone and Build**:
+**Quick Start (Recommended)** ⭐:
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/waveedit.git
+cd waveedit
+
+# Build and run with one command
+./build-and-run.command
+```
+
+The `build-and-run.command` script automatically:
+- Checks prerequisites
+- Initializes JUCE submodule if needed
+- Configures CMake
+- Builds the project
+- Optionally launches the application
+
+**Additional options**:
+```bash
+./build-and-run.command clean        # Clean build from scratch
+./build-and-run.command debug        # Build Debug version
+./build-and-run.command run-only     # Just run existing binary
+./build-and-run.command help         # Show all options
+```
+
+**Manual Build (Advanced)**:
+
+If you prefer to build manually:
 
 ```bash
 # Clone the repository
@@ -92,10 +134,10 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 # Build
 cmake --build . --config Release
 
-# Run (optional)
-./WaveEdit_artefacts/Release/WaveEdit  # Linux/macOS
-# or
-.\WaveEdit_artefacts\Release\WaveEdit.exe  # Windows
+# Run
+./WaveEdit_artefacts/Release/WaveEdit.app/Contents/MacOS/WaveEdit  # macOS
+./WaveEdit_artefacts/Release/WaveEdit                              # Linux
+.\WaveEdit_artefacts\Release\WaveEdit.exe                          # Windows
 ```
 
 **Platform-Specific Notes**:
@@ -323,12 +365,15 @@ Use the built-in profiler or external tools (Instruments on macOS, Valgrind on L
 
 ## Roadmap
 
-### Phase 1: Core Editor ✅ (Weeks 1-2)
-- File I/O (WAV only)
-- Waveform display
-- Basic playback
-- Cut/copy/paste/delete
-- Single-level undo
+### Phase 1: Core Editor ⚠️ 70% Complete (Weeks 1-2)
+- ✅ File loading (WAV only) - **DONE**
+- ✅ Waveform display - **DONE**
+- ✅ Basic playback - **DONE**
+- ⚠️ Cut/copy/paste/delete - **Infrastructure done, integration in progress**
+- ⚠️ Save/Save As - **In progress this week**
+- ❌ Undo/redo - **Deferred to Phase 2**
+
+**Remaining Work**: 3 critical integrations (8-12 hours estimated)
 
 ### Phase 2: Professional Features 🔄 (Week 3)
 - Customizable keyboard shortcuts
@@ -415,5 +460,10 @@ See [LICENSE](LICENSE) for full details.
 
 ---
 
-**Last Updated**: 2025-10-06
-**Version**: 0.1.0-alpha (Phase 1 in progress)
+**Last Updated**: 2025-10-06 (Code Review Update)
+**Version**: 0.1.0-alpha-dev
+**Status**: Phase 1 - 70% Complete (Critical integrations in progress)
+**Build Status**: ✅ Compiles cleanly, runs stable
+**Functional Status**: ⚠️ Playback works, editing infrastructure ready, file save not yet implemented
+
+See [TODO.md](TODO.md) for complete status and next steps.

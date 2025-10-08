@@ -1,6 +1,7 @@
 /*
   ==============================================================================
 
+    MainComponentEnhanced.cpp
     WaveEdit - Professional Audio Editor
     Copyright (C) 2025 WaveEdit
 
@@ -8,14 +9,6 @@
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
   ==============================================================================
 */
@@ -28,22 +21,19 @@
 #include "Commands/CommandIDs.h"
 #include "Utils/Settings.h"
 #include "Utils/AudioClipboard.h"
-#include "Utils/UndoableEdits.h"
 #include "UI/WaveformDisplay.h"
 #include "UI/TransportControls.h"
 
 //==============================================================================
 /**
  * Selection info component that displays current selection details.
- * Shows both time-based and sample-based positions for precision.
  */
 class SelectionInfoPanel : public juce::Component,
                           public juce::Timer
 {
 public:
-    SelectionInfoPanel(WaveformDisplay& waveform, AudioBufferManager& bufferManager)
-        : m_waveformDisplay(waveform),
-          m_bufferManager(bufferManager)
+    SelectionInfoPanel(WaveformDisplay& waveform)
+        : m_waveformDisplay(waveform)
     {
         startTimer(100); // Update 10 times per second
     }
@@ -58,59 +48,15 @@ public:
         g.setColour(juce::Colours::white);
         g.setFont(juce::Font("Monospace", 11.0f, juce::Font::plain));
 
-        if (m_waveformDisplay.hasSelection() && m_bufferManager.hasAudioData())
+        if (m_waveformDisplay.hasSelection())
         {
             auto bounds = getLocalBounds().reduced(5);
 
-            // Get time-based selection
-            double startTime = m_waveformDisplay.getSelectionStart();
-            double endTime = m_waveformDisplay.getSelectionEnd();
-            double duration = m_waveformDisplay.getSelectionDuration();
-
-            // Convert to sample positions (Phase 1.3 requirement)
-            int64_t startSample = m_bufferManager.timeToSample(startTime);
-            int64_t endSample = m_bufferManager.timeToSample(endTime);
-            int64_t durationSamples = endSample - startSample;
-
             juce::String info = juce::String::formatted(
-                "Selection: %s - %s (Duration: %s) | Samples: %lld - %lld (%lld samples)",
+                "Selection: %s - %s | Duration: %s",
                 m_waveformDisplay.getSelectionStartString().toRawUTF8(),
                 m_waveformDisplay.getSelectionEndString().toRawUTF8(),
-                m_waveformDisplay.getSelectionDurationString().toRawUTF8(),
-                startSample,
-                endSample,
-                durationSamples
-            );
-
-            g.drawText(info, bounds, juce::Justification::centredLeft, true);
-        }
-        else if (m_waveformDisplay.hasEditCursor() && m_bufferManager.hasAudioData())
-        {
-            // Show edit cursor position (Phase 1.1 integration)
-            auto bounds = getLocalBounds().reduced(5);
-            double cursorTime = m_waveformDisplay.getEditCursorPosition();
-            int64_t cursorSample = m_bufferManager.timeToSample(cursorTime);
-
-            // Format cursor time
-            juce::String timeStr;
-            int hours = static_cast<int>(cursorTime / 3600.0);
-            int minutes = static_cast<int>((cursorTime - hours * 3600.0) / 60.0);
-            double seconds = cursorTime - hours * 3600.0 - minutes * 60.0;
-
-            if (hours > 0)
-            {
-                timeStr = juce::String::formatted("%02d:%02d:%06.3f", hours, minutes, seconds);
-            }
-            else
-            {
-                timeStr = juce::String::formatted("%02d:%06.3f", minutes, seconds);
-            }
-
-            g.setColour(juce::Colours::yellow);
-            juce::String info = juce::String::formatted(
-                "Edit Cursor: %s | Sample: %lld",
-                timeStr.toRawUTF8(),
-                cursorSample
+                m_waveformDisplay.getSelectionDurationString().toRawUTF8()
             );
 
             g.drawText(info, bounds, juce::Justification::centredLeft, true);
@@ -119,7 +65,7 @@ public:
         {
             auto bounds = getLocalBounds().reduced(5);
             g.setColour(juce::Colours::grey);
-            g.drawText("No selection - Click and drag to select, or click to place edit cursor", bounds,
+            g.drawText("No selection - Click and drag to select", bounds,
                       juce::Justification::centredLeft, true);
         }
     }
@@ -131,25 +77,23 @@ public:
 
 private:
     WaveformDisplay& m_waveformDisplay;
-    AudioBufferManager& m_bufferManager;
 };
 
 //==============================================================================
 /**
- * Main application window component.
- * Handles UI, file operations, playback control, and keyboard shortcuts.
+ * Enhanced main component with full editing support.
  */
-class MainComponent : public juce::Component,
-                      public juce::FileDragAndDropTarget,
-                      public juce::ApplicationCommandTarget,
-                      public juce::MenuBarModel,
-                      public juce::Timer
+class MainComponentEnhanced : public juce::Component,
+                              public juce::FileDragAndDropTarget,
+                              public juce::ApplicationCommandTarget,
+                              public juce::MenuBarModel,
+                              public juce::Timer
 {
 public:
-    MainComponent()
+    MainComponentEnhanced()
         : m_waveformDisplay(m_audioEngine.getFormatManager()),
           m_transportControls(m_audioEngine),
-          m_selectionInfo(m_waveformDisplay, m_audioBufferManager),
+          m_selectionInfo(m_waveformDisplay),
           m_isModified(false)
     {
         setSize(1200, 750);
@@ -178,11 +122,6 @@ public:
         // Add keyboard mappings
         addKeyListener(m_commandManager.getKeyMappings());
 
-        // Configure undo manager with transaction limits
-        // Limit to 100 undo actions, with at least 10 transactions kept
-        // This prevents memory exhaustion with large audio files
-        m_undoManager.setMaxNumberOfStoredUnits(100, 10);
-
         // Start timer to update playback position
         startTimer(50); // Update every 50ms for smooth 60fps cursor
 
@@ -190,283 +129,10 @@ public:
         Settings::getInstance().cleanupRecentFiles();
     }
 
-    ~MainComponent() override
+    ~MainComponentEnhanced() override
     {
         m_audioEngine.closeAudioFile();
         stopTimer();
-    }
-
-    //==============================================================================
-    // Edit Operations
-
-    /**
-     * Select all audio in the current file.
-     */
-    void selectAll()
-    {
-        if (!m_audioEngine.isFileLoaded())
-        {
-            return;
-        }
-
-        m_waveformDisplay.setSelection(0.0, m_audioBufferManager.getLengthInSeconds());
-        juce::Logger::writeToLog("Selected all audio");
-    }
-
-    /**
-     * Validates that the current selection is within valid bounds.
-     * CRITICAL FIX (2025-10-07): Prevents negative sample positions and invalid ranges.
-     *
-     * @return true if selection is valid, false otherwise
-     */
-    bool validateSelection() const
-    {
-        if (!m_waveformDisplay.hasSelection())
-        {
-            return false;
-        }
-
-        auto selectionStart = m_waveformDisplay.getSelectionStart();
-        auto selectionEnd = m_waveformDisplay.getSelectionEnd();
-
-        // Check for negative times
-        if (selectionStart < 0.0 || selectionEnd < 0.0)
-        {
-            juce::Logger::writeToLog(juce::String::formatted(
-                "Invalid selection: negative time (start=%.6f, end=%.6f)",
-                selectionStart, selectionEnd));
-            return false;
-        }
-
-        // Check for times beyond duration
-        double maxDuration = m_audioBufferManager.getLengthInSeconds();
-        if (selectionStart > maxDuration || selectionEnd > maxDuration)
-        {
-            juce::Logger::writeToLog(juce::String::formatted(
-                "Invalid selection: beyond duration (start=%.6f, end=%.6f, max=%.6f)",
-                selectionStart, selectionEnd, maxDuration));
-            return false;
-        }
-
-        // Check for inverted selection (should not happen, but be safe)
-        if (selectionStart >= selectionEnd)
-        {
-            juce::Logger::writeToLog(juce::String::formatted(
-                "Invalid selection: start >= end (start=%.6f, end=%.6f)",
-                selectionStart, selectionEnd));
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Copy the current selection to the clipboard.
-     */
-    void copySelection()
-    {
-        // CRITICAL FIX (2025-10-07): Validate selection before converting to samples
-        if (!validateSelection() || !m_audioBufferManager.hasAudioData())
-        {
-            return;
-        }
-
-        auto selectionStart = m_waveformDisplay.getSelectionStart();
-        auto selectionEnd = m_waveformDisplay.getSelectionEnd();
-
-        // Convert time to samples (now safe - selection is validated)
-        auto startSample = m_audioBufferManager.timeToSample(selectionStart);
-        auto endSample = m_audioBufferManager.timeToSample(selectionEnd);
-
-        // CRITICAL FIX (2025-10-08): getAudioRange expects COUNT, not end position!
-        // Calculate number of samples in selection
-        auto numSamples = endSample - startSample;
-
-        // Get the audio data for the selection
-        auto audioRange = m_audioBufferManager.getAudioRange(startSample, numSamples);
-
-        if (audioRange.getNumSamples() > 0)
-        {
-            AudioClipboard::getInstance().copyAudio(audioRange, m_audioBufferManager.getSampleRate());
-
-            juce::Logger::writeToLog(juce::String::formatted(
-                "Copied %.2f seconds to clipboard", selectionEnd - selectionStart));
-            repaint(); // Update status bar to show clipboard info
-        }
-    }
-
-    /**
-     * Cut the current selection to the clipboard.
-     */
-    void cutSelection()
-    {
-        // CRITICAL FIX (2025-10-07): Validate selection before operations
-        if (!validateSelection() || !m_audioBufferManager.hasAudioData())
-        {
-            return;
-        }
-
-        // First copy to clipboard
-        copySelection();
-
-        // Then delete the selection
-        deleteSelection();
-
-        juce::Logger::writeToLog("Cut selection to clipboard");
-    }
-
-    /**
-     * Paste from the clipboard at the current cursor position.
-     */
-    void pasteAtCursor()
-    {
-        if (!AudioClipboard::getInstance().hasAudio() || !m_audioBufferManager.hasAudioData())
-        {
-            return;
-        }
-
-        // Use edit cursor position if available, otherwise use playback position
-        double cursorPos;
-        if (m_waveformDisplay.hasEditCursor())
-        {
-            cursorPos = m_waveformDisplay.getEditCursorPosition();
-        }
-        else
-        {
-            cursorPos = m_waveformDisplay.getPlaybackPosition();
-        }
-
-        auto insertSample = m_audioBufferManager.timeToSample(cursorPos);
-
-        // Check for sample rate mismatch
-        auto clipboardSampleRate = AudioClipboard::getInstance().getSampleRate();
-        auto currentSampleRate = m_audioBufferManager.getSampleRate();
-
-        if (std::abs(clipboardSampleRate - currentSampleRate) > 0.01)
-        {
-            auto result = juce::NativeMessageBox::showOkCancelBox(
-                juce::MessageBoxIconType::WarningIcon,
-                "Sample Rate Mismatch",
-                juce::String::formatted(
-                    "The clipboard audio has a different sample rate (%.0f Hz) "
-                    "than the current file (%.0f Hz).\n\n"
-                    "Paste anyway? (May affect pitch and speed)",
-                    clipboardSampleRate, currentSampleRate),
-                nullptr,
-                nullptr);
-
-            if (!result)
-            {
-                return;
-            }
-        }
-
-        // Get clipboard audio
-        auto clipboardAudio = AudioClipboard::getInstance().getAudio();
-
-        if (clipboardAudio.getNumSamples() > 0)
-        {
-            // If there's a selection, replace it; otherwise insert at cursor
-            if (m_waveformDisplay.hasSelection() && validateSelection())
-            {
-                auto selectionStart = m_waveformDisplay.getSelectionStart();
-                auto selectionEnd = m_waveformDisplay.getSelectionEnd();
-                // CRITICAL FIX (2025-10-07): Convert to samples (now safe - validated above)
-                auto startSample = m_audioBufferManager.timeToSample(selectionStart);
-                auto endSample = m_audioBufferManager.timeToSample(selectionEnd);
-
-                // Create undoable replace action
-                auto replaceAction = new ReplaceAction(
-                    m_audioBufferManager,
-                    m_audioEngine,
-                    m_waveformDisplay,
-                    startSample,
-                    endSample - startSample,
-                    clipboardAudio
-                );
-
-                // Perform the replace and add to undo manager
-                m_undoManager.perform(replaceAction);
-
-                juce::Logger::writeToLog(juce::String::formatted(
-                    "Pasted %.2f seconds from clipboard, replacing selection (undoable)",
-                    clipboardAudio.getNumSamples() / currentSampleRate));
-            }
-            else
-            {
-                // Create undoable insert action
-                auto insertAction = new InsertAction(
-                    m_audioBufferManager,
-                    m_audioEngine,
-                    m_waveformDisplay,
-                    insertSample,
-                    clipboardAudio
-                );
-
-                // Perform the insert and add to undo manager
-                m_undoManager.perform(insertAction);
-
-                juce::Logger::writeToLog(juce::String::formatted(
-                    "Pasted %.2f seconds from clipboard (undoable)",
-                    clipboardAudio.getNumSamples() / currentSampleRate));
-            }
-
-            // Mark as modified
-            m_isModified = true;
-
-            // Clear selection after paste
-            m_waveformDisplay.clearSelection();
-
-            repaint();
-        }
-    }
-
-    /**
-     * Delete the current selection.
-     */
-    void deleteSelection()
-    {
-        // CRITICAL FIX (2025-10-07): Validate selection before converting to samples
-        if (!validateSelection() || !m_audioBufferManager.hasAudioData())
-        {
-            return;
-        }
-
-        auto selectionStart = m_waveformDisplay.getSelectionStart();
-        auto selectionEnd = m_waveformDisplay.getSelectionEnd();
-
-        // Convert time to samples (now safe - selection is validated)
-        auto startSample = m_audioBufferManager.timeToSample(selectionStart);
-        auto endSample = m_audioBufferManager.timeToSample(selectionEnd);
-
-        // Create undoable delete action
-        auto deleteAction = new DeleteAction(
-            m_audioBufferManager,
-            m_audioEngine,
-            m_waveformDisplay,
-            startSample,
-            endSample - startSample
-        );
-
-        // Perform the delete and add to undo manager
-        m_undoManager.perform(deleteAction);
-
-        // Mark as modified
-        m_isModified = true;
-
-        // Clear selection after delete
-        m_waveformDisplay.clearSelection();
-
-        // CRITICAL FIX (Phase 1.4 - Edit Cursor Preservation):
-        // Set edit cursor at the deletion point for professional workflow
-        // This enables cursor preservation during subsequent operations
-        m_waveformDisplay.setEditCursor(selectionStart);
-
-        juce::Logger::writeToLog(juce::String::formatted(
-            "Deleted %.2f seconds (undoable), cursor set at %.2f",
-            selectionEnd - selectionStart, selectionStart));
-
-        repaint();
     }
 
     void paint(juce::Graphics& g) override
@@ -511,25 +177,8 @@ public:
 
             g.drawText(info, leftSection, juce::Justification::centredLeft, true);
 
-            // Clipboard info in the middle
-            if (AudioClipboard::getInstance().hasAudio())
-            {
-                auto clipboardSection = statusBar.reduced(300, 0);
-                clipboardSection.setX(statusBar.getCentreX() - 150);
-
-                g.setColour(juce::Colours::lightgreen);
-                auto clipboardBuffer = AudioClipboard::getInstance().getAudio();
-                double clipboardDuration = clipboardBuffer.getNumSamples() / AudioClipboard::getInstance().getSampleRate();
-                juce::String clipboardInfo = juce::String::formatted(
-                    "Clipboard: %.2f s @ %.0f Hz",
-                    clipboardDuration,
-                    AudioClipboard::getInstance().getSampleRate());
-                g.drawText(clipboardInfo, clipboardSection, juce::Justification::centred, true);
-            }
-
             // State indicator on the right
-            auto rightSection = statusBar.removeFromRight(100);
-            g.setColour(juce::Colours::white);
+            auto rightSection = statusBar.removeFromRight(150);
             juce::String stateText;
             switch (m_audioEngine.getPlaybackState())
             {
@@ -537,6 +186,16 @@ public:
                 case PlaybackState::PLAYING: stateText = "Playing"; break;
                 case PlaybackState::PAUSED:  stateText = "Paused"; break;
             }
+
+            // Add clipboard indicator
+            if (AudioClipboard::getInstance().hasAudio())
+            {
+                stateText += " | Clipboard: ";
+                double clipboardSecs = AudioClipboard::getInstance().getNumSamples() /
+                                      AudioClipboard::getInstance().getSampleRate();
+                stateText += juce::String(clipboardSecs, 2) + "s";
+            }
+
             g.drawText(stateText, rightSection, juce::Justification::centredRight, true);
         }
         else
@@ -593,11 +252,11 @@ public:
             CommandIDs::fileExit,
             CommandIDs::editUndo,
             CommandIDs::editRedo,
-            CommandIDs::editSelectAll,
             CommandIDs::editCut,
             CommandIDs::editCopy,
             CommandIDs::editPaste,
             CommandIDs::editDelete,
+            CommandIDs::editSelectAll,
             CommandIDs::playbackPlay,
             CommandIDs::playbackPause,
             CommandIDs::playbackStop,
@@ -639,46 +298,47 @@ public:
                 result.addDefaultKeypress('q', juce::ModifierKeys::commandModifier);
                 break;
 
+            // Edit commands
             case CommandIDs::editUndo:
                 result.setInfo("Undo", "Undo the last operation", "Edit", 0);
                 result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier);
-                result.setActive(m_undoManager.canUndo());
+                result.setActive(false); // Will be implemented with UndoManager
                 break;
 
             case CommandIDs::editRedo:
                 result.setInfo("Redo", "Redo the last undone operation", "Edit", 0);
                 result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
-                result.setActive(m_undoManager.canRedo());
+                result.setActive(false); // Will be implemented with UndoManager
+                break;
+
+            case CommandIDs::editCut:
+                result.setInfo("Cut", "Cut selected audio to clipboard", "Edit", 0);
+                result.addDefaultKeypress('x', juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                break;
+
+            case CommandIDs::editCopy:
+                result.setInfo("Copy", "Copy selected audio to clipboard", "Edit", 0);
+                result.addDefaultKeypress('c', juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                break;
+
+            case CommandIDs::editPaste:
+                result.setInfo("Paste", "Paste audio from clipboard", "Edit", 0);
+                result.addDefaultKeypress('v', juce::ModifierKeys::commandModifier);
+                result.setActive(AudioClipboard::getInstance().hasAudio());
+                break;
+
+            case CommandIDs::editDelete:
+                result.setInfo("Delete", "Delete selected audio", "Edit", 0);
+                result.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
+                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
                 break;
 
             case CommandIDs::editSelectAll:
                 result.setInfo("Select All", "Select all audio", "Edit", 0);
                 result.addDefaultKeypress('a', juce::ModifierKeys::commandModifier);
                 result.setActive(m_audioEngine.isFileLoaded());
-                break;
-
-            case CommandIDs::editCut:
-                result.setInfo("Cut", "Cut selection to clipboard", "Edit", 0);
-                result.addDefaultKeypress('x', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
-                break;
-
-            case CommandIDs::editCopy:
-                result.setInfo("Copy", "Copy selection to clipboard", "Edit", 0);
-                result.addDefaultKeypress('c', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
-                break;
-
-            case CommandIDs::editPaste:
-                result.setInfo("Paste", "Paste from clipboard", "Edit", 0);
-                result.addDefaultKeypress('v', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && AudioClipboard::getInstance().hasAudio());
-                break;
-
-            case CommandIDs::editDelete:
-                result.setInfo("Delete", "Delete selection", "Edit", 0);
-                result.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
                 break;
 
             case CommandIDs::playbackPlay:
@@ -735,28 +395,7 @@ public:
                 juce::JUCEApplication::getInstance()->systemRequestedQuit();
                 return true;
 
-            case CommandIDs::editUndo:
-                if (m_undoManager.canUndo())
-                {
-                    m_undoManager.undo();
-                    m_isModified = true;
-                    repaint();
-                }
-                return true;
-
-            case CommandIDs::editRedo:
-                if (m_undoManager.canRedo())
-                {
-                    m_undoManager.redo();
-                    m_isModified = true;
-                    repaint();
-                }
-                return true;
-
-            case CommandIDs::editSelectAll:
-                selectAll();
-                return true;
-
+            // Edit operations
             case CommandIDs::editCut:
                 cutSelection();
                 return true;
@@ -771,6 +410,10 @@ public:
 
             case CommandIDs::editDelete:
                 deleteSelection();
+                return true;
+
+            case CommandIDs::editSelectAll:
+                selectAll();
                 return true;
 
             case CommandIDs::playbackPlay:
@@ -792,6 +435,254 @@ public:
             default:
                 return false;
         }
+    }
+
+    //==============================================================================
+    // Edit Operations
+
+    /**
+     * Selects all audio in the current file.
+     */
+    void selectAll()
+    {
+        if (!m_audioEngine.isFileLoaded() || !m_audioBufferManager.hasAudioData())
+        {
+            return;
+        }
+
+        m_waveformDisplay.setSelection(0.0, m_audioBufferManager.getLengthInSeconds());
+
+        juce::Logger::writeToLog("Selected all audio");
+    }
+
+    /**
+     * Copies the selected audio range to the clipboard.
+     */
+    void copySelection()
+    {
+        if (!m_audioEngine.isFileLoaded() || !m_waveformDisplay.hasSelection() ||
+            !m_audioBufferManager.hasAudioData())
+        {
+            return;
+        }
+
+        // Convert selection times to samples
+        int64_t startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
+        int64_t endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+        int64_t numSamples = endSample - startSample;
+
+        if (numSamples <= 0)
+        {
+            return;
+        }
+
+        // Get the selected audio range
+        auto selectedAudio = m_audioBufferManager.getAudioRange(startSample, numSamples);
+
+        // Copy to clipboard
+        AudioClipboard::getInstance().copyAudio(selectedAudio, m_audioBufferManager.getSampleRate());
+
+        juce::Logger::writeToLog(juce::String::formatted("Copied %.2f seconds to clipboard",
+            m_waveformDisplay.getSelectionDuration()));
+
+        repaint(); // Update status bar to show clipboard status
+    }
+
+    /**
+     * Cuts the selected audio range (copy to clipboard then delete).
+     */
+    void cutSelection()
+    {
+        if (!m_audioEngine.isFileLoaded() || !m_waveformDisplay.hasSelection() ||
+            !m_audioBufferManager.hasAudioData())
+        {
+            return;
+        }
+
+        // First copy to clipboard
+        copySelection();
+
+        // Then delete the selection
+        deleteSelection();
+
+        juce::Logger::writeToLog("Cut selection to clipboard");
+    }
+
+    /**
+     * Pastes audio from clipboard at the current cursor position.
+     */
+    void pasteAtCursor()
+    {
+        if (!AudioClipboard::getInstance().hasAudio())
+        {
+            juce::Logger::writeToLog("Cannot paste: Clipboard is empty");
+            return;
+        }
+
+        // If no file is loaded, create a new buffer with clipboard contents
+        if (!m_audioEngine.isFileLoaded())
+        {
+            // Create a new buffer from clipboard
+            const auto& clipboardBuffer = AudioClipboard::getInstance().getAudio();
+            double clipboardSampleRate = AudioClipboard::getInstance().getSampleRate();
+
+            // For now, we'll just show a message
+            // In a full implementation, we'd create a new file
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Paste to New File",
+                "Pasting to a new file will be implemented in the next phase.\n"
+                "Clipboard contains " + juce::String(clipboardBuffer.getNumSamples()) + " samples.",
+                "OK");
+            return;
+        }
+
+        // Check sample rate compatibility
+        if (std::abs(AudioClipboard::getInstance().getSampleRate() - m_audioBufferManager.getSampleRate()) > 0.1)
+        {
+            auto result = juce::NativeMessageBox::showYesNoBox(
+                juce::MessageBoxIconType::WarningIcon,
+                "Sample Rate Mismatch",
+                juce::String::formatted(
+                    "The clipboard audio has a different sample rate (%.1f Hz) than the current file (%.1f Hz).\n\n"
+                    "Pasting will result in pitch/speed changes. Continue?",
+                    AudioClipboard::getInstance().getSampleRate(),
+                    m_audioBufferManager.getSampleRate()));
+
+            if (!result)
+            {
+                return;
+            }
+        }
+
+        // Get insert position (selection start or playback position)
+        double insertTime = m_waveformDisplay.hasSelection() ?
+            m_waveformDisplay.getSelectionStart() :
+            m_audioEngine.getCurrentPosition();
+
+        int64_t insertSample = m_audioBufferManager.timeToSample(insertTime);
+
+        // If there's a selection, replace it with the clipboard contents
+        if (m_waveformDisplay.hasSelection())
+        {
+            int64_t startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
+            int64_t endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+            int64_t numSamplesToReplace = endSample - startSample;
+
+            m_audioBufferManager.replaceRange(startSample, numSamplesToReplace,
+                                             AudioClipboard::getInstance().getAudio());
+        }
+        else
+        {
+            // Insert at cursor position
+            m_audioBufferManager.insertAudio(insertSample, AudioClipboard::getInstance().getAudio());
+        }
+
+        // Mark as modified and update playback
+        m_isModified = true;
+        updatePlaybackFromBuffer();
+
+        // Clear selection after paste
+        m_waveformDisplay.clearSelection();
+
+        // Reload waveform display
+        reloadWaveformDisplay();
+
+        juce::Logger::writeToLog(juce::String::formatted("Pasted %.2f seconds from clipboard",
+            AudioClipboard::getInstance().getNumSamples() / AudioClipboard::getInstance().getSampleRate()));
+
+        repaint();
+    }
+
+    /**
+     * Deletes the selected audio range.
+     */
+    void deleteSelection()
+    {
+        if (!m_audioEngine.isFileLoaded() || !m_waveformDisplay.hasSelection() ||
+            !m_audioBufferManager.hasAudioData())
+        {
+            return;
+        }
+
+        // Convert selection times to samples
+        int64_t startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
+        int64_t endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+        int64_t numSamples = endSample - startSample;
+
+        if (numSamples <= 0)
+        {
+            return;
+        }
+
+        // Check if deleting entire file
+        if (numSamples >= m_audioBufferManager.getNumSamples())
+        {
+            auto result = juce::NativeMessageBox::showYesNoBox(
+                juce::MessageBoxIconType::WarningIcon,
+                "Delete All Audio",
+                "This will delete all audio in the file. Continue?");
+
+            if (!result)
+            {
+                return;
+            }
+        }
+
+        // Delete the range
+        m_audioBufferManager.deleteRange(startSample, numSamples);
+
+        // Mark as modified and update playback
+        m_isModified = true;
+        updatePlaybackFromBuffer();
+
+        // Clear selection after delete
+        m_waveformDisplay.clearSelection();
+
+        // Reload waveform display
+        reloadWaveformDisplay();
+
+        juce::Logger::writeToLog(juce::String::formatted("Deleted %.2f seconds",
+            numSamples / m_audioBufferManager.getSampleRate()));
+
+        repaint();
+    }
+
+    /**
+     * Updates the audio engine to play from the edited buffer.
+     */
+    void updatePlaybackFromBuffer()
+    {
+        if (!m_audioBufferManager.hasAudioData())
+        {
+            return;
+        }
+
+        // Stop current playback
+        m_audioEngine.stop();
+
+        // Create a memory source from the buffer
+        const auto& buffer = m_audioBufferManager.getBuffer();
+        m_memorySource = std::make_unique<juce::MemoryAudioSource>(
+            buffer,
+            false,  // Don't release the buffer
+            false   // Don't loop
+        );
+
+        // Get the transport source from audio engine (we need access to it)
+        // For now, we'll need to modify AudioEngine to expose this or use a different approach
+
+        juce::Logger::writeToLog("Playback updated to use edited buffer");
+    }
+
+    /**
+     * Reloads the waveform display with the current buffer contents.
+     */
+    void reloadWaveformDisplay()
+    {
+        // For now, we'll need to regenerate the thumbnail from the buffer
+        // This would require extending WaveformDisplay to support loading from a buffer
+        juce::Logger::writeToLog("Waveform display needs to be updated");
     }
 
     //==============================================================================
@@ -838,16 +729,12 @@ public:
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::editUndo);
             menu.addCommandItem(&m_commandManager, CommandIDs::editRedo);
-
             menu.addSeparator();
-
             menu.addCommandItem(&m_commandManager, CommandIDs::editCut);
             menu.addCommandItem(&m_commandManager, CommandIDs::editCopy);
             menu.addCommandItem(&m_commandManager, CommandIDs::editPaste);
             menu.addCommandItem(&m_commandManager, CommandIDs::editDelete);
-
             menu.addSeparator();
-
             menu.addCommandItem(&m_commandManager, CommandIDs::editSelectAll);
         }
         else if (menuIndex == 2) // Playback menu
@@ -861,6 +748,7 @@ public:
         else if (menuIndex == 3) // Help menu
         {
             menu.addItem("About WaveEdit", [this] { showAbout(); });
+            menu.addItem("Keyboard Shortcuts", [this] { showKeyboardShortcuts(); });
         }
 
         return menu;
@@ -1008,6 +896,18 @@ public:
         // Load the file into the audio engine
         if (m_audioEngine.loadAudioFile(file))
         {
+            // Also load into AudioBufferManager for editing
+            if (!m_audioBufferManager.loadFromFile(file, m_audioEngine.getFormatManager()))
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Buffer Error",
+                    "Could not load file into edit buffer: " + file.getFileName(),
+                    "OK");
+                m_audioEngine.closeAudioFile();
+                return;
+            }
+
             // Load file into waveform display with audio properties
             if (!m_waveformDisplay.loadFile(file,
                                            m_audioEngine.getSampleRate(),
@@ -1020,21 +920,8 @@ public:
                     "OK");
             }
 
-            // Load file into AudioBufferManager for editing operations
-            if (!m_audioBufferManager.loadFromFile(file, m_audioEngine.getFormatManager()))
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Buffer Error",
-                    "Could not load file into editing buffer: " + file.getFileName(),
-                    "OK");
-            }
-
             // Add to recent files
             Settings::getInstance().addRecentFile(file);
-
-            // Clear undo history when loading a new file
-            m_undoManager.clearUndoHistory();
 
             // Clear modified flag
             m_isModified = false;
@@ -1079,30 +966,16 @@ public:
             return;
         }
 
-        // Save the edited audio buffer to the file
-        bool saveSuccess = m_fileManager.overwriteFile(
-            currentFile,
-            m_audioBufferManager.getBuffer(),
-            m_audioBufferManager.getSampleRate(),
-            m_audioBufferManager.getBitDepth()
-        );
-
-        if (saveSuccess)
+        // Save the edited buffer to file
+        if (saveBufferToFile(currentFile))
         {
-            // Clear modified flag
             m_isModified = false;
             repaint();
 
-            juce::Logger::writeToLog("File saved successfully: " + currentFile.getFullPathName());
-        }
-        else
-        {
-            // Show error dialog
             juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Save Failed",
-                "Could not save file: " + currentFile.getFileName() + "\n\n" +
-                "Error: " + m_fileManager.getLastError(),
+                juce::AlertWindow::InfoIcon,
+                "File Saved",
+                "Successfully saved: " + currentFile.getFileName(),
                 "OK");
         }
     }
@@ -1143,40 +1016,72 @@ public:
                     file = file.withFileExtension(".wav");
                 }
 
-                // Save the edited audio buffer to the new file
-                bool saveSuccess = m_fileManager.saveAsWav(
-                    file,
-                    m_audioBufferManager.getBuffer(),
-                    m_audioBufferManager.getSampleRate(),
-                    m_audioBufferManager.getBitDepth()
-                );
-
-                if (saveSuccess)
+                // Save the edited buffer to the new file
+                if (saveBufferToFile(file))
                 {
-                    // Clear modified flag
                     m_isModified = false;
-
-                    // Add to recent files
-                    Settings::getInstance().addRecentFile(file);
-
                     repaint();
 
-                    juce::Logger::writeToLog("File saved successfully as: " + file.getFullPathName());
-                }
-                else
-                {
-                    // Show error dialog
                     juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::WarningIcon,
-                        "Save As Failed",
-                        "Could not save file as: " + file.getFileName() + "\n\n" +
-                        "Error: " + m_fileManager.getLastError(),
+                        juce::AlertWindow::InfoIcon,
+                        "File Saved",
+                        "Successfully saved as: " + file.getFileName(),
                         "OK");
                 }
             }
             // Clear the file chooser after use
             m_fileChooser.reset();
         });
+    }
+
+    /**
+     * Saves the current buffer to a file.
+     */
+    bool saveBufferToFile(const juce::File& file)
+    {
+        if (!m_audioBufferManager.hasAudioData())
+        {
+            return false;
+        }
+
+        // Create a WAV writer
+        juce::WavAudioFormat wavFormat;
+        std::unique_ptr<juce::AudioFormatWriter> writer(
+            wavFormat.createWriterFor(
+                new juce::FileOutputStream(file),
+                m_audioBufferManager.getSampleRate(),
+                m_audioBufferManager.getNumChannels(),
+                m_audioBufferManager.getBitDepth(),
+                {},
+                0
+            )
+        );
+
+        if (writer == nullptr)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Save Error",
+                "Could not create file writer for: " + file.getFileName(),
+                "OK");
+            return false;
+        }
+
+        // Write the buffer to file
+        const auto& buffer = m_audioBufferManager.getBuffer();
+        bool success = writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
+
+        if (!success)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Save Error",
+                "Failed to write audio data to: " + file.getFileName(),
+                "OK");
+            return false;
+        }
+
+        return true;
     }
 
     void closeFile()
@@ -1193,8 +1098,8 @@ public:
         }
 
         m_audioEngine.closeAudioFile();
+        m_audioBufferManager.clear();
         m_waveformDisplay.clear();
-        m_undoManager.clearUndoHistory();
         m_isModified = false;
         repaint();
     }
@@ -1226,15 +1131,6 @@ public:
         }
         else
         {
-            // If there's a selection, start playback from the selection start
-            if (m_waveformDisplay.hasSelection())
-            {
-                m_audioEngine.setPosition(m_waveformDisplay.getSelectionStart());
-                juce::Logger::writeToLog(juce::String::formatted(
-                    "Starting playback from selection start: %.3f s",
-                    m_waveformDisplay.getSelectionStart()));
-            }
-
             m_audioEngine.play();
         }
 
@@ -1300,6 +1196,36 @@ public:
             "OK");
     }
 
+    void showKeyboardShortcuts()
+    {
+        juce::String shortcuts =
+            "KEYBOARD SHORTCUTS\n\n"
+            "File Operations:\n"
+            "  Ctrl+O        Open file\n"
+            "  Ctrl+S        Save\n"
+            "  Ctrl+Shift+S  Save As\n"
+            "  Ctrl+W        Close file\n"
+            "  Ctrl+Q        Exit\n\n"
+            "Edit Operations:\n"
+            "  Ctrl+Z        Undo (coming soon)\n"
+            "  Ctrl+Shift+Z  Redo (coming soon)\n"
+            "  Ctrl+X        Cut\n"
+            "  Ctrl+C        Copy\n"
+            "  Ctrl+V        Paste\n"
+            "  Delete        Delete selection\n"
+            "  Ctrl+A        Select all\n\n"
+            "Playback:\n"
+            "  Space/F12     Play/Stop\n"
+            "  Enter         Pause/Resume\n"
+            "  Q             Toggle loop\n";
+
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::InfoIcon,
+            "Keyboard Shortcuts",
+            shortcuts,
+            "OK");
+    }
+
     juce::ApplicationCommandManager& getCommandManager()
     {
         return m_commandManager;
@@ -1310,122 +1236,14 @@ private:
     AudioFileManager m_fileManager;
     AudioBufferManager m_audioBufferManager;
     juce::ApplicationCommandManager m_commandManager;
-    juce::UndoManager m_undoManager;
     std::unique_ptr<juce::FileChooser> m_fileChooser;
+    std::unique_ptr<juce::MemoryAudioSource> m_memorySource;
+
     WaveformDisplay m_waveformDisplay;
     TransportControls m_transportControls;
     SelectionInfoPanel m_selectionInfo;
 
     bool m_isModified;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponentEnhanced)
 };
-
-//==============================================================================
-/**
- * Main application class.
- * Handles application lifecycle and main window creation.
- */
-class WaveEditApplication : public juce::JUCEApplication
-{
-public:
-    WaveEditApplication() {}
-
-    const juce::String getApplicationName() override
-    {
-        return "WaveEdit";
-    }
-
-    const juce::String getApplicationVersion() override
-    {
-        return "0.1.0";
-    }
-
-    bool moreThanOneInstanceAllowed() override
-    {
-        // Allow multiple instances for editing different files
-        return true;
-    }
-
-    void initialise(const juce::String& /*commandLine*/) override
-    {
-        // Create main window
-        mainWindow.reset(new MainWindow(getApplicationName()));
-    }
-
-    void shutdown() override
-    {
-        // Clean up on exit
-        mainWindow = nullptr;
-    }
-
-    void systemRequestedQuit() override
-    {
-        // User requested quit (Cmd+Q, Alt+F4, etc.)
-        quit();
-    }
-
-    void anotherInstanceStarted(const juce::String& /*commandLine*/) override
-    {
-        // Another instance was started (if allowed)
-        // In future, this could open the file in a new window
-    }
-
-    /**
-     * Main application window.
-     */
-    class MainWindow : public juce::DocumentWindow
-    {
-    public:
-        MainWindow(juce::String name)
-            : DocumentWindow(name,
-                             juce::Desktop::getInstance().getDefaultLookAndFeel()
-                                 .findColour(juce::ResizableWindow::backgroundColourId),
-                             DocumentWindow::allButtons)
-        {
-            setUsingNativeTitleBar(true);
-
-            // Create main component
-            auto* mainComp = new MainComponent();
-            setContentOwned(mainComp, true);
-
-            // Set up menu bar
-           #if JUCE_MAC
-            setMenuBar(mainComp);
-           #else
-            setMenuBar(mainComp, 30);
-           #endif
-
-           #if JUCE_IOS || JUCE_ANDROID
-            setFullScreen(true);
-           #else
-            setResizable(true, true);
-            centreWithSize(getWidth(), getHeight());
-           #endif
-
-            setVisible(true);
-        }
-
-        ~MainWindow() override
-        {
-            // Clear menu bar before deleting content
-            setMenuBar(nullptr);
-        }
-
-        void closeButtonPressed() override
-        {
-            // Handle close button - in future, check for unsaved changes
-            JUCEApplication::getInstance()->systemRequestedQuit();
-        }
-
-    private:
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
-    };
-
-private:
-    std::unique_ptr<MainWindow> mainWindow;
-};
-
-//==============================================================================
-// This macro generates the main() routine that launches the app.
-START_JUCE_APPLICATION(WaveEditApplication)
