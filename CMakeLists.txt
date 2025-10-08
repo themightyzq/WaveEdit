@@ -26,7 +26,23 @@ juce_add_gui_app(WaveEdit
 target_sources(WaveEdit
     PRIVATE
         Source/Main.cpp
-        # Additional source files will be added as they are created
+        Source/Audio/AudioEngine.cpp
+        Source/Audio/AudioEngine.h
+        Source/Audio/AudioBufferManager.cpp
+        Source/Audio/AudioBufferManager.h
+        Source/Audio/AudioFileManager.cpp
+        Source/Audio/AudioFileManager.h
+        Source/Commands/CommandIDs.h
+        Source/Utils/Settings.cpp
+        Source/Utils/Settings.h
+        Source/Utils/AudioClipboard.cpp
+        Source/Utils/AudioClipboard.h
+        Source/Utils/AudioBufferInputSource.cpp
+        Source/Utils/AudioBufferInputSource.h
+        Source/UI/WaveformDisplay.cpp
+        Source/UI/WaveformDisplay.h
+        Source/UI/TransportControls.cpp
+        Source/UI/TransportControls.h
 )
 
 # JUCE modules required for audio editing application
