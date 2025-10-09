@@ -181,6 +181,24 @@ public:
     double getTotalLength() const;
 
     //==============================================================================
+    // Loop Control
+
+    /**
+     * Enables or disables looping for playback.
+     * When enabled, playback will restart from the beginning when it reaches the end.
+     *
+     * @param shouldLoop true to enable looping, false to disable
+     */
+    void setLooping(bool shouldLoop);
+
+    /**
+     * Checks if looping is currently enabled.
+     *
+     * @return true if looping is enabled, false otherwise
+     */
+    bool isLooping() const;
+
+    //==============================================================================
     // Audio Properties
 
     /**
@@ -285,6 +303,7 @@ private:
 
     std::atomic<PlaybackState> m_playbackState;
     std::atomic<bool> m_isPlayingFromBuffer;
+    std::atomic<bool> m_isLooping;
     juce::File m_currentFile;
 
     std::atomic<double> m_sampleRate;

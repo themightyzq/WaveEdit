@@ -148,6 +148,7 @@ void AudioEngine::MemoryAudioSource::setLooping(bool shouldLoop)
 AudioEngine::AudioEngine()
     : m_playbackState(PlaybackState::STOPPED),
       m_isPlayingFromBuffer(false),
+      m_isLooping(false),
       m_sampleRate(0.0),
       m_numChannels(0),
       m_bitDepth(0)
@@ -434,11 +435,8 @@ void AudioEngine::play()
         return;
     }
 
-    if (m_playbackState == PlaybackState::STOPPED)
-    {
-        // Starting from the beginning
-        m_transportSource.setPosition(0.0);
-    }
+    // Don't reset position here - caller should use setPosition() before play()
+    // if they want to start from a specific position
 
     m_transportSource.start();
     updatePlaybackState(PlaybackState::PLAYING);
@@ -481,6 +479,30 @@ PlaybackState AudioEngine::getPlaybackState() const
 bool AudioEngine::isPlaying() const
 {
     return m_playbackState == PlaybackState::PLAYING;
+}
+
+//==============================================================================
+// Loop Control
+
+void AudioEngine::setLooping(bool shouldLoop)
+{
+    m_isLooping.store(shouldLoop);
+
+    // Apply loop state to buffer source if currently playing from buffer
+    if (m_isPlayingFromBuffer.load() && m_bufferSource)
+    {
+        m_bufferSource->setLooping(shouldLoop);
+    }
+
+    // Note: AudioFormatReaderSource doesn't directly support looping,
+    // so we'll handle file-based looping by restarting playback when it ends
+
+    juce::Logger::writeToLog(shouldLoop ? "Loop enabled" : "Loop disabled");
+}
+
+bool AudioEngine::isLooping() const
+{
+    return m_isLooping.load();
 }
 
 //==============================================================================
