@@ -25,6 +25,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_utils/juce_audio_utils.h>
+#include "../Utils/AudioUnits.h"
+#include "../Utils/NavigationPreferences.h"
 
 /**
  * High-performance waveform display component.
@@ -207,6 +209,11 @@ public:
     void zoomToSelection();
 
     /**
+     * Zooms to 1:1 pixel-per-sample view (maximum detail).
+     */
+    void zoomOneToOne();
+
+    /**
      * Sets the visible range in seconds.
      *
      * @param startTime Start of visible range
@@ -228,6 +235,160 @@ public:
      * Returns the total duration of the loaded audio in seconds.
      */
     double getTotalDuration() const { return m_totalDuration; }
+
+    /**
+     * Returns the current zoom level as a percentage.
+     * 100% = fit to window, >100% = zoomed in, <100% = zoomed out
+     */
+    double getZoomPercentage() const;
+
+    //==============================================================================
+    // Two-tier snap mode system (unit selection + increment cycling)
+
+    /**
+     * Sets the snap unit type (Tier 1: unit selection).
+     *
+     * @param unitType Unit type (Samples, Milliseconds, Seconds, Frames)
+     */
+    void setSnapUnit(AudioUnits::UnitType unitType);
+
+    /**
+     * Gets the current snap unit type.
+     */
+    AudioUnits::UnitType getSnapUnit() const
+    {
+        juce::ScopedLock lock(m_snapLock);
+        return m_snapUnitType;
+    }
+
+    /**
+     * Cycles to the next snap increment within the current unit (Tier 2: G key).
+     * Wraps around to the first increment after the last one.
+     */
+    void cycleSnapIncrement();
+
+    /**
+     * Gets the current snap increment value (raw, depends on unit type).
+     */
+    int getSnapIncrement() const;
+
+    /**
+     * Gets the current snap increment index (0 = off, 1+ = specific increments).
+     */
+    size_t getSnapIncrementIndex() const
+    {
+        juce::ScopedLock lock(m_snapLock);
+        return m_snapIncrementIndex;
+    }
+
+    /**
+     * Gets the current snap increment converted to seconds.
+     * Used for navigation - arrow keys move by this amount.
+     * Returns 0.0 if snap is off (increment index = 0).
+     *
+     * @return Snap increment in seconds
+     */
+    double getSnapIncrementInSeconds() const;
+
+    /**
+     * Toggles zero-crossing snap on/off (independent Z key toggle).
+     */
+    void toggleZeroCrossing();
+
+    /**
+     * Checks if zero-crossing snap is enabled.
+     */
+    bool isZeroCrossingEnabled() const
+    {
+        juce::ScopedLock lock(m_snapLock);
+        return m_zeroCrossingEnabled;
+    }
+
+    /**
+     * Sets the navigation preferences for keyboard navigation.
+     */
+    void setNavigationPreferences(const NavigationPreferences& prefs);
+
+    /**
+     * Gets the frame rate from navigation preferences.
+     * Used for frame-based time display and navigation.
+     *
+     * @return Frame rate in frames per second (default: 30.0)
+     */
+    double getFrameRate() const
+    {
+        return m_navigationPrefs.getFrameRate();
+    }
+
+    /**
+     * Gets a reference to the audio buffer (if loaded from buffer).
+     * Used for zero-crossing snapping.
+     */
+    void setAudioBufferReference(const juce::AudioBuffer<float>* buffer);
+
+    //==============================================================================
+    // Audio-unit based keyboard navigation
+
+    /**
+     * Navigates left by the current snap increment.
+     * The increment is determined by the current snap mode (G key).
+     *
+     * @param extend If true, extends selection instead of moving cursor
+     */
+    void navigateLeft(bool extend = false);
+
+    /**
+     * Navigates right by the current snap increment.
+     * The increment is determined by the current snap mode (G key).
+     *
+     * @param extend If true, extends selection instead of moving cursor
+     */
+    void navigateRight(bool extend = false);
+
+    /**
+     * Jumps to the start of the file.
+     *
+     * @param extend If true, extends selection to start
+     */
+    void navigateToStart(bool extend = false);
+
+    /**
+     * Jumps to the end of the file.
+     *
+     * @param extend If true, extends selection to end
+     */
+    void navigateToEnd(bool extend = false);
+
+    /**
+     * Navigates left by page increment (1 second default).
+     * @param extend If true, extends selection instead of moving cursor
+     */
+    void navigatePageLeft(bool extend = false);
+
+    /**
+     * Navigates right by page increment (1 second default).
+     * @param extend If true, extends selection instead of moving cursor
+     */
+    void navigatePageRight(bool extend = false);
+
+    /**
+     * Jumps to the first visible sample in the current view.
+     *
+     * @param extend If true, extends selection
+     */
+    void navigateToVisibleStart(bool extend = false);
+
+    /**
+     * Jumps to the last visible sample in the current view.
+     *
+     * @param extend If true, extends selection
+     */
+    void navigateToVisibleEnd(bool extend = false);
+
+    /**
+     * Centers the view on the current cursor or selection.
+     */
+    void centerViewOnCursor();
 
     //==============================================================================
     // Component overrides
@@ -277,6 +438,12 @@ private:
      * Draws the waveform for a single channel.
      */
     void drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int> bounds, int channelNum);
+
+    /**
+     * Fast direct rendering from cached buffer (bypasses thumbnail regeneration).
+     * Used immediately after edit operations for <10ms visual feedback.
+     */
+    void drawChannelWaveformDirect(juce::Graphics& g, juce::Rectangle<int> bounds, int channelNum);
 
     /**
      * Draws the selection highlight.
@@ -331,6 +498,10 @@ private:
     bool m_isDraggingSelection;
     double m_dragStartTime;
 
+    // Bidirectional selection extension (for Shift+Arrow navigation)
+    bool m_isExtendingSelection;      // True when actively extending with Shift+arrows
+    double m_selectionAnchor;         // Anchor point that stays fixed while extending
+
     // Edit cursor state (for paste operations)
     bool m_hasEditCursor;
     double m_editCursorPosition;
@@ -339,13 +510,32 @@ private:
     float m_selectionAlpha;
     bool m_selectionAlphaIncreasing;
 
+    // Two-tier snap mode system (unit selection + increment cycling)
+    AudioUnits::UnitType m_snapUnitType;       // Tier 1: Unit type (Samples, Ms, Seconds, Frames)
+    size_t m_snapIncrementIndex;                // Tier 2: Index into increment array (0 = off)
+    bool m_zeroCrossingEnabled;                 // Z key toggle: independent zero-crossing snap
+    NavigationPreferences m_navigationPrefs;
+    const juce::AudioBuffer<float>* m_audioBufferRef; // Reference for zero-crossing snap
+    juce::CriticalSection m_snapLock;           // Thread safety for snap mode changes
+
+    // Fast direct rendering (for <10ms waveform updates after edits)
+    juce::AudioBuffer<float> m_cachedBuffer;  // Cached copy for direct rendering
+    bool m_useDirectRendering;  // If true, bypass thumbnail, render from buffer
+    juce::CriticalSection m_bufferLock;  // Thread safety for buffer access
+
     // Layout constants
     static constexpr int RULER_HEIGHT = 30;
     static constexpr int SCROLLBAR_HEIGHT = 16;
     static constexpr int CHANNEL_GAP = 4;
 
+    // Time comparison epsilon (1ms for sample-accurate comparisons)
+    static constexpr double TIME_EPSILON = 0.001;
+
     // Animation callback
     void timerCallback() override;
+
+    // Helper: Snaps a time position using current snap settings
+    double snapTimeToUnit(double time) const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WaveformDisplay)
 };

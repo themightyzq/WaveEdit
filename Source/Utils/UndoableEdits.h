@@ -55,21 +55,9 @@ protected:
      */
     void updatePlaybackAndDisplay()
     {
-        // DEBUG: Log view state at START of updatePlaybackAndDisplay
-        juce::Logger::writeToLog(juce::String::formatted(
-            "updatePlaybackAndDisplay() START - View: %.2f-%.2f",
-            m_waveformDisplay.getVisibleRangeStart(),
-            m_waveformDisplay.getVisibleRangeEnd()));
-
         // CRITICAL: Stop playback first to avoid race conditions
         // Updating the buffer while the audio callback is reading it can cause glitches or crashes
         m_audioEngine.stop();
-
-        // DEBUG: Log view state AFTER AudioEngine.stop()
-        juce::Logger::writeToLog(juce::String::formatted(
-            "updatePlaybackAndDisplay() AFTER stop() - View: %.2f-%.2f",
-            m_waveformDisplay.getVisibleRangeStart(),
-            m_waveformDisplay.getVisibleRangeEnd()));
 
         // Update audio engine for playback
         if (!m_audioEngine.loadFromBuffer(
@@ -124,36 +112,16 @@ public:
         // Store the audio data that will be deleted
         m_deletedAudio = m_bufferManager.getAudioRange(startSample, numSamples);
         m_sampleRate = m_bufferManager.getSampleRate();
-
-        juce::Logger::writeToLog(juce::String::formatted(
-            "DeleteAction created: start=%lld, numSamples=%lld",
-            (long long)startSample, (long long)numSamples));
     }
 
     bool perform() override
     {
-        // DEBUG: Log view state BEFORE any operations
-        juce::Logger::writeToLog(juce::String::formatted(
-            "DeleteAction::perform() START - View: %.2f-%.2f, zoom: %.2f",
-            m_waveformDisplay.getVisibleRangeStart(),
-            m_waveformDisplay.getVisibleRangeEnd(),
-            m_waveformDisplay.getTotalDuration()));
-
         // Perform the delete operation
         bool success = m_bufferManager.deleteRange(m_startSample, m_numSamples);
-
-        // DEBUG: Log view state AFTER deleteRange, BEFORE updatePlaybackAndDisplay
-        juce::Logger::writeToLog(juce::String::formatted(
-            "DeleteAction::perform() AFTER deleteRange - View: %.2f-%.2f",
-            m_waveformDisplay.getVisibleRangeStart(),
-            m_waveformDisplay.getVisibleRangeEnd()));
 
         if (success)
         {
             updatePlaybackAndDisplay();
-            juce::Logger::writeToLog(juce::String::formatted(
-                "DeleteAction performed: deleted %lld samples at position %lld",
-                (long long)m_numSamples, (long long)m_startSample));
         }
 
         return success;
@@ -167,9 +135,6 @@ public:
         if (success)
         {
             updatePlaybackAndDisplay();
-            juce::Logger::writeToLog(juce::String::formatted(
-                "DeleteAction undone: restored %lld samples at position %lld",
-                (long long)m_numSamples, (long long)m_startSample));
         }
 
         return success;
@@ -221,10 +186,6 @@ public:
         }
 
         m_sampleRate = m_bufferManager.getSampleRate();
-
-        juce::Logger::writeToLog(juce::String::formatted(
-            "InsertAction created: position=%lld, numSamples=%lld",
-            (long long)insertPosition, (long long)m_numSamples));
     }
 
     bool perform() override
@@ -235,9 +196,6 @@ public:
         if (success)
         {
             updatePlaybackAndDisplay();
-            juce::Logger::writeToLog(juce::String::formatted(
-                "InsertAction performed: inserted %lld samples at position %lld",
-                (long long)m_numSamples, (long long)m_insertPosition));
         }
 
         return success;
@@ -251,9 +209,6 @@ public:
         if (success)
         {
             updatePlaybackAndDisplay();
-            juce::Logger::writeToLog(juce::String::formatted(
-                "InsertAction undone: removed %lld samples at position %lld",
-                (long long)m_numSamples, (long long)m_insertPosition));
         }
 
         return success;
@@ -310,10 +265,6 @@ public:
         }
 
         m_sampleRate = m_bufferManager.getSampleRate();
-
-        juce::Logger::writeToLog(juce::String::formatted(
-            "ReplaceAction created: start=%lld, replacing=%lld samples with %d samples",
-            (long long)startSample, (long long)numSamplesToReplace, newAudio.getNumSamples()));
     }
 
     bool perform() override
@@ -324,9 +275,6 @@ public:
         if (success)
         {
             updatePlaybackAndDisplay();
-            juce::Logger::writeToLog(juce::String::formatted(
-                "ReplaceAction performed: replaced %lld samples with %d samples at position %lld",
-                (long long)m_numSamplesToReplace, m_newAudio.getNumSamples(), (long long)m_startSample));
         }
 
         return success;
@@ -340,9 +288,6 @@ public:
         if (success)
         {
             updatePlaybackAndDisplay();
-            juce::Logger::writeToLog(juce::String::formatted(
-                "ReplaceAction undone: restored %d original samples at position %lld",
-                m_originalAudio.getNumSamples(), (long long)m_startSample));
         }
 
         return success;

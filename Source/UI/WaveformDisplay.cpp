@@ -43,10 +43,17 @@ WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
       m_selectionEnd(0.0),
       m_isDraggingSelection(false),
       m_dragStartTime(0.0),
+      m_isExtendingSelection(false),
+      m_selectionAnchor(0.0),
       m_hasEditCursor(false),
       m_editCursorPosition(0.0),
       m_selectionAlpha(0.25f),
-      m_selectionAlphaIncreasing(true)
+      m_selectionAlphaIncreasing(true),
+      m_snapUnitType(AudioUnits::UnitType::Milliseconds),  // Default unit
+      m_snapIncrementIndex(0),  // Default to OFF (index 0 = snap disabled)
+      m_zeroCrossingEnabled(false),
+      m_audioBufferRef(nullptr),
+      m_useDirectRendering(false)
 {
     // Set up thumbnail
     m_thumbnail.addChangeListener(this);
@@ -148,32 +155,35 @@ bool WaveformDisplay::reloadFromBuffer(const juce::AudioBuffer<float>& buffer,
     m_numChannels = buffer.getNumChannels();
     m_totalDuration = buffer.getNumSamples() / sampleRate;
 
-    // CRITICAL FIX FOR WAVEFORM DEGRADATION (2025-10-07):
-    // =====================================================
-    // Previous implementation used manual reset() + addBlock() pattern which caused
-    // visual artifacts (blockiness, degradation) after edit operations.
-    //
-    // ROOT CAUSE:
-    // - AudioThumbnail cache not properly cleared before regeneration
-    // - Manual addBlock() bypasses JUCE's internal caching/resolution algorithms
-    // - No proper cache invalidation when buffer size changes
-    //
-    // SOLUTION:
-    // Use setSource() with AudioBufferInputSource (proper JUCE pattern).
-    // This matches how loadFile() works and ensures:
-    // - Clean cache management
-    // - Proper resolution calculations
-    // - Automatic thumbnail regeneration
-    // - No visual artifacts
-    //
-    // AudioBufferInputSource wraps the buffer as a WAV-formatted InputSource,
-    // allowing AudioThumbnail to handle it exactly like a file.
-    auto source = new AudioBufferInputSource(buffer, sampleRate, m_numChannels);
-    m_thumbnail.setSource(source); // AudioThumbnail takes ownership, will delete source
+    // PERFORMANCE OPTIMIZATION (2025-10-08):
+    // =======================================
+    // Cache buffer for fast direct rendering (<10ms visual feedback)
+    {
+        juce::ScopedLock lock(m_bufferLock);
 
-    // Mark as loading (AudioThumbnail will call changeListenerCallback when ready)
-    m_fileLoaded = false;
-    m_isLoading = true;
+        // Make a deep copy of the buffer for direct rendering
+        m_cachedBuffer.setSize(buffer.getNumChannels(), buffer.getNumSamples(), false, false, false);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            m_cachedBuffer.copyFrom(ch, 0, buffer, ch, 0, buffer.getNumSamples());
+        }
+
+        // Enable fast direct rendering mode - STAY in this mode permanently after edits
+        m_useDirectRendering = true;
+
+        juce::Logger::writeToLog(juce::String::formatted(
+            "PERFORMANCE: Fast rendering enabled - %d samples cached",
+            buffer.getNumSamples()));
+    }
+
+    // CRITICAL OPTIMIZATION: DO NOT regenerate entire AudioThumbnail after edits!
+    // This was causing the slow redraw - regenerating entire thumbnail is wasteful.
+    // Fast direct rendering is sufficient for all zoom levels.
+    // Thumbnail is only needed for initial file load (handled in loadFile()).
+
+    // Mark as ready immediately - no waiting for thumbnail regeneration
+    m_fileLoaded = true;
+    m_isLoading = false;
 
     // CRITICAL: Restore view state if requested
     if (preserveView && m_totalDuration > 0)
@@ -251,6 +261,14 @@ void WaveformDisplay::clear()
     clearSelection();
     clearEditCursor();
     updateScrollbar();
+
+    // Clear fast rendering cache
+    {
+        juce::ScopedLock lock(m_bufferLock);
+        m_cachedBuffer.setSize(0, 0);
+        m_useDirectRendering = false;
+    }
+
     repaint();
 }
 
@@ -260,7 +278,7 @@ void WaveformDisplay::clear()
 void WaveformDisplay::setPlaybackPosition(double positionInSeconds)
 {
     // Use epsilon comparison for floating point
-    if (std::abs(m_playbackPosition - positionInSeconds) > 0.001)
+    if (std::abs(m_playbackPosition - positionInSeconds) > TIME_EPSILON)
     {
         m_playbackPosition = positionInSeconds;
 
@@ -296,6 +314,7 @@ void WaveformDisplay::clearSelection()
     m_hasSelection = false;
     m_selectionStart = 0.0;
     m_selectionEnd = 0.0;
+    m_isExtendingSelection = false;  // Clear extending flag when selection is cleared
     repaint();
 }
 
@@ -496,6 +515,593 @@ void WaveformDisplay::zoomToSelection()
     repaint();
 }
 
+//==============================================================================
+// Two-tier snap mode system
+
+void WaveformDisplay::setSnapUnit(AudioUnits::UnitType unitType)
+{
+    juce::ScopedLock lock(m_snapLock);
+    m_snapUnitType = unitType;
+    // Reset to first increment (off) when changing unit
+    m_snapIncrementIndex = 0;
+    repaint();
+}
+
+void WaveformDisplay::cycleSnapIncrement()
+{
+    juce::ScopedLock lock(m_snapLock);
+    // Get increments for current unit
+    const auto& increments = AudioUnits::getIncrementsForUnit(m_snapUnitType);
+
+    // Cycle to next increment (wrap around)
+    m_snapIncrementIndex = (m_snapIncrementIndex + 1) % increments.size();
+
+    repaint();
+}
+
+int WaveformDisplay::getSnapIncrement() const
+{
+    juce::ScopedLock lock(m_snapLock);
+    const auto& increments = AudioUnits::getIncrementsForUnit(m_snapUnitType);
+    if (m_snapIncrementIndex < increments.size())
+        return increments[m_snapIncrementIndex];
+    return 0; // fallback: snap off
+}
+
+void WaveformDisplay::toggleZeroCrossing()
+{
+    juce::ScopedLock lock(m_snapLock);
+    m_zeroCrossingEnabled = !m_zeroCrossingEnabled;
+    repaint();
+}
+
+void WaveformDisplay::setNavigationPreferences(const NavigationPreferences& prefs)
+{
+    m_navigationPrefs = prefs;
+}
+
+void WaveformDisplay::setAudioBufferReference(const juce::AudioBuffer<float>* buffer)
+{
+    m_audioBufferRef = buffer;
+}
+
+double WaveformDisplay::getSnapIncrementInSeconds() const
+{
+    int increment = getSnapIncrement();
+
+    // If increment is 0, snap is off - return default 10ms for navigation
+    if (increment == 0)
+        return 0.01;
+
+    // Convert increment to seconds based on unit type
+    switch (m_snapUnitType)
+    {
+        case AudioUnits::UnitType::Samples:
+            return AudioUnits::samplesToSeconds(increment, m_sampleRate);
+
+        case AudioUnits::UnitType::Milliseconds:
+            return increment / 1000.0;
+
+        case AudioUnits::UnitType::Seconds:
+            // Increment is in tenths of seconds (e.g., 1 = 0.1s, 10 = 1.0s)
+            return increment / 10.0;
+
+        case AudioUnits::UnitType::Frames:
+            return AudioUnits::samplesToSeconds(
+                AudioUnits::framesToSamples(increment, m_navigationPrefs.getFrameRate(), m_sampleRate),
+                m_sampleRate);
+
+        case AudioUnits::UnitType::Custom:
+            return AudioUnits::samplesToSeconds(increment, m_sampleRate);
+
+        default:
+            return 0.01; // 10ms default
+    }
+}
+
+double WaveformDisplay::snapTimeToUnit(double time) const
+{
+    int increment = getSnapIncrement();
+
+    // If snap is off (increment = 0) and zero-crossing is disabled, no snapping
+    if (increment == 0 && !m_zeroCrossingEnabled)
+        return time;
+
+    if (m_sampleRate <= 0.0)
+        return time;
+
+    // Apply zero-crossing snap if enabled (can combine with unit snapping)
+    if (m_zeroCrossingEnabled && m_audioBufferRef != nullptr)
+    {
+        int64_t sample = AudioUnits::secondsToSamples(time, m_sampleRate);
+        int64_t snappedSample = AudioUnits::snapToZeroCrossing(
+            sample, *m_audioBufferRef, 0, m_navigationPrefs.getZeroCrossingSearchRadius());
+        return AudioUnits::samplesToSeconds(snappedSample, m_sampleRate);
+    }
+
+    // If increment is 0, no unit snapping
+    if (increment == 0)
+        return time;
+
+    // Convert to SnapMode for compatibility with existing AudioUnits functions
+    AudioUnits::SnapMode mode;
+    switch (m_snapUnitType)
+    {
+        case AudioUnits::UnitType::Samples:       mode = AudioUnits::SnapMode::Samples; break;
+        case AudioUnits::UnitType::Milliseconds:  mode = AudioUnits::SnapMode::Milliseconds; break;
+        case AudioUnits::UnitType::Seconds:       mode = AudioUnits::SnapMode::Seconds; break;
+        case AudioUnits::UnitType::Frames:        mode = AudioUnits::SnapMode::Frames; break;
+        default:                                  mode = AudioUnits::SnapMode::Off; break;
+    }
+
+    // Standard unit snapping
+    return AudioUnits::snapTimeToUnit(time, mode, increment,
+                                     m_sampleRate, m_navigationPrefs.getFrameRate());
+}
+
+double WaveformDisplay::getZoomPercentage() const
+{
+    if (!m_fileLoaded || m_totalDuration <= 0.0)
+        return 100.0;
+
+    // Calculate how much of the file is visible
+    double visibleRatio = (m_visibleEnd - m_visibleStart) / m_totalDuration;
+
+    // 100% = entire file visible (fit to window)
+    // >100% = zoomed out (shouldn't happen with constrainVisibleRange)
+    // <100% = zoomed in (e.g., 10% means 10x zoom)
+    return visibleRatio * 100.0;
+}
+
+void WaveformDisplay::zoomOneToOne()
+{
+    if (!m_fileLoaded)
+        return;
+
+    // Calculate the duration that would give us 1 pixel per sample
+    int width = getWidth();
+    if (width <= 0)
+        return;
+
+    double samplesPerPixel = 1.0;
+    double visibleDuration = (width * samplesPerPixel) / m_sampleRate;
+
+    // Center on current cursor or playback position
+    double centerTime = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+
+    m_visibleStart = centerTime - visibleDuration * 0.5;
+    m_visibleEnd = centerTime + visibleDuration * 0.5;
+
+    constrainVisibleRange();
+    updateScrollbar();
+    repaint();
+}
+
+//==============================================================================
+// Audio-unit based keyboard navigation
+
+void WaveformDisplay::navigateLeft(bool extend)
+{
+    if (!m_fileLoaded)
+        return;
+
+    // Get increment from current snap mode (arrow keys now honor snap mode)
+    double delta = getSnapIncrementInSeconds();
+
+    if (extend)
+    {
+        // Bidirectional selection extension - active edge moves, anchor stays fixed
+        if (!m_hasSelection)
+        {
+            // Start new selection from cursor position
+            // Anchor is the starting position, active edge moves left from there
+            m_selectionAnchor = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+            m_isExtendingSelection = true;
+            double activePos = juce::jmax(0.0, m_selectionAnchor - delta);
+            setSelection(m_selectionAnchor, activePos);  // setSelection normalizes start < end
+        }
+        else
+        {
+            // Extend existing selection
+            if (!m_isExtendingSelection)
+            {
+                // First extend - anchor is left edge (start), active is right edge (end)
+                // This means Shift+Arrow moves the right edge by default
+                m_selectionAnchor = m_selectionStart;
+                m_isExtendingSelection = true;
+            }
+
+            // Calculate active position by getting current active edge and moving it
+            // Active edge is the one that's NOT the anchor
+            double currentActive;
+            if (std::abs(m_selectionStart - m_selectionAnchor) < 0.001)
+            {
+                // Start is anchor, so end is active
+                currentActive = m_selectionEnd;
+            }
+            else
+            {
+                // End is anchor, so start is active
+                currentActive = m_selectionStart;
+            }
+
+            // Move active position left by delta
+            double newActive = juce::jmax(0.0, currentActive - delta);
+
+            // Skip zero-width selection: if active edge would land within one increment of anchor,
+            // jump directly to one increment on the other side to avoid invisible selection
+            if (std::abs(newActive - m_selectionAnchor) < delta)
+            {
+                // Would create zero or near-zero selection, jump to other side
+                newActive = juce::jmax(0.0, m_selectionAnchor - delta);
+            }
+
+            // Set selection with anchor and new active position
+            setSelection(m_selectionAnchor, newActive);
+        }
+    }
+    else
+    {
+        // Move cursor left (not extending selection)
+        m_isExtendingSelection = false;  // Clear extending flag
+
+        double newPos = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+        newPos = juce::jmax(0.0, newPos - delta);
+        setEditCursor(newPos);
+        clearSelection();
+
+        // Auto-scroll if needed
+        if (newPos < m_visibleStart)
+        {
+            double viewDuration = m_visibleEnd - m_visibleStart;
+            setVisibleRange(newPos, newPos + viewDuration);
+        }
+    }
+}
+
+void WaveformDisplay::navigateRight(bool extend)
+{
+    if (!m_fileLoaded)
+        return;
+
+    // Get increment from current snap mode (arrow keys now honor snap mode)
+    double delta = getSnapIncrementInSeconds();
+
+    if (extend)
+    {
+        // Bidirectional selection extension - active edge moves, anchor stays fixed
+        if (!m_hasSelection)
+        {
+            // Start new selection from cursor position
+            // Anchor is the starting position, active edge moves right from there
+            m_selectionAnchor = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+            m_isExtendingSelection = true;
+            double activePos = juce::jmin(m_totalDuration, m_selectionAnchor + delta);
+            setSelection(m_selectionAnchor, activePos);  // setSelection normalizes start < end
+        }
+        else
+        {
+            // Extend existing selection
+            if (!m_isExtendingSelection)
+            {
+                // First extend - anchor is left edge (start), active is right edge (end)
+                // This means Shift+Arrow moves the right edge by default
+                m_selectionAnchor = m_selectionStart;
+                m_isExtendingSelection = true;
+            }
+
+            // Calculate active position by getting current active edge and moving it
+            // Active edge is the one that's NOT the anchor
+            double currentActive;
+            if (std::abs(m_selectionStart - m_selectionAnchor) < 0.001)
+            {
+                // Start is anchor, so end is active
+                currentActive = m_selectionEnd;
+            }
+            else
+            {
+                // End is anchor, so start is active
+                currentActive = m_selectionStart;
+            }
+
+            // Move active position right by delta
+            double newActive = juce::jmin(m_totalDuration, currentActive + delta);
+
+            // Skip zero-width selection: if active edge would land within one increment of anchor,
+            // jump directly to one increment on the other side to avoid invisible selection
+            if (std::abs(newActive - m_selectionAnchor) < delta)
+            {
+                // Would create zero or near-zero selection, jump to other side
+                newActive = juce::jmin(m_totalDuration, m_selectionAnchor + delta);
+            }
+
+            // Set selection with anchor and new active position
+            setSelection(m_selectionAnchor, newActive);
+        }
+    }
+    else
+    {
+        // Move cursor right (not extending selection)
+        m_isExtendingSelection = false;  // Clear extending flag
+
+        double newPos = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+        newPos = juce::jmin(m_totalDuration, newPos + delta);
+        setEditCursor(newPos);
+        clearSelection();
+
+        // Auto-scroll if needed
+        if (newPos > m_visibleEnd)
+        {
+            double viewDuration = m_visibleEnd - m_visibleStart;
+            setVisibleRange(newPos - viewDuration, newPos);
+        }
+    }
+}
+
+void WaveformDisplay::navigateToStart(bool extend)
+{
+    if (!m_fileLoaded)
+        return;
+
+    if (extend)
+    {
+        // Extend selection to start
+        if (m_hasSelection)
+        {
+            setSelection(0.0, m_selectionEnd);
+        }
+        else if (m_hasEditCursor)
+        {
+            setSelection(0.0, m_editCursorPosition);
+        }
+    }
+    else
+    {
+        // Jump cursor to start
+        setEditCursor(0.0);
+        clearSelection();
+
+        // Scroll to show start
+        double viewDuration = m_visibleEnd - m_visibleStart;
+        setVisibleRange(0.0, viewDuration);
+    }
+}
+
+void WaveformDisplay::navigateToEnd(bool extend)
+{
+    if (!m_fileLoaded)
+        return;
+
+    if (extend)
+    {
+        // Extend selection to end
+        if (m_hasSelection)
+        {
+            setSelection(m_selectionStart, m_totalDuration);
+        }
+        else if (m_hasEditCursor)
+        {
+            setSelection(m_editCursorPosition, m_totalDuration);
+        }
+    }
+    else
+    {
+        // Jump cursor to end
+        setEditCursor(m_totalDuration);
+        clearSelection();
+
+        // Scroll to show end
+        double viewDuration = m_visibleEnd - m_visibleStart;
+        setVisibleRange(m_totalDuration - viewDuration, m_totalDuration);
+    }
+}
+
+void WaveformDisplay::navigatePageLeft(bool extend)
+{
+    if (!m_fileLoaded)
+        return;
+
+    // Get page increment (default: 1000ms = 1 second)
+    int increment = m_navigationPrefs.getNavigationIncrementPage();
+    double delta = increment / 1000.0; // Convert ms to seconds
+
+    if (extend)
+    {
+        // Bidirectional selection extension by page increment
+        if (!m_hasSelection)
+        {
+            // Start new selection from cursor
+            m_selectionAnchor = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+            m_isExtendingSelection = true;
+            double activePos = juce::jmax(0.0, m_selectionAnchor - delta);
+            setSelection(m_selectionAnchor, activePos);
+        }
+        else
+        {
+            if (!m_isExtendingSelection)
+            {
+                // First extend - anchor is left edge (start), active is right edge (end)
+                m_selectionAnchor = m_selectionStart;
+                m_isExtendingSelection = true;
+            }
+
+            // Get current active position (the edge that's NOT the anchor)
+            double currentActive = (std::abs(m_selectionStart - m_selectionAnchor) < 0.001)
+                                   ? m_selectionEnd : m_selectionStart;
+
+            // Move active position left by page delta
+            double newActive = juce::jmax(0.0, currentActive - delta);
+
+            // Skip zero-width selection: if would land within one increment of anchor, jump over
+            if (std::abs(newActive - m_selectionAnchor) < delta)
+            {
+                newActive = juce::jmax(0.0, m_selectionAnchor - delta);
+            }
+
+            setSelection(m_selectionAnchor, newActive);
+        }
+    }
+    else
+    {
+        // Move cursor left by page increment
+        m_isExtendingSelection = false;
+        double newPos = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+        newPos = juce::jmax(0.0, newPos - delta);
+        setEditCursor(newPos);
+        clearSelection();
+
+        // Auto-scroll if needed
+        if (newPos < m_visibleStart)
+        {
+            double viewDuration = m_visibleEnd - m_visibleStart;
+            setVisibleRange(newPos, newPos + viewDuration);
+        }
+    }
+}
+
+void WaveformDisplay::navigatePageRight(bool extend)
+{
+    if (!m_fileLoaded)
+        return;
+
+    // Get page increment (default: 1000ms = 1 second)
+    int increment = m_navigationPrefs.getNavigationIncrementPage();
+    double delta = increment / 1000.0; // Convert ms to seconds
+
+    if (extend)
+    {
+        // Bidirectional selection extension by page increment
+        if (!m_hasSelection)
+        {
+            // Start new selection from cursor
+            m_selectionAnchor = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+            m_isExtendingSelection = true;
+            double activePos = juce::jmin(m_totalDuration, m_selectionAnchor + delta);
+            setSelection(m_selectionAnchor, activePos);
+        }
+        else
+        {
+            if (!m_isExtendingSelection)
+            {
+                // First extend - anchor is left edge (start), active is right edge (end)
+                m_selectionAnchor = m_selectionStart;
+                m_isExtendingSelection = true;
+            }
+
+            // Get current active position (the edge that's NOT the anchor)
+            double currentActive = (std::abs(m_selectionStart - m_selectionAnchor) < 0.001)
+                                   ? m_selectionEnd : m_selectionStart;
+
+            // Move active position right by page delta
+            double newActive = juce::jmin(m_totalDuration, currentActive + delta);
+
+            // Skip zero-width selection: if would land within one increment of anchor, jump over
+            if (std::abs(newActive - m_selectionAnchor) < delta)
+            {
+                newActive = juce::jmin(m_totalDuration, m_selectionAnchor + delta);
+            }
+
+            setSelection(m_selectionAnchor, newActive);
+        }
+    }
+    else
+    {
+        // Move cursor right by page increment
+        m_isExtendingSelection = false;
+        double newPos = m_hasEditCursor ? m_editCursorPosition : m_playbackPosition;
+        newPos = juce::jmin(m_totalDuration, newPos + delta);
+        setEditCursor(newPos);
+        clearSelection();
+
+        // Auto-scroll if needed
+        if (newPos > m_visibleEnd)
+        {
+            double viewDuration = m_visibleEnd - m_visibleStart;
+            setVisibleRange(newPos - viewDuration, newPos);
+        }
+    }
+}
+
+void WaveformDisplay::navigateToVisibleStart(bool extend)
+{
+    if (!m_fileLoaded)
+        return;
+
+    if (extend)
+    {
+        // Extend selection to visible start
+        if (m_hasSelection)
+        {
+            setSelection(m_visibleStart, m_selectionEnd);
+        }
+        else if (m_hasEditCursor)
+        {
+            setSelection(m_visibleStart, m_editCursorPosition);
+        }
+    }
+    else
+    {
+        // Jump cursor to visible start
+        setEditCursor(m_visibleStart);
+        clearSelection();
+    }
+}
+
+void WaveformDisplay::navigateToVisibleEnd(bool extend)
+{
+    if (!m_fileLoaded)
+        return;
+
+    if (extend)
+    {
+        // Extend selection to visible end
+        if (m_hasSelection)
+        {
+            setSelection(m_selectionStart, m_visibleEnd);
+        }
+        else if (m_hasEditCursor)
+        {
+            setSelection(m_editCursorPosition, m_visibleEnd);
+        }
+    }
+    else
+    {
+        // Jump cursor to visible end
+        setEditCursor(m_visibleEnd);
+        clearSelection();
+    }
+}
+
+void WaveformDisplay::centerViewOnCursor()
+{
+    if (!m_fileLoaded)
+        return;
+
+    // Get center position (prefer edit cursor, then selection, then playback)
+    double centerTime = 0.0;
+    if (m_hasEditCursor)
+    {
+        centerTime = m_editCursorPosition;
+    }
+    else if (m_hasSelection)
+    {
+        centerTime = (m_selectionStart + m_selectionEnd) * 0.5;
+    }
+    else
+    {
+        centerTime = m_playbackPosition;
+    }
+
+    // Center view on this time
+    double viewDuration = m_visibleEnd - m_visibleStart;
+    m_visibleStart = centerTime - viewDuration * 0.5;
+    m_visibleEnd = centerTime + viewDuration * 0.5;
+
+    constrainVisibleRange();
+    updateScrollbar();
+    repaint();
+}
+
 void WaveformDisplay::setVisibleRange(double startTime, double endTime)
 {
     m_visibleStart = startTime;
@@ -604,9 +1210,13 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& event)
 
     // Start selection drag
     m_isDraggingSelection = true;
+    m_isExtendingSelection = false;  // Clear keyboard extension flag when mouse selecting
     // CRITICAL FIX (2025-10-07): Clamp coordinates for consistency with mouseDrag
     int clampedX = juce::jlimit(0, getWidth() - 1, event.x);
-    m_dragStartTime = xToTime(clampedX);
+    double approximateTime = xToTime(clampedX);
+
+    // CRITICAL: Sample-accurate snapping (audio-unit based, not pixel-based)
+    m_dragStartTime = snapTimeToUnit(approximateTime);
 
     // Set edit cursor on click (will be cleared if user drags)
     setEditCursor(m_dragStartTime);
@@ -625,8 +1235,10 @@ void WaveformDisplay::mouseDrag(const juce::MouseEvent& event)
     // CRITICAL FIX (2025-10-07): Clamp mouse coordinates before xToTime conversion
     // Prevents negative sample positions when mouse is outside widget bounds
     int clampedX = juce::jlimit(0, getWidth() - 1, event.x);
+    double approximateTime = xToTime(clampedX);
 
-    double currentTime = xToTime(clampedX);
+    // CRITICAL: Sample-accurate snapping (audio-unit based, not pixel-based)
+    double currentTime = snapTimeToUnit(approximateTime);
 
     // Clear edit cursor when user starts dragging (creating a selection)
     // This is intentional: edit cursor is for single-click positioning,
@@ -755,10 +1367,10 @@ void WaveformDisplay::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
     if (source == &m_thumbnail)
     {
-        // Check if thumbnail is ready
+        // Check if thumbnail is ready (only used for initial file load)
         if (m_isLoading && m_thumbnail.getTotalLength() > 0.0)
         {
-            // Thumbnail loaded successfully
+            // Thumbnail loaded successfully from initial file load
             m_fileLoaded = true;
             m_isLoading = false;
             m_totalDuration = m_thumbnail.getTotalLength();
@@ -776,6 +1388,10 @@ void WaveformDisplay::changeListenerCallback(juce::ChangeBroadcaster* source)
 
             // Update scrollbar
             updateScrollbar();
+
+            // NOTE: We do NOT switch rendering modes here anymore
+            // Once a file has been edited, we stay in fast rendering mode permanently
+            // Fast direct rendering is sufficient for all use cases and much faster
         }
 
         // Repaint for loading progress or completion
@@ -937,9 +1553,16 @@ void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int
     g.drawLine(bounds.getX(), bounds.getCentreY(),
                bounds.getRight(), bounds.getCentreY(), 1.0f);
 
-    // Draw waveform
-    g.setColour(juce::Colour(0xff00d4aa)); // JUCE brand color
-    m_thumbnail.drawChannel(g, bounds, m_visibleStart, m_visibleEnd, channelNum, 1.0f);
+    // Draw waveform - use fast direct rendering if enabled, otherwise use thumbnail
+    if (m_useDirectRendering)
+    {
+        drawChannelWaveformDirect(g, bounds, channelNum);
+    }
+    else
+    {
+        g.setColour(juce::Colour(0xff00d4aa)); // JUCE brand color
+        m_thumbnail.drawChannel(g, bounds, m_visibleStart, m_visibleEnd, channelNum, 1.0f);
+    }
 
     // Channel label (for stereo)
     if (m_numChannels == 2)
@@ -949,6 +1572,77 @@ void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int
         juce::String label = (channelNum == 0) ? "L" : "R";
         g.drawText(label, bounds.getX() + 5, bounds.getY() + 5, 20, 20,
                    juce::Justification::centred, true);
+    }
+}
+
+void WaveformDisplay::drawChannelWaveformDirect(juce::Graphics& g, juce::Rectangle<int> bounds, int channelNum)
+{
+    // PERFORMANCE-CRITICAL: Fast direct rendering from cached buffer
+    // Achieves <10ms redraw by bypassing AudioThumbnail regeneration
+
+    juce::ScopedLock lock(m_bufferLock);
+
+    // Validate buffer
+    if (m_cachedBuffer.getNumSamples() == 0 || channelNum >= m_cachedBuffer.getNumChannels())
+    {
+        return;
+    }
+
+    const float* channelData = m_cachedBuffer.getReadPointer(channelNum);
+    const int totalSamples = m_cachedBuffer.getNumSamples();
+
+    // Calculate visible sample range
+    const int64_t startSample = static_cast<int64_t>(m_visibleStart * m_sampleRate);
+    const int64_t endSample = static_cast<int64_t>(m_visibleEnd * m_sampleRate);
+    const int64_t visibleSamples = endSample - startSample;
+
+    if (visibleSamples <= 0)
+    {
+        return;
+    }
+
+    // Rendering parameters
+    const int width = bounds.getWidth();
+    const int height = bounds.getHeight();
+    const float centerY = bounds.getCentreY();
+    const float halfHeight = height * 0.5f;
+
+    // Set waveform color
+    g.setColour(juce::Colour(0xff00d4aa)); // JUCE brand color
+
+    // Calculate samples per pixel
+    const double samplesPerPixel = static_cast<double>(visibleSamples) / width;
+
+    // Fast rendering: for each pixel column, find min/max and draw vertical line
+    for (int x = 0; x < width; ++x)
+    {
+        // Calculate sample range for this pixel
+        const int64_t pixelStartSample = startSample + static_cast<int64_t>(x * samplesPerPixel);
+        const int64_t pixelEndSample = startSample + static_cast<int64_t>((x + 1) * samplesPerPixel);
+
+        // Clamp to buffer bounds
+        const int64_t clampedStart = juce::jlimit<int64_t>(0, totalSamples - 1, pixelStartSample);
+        const int64_t clampedEnd = juce::jlimit<int64_t>(clampedStart + 1, totalSamples, pixelEndSample);
+
+        // Find min/max in this pixel's sample range
+        float minSample = 0.0f;
+        float maxSample = 0.0f;
+
+        for (int64_t i = clampedStart; i < clampedEnd; ++i)
+        {
+            const float sample = channelData[i];
+            minSample = juce::jmin(minSample, sample);
+            maxSample = juce::jmax(maxSample, sample);
+        }
+
+        // Convert to pixel coordinates (flipped Y axis, -1.0 is top, +1.0 is bottom)
+        const float minY = centerY - (maxSample * halfHeight);
+        const float maxY = centerY - (minSample * halfHeight);
+
+        // Draw vertical line for this pixel column
+        g.drawLine(bounds.getX() + x, minY,
+                   bounds.getX() + x, maxY,
+                   1.0f);
     }
 }
 

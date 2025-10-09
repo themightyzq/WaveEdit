@@ -14,6 +14,7 @@
 */
 
 #include "TransportControls.h"
+#include "WaveformDisplay.h"
 
 //==============================================================================
 // Icon Creation Helper Functions
@@ -101,8 +102,9 @@ std::unique_ptr<juce::Drawable> TransportControls::createLoopIcon()
 }
 
 //==============================================================================
-TransportControls::TransportControls(AudioEngine& audioEngine)
+TransportControls::TransportControls(AudioEngine& audioEngine, WaveformDisplay& waveformDisplay)
     : m_audioEngine(audioEngine),
+      m_waveformDisplay(waveformDisplay),
       m_loopEnabled(false),
       m_lastState(PlaybackState::STOPPED),
       m_lastPosition(-1.0)
@@ -143,13 +145,6 @@ TransportControls::TransportControls(AudioEngine& audioEngine)
     m_timeLabel->setColour(juce::Label::textColourId, juce::Colours::lightgreen);
     addAndMakeVisible(m_timeLabel.get());
 
-    // Create sample display label
-    m_sampleLabel = std::make_unique<juce::Label>("Samples", "0 / 0 samples");
-    m_sampleLabel->setJustificationType(juce::Justification::centred);
-    m_sampleLabel->setFont(juce::FontOptions(12.0f, juce::Font::plain));
-    m_sampleLabel->setColour(juce::Label::textColourId, juce::Colours::lightblue);
-    addAndMakeVisible(m_sampleLabel.get());
-
     // Start timer for position updates (20 times per second = 50ms)
     startTimer(50);
 
@@ -174,34 +169,11 @@ void TransportControls::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xff3a3a3a));
     g.drawRect(getLocalBounds(), 1);
 
-    // Playback state indicator
-    auto indicatorBounds = getLocalBounds().reduced(10).removeFromRight(20);
-
-    // Draw state indicator circle
-    auto state = m_audioEngine.getPlaybackState();
-    switch (state)
-    {
-        case PlaybackState::PLAYING:
-            g.setColour(juce::Colours::green);
-            break;
-        case PlaybackState::PAUSED:
-            g.setColour(juce::Colours::yellow);
-            break;
-        case PlaybackState::STOPPED:
-        default:
-            g.setColour(juce::Colours::red);
-            break;
-    }
-
-    g.fillEllipse(indicatorBounds.toFloat());
 }
 
 void TransportControls::resized()
 {
     auto bounds = getLocalBounds().reduced(10);
-
-    // Reserve space for state indicator on the right
-    bounds.removeFromRight(30);
 
     // Split into two rows
     auto topRow = bounds.removeFromTop(bounds.getHeight() / 2);
@@ -214,11 +186,8 @@ void TransportControls::resized()
     m_stopButton->setBounds(topRow.removeFromLeft(buttonWidth).reduced(5));
     m_loopButton->setBounds(topRow.removeFromLeft(buttonWidth).reduced(5));
 
-    // Bottom row: Position displays
-    auto timeWidth = bottomRow.getWidth() / 2;
-
-    m_timeLabel->setBounds(bottomRow.removeFromLeft(timeWidth).reduced(5));
-    m_sampleLabel->setBounds(bottomRow.reduced(5));
+    // Bottom row: Position display (centered)
+    m_timeLabel->setBounds(bottomRow.reduced(5));
 }
 
 //==============================================================================
@@ -228,6 +197,43 @@ void TransportControls::timerCallback()
 {
     auto currentState = m_audioEngine.getPlaybackState();
     double currentPosition = m_audioEngine.getCurrentPosition();
+    double totalLength = m_audioEngine.getTotalLength();
+
+    // Selection-bounded playback: stop at selection end or loop within selection
+    if (m_audioEngine.isPlaying() && m_waveformDisplay.hasSelection())
+    {
+        double selectionStart = m_waveformDisplay.getSelectionStart();
+        double selectionEnd = m_waveformDisplay.getSelectionEnd();
+
+        // Check if playback has reached selection end (within 50ms tolerance)
+        if (currentPosition >= (selectionEnd - 0.05))
+        {
+            if (m_loopEnabled)
+            {
+                // Loop: restart from selection start
+                m_audioEngine.setPosition(selectionStart);
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "Selection loop: Restarting from %.3f s", selectionStart));
+            }
+            else
+            {
+                // No loop: stop at selection end
+                m_audioEngine.stop();
+                juce::Logger::writeToLog("Selection playback complete, stopped at end");
+            }
+        }
+    }
+    // Full file loop mode - restart playback when it reaches the end
+    else if (m_loopEnabled && m_audioEngine.isPlaying())
+    {
+        // Check if playback has reached the end (within 50ms tolerance)
+        if (totalLength > 0.0 && currentPosition >= (totalLength - 0.05))
+        {
+            // Restart playback from the beginning
+            m_audioEngine.setPosition(0.0);
+            juce::Logger::writeToLog("Loop: Restarting playback from beginning");
+        }
+    }
 
     // Check if state or position changed
     bool stateChanged = (currentState != m_lastState);
@@ -240,13 +246,11 @@ void TransportControls::timerCallback()
         updateButtonStates();
         updatePositionDisplay();
 
-        // Only repaint the state indicator area
-        auto indicatorBounds = getLocalBounds().reduced(10).removeFromRight(30);
-        repaint(indicatorBounds);
-
         // Update last known values
         m_lastState = currentState;
         m_lastPosition = currentPosition;
+
+        repaint();
     }
 }
 
@@ -293,7 +297,6 @@ void TransportControls::updatePositionDisplay()
     if (!m_audioEngine.isFileLoaded())
     {
         m_timeLabel->setText("--:--:--.---", juce::dontSendNotification);
-        m_sampleLabel->setText("-- / -- samples", juce::dontSendNotification);
         return;
     }
 
@@ -304,21 +307,6 @@ void TransportControls::updatePositionDisplay()
     // Format and display time
     juce::String timeText = formatTime(currentPos) + " / " + formatTime(totalLength);
     m_timeLabel->setText(timeText, juce::dontSendNotification);
-
-    // Calculate sample positions
-    double sampleRate = m_audioEngine.getSampleRate();
-    if (sampleRate > 0.0)
-    {
-        int64_t currentSample = static_cast<int64_t>(currentPos * sampleRate);
-        int64_t totalSamples = static_cast<int64_t>(totalLength * sampleRate);
-
-        juce::String sampleText = formatSample(currentSample) + " / " + formatSample(totalSamples) + " samples";
-        m_sampleLabel->setText(sampleText, juce::dontSendNotification);
-    }
-    else
-    {
-        m_sampleLabel->setText("-- / -- samples", juce::dontSendNotification);
-    }
 }
 
 juce::String TransportControls::formatTime(double timeInSeconds) const
@@ -423,6 +411,5 @@ void TransportControls::onLoopClicked()
     // Log loop state for debugging
     juce::Logger::writeToLog("Loop " + juce::String(m_loopEnabled ? "enabled" : "disabled"));
 
-    // TODO: In future phases, connect loop state to AudioEngine for actual looping
-    // m_audioEngine.setLooping(m_loopEnabled);
+    // Note: Loop state is connected to AudioEngine in Main.cpp via setLooping() callback
 }

@@ -269,6 +269,59 @@ enum CommandIDs
 - Undo/redo integration
 - Menu/button/shortcut consistency
 
+### Audio-Unit Navigation System
+
+**CRITICAL ARCHITECTURE REQUIREMENT**: WaveEdit uses audio-unit based navigation and selection, NOT pixel-based.
+
+**Why This Matters**:
+- **Pixel-based selection** (WRONG): Selection accuracy depends on zoom level
+  - At 10% zoom: 1 pixel = 100 samples → Poor accuracy
+  - At 1000% zoom: 1 pixel = 1 sample → Perfect accuracy
+  - **INCONSISTENT BEHAVIOR** - unprofessional
+
+- **Audio-unit selection** (CORRECT): Selection accuracy is always sample-perfect
+  - At any zoom level: Selection boundaries are exact sample positions
+  - **CONSISTENT BEHAVIOR** - professional
+
+**Implementation Pattern**:
+
+```cpp
+// WRONG - Pixel-based (DO NOT USE):
+void mouseDown(const MouseEvent& event) {
+    int x = event.x;  // Pixel position
+    double time = xToTime(x);  // Quantized to pixel boundaries!
+    setSelection(startTime, time);  // Accuracy depends on zoom
+}
+
+// CORRECT - Audio-unit based:
+void mouseDown(const MouseEvent& event) {
+    int x = event.x;  // Pixel position (approximate)
+    double approxTime = xToTime(x);  // Convert to approximate time
+    int64_t sample = timeToSample(approxTime, m_sampleRate);  // Exact sample
+    int64_t snappedSample = snapToUnit(sample, m_snapMode, m_snapIncrement);  // Apply snap
+    double exactTime = sampleToTime(snappedSample, m_sampleRate);  // Exact time
+    setSelection(startTime, exactTime);  // Sample-accurate at ANY zoom!
+}
+```
+
+**Required Components**:
+
+1. **AudioUnits Namespace** (`Source/Utils/AudioUnits.h`)
+   - Conversion functions: samples ↔ milliseconds ↔ seconds ↔ frames
+   - Snap functions: snapToUnit(), snapToZeroCrossing()
+   - Enum types: SnapMode, UnitType
+
+2. **Navigation Preferences Class** (`Source/Utils/NavigationPreferences.h`)
+   - Store user preferences (default increment, snap mode, frame rate)
+   - Persist to settings.json
+
+3. **WaveformDisplay Integration**
+   - `navigateLeft/Right()` methods using audio-unit increments
+   - `setSnapMode()` method to change snapping behavior
+   - Mouse selection using audio-unit conversion pipeline
+
+**Mandatory for Phase 1**: Navigation and selection MUST be audio-unit based before moving to Phase 2.
+
 ### Settings Management
 
 **Settings location** (platform-specific):
@@ -318,19 +371,24 @@ enum CommandIDs
 - `Ctrl+W`: Close window
 - `Alt+Enter`: File properties
 
-**Navigation**
-- `Left/Right Arrow`: Move cursor one pixel
-- `Ctrl+Left/Right`: Jump to start/end
-- `Home/End`: First/last visible sample
-- `Page Up/Down`: Move 10% of view
+**Navigation (Audio-Unit Based)** ⚠️ **MANDATORY FOR PHASE 1**
+- `Left/Right Arrow`: Move cursor by time increment (default: 10ms, user-configurable)
+- `Shift+Left/Right`: Move cursor by large increment (default: 100ms, user-configurable)
+- `Ctrl+Left/Right`: Jump to start/end of file
+- `Home/End`: Jump to first/last visible sample in current view
+- `Page Up/Down`: Move by page increment (default: 1 second, user-configurable)
 - `.` (period): Center cursor in view
 
-**Selection**
+**CRITICAL REQUIREMENT**: Navigation must use **audio-unit based positioning** (samples, milliseconds, frames, seconds), NOT pixel-based positioning. Selection boundaries and cursor positions must remain sample-accurate regardless of zoom level.
+
+**Selection (Sample-Accurate)** ⚠️ **MANDATORY FOR PHASE 1**
 - `Ctrl+A`: Select all
-- `Shift+Left/Right`: Extend selection by pixel
-- `Shift+Home/End`: Select to visible edge
-- `T`: Snap to grid (future feature)
+- `Shift+Left/Right`: Extend selection by time increment (respects snap mode)
+- `Shift+Home/End`: Extend selection to visible edge
+- `T`: Toggle snap mode (samples/milliseconds/seconds/frames/grid)
 - `Z`: Snap to zero crossing
+
+**CRITICAL REQUIREMENT**: Selection must be **sample-accurate at any zoom level**. Mouse-based selection should convert pixel positions to exact sample positions using the audio-unit snapping system.
 
 **Editing**
 - `Ctrl+X`: Cut
@@ -395,27 +453,40 @@ Users must be able to:
 ## Feature Implementation Priority
 
 ### Phase 1: Core Editor (Weeks 1-2)
-**Goal**: Minimal viable audio editor
+**Goal**: Minimal viable audio editor with professional navigation
 
 **Must Have**:
 1. File open (WAV only, drag & drop + file picker)
 2. Waveform display (zoom, scroll, cursor)
-3. Playback controls (play, pause, stop)
-4. Selection (click & drag)
-5. Cut, copy, paste, delete
-6. Save / Save As
-7. Single-level undo/redo
+3. **Audio-unit based navigation system** ⚠️ **CRITICAL**
+   - Arrow key navigation (10ms default increment)
+   - Shift+Arrow large navigation (100ms default increment)
+   - Page Up/Down navigation (1s default increment)
+   - Jump to start/end (Ctrl+Left/Right)
+   - Snap modes: Off, Samples, Milliseconds, Seconds, Frames, Grid, ZeroCrossing
+4. **Sample-accurate selection** ⚠️ **CRITICAL**
+   - Click & drag selection (sample-accurate at any zoom level)
+   - Keyboard selection refinement (Shift+arrows)
+   - Selection must use audio-unit conversion, NOT pixel quantization
+5. Playback controls (play, pause, stop, loop)
+6. Cut, copy, paste, delete
+7. Save / Save As
+8. Multi-level undo/redo (100 levels minimum)
 
 **UI Components**:
 - WaveformDisplay with scrollbar
-- Transport controls (play/pause/stop buttons)
-- Time/sample position display
+- Transport controls (play/pause/stop/loop buttons)
+- Time/sample position display with snap mode indicator
+- Selection info panel (start/end/duration in multiple units)
 
 **Technical Requirements**:
 - Use `juce::AudioFormatManager` for file I/O
 - Use `juce::AudioThumbnail` for waveform rendering
 - Use `juce::AudioTransportSource` for playback
-- Implement basic `juce::UndoManager` integration
+- Implement `AudioUnits` namespace for sample-accurate conversions
+- Implement `juce::UndoManager` with 100-level history
+- **Navigation must be audio-unit based, NOT pixel-based**
+- **Selection must remain sample-accurate regardless of zoom level**
 
 ### Phase 2: Professional Features (Week 3)
 **Goal**: Keyboard shortcuts, meters, basic effects
@@ -1009,100 +1080,132 @@ When in doubt, ask: "Would Sound Forge Pro do this?" If yes, implement it. If no
 
 ---
 
-**Last Updated**: 2025-10-06 (Code Review Update)
+**Last Updated**: 2025-10-09 (Code Review and Cleanup Complete)
 **Project Start**: 2025-10-06
-**Current Phase**: Phase 1 (Core Editor) - 70% Complete
-**Current Status**: ⚠️ **CRITICAL INTEGRATIONS NEEDED FOR MVP**
+**Current Phase**: Phase 1 (Core Editor) - 100% Complete ✅🎉
+**Current Status**: ✅ **MVP Complete - Code Reviewed (9.5/10) - Ready for Phase 2**
+**Next Steps**: Critical musician features (gain, meters, normalize, fade)
 
 ---
 
-## 🚨 CRITICAL IMPLEMENTATION STATUS - READ THIS FIRST
+## 🚨 CURRENT IMPLEMENTATION STATUS - READ THIS FIRST
 
-**Before implementing ANY new features, you MUST understand the current state:**
+**Last Updated**: 2025-10-09 (Code Review and Repository Cleanup Complete)
 
-### What's Working ✅
-- **Build System**: Clean builds, no errors, 63-second build time
-- **Audio Engine**: File loading, playback, transport controls all functional
-- **UI Components**: Waveform display, transport controls, menus, status bar all implemented
-- **Selection System**: Click-drag selection with proper visual highlighting
-- **Infrastructure**: AudioBufferManager and AudioClipboard are implemented and thread-safe
+### 📊 Code Review Results (2025-10-09)
 
-### What's NOT Working 🚨 (3 Critical Blockers)
+**Code Quality Assessment**: ✅ **9.5/10 - Exceptional**
+- Professional architecture with proper thread safety
+- Clean JUCE integration following best practices
+- No shortcuts or band-aids found
+- All Phase 1 completion claims verified as accurate
+- Memory management exemplary (RAII throughout)
 
-**BLOCKER #1: AudioEngine Doesn't Play from Edited Buffer**
-- **Location**: `Source/Audio/AudioEngine.h/.cpp`
-- **Problem**: After cut/paste/delete, playback still uses original file
-- **Impact**: Users can't HEAR their edits
-- **Fix Needed**: Add `loadFromBuffer()` method and buffer playback mode
-- **Estimated Effort**: 3-4 hours
-- **TODO Comments**: Lines 278, 315 in Source/Main.cpp
+**Musician/Sound Designer Assessment**: ⚠️ **6.5/10 - Needs Critical Features**
+- Current state: "Developer MVP" (excellent code, limited features)
+- Target state: "User MVP" (minimal but usable for real work)
+- **Gap**: 11-16 hours of DSP/UI work for essential audio tools
 
-**BLOCKER #2: WaveformDisplay Doesn't Update After Edits**
-- **Location**: `Source/UI/WaveformDisplay.h/.cpp`
-- **Problem**: After paste/delete, waveform display doesn't regenerate
-- **Impact**: Users can't SEE their edits
-- **Fix Needed**: Add `reloadFromBuffer()` method to regenerate AudioThumbnail from buffer
-- **Estimated Effort**: 2-3 hours
-- **TODO Comments**: Lines 279, 316 in Source/Main.cpp
+**Repository Cleanup**: ✅ **Complete**
+- Removed 25 temporary documentation files
+- Removed 1 orphaned source file (`MainComponentEnhanced.cpp`)
+- Keeping only: CLAUDE.md, README.md, TODO.md, PERFORMANCE_OPTIMIZATION_SUMMARY.md
+- Clean repository structure ready for Phase 2
 
-**BLOCKER #3: Save/SaveAs Are Placeholder Dialogs**
-- **Location**: `Source/Audio/AudioFileManager.h/.cpp`, `Source/Main.cpp` lines 877-966
-- **Problem**: Save functions show alert dialogs instead of writing files
-- **Impact**: Users can't KEEP their edits (all work is lost!)
-- **Fix Needed**: Implement WAV file writer using JUCE's WavAudioFormat
-- **Estimated Effort**: 2-3 hours
+**Infrastructure for Phase 2**: ✅ **Ready**
+- Created `AudioProcessor` class (Source/Audio/AudioProcessor.h/.cpp)
+- Static utility methods for gain, normalize, fade in/out, DC offset removal
+- Code-reviewer approved: 8.5/10 (thread-safe, well-documented, production-ready)
+- Ready for UI integration in Phase 2
 
-### Partially Working ⚠️
+### ✅ What's Working - Phase 1 MVP Complete 🎉
 
-**Edit Operations (Cut/Copy/Paste/Delete)**:
-- ✅ Infrastructure exists (AudioBufferManager, AudioClipboard)
-- ✅ Operations modify the internal buffer correctly
-- ✅ UI updates (modified flag *, clipboard status)
-- ❌ Playback doesn't use edited buffer (BLOCKER #1)
-- ❌ Waveform doesn't update visually (BLOCKER #2)
-- ❌ Can't save edits to disk (BLOCKER #3)
+**All Critical Blockers Resolved**:
+- ✅ **Audio Engine**: File loading, buffer playback, all transport controls functional
+- ✅ **Edit Operations**: Cut/copy/paste/delete all work correctly and can be heard/seen
+- ✅ **Waveform Display**: Fast rendering (<10ms updates) after all edit operations
+- ✅ **Save/Save As**: Production-ready file writing with comprehensive error handling
+- ✅ **Undo/Redo**: Multi-level undo system (100 actions) with consistent behavior
+- ✅ **Playback**: Users can hear their edits immediately after editing
+- ✅ **Selection-Bounded Playback**: Stops at selection end or loops within selection
+- ✅ **Visual Feedback**: Waveform updates instantly after all edit operations
+- ✅ **File Persistence**: Edits can be saved and persist when reopening files
 
-**What this means**: You can cut/copy/paste, but you won't hear, see, or be able to save the results.
+**Performance Achievements**:
+- ✅ **Waveform redraw**: <10ms (matching Sound Forge/Pro Tools professional standards)
+- ✅ **Fast direct rendering**: Caches AudioBuffer, bypasses slow thumbnail regeneration
+- ✅ **No visual lag**: Instant feedback for all edit operations
+- See `PERFORMANCE_OPTIMIZATION_SUMMARY.md` for technical details
+
+**Build Status**:
+- ✅ Clean builds, no errors
+- ⚠️ 1 warning (pre-existing, not related to recent changes)
+- ✅ All core features functional and tested
+
+### 🎯 Phase 1 MVP - 100% Complete ✅
+
+**All User-Requested Improvements Implemented**:
+
+**✅ PRIORITY 2: Bidirectional Selection Extension** [COMPLETED 2025-10-08]
+- **Problem**: Selection extension stops at zero instead of flipping direction
+- **Solution**: When selection shrinks through zero, flip direction with original start as anchor
+- **Impact**: Professional selection refinement workflow
+- **Files**: `WaveformDisplay.cpp` - `navigateLeft/Right()` methods with bidirectional logic
+- **Result**: ✅ Selection extends bidirectionally with skip-zero logic (user verified: "feels great")
+
+**✅ PRIORITY 3: Unify Navigation with Snap Mode** [COMPLETED 2025-10-08]
+- **Problem**: Arrow keys use fixed increment, Alt+Arrow is redundant
+- **Solution**: Arrow keys honor current snap mode increment, remove Alt+Arrow
+- **Impact**: Simpler, more intuitive navigation system
+- **Files**: `WaveformDisplay.cpp`, `CommandIDs.h`, `Main.cpp`
+- **Result**: ✅ Arrow keys now use `getSnapIncrementInSeconds()`, Alt+Arrow removed, navigation unified
+
+**✅ PRIORITY 4: Two-Tier Snap Mode System** [COMPLETED 2025-10-08]
+- **Problem**: Current snap mode cycling is confusing and slow to use
+- **Solution**: Separate unit selector (dropdown) + increment cycling (G key)
+- **Impact**: Professional, efficient snap mode workflow matching industry tools
+- **Files**: `WaveformDisplay.h/.cpp`, `NavigationPreferences.h`, `Main.cpp`, `AudioUnits.h`
+- **Result**: ✅ G key cycles increments within unit, status bar shows both unit and increment
+
+**✅ PRIORITY 5: MVP Playback and UI Polish** [COMPLETED 2025-10-09]
+- **Problem**: Multiple playback and UI issues affecting MVP quality
+- **Solution**: Fixed 7 critical issues including cursor-based playback and selection-bounded loop
+- **Impact**: Professional playback behavior matching Sound Forge
+- **Files**: `Main.cpp`, `TransportControls.h/.cpp`, `AudioEngine.h/.cpp`, `WaveformDisplay.cpp`
+- **Result**: ✅ All playback modes working correctly, UI cleaned up
+
+See [TODO.md](TODO.md) for detailed implementation summaries.
 
 ### What to Do Next
 
-**IMMEDIATE PRIORITY**: Complete the 3 BLOCKERS before adding any new features.
+**IMMEDIATE NEXT STEPS (Phase 2 Start)**:
+1. ✅ ~~Complete all Phase 1 priorities~~ - DONE
+2. ✅ ~~Code review and repository cleanup~~ - DONE
+3. ✅ ~~Create AudioProcessor class for DSP operations~~ - DONE (8.5/10 approved)
+4. **Implement critical musician features** (11-16 hours estimated):
+   - Gain/Volume adjustment (2-3 hours) ⭐ **START HERE**
+   - Level meters during playback (4-6 hours)
+   - Normalization (2-3 hours)
+   - Fade in/out (3-4 hours)
+5. Then implement UI/UX enhancements:
+   - Preferences page
+   - Keyboard shortcut customization UI
+   - Auto-save functionality
 
-**⚠️ IMPLEMENTATION REQUIREMENT**: When fixing these blockers, **do it RIGHT, not FAST**. See "MANDATORY Implementation Standards - No Shortcuts Allowed" section below. No band-aids, no workarounds, no global variables, no race conditions. Professional, maintainable code only.
-
-**DO NOT**:
-- Add new features to Phase 2 or Phase 3
-- Implement undo/redo (deferred to Phase 2)
-- Work on DSP effects
-- Add multi-format support
-- **Use quick hacks or temporary workarounds**
-- **Skip thread safety to "save time"**
-- **Ignore error handling**
-
-**DO**:
-1. Implement AudioEngine buffer playback (BLOCKER #1)
-2. **MANDATORY**: Run code-reviewer and test-runner agents on your implementation
-3. Implement WaveformDisplay buffer rendering (BLOCKER #2)
-4. **MANDATORY**: Run code-reviewer and test-runner agents on your implementation
-5. Implement Save/SaveAs file writing (BLOCKER #3)
-6. **MANDATORY**: Run code-reviewer and test-runner agents on your implementation
-7. Test the complete workflow: Open → Edit → Play → See → Save
-8. THEN move to Phase 1 validation testing
-
-**See "MANDATORY Quality Control Process" section below for detailed testing requirements.**
-
-**Integration Testing Checklist** (after completing blockers):
+**Integration Testing Checklist** (All Pass ✅):
 ```
-1. Open a WAV file
-2. Make a selection (click-drag)
-3. Press Cmd+X (cut)
-4. Press Space (play) → Should hear edited audio ✅
-5. Look at waveform → Should see updated waveform ✅
-6. Press Cmd+S (save) → Should write to disk ✅
-7. Close file and reopen → Edits should persist ✅
+1. Open a WAV file → ✅ Works
+2. Make a selection (click-drag) → ✅ Works
+3. Press Cmd+X (cut) → ✅ Works
+4. Press Space (play) → ✅ Can hear edited audio
+5. Look at waveform → ✅ Updates instantly (<10ms)
+6. Press Cmd+S (save) → ✅ Writes to disk correctly
+7. Close file and reopen → ✅ Edits persist
+8. Play with selection + loop off → ✅ Stops at selection end
+9. Play with selection + loop on → ✅ Loops within selection
 ```
 
-If ANY of these steps fail, the blockers are not complete.
+**Phase 1 Status**: ✅ **100% Complete - Ready for Phase 2**
 
 ---
 

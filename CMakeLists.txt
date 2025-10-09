@@ -32,6 +32,8 @@ target_sources(WaveEdit
         Source/Audio/AudioBufferManager.h
         Source/Audio/AudioFileManager.cpp
         Source/Audio/AudioFileManager.h
+        Source/Audio/AudioProcessor.cpp
+        Source/Audio/AudioProcessor.h
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h

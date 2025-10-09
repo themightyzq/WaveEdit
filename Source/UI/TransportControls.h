@@ -40,8 +40,9 @@ public:
      * Constructor.
      *
      * @param audioEngine Reference to the audio engine for playback control
+     * @param waveformDisplay Reference to the waveform display for selection boundaries
      */
-    explicit TransportControls(AudioEngine& audioEngine);
+    TransportControls(AudioEngine& audioEngine, class WaveformDisplay& waveformDisplay);
 
     /**
      * Destructor.
@@ -90,6 +91,7 @@ private:
     // Private Members
 
     AudioEngine& m_audioEngine;
+    class WaveformDisplay& m_waveformDisplay;
 
     // Transport buttons (using DrawableButton for icons)
     std::unique_ptr<juce::DrawableButton> m_playButton;
@@ -99,7 +101,6 @@ private:
 
     // Position display labels
     std::unique_ptr<juce::Label> m_timeLabel;
-    std::unique_ptr<juce::Label> m_sampleLabel;
 
     // Loop state
     bool m_loopEnabled;

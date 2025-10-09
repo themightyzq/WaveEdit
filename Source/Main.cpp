@@ -67,52 +67,116 @@ public:
             double endTime = m_waveformDisplay.getSelectionEnd();
             double duration = m_waveformDisplay.getSelectionDuration();
 
-            // Convert to sample positions (Phase 1.3 requirement)
-            int64_t startSample = m_bufferManager.timeToSample(startTime);
-            int64_t endSample = m_bufferManager.timeToSample(endTime);
-            int64_t durationSamples = endSample - startSample;
+            // Format selection info based on current snap unit
+            auto unitType = m_waveformDisplay.getSnapUnit();
+            juce::String info = "Selection: ";
 
-            juce::String info = juce::String::formatted(
-                "Selection: %s - %s (Duration: %s) | Samples: %lld - %lld (%lld samples)",
-                m_waveformDisplay.getSelectionStartString().toRawUTF8(),
-                m_waveformDisplay.getSelectionEndString().toRawUTF8(),
-                m_waveformDisplay.getSelectionDurationString().toRawUTF8(),
-                startSample,
-                endSample,
-                durationSamples
-            );
+            // Format based on snap unit
+            switch (unitType)
+            {
+                case AudioUnits::UnitType::Samples:
+                {
+                    int64_t startSample = m_bufferManager.timeToSample(startTime);
+                    int64_t endSample = m_bufferManager.timeToSample(endTime);
+                    int64_t durationSamples = endSample - startSample;
+                    info += juce::String::formatted("%lld - %lld (%lld samples)",
+                                                    startSample, endSample, durationSamples);
+                    break;
+                }
+                case AudioUnits::UnitType::Milliseconds:
+                {
+                    info += juce::String::formatted("%.1f - %.1f ms (%.1f ms)",
+                                                    startTime * 1000.0, endTime * 1000.0, duration * 1000.0);
+                    break;
+                }
+                case AudioUnits::UnitType::Seconds:
+                    info += juce::String::formatted("%s - %s (%s)",
+                                                    m_waveformDisplay.getSelectionStartString().toRawUTF8(),
+                                                    m_waveformDisplay.getSelectionEndString().toRawUTF8(),
+                                                    m_waveformDisplay.getSelectionDurationString().toRawUTF8());
+                    break;
+                case AudioUnits::UnitType::Frames:
+                {
+                    double fps = m_waveformDisplay.getFrameRate();
+                    int startFrame = AudioUnits::samplesToFrames(
+                        m_bufferManager.timeToSample(startTime), fps, m_bufferManager.getSampleRate());
+                    int endFrame = AudioUnits::samplesToFrames(
+                        m_bufferManager.timeToSample(endTime), fps, m_bufferManager.getSampleRate());
+                    info += juce::String::formatted("%d - %d frames (%d frames)",
+                                                    startFrame, endFrame, endFrame - startFrame);
+                    break;
+                }
+                default:
+                    // Fallback to time-based display
+                    info += juce::String::formatted("%s - %s (%s)",
+                                                    m_waveformDisplay.getSelectionStartString().toRawUTF8(),
+                                                    m_waveformDisplay.getSelectionEndString().toRawUTF8(),
+                                                    m_waveformDisplay.getSelectionDurationString().toRawUTF8());
+                    break;
+            }
 
             g.drawText(info, bounds, juce::Justification::centredLeft, true);
         }
         else if (m_waveformDisplay.hasEditCursor() && m_bufferManager.hasAudioData())
         {
-            // Show edit cursor position (Phase 1.1 integration)
+            // Show edit cursor position - format based on current snap unit
             auto bounds = getLocalBounds().reduced(5);
             double cursorTime = m_waveformDisplay.getEditCursorPosition();
-            int64_t cursorSample = m_bufferManager.timeToSample(cursorTime);
 
-            // Format cursor time
-            juce::String timeStr;
-            int hours = static_cast<int>(cursorTime / 3600.0);
-            int minutes = static_cast<int>((cursorTime - hours * 3600.0) / 60.0);
-            double seconds = cursorTime - hours * 3600.0 - minutes * 60.0;
+            // Format based on current snap unit (same logic as selection info)
+            auto unitType = m_waveformDisplay.getSnapUnit();
+            juce::String info = "Edit Cursor: ";
 
-            if (hours > 0)
+            switch (unitType)
             {
-                timeStr = juce::String::formatted("%02d:%02d:%06.3f", hours, minutes, seconds);
-            }
-            else
-            {
-                timeStr = juce::String::formatted("%02d:%06.3f", minutes, seconds);
+                case AudioUnits::UnitType::Samples:
+                {
+                    int64_t cursorSample = m_bufferManager.timeToSample(cursorTime);
+                    info += juce::String::formatted("%lld samples", cursorSample);
+                    break;
+                }
+                case AudioUnits::UnitType::Milliseconds:
+                {
+                    info += juce::String::formatted("%.1f ms", cursorTime * 1000.0);
+                    break;
+                }
+                case AudioUnits::UnitType::Seconds:
+                {
+                    // Format as time string
+                    int hours = static_cast<int>(cursorTime / 3600.0);
+                    int minutes = static_cast<int>((cursorTime - hours * 3600.0) / 60.0);
+                    double seconds = cursorTime - hours * 3600.0 - minutes * 60.0;
+
+                    if (hours > 0)
+                        info += juce::String::formatted("%02d:%02d:%06.3f", hours, minutes, seconds);
+                    else
+                        info += juce::String::formatted("%02d:%06.3f", minutes, seconds);
+                    break;
+                }
+                case AudioUnits::UnitType::Frames:
+                {
+                    double fps = m_waveformDisplay.getFrameRate();
+                    int cursorFrame = AudioUnits::samplesToFrames(
+                        m_bufferManager.timeToSample(cursorTime), fps, m_bufferManager.getSampleRate());
+                    info += juce::String::formatted("%d frames", cursorFrame);
+                    break;
+                }
+                default:
+                {
+                    // Fallback to time string
+                    int hours = static_cast<int>(cursorTime / 3600.0);
+                    int minutes = static_cast<int>((cursorTime - hours * 3600.0) / 60.0);
+                    double seconds = cursorTime - hours * 3600.0 - minutes * 60.0;
+
+                    if (hours > 0)
+                        info += juce::String::formatted("%02d:%02d:%06.3f", hours, minutes, seconds);
+                    else
+                        info += juce::String::formatted("%02d:%06.3f", minutes, seconds);
+                    break;
+                }
             }
 
             g.setColour(juce::Colours::yellow);
-            juce::String info = juce::String::formatted(
-                "Edit Cursor: %s | Sample: %lld",
-                timeStr.toRawUTF8(),
-                cursorSample
-            );
-
             g.drawText(info, bounds, juce::Justification::centredLeft, true);
         }
         else if (m_waveformDisplay.isFileLoaded())
@@ -148,7 +212,7 @@ class MainComponent : public juce::Component,
 public:
     MainComponent()
         : m_waveformDisplay(m_audioEngine.getFormatManager()),
-          m_transportControls(m_audioEngine),
+          m_transportControls(m_audioEngine, m_waveformDisplay),
           m_selectionInfo(m_waveformDisplay, m_audioBufferManager),
           m_isModified(false)
     {
@@ -325,6 +389,9 @@ public:
             return;
         }
 
+        // CRITICAL FIX (BLOCKER #3): Begin new transaction for each edit operation
+        m_undoManager.beginNewTransaction("Paste");
+
         // Use edit cursor position if available, otherwise use playback position
         double cursorPos;
         if (m_waveformDisplay.hasEditCursor())
@@ -417,6 +484,9 @@ public:
             // Clear selection after paste
             m_waveformDisplay.clearSelection();
 
+            // NOTE: Waveform display already updated by undo action's updatePlaybackAndDisplay()
+            // Removed redundant reloadFromBuffer() call for performance
+
             repaint();
         }
     }
@@ -431,6 +501,9 @@ public:
         {
             return;
         }
+
+        // CRITICAL FIX (BLOCKER #3): Begin new transaction for each edit operation
+        m_undoManager.beginNewTransaction("Delete");
 
         auto selectionStart = m_waveformDisplay.getSelectionStart();
         auto selectionEnd = m_waveformDisplay.getSelectionEnd();
@@ -461,6 +534,9 @@ public:
         // Set edit cursor at the deletion point for professional workflow
         // This enables cursor preservation during subsequent operations
         m_waveformDisplay.setEditCursor(selectionStart);
+
+        // NOTE: Waveform display already updated by undo action's updatePlaybackAndDisplay()
+        // Removed redundant reloadFromBuffer() call for performance
 
         juce::Logger::writeToLog(juce::String::formatted(
             "Deleted %.2f seconds (undoable), cursor set at %.2f",
@@ -526,6 +602,39 @@ public:
                     AudioClipboard::getInstance().getSampleRate());
                 g.drawText(clipboardInfo, clipboardSection, juce::Justification::centred, true);
             }
+
+            // Two-tier snap mode indicator
+            auto snapSection = statusBar.removeFromRight(200);
+
+            auto unitType = m_waveformDisplay.getSnapUnit();
+            int increment = m_waveformDisplay.getSnapIncrement();
+            bool zeroCrossing = m_waveformDisplay.isZeroCrossingEnabled();
+
+            // Build snap text with unit and increment
+            juce::String snapText;
+            juce::Colour snapColor;
+
+            if (increment == 0)
+            {
+                snapText = "[Snap: Off]";
+                snapColor = juce::Colours::grey;
+            }
+            else
+            {
+                snapText = "[" + AudioUnits::formatIncrement(increment, unitType) + "]";
+                snapColor = juce::Colours::lightblue;
+            }
+
+            // Add zero-crossing indicator if enabled
+            if (zeroCrossing)
+            {
+                snapText += " [Zero X]";
+                snapColor = juce::Colours::orange;
+            }
+
+            g.setColour(snapColor);
+            g.setFont(12.0f);
+            g.drawText(snapText, snapSection.reduced(5, 0), juce::Justification::centred, true);
 
             // State indicator on the right
             auto rightSection = statusBar.removeFromRight(100);
@@ -601,7 +710,33 @@ public:
             CommandIDs::playbackPlay,
             CommandIDs::playbackPause,
             CommandIDs::playbackStop,
-            CommandIDs::playbackLoop
+            CommandIDs::playbackLoop,
+            // View/Zoom commands
+            CommandIDs::viewZoomIn,
+            CommandIDs::viewZoomOut,
+            CommandIDs::viewZoomFit,
+            CommandIDs::viewZoomSelection,
+            CommandIDs::viewZoomOneToOne,
+            // Navigation commands
+            CommandIDs::navigateLeft,
+            CommandIDs::navigateRight,
+            CommandIDs::navigateStart,
+            CommandIDs::navigateEnd,
+            CommandIDs::navigatePageLeft,
+            CommandIDs::navigatePageRight,
+            CommandIDs::navigateHomeVisible,
+            CommandIDs::navigateEndVisible,
+            CommandIDs::navigateCenterView,
+            // Selection extension commands
+            CommandIDs::selectExtendLeft,
+            CommandIDs::selectExtendRight,
+            CommandIDs::selectExtendStart,
+            CommandIDs::selectExtendEnd,
+            CommandIDs::selectExtendPageLeft,
+            CommandIDs::selectExtendPageRight,
+            // Snap commands
+            CommandIDs::snapCycleMode,
+            CommandIDs::snapToggleZeroCrossing
         };
 
         commands.addArray(ids, juce::numElementsInArray(ids));
@@ -706,6 +841,142 @@ public:
                 result.setActive(m_audioEngine.isFileLoaded());
                 break;
 
+            // View/Zoom commands
+            case CommandIDs::viewZoomIn:
+                result.setInfo("Zoom In", "Zoom in 2x", "View", 0);
+                result.addDefaultKeypress('=', juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::viewZoomOut:
+                result.setInfo("Zoom Out", "Zoom out 2x", "View", 0);
+                result.addDefaultKeypress('-', juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::viewZoomFit:
+                result.setInfo("Zoom to Fit", "Fit entire waveform to view", "View", 0);
+                result.addDefaultKeypress('0', juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::viewZoomSelection:
+                result.setInfo("Zoom to Selection", "Zoom to current selection", "View", 0);
+                result.addDefaultKeypress('e', juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                break;
+
+            case CommandIDs::viewZoomOneToOne:
+                result.setInfo("Zoom 1:1", "Zoom to 1:1 sample resolution", "View", 0);
+                result.addDefaultKeypress('1', juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            // Navigation commands
+            case CommandIDs::navigateLeft:
+                result.setInfo("Navigate Left", "Move cursor left by snap increment", "Navigation", 0);
+                result.addDefaultKeypress(juce::KeyPress::leftKey, 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::navigateRight:
+                result.setInfo("Navigate Right", "Move cursor right by snap increment", "Navigation", 0);
+                result.addDefaultKeypress(juce::KeyPress::rightKey, 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::navigateStart:
+                result.setInfo("Jump to Start", "Jump to start of file", "Navigation", 0);
+                result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::navigateEnd:
+                result.setInfo("Jump to End", "Jump to end of file", "Navigation", 0);
+                result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::navigatePageLeft:
+                result.setInfo("Page Left", "Move cursor left by page increment", "Navigation", 0);
+                result.addDefaultKeypress(juce::KeyPress::pageUpKey, 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::navigatePageRight:
+                result.setInfo("Page Right", "Move cursor right by page increment", "Navigation", 0);
+                result.addDefaultKeypress(juce::KeyPress::pageDownKey, 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::navigateHomeVisible:
+                result.setInfo("Jump to Visible Start", "Jump to first visible sample", "Navigation", 0);
+                result.addDefaultKeypress(juce::KeyPress::homeKey, 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::navigateEndVisible:
+                result.setInfo("Jump to Visible End", "Jump to last visible sample", "Navigation", 0);
+                result.addDefaultKeypress(juce::KeyPress::endKey, 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::navigateCenterView:
+                result.setInfo("Center View", "Center view on cursor", "Navigation", 0);
+                result.addDefaultKeypress('.', 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            // Selection extension commands
+            case CommandIDs::selectExtendLeft:
+                result.setInfo("Extend Selection Left", "Extend selection left by increment", "Selection", 0);
+                result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::selectExtendRight:
+                result.setInfo("Extend Selection Right", "Extend selection right by increment", "Selection", 0);
+                result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::selectExtendStart:
+                result.setInfo("Extend to Visible Start", "Extend selection to visible start", "Selection", 0);
+                result.addDefaultKeypress(juce::KeyPress::homeKey, juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::selectExtendEnd:
+                result.setInfo("Extend to Visible End", "Extend selection to visible end", "Selection", 0);
+                result.addDefaultKeypress(juce::KeyPress::endKey, juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::selectExtendPageLeft:
+                result.setInfo("Extend Selection Page Left", "Extend selection left by page increment", "Selection", 0);
+                result.addDefaultKeypress(juce::KeyPress::pageUpKey, juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::selectExtendPageRight:
+                result.setInfo("Extend Selection Page Right", "Extend selection right by page increment", "Selection", 0);
+                result.addDefaultKeypress(juce::KeyPress::pageDownKey, juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            // Snap commands
+            case CommandIDs::snapCycleMode:
+                result.setInfo("Cycle Snap Mode", "Cycle through snap modes", "Snap", 0);
+                result.addDefaultKeypress('g', 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::snapToggleZeroCrossing:
+                result.setInfo("Toggle Zero Crossing Snap", "Quick toggle zero crossing snap", "Snap", 0);
+                result.addDefaultKeypress('z', 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
             default:
                 break;
         }
@@ -738,8 +1009,27 @@ public:
             case CommandIDs::editUndo:
                 if (m_undoManager.canUndo())
                 {
+                    juce::Logger::writeToLog(juce::String::formatted(
+                        "Undo: %s (stack depth before: %d)",
+                        m_undoManager.getUndoDescription().toRawUTF8(),
+                        m_undoManager.getNumberOfUnitsTakenUpByStoredCommands()));
+
                     m_undoManager.undo();
                     m_isModified = true;
+
+                    // CRITICAL FIX (BLOCKER #2): Update waveform display after undo
+                    if (m_audioBufferManager.hasAudioData())
+                    {
+                        const auto& editedBuffer = m_audioBufferManager.getBuffer();
+                        double sampleRate = m_audioBufferManager.getSampleRate();
+                        m_waveformDisplay.reloadFromBuffer(editedBuffer, sampleRate, true, true);
+                    }
+
+                    juce::Logger::writeToLog(juce::String::formatted(
+                        "After undo - Can undo: %s, Can redo: %s",
+                        m_undoManager.canUndo() ? "yes" : "no",
+                        m_undoManager.canRedo() ? "yes" : "no"));
+
                     repaint();
                 }
                 return true;
@@ -747,8 +1037,27 @@ public:
             case CommandIDs::editRedo:
                 if (m_undoManager.canRedo())
                 {
+                    juce::Logger::writeToLog(juce::String::formatted(
+                        "Redo: %s (stack depth before: %d)",
+                        m_undoManager.getRedoDescription().toRawUTF8(),
+                        m_undoManager.getNumberOfUnitsTakenUpByStoredCommands()));
+
                     m_undoManager.redo();
                     m_isModified = true;
+
+                    // CRITICAL FIX (BLOCKER #2): Update waveform display after redo
+                    if (m_audioBufferManager.hasAudioData())
+                    {
+                        const auto& editedBuffer = m_audioBufferManager.getBuffer();
+                        double sampleRate = m_audioBufferManager.getSampleRate();
+                        m_waveformDisplay.reloadFromBuffer(editedBuffer, sampleRate, true, true);
+                    }
+
+                    juce::Logger::writeToLog(juce::String::formatted(
+                        "After redo - Can undo: %s, Can redo: %s",
+                        m_undoManager.canUndo() ? "yes" : "no",
+                        m_undoManager.canRedo() ? "yes" : "no"));
+
                     repaint();
                 }
                 return true;
@@ -787,6 +1096,100 @@ public:
 
             case CommandIDs::playbackLoop:
                 toggleLoop();
+                return true;
+
+            // View/Zoom operations
+            case CommandIDs::viewZoomIn:
+                m_waveformDisplay.zoomIn();
+                return true;
+
+            case CommandIDs::viewZoomOut:
+                m_waveformDisplay.zoomOut();
+                return true;
+
+            case CommandIDs::viewZoomFit:
+                m_waveformDisplay.zoomToFit();
+                return true;
+
+            case CommandIDs::viewZoomSelection:
+                m_waveformDisplay.zoomToSelection();
+                return true;
+
+            case CommandIDs::viewZoomOneToOne:
+                m_waveformDisplay.zoomOneToOne();
+                return true;
+
+            // Navigation operations (simple movement)
+            case CommandIDs::navigateLeft:
+                m_waveformDisplay.navigateLeft(false);
+                return true;
+
+            case CommandIDs::navigateRight:
+                m_waveformDisplay.navigateRight(false);
+                return true;
+
+            case CommandIDs::navigateStart:
+                m_waveformDisplay.navigateToStart(false);
+                return true;
+
+            case CommandIDs::navigateEnd:
+                m_waveformDisplay.navigateToEnd(false);
+                return true;
+
+            case CommandIDs::navigatePageLeft:
+                m_waveformDisplay.navigatePageLeft();
+                return true;
+
+            case CommandIDs::navigatePageRight:
+                m_waveformDisplay.navigatePageRight();
+                return true;
+
+            case CommandIDs::navigateHomeVisible:
+                m_waveformDisplay.navigateToVisibleStart(false);
+                return true;
+
+            case CommandIDs::navigateEndVisible:
+                m_waveformDisplay.navigateToVisibleEnd(false);
+                return true;
+
+            case CommandIDs::navigateCenterView:
+                m_waveformDisplay.centerViewOnCursor();
+                return true;
+
+            // Selection extension operations
+            case CommandIDs::selectExtendLeft:
+                m_waveformDisplay.navigateLeft(true);
+                return true;
+
+            case CommandIDs::selectExtendRight:
+                m_waveformDisplay.navigateRight(true);
+                return true;
+
+            case CommandIDs::selectExtendStart:
+                m_waveformDisplay.navigateToVisibleStart(true);
+                return true;
+
+            case CommandIDs::selectExtendEnd:
+                m_waveformDisplay.navigateToVisibleEnd(true);
+                return true;
+
+            case CommandIDs::selectExtendPageLeft:
+                juce::Logger::writeToLog("selectExtendPageLeft command triggered");
+                m_waveformDisplay.navigatePageLeft(true);
+                return true;
+
+            case CommandIDs::selectExtendPageRight:
+                juce::Logger::writeToLog("selectExtendPageRight command triggered");
+                m_waveformDisplay.navigatePageRight(true);
+                return true;
+
+            // Snap mode operations
+            case CommandIDs::snapCycleMode:
+                cycleSnapMode();
+                return true;
+
+            case CommandIDs::snapToggleZeroCrossing:
+                toggleZeroCrossingSnap();
                 return true;
 
             default:
@@ -1226,14 +1629,56 @@ public:
         }
         else
         {
+            // PRIORITY 5e/5f: Play from cursor position by default
+            // Debug: Log current state
+            juce::Logger::writeToLog("=== PLAYBACK START DEBUG ===");
+            juce::Logger::writeToLog(juce::String::formatted("Has selection: %s",
+                m_waveformDisplay.hasSelection() ? "YES" : "NO"));
+            juce::Logger::writeToLog(juce::String::formatted("Has edit cursor: %s",
+                m_waveformDisplay.hasEditCursor() ? "YES" : "NO"));
+
+            if (m_waveformDisplay.hasSelection())
+            {
+                juce::Logger::writeToLog(juce::String::formatted("Selection: %.3f - %.3f s",
+                    m_waveformDisplay.getSelectionStart(),
+                    m_waveformDisplay.getSelectionEnd()));
+            }
+
+            if (m_waveformDisplay.hasEditCursor())
+            {
+                juce::Logger::writeToLog(juce::String::formatted("Edit cursor: %.3f s",
+                    m_waveformDisplay.getEditCursorPosition()));
+            }
+
+            juce::Logger::writeToLog(juce::String::formatted("Current playback position: %.3f s",
+                m_waveformDisplay.getPlaybackPosition()));
+
             // If there's a selection, start playback from the selection start
             if (m_waveformDisplay.hasSelection())
             {
-                m_audioEngine.setPosition(m_waveformDisplay.getSelectionStart());
+                double startPos = m_waveformDisplay.getSelectionStart();
                 juce::Logger::writeToLog(juce::String::formatted(
-                    "Starting playback from selection start: %.3f s",
-                    m_waveformDisplay.getSelectionStart()));
+                    "→ Starting playback from selection start: %.3f s", startPos));
+                m_audioEngine.setPosition(startPos);
             }
+            else if (m_waveformDisplay.hasEditCursor())
+            {
+                // No selection: play from edit cursor position if set
+                double startPos = m_waveformDisplay.getEditCursorPosition();
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "→ Starting playback from edit cursor: %.3f s", startPos));
+                m_audioEngine.setPosition(startPos);
+            }
+            else
+            {
+                // No selection or cursor: play from current playback position
+                double startPos = m_waveformDisplay.getPlaybackPosition();
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "→ Starting playback from playback position: %.3f s", startPos));
+                m_audioEngine.setPosition(startPos);
+            }
+
+            juce::Logger::writeToLog("=== END DEBUG ===");
 
             m_audioEngine.play();
         }
@@ -1280,7 +1725,12 @@ public:
             return;
         }
 
+        // PRIORITY 5g: Fix loop mode - wire up to AudioEngine
         m_transportControls.toggleLoop();
+        bool loopEnabled = m_transportControls.isLoopEnabled();
+        m_audioEngine.setLooping(loopEnabled);
+
+        juce::Logger::writeToLog(loopEnabled ? "Loop mode ON" : "Loop mode OFF");
         repaint();
     }
 
@@ -1303,6 +1753,38 @@ public:
     juce::ApplicationCommandManager& getCommandManager()
     {
         return m_commandManager;
+    }
+
+    //==============================================================================
+    // Snap mode helpers
+
+    void cycleSnapMode()
+    {
+        // Two-tier snap system: G key cycles through increments within current unit
+        m_waveformDisplay.cycleSnapIncrement();
+
+        // Force repaint to update snap mode indicator in status bar
+        repaint();
+
+        // Show status message with current unit and increment
+        auto unitType = m_waveformDisplay.getSnapUnit();
+        int increment = m_waveformDisplay.getSnapIncrement();
+        juce::String message = "Snap: " + AudioUnits::formatIncrement(increment, unitType);
+        juce::Logger::writeToLog(message);
+    }
+
+    void toggleZeroCrossingSnap()
+    {
+        // Two-tier snap system: Z key toggles zero-crossing (independent of unit snapping)
+        m_waveformDisplay.toggleZeroCrossing();
+
+        // Force repaint to update snap mode indicator in status bar
+        repaint();
+
+        // Show status message
+        bool enabled = m_waveformDisplay.isZeroCrossingEnabled();
+        juce::String message = enabled ? "Zero-crossing snap: ON" : "Zero-crossing snap: OFF";
+        juce::Logger::writeToLog(message);
     }
 
 private:
