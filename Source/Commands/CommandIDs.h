@@ -61,6 +61,9 @@ namespace CommandIDs
         processFadeOut  = 0x5001,
         processNormalize = 0x5002,
         processDCOffset = 0x5003,
+        processGain     = 0x5004,  // Menu: Process → Gain... (precise gain entry)
+        processIncreaseGain = 0x5005,  // Shift+Up (increase by +1 dB)
+        processDecreaseGain = 0x5006,  // Shift+Down (decrease by -1 dB)
 
         // Navigation Operations (0x6000 - 0x60FF)
         navigateLeft         = 0x6000,  // Arrow left (uses current snap increment)

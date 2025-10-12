@@ -25,12 +25,14 @@
 #include "Audio/AudioEngine.h"
 #include "Audio/AudioFileManager.h"
 #include "Audio/AudioBufferManager.h"
+#include "Audio/AudioProcessor.h"
 #include "Commands/CommandIDs.h"
 #include "Utils/Settings.h"
 #include "Utils/AudioClipboard.h"
 #include "Utils/UndoableEdits.h"
 #include "UI/WaveformDisplay.h"
 #include "UI/TransportControls.h"
+#include "UI/GainDialog.h"
 
 //==============================================================================
 /**
@@ -243,9 +245,10 @@ public:
         addKeyListener(m_commandManager.getKeyMappings());
 
         // Configure undo manager with transaction limits
-        // Limit to 100 undo actions, with at least 10 transactions kept
-        // This prevents memory exhaustion with large audio files
-        m_undoManager.setMaxNumberOfStoredUnits(100, 10);
+        // Limit to 100 undo actions, with up to 100 transactions kept
+        // This allows 100 individual undo steps for micro-level editing (e.g., gain adjustments)
+        // minTransactions set to 90 to allow some headroom for complex multi-unit transactions
+        m_undoManager.setMaxNumberOfStoredUnits(100, 90);
 
         // Start timer to update playback position
         startTimer(50); // Update every 50ms for smooth 60fps cursor
@@ -736,7 +739,11 @@ public:
             CommandIDs::selectExtendPageRight,
             // Snap commands
             CommandIDs::snapCycleMode,
-            CommandIDs::snapToggleZeroCrossing
+            CommandIDs::snapToggleZeroCrossing,
+            // Processing commands
+            CommandIDs::processGain,
+            CommandIDs::processIncreaseGain,
+            CommandIDs::processDecreaseGain
         };
 
         commands.addArray(ids, juce::numElementsInArray(ids));
@@ -977,6 +984,24 @@ public:
                 result.setActive(m_audioEngine.isFileLoaded());
                 break;
 
+            // Processing operations
+            case CommandIDs::processGain:
+                result.setInfo("Gain...", "Apply precise gain adjustment", "Process", 0);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::processIncreaseGain:
+                result.setInfo("Increase Gain", "Increase gain by 1 dB", "Process", 0);
+                result.addDefaultKeypress(juce::KeyPress::upKey, juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::processDecreaseGain:
+                result.setInfo("Decrease Gain", "Decrease gain by 1 dB", "Process", 0);
+                result.addDefaultKeypress(juce::KeyPress::downKey, juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
             default:
                 break;
         }
@@ -1017,14 +1042,6 @@ public:
                     m_undoManager.undo();
                     m_isModified = true;
 
-                    // CRITICAL FIX (BLOCKER #2): Update waveform display after undo
-                    if (m_audioBufferManager.hasAudioData())
-                    {
-                        const auto& editedBuffer = m_audioBufferManager.getBuffer();
-                        double sampleRate = m_audioBufferManager.getSampleRate();
-                        m_waveformDisplay.reloadFromBuffer(editedBuffer, sampleRate, true, true);
-                    }
-
                     juce::Logger::writeToLog(juce::String::formatted(
                         "After undo - Can undo: %s, Can redo: %s",
                         m_undoManager.canUndo() ? "yes" : "no",
@@ -1044,14 +1061,6 @@ public:
 
                     m_undoManager.redo();
                     m_isModified = true;
-
-                    // CRITICAL FIX (BLOCKER #2): Update waveform display after redo
-                    if (m_audioBufferManager.hasAudioData())
-                    {
-                        const auto& editedBuffer = m_audioBufferManager.getBuffer();
-                        double sampleRate = m_audioBufferManager.getSampleRate();
-                        m_waveformDisplay.reloadFromBuffer(editedBuffer, sampleRate, true, true);
-                    }
 
                     juce::Logger::writeToLog(juce::String::formatted(
                         "After redo - Can undo: %s, Can redo: %s",
@@ -1192,6 +1201,19 @@ public:
                 toggleZeroCrossingSnap();
                 return true;
 
+            // Processing operations
+            case CommandIDs::processGain:
+                showGainDialog();
+                return true;
+
+            case CommandIDs::processIncreaseGain:
+                applyGainAdjustment(+1.0f);
+                return true;
+
+            case CommandIDs::processDecreaseGain:
+                applyGainAdjustment(-1.0f);
+                return true;
+
             default:
                 return false;
         }
@@ -1202,7 +1224,7 @@ public:
 
     juce::StringArray getMenuBarNames() override
     {
-        return { "File", "Edit", "Playback", "Help" };
+        return { "File", "Edit", "Process", "Playback", "Help" };
     }
 
     juce::PopupMenu getMenuForIndex(int menuIndex, const juce::String& /*menuName*/) override
@@ -1253,7 +1275,16 @@ public:
 
             menu.addCommandItem(&m_commandManager, CommandIDs::editSelectAll);
         }
-        else if (menuIndex == 2) // Playback menu
+        else if (menuIndex == 2) // Process menu
+        {
+            menu.addCommandItem(&m_commandManager, CommandIDs::processGain);
+            // Future Phase 2 features (placeholders for now)
+            // menu.addSeparator();
+            // menu.addCommandItem(&m_commandManager, CommandIDs::processNormalize);
+            // menu.addCommandItem(&m_commandManager, CommandIDs::processFadeIn);
+            // menu.addCommandItem(&m_commandManager, CommandIDs::processFadeOut);
+        }
+        else if (menuIndex == 3) // Playback menu
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPlay);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPause);
@@ -1261,7 +1292,7 @@ public:
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoop);
         }
-        else if (menuIndex == 3) // Help menu
+        else if (menuIndex == 4) // Help menu
         {
             menu.addItem("About WaveEdit", [this] { showAbout(); });
         }
@@ -1786,6 +1817,197 @@ public:
         juce::String message = enabled ? "Zero-crossing snap: ON" : "Zero-crossing snap: OFF";
         juce::Logger::writeToLog(message);
     }
+
+    //==============================================================================
+    // Gain adjustment helpers
+
+    /**
+     * Apply gain adjustment to entire file or selection.
+     * Creates undo action for the gain adjustment.
+     *
+     * @param gainDB Gain adjustment in decibels (positive or negative)
+     */
+    void applyGainAdjustment(float gainDB)
+    {
+        if (!m_audioEngine.isFileLoaded())
+        {
+            return;
+        }
+
+        // Note: We no longer stop/restart playback here.
+        // GainUndoAction::perform() uses reloadBufferPreservingPlayback() which safely
+        // updates the audio buffer while preserving playback position if currently playing.
+        // This allows real-time gain adjustments during playback without interruption.
+
+        // Get current buffer
+        auto& buffer = m_audioBufferManager.getMutableBuffer();
+        if (buffer.getNumSamples() == 0)
+        {
+            return;
+        }
+
+        // Determine region to process
+        int startSample = 0;
+        int numSamples = buffer.getNumSamples();
+        bool isSelection = false;
+
+        if (m_waveformDisplay.hasSelection())
+        {
+            // Apply to selection only
+            startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
+            int endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+            numSamples = endSample - startSample;
+            isSelection = true;
+        }
+
+        // Store before state for undo (only the affected region for memory efficiency)
+        juce::AudioBuffer<float> beforeBuffer;
+        beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+        }
+
+        // CRITICAL FIX: Start a new transaction so each gain adjustment is a separate undo step
+        // Without this, JUCE groups all actions into one transaction and undo undoes everything at once
+        juce::String transactionName = juce::String::formatted(
+            "Gain %+.1f dB (%s)",
+            gainDB,
+            isSelection ? "selection" : "entire file"
+        );
+        m_undoManager.beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will apply the gain)
+        auto* undoAction = new GainUndoAction(
+            m_audioBufferManager,
+            m_waveformDisplay,
+            m_audioEngine,
+            beforeBuffer,
+            startSample,
+            numSamples,
+            gainDB,
+            isSelection
+        );
+
+        // perform() calls GainUndoAction::perform() which applies gain and updates display
+        // while preserving playback state (uses reloadBufferPreservingPlayback internally)
+        m_undoManager.perform(undoAction);
+
+        // Mark as modified
+        m_isModified = true;
+    }
+
+    /**
+     * Show gain dialog and apply user-entered gain value.
+     */
+    void showGainDialog()
+    {
+        auto result = GainDialog::showDialog();
+
+        if (result.has_value())
+        {
+            applyGainAdjustment(result.value());
+        }
+    }
+
+    /**
+     * Undo action for gain adjustments.
+     * Stores the before/after state and region information.
+     */
+    class GainUndoAction : public juce::UndoableAction
+    {
+    public:
+        GainUndoAction(AudioBufferManager& bufferManager,
+                      WaveformDisplay& waveform,
+                      AudioEngine& audioEngine,
+                      const juce::AudioBuffer<float>& beforeBuffer,
+                      int startSample,
+                      int numSamples,
+                      float gainDB,
+                      bool isSelection)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_beforeBuffer(),
+              m_startSample(startSample),
+              m_numSamples(numSamples),
+              m_gainDB(gainDB),
+              m_isSelection(isSelection)
+        {
+            // Store only the affected region to save memory
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+        }
+
+        bool perform() override
+        {
+            // Check playback state before applying gain
+            bool wasPlaying = m_audioEngine.isPlaying();
+            double positionBeforeEdit = m_audioEngine.getCurrentPosition();
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "GainUndoAction::perform - Before edit: playing=%s, position=%.3f",
+                wasPlaying ? "YES" : "NO", positionBeforeEdit));
+
+            // Apply gain to the current buffer
+            auto& buffer = m_bufferManager.getMutableBuffer();
+            AudioProcessor::applyGainToRange(buffer, m_gainDB, m_startSample, m_numSamples);
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            bool reloadSuccess = m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "GainUndoAction::perform - After reload: success=%s, playing=%s, position=%.3f",
+                reloadSuccess ? "YES" : "NO",
+                m_audioEngine.isPlaying() ? "YES" : "NO",
+                m_audioEngine.getCurrentPosition()));
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            // Log the operation
+            juce::String region = m_isSelection ? "selection" : "entire file";
+            juce::String message = juce::String::formatted("Applied %+.1f dB gain to %s",
+                                                            m_gainDB, region.toRawUTF8());
+            juce::Logger::writeToLog(message);
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the before state (only the affected region)
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Copy the affected region from before buffer back to original position
+            for (int ch = 0; ch < m_beforeBuffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, m_beforeBuffer, ch, 0, m_numSamples);
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_beforeBuffer;
+        int m_startSample;
+        int m_numSamples;
+        float m_gainDB;
+        bool m_isSelection;
+    };
 
 private:
     AudioEngine m_audioEngine;

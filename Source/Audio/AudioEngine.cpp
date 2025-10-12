@@ -29,22 +29,38 @@ AudioEngine::MemoryAudioSource::~MemoryAudioSource()
 {
 }
 
-void AudioEngine::MemoryAudioSource::setBuffer(const juce::AudioBuffer<float>& buffer, double sampleRate)
+void AudioEngine::MemoryAudioSource::setBuffer(const juce::AudioBuffer<float>& buffer, double sampleRate, bool preservePosition)
 {
     // IMPORTANT: Must be called from message thread only
     // This method allocates memory and should never be called from audio thread
     jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+
+    // Capture current position BEFORE acquiring lock (to minimize lock time)
+    juce::int64 savedPosition = preservePosition ? m_readPosition.load() : 0;
 
     juce::ScopedLock sl(m_lock);
 
     // Make a deep copy of the buffer (safe because we're on message thread)
     m_buffer.makeCopyOf(buffer);
     m_sampleRate = sampleRate;
-    m_readPosition.store(0);
+
+    // Only reset position if not preserving
+    // This allows real-time buffer updates during playback without position jumps
+    if (preservePosition)
+    {
+        // Clamp to new buffer length in case it got shorter
+        juce::int64 maxPosition = m_buffer.getNumSamples();
+        m_readPosition.store(juce::jmin(savedPosition, maxPosition));
+    }
+    else
+    {
+        m_readPosition.store(0);
+    }
 
     juce::Logger::writeToLog("MemoryAudioSource: Set buffer with " +
                              juce::String(m_buffer.getNumSamples()) + " samples, " +
-                             juce::String(m_buffer.getNumChannels()) + " channels");
+                             juce::String(m_buffer.getNumChannels()) + " channels" +
+                             (preservePosition ? " (position preserved at " + juce::String(savedPosition) + ")" : ""));
 }
 
 void AudioEngine::MemoryAudioSource::clear()
@@ -104,14 +120,34 @@ void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceCh
     }
 
     // Copy audio data from buffer to output
-    for (int ch = 0; ch < juce::jmin(m_buffer.getNumChannels(), bufferToFill.buffer->getNumChannels()); ++ch)
+    // IMPORTANT: Handle mono-to-stereo conversion professionally
+    // Mono files should play centered (equal on both channels), not just left channel
+    int sourceChannels = m_buffer.getNumChannels();
+    int outputChannels = bufferToFill.buffer->getNumChannels();
+
+    if (sourceChannels == 1 && outputChannels == 2)
     {
-        // Verify bounds before copying
+        // Mono to stereo: duplicate mono channel to both L and R for center-panned playback
+        // This matches professional audio editor behavior (Sound Forge, Pro Tools, etc.)
         jassert(static_cast<int>(startSample) + numSamples <= m_buffer.getNumSamples());
         jassert(bufferToFill.startSample + numSamples <= bufferToFill.buffer->getNumSamples());
 
-        bufferToFill.buffer->copyFrom(ch, bufferToFill.startSample,
-                                      m_buffer, ch, static_cast<int>(startSample), numSamples);
+        bufferToFill.buffer->copyFrom(0, bufferToFill.startSample,
+                                      m_buffer, 0, static_cast<int>(startSample), numSamples);
+        bufferToFill.buffer->copyFrom(1, bufferToFill.startSample,
+                                      m_buffer, 0, static_cast<int>(startSample), numSamples);
+    }
+    else
+    {
+        // Standard channel mapping: match channels one-to-one up to minimum of source/output
+        for (int ch = 0; ch < juce::jmin(sourceChannels, outputChannels); ++ch)
+        {
+            jassert(static_cast<int>(startSample) + numSamples <= m_buffer.getNumSamples());
+            jassert(bufferToFill.startSample + numSamples <= bufferToFill.buffer->getNumSamples());
+
+            bufferToFill.buffer->copyFrom(ch, bufferToFill.startSample,
+                                          m_buffer, ch, static_cast<int>(startSample), numSamples);
+        }
     }
 
     m_readPosition.store(startSample + numSamples);
@@ -389,6 +425,91 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
     return true;
 }
 
+bool AudioEngine::reloadBufferPreservingPlayback(const juce::AudioBuffer<float>& buffer, double sampleRate, int numChannels)
+{
+    // IMPORTANT: This method must only be called from the message thread
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+
+    // Validate buffer
+    if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+    {
+        juce::Logger::writeToLog("AudioEngine::reloadBufferPreservingPlayback - Cannot load from empty buffer");
+        return false;
+    }
+
+    // Validate channel count and sample rate
+    if (numChannels != buffer.getNumChannels())
+    {
+        juce::Logger::writeToLog("AudioEngine::reloadBufferPreservingPlayback - Channel count mismatch");
+        return false;
+    }
+
+    if (sampleRate <= 0.0 || sampleRate < 8000.0 || sampleRate > 192000.0)
+    {
+        juce::Logger::writeToLog("AudioEngine::reloadBufferPreservingPlayback - Invalid sample rate");
+        return false;
+    }
+
+    // Capture current playback state
+    bool wasPlaying = isPlaying();
+    double currentPosition = 0.0;
+
+    if (wasPlaying)
+    {
+        currentPosition = getCurrentPosition();
+        juce::Logger::writeToLog("Preserving playback at position: " + juce::String(currentPosition, 3) + " seconds");
+    }
+
+    // CRITICAL: Disconnect transport before updating buffer
+    // This flushes AudioTransportSource's internal buffers so it will read fresh audio
+    // after reconnecting. Without this, the transport continues playing cached audio
+    // from the old buffer even after we update it.
+    m_transportSource.setSource(nullptr);
+
+    // Update buffer in memory source (this is thread-safe with the lock in setBuffer)
+    // Don't pass preservePosition - we'll manage position via transport reconnect
+    if (m_bufferSource)
+    {
+        m_bufferSource->setBuffer(buffer, sampleRate, false);
+    }
+    else
+    {
+        juce::Logger::writeToLog("AudioEngine::reloadBufferPreservingPlayback - Buffer source is null");
+        return false;
+    }
+
+    // Reconnect transport to buffer source with updated audio
+    // This forces fresh audio to be read from the new buffer
+    m_transportSource.setSource(
+        m_bufferSource.get(),
+        0,                      // Buffer size to use (0 = default)
+        nullptr,                // No background thread needed for memory buffer
+        sampleRate,             // Sample rate
+        numChannels             // Number of channels
+    );
+
+    // Update stored properties
+    m_sampleRate.store(sampleRate);
+    m_numChannels.store(numChannels);
+    m_isPlayingFromBuffer.store(true);
+
+    // Restore playback state
+    if (wasPlaying)
+    {
+        // Clamp position to new buffer length in case it got shorter
+        double newLength = buffer.getNumSamples() / sampleRate;
+        currentPosition = juce::jmin(currentPosition, newLength);
+
+        // Set position and start playing
+        m_transportSource.setPosition(currentPosition);
+        m_transportSource.start();
+
+        juce::Logger::writeToLog("Playback restarted at position: " + juce::String(currentPosition, 3) + " seconds with updated audio");
+    }
+
+    return true;
+}
+
 void AudioEngine::closeAudioFile()
 {
     // Stop playback
@@ -613,6 +734,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // Get audio from the transport source
     juce::AudioSourceChannelInfo channelInfo(buffer);
     m_transportSource.getNextAudioBlock(channelInfo);
+
+    // CRITICAL: Handle mono-to-stereo conversion for file playback
+    // If the source is mono (1 channel) but output is stereo (2 channels),
+    // duplicate the mono channel to both L and R for center-panned playback.
+    // This matches professional audio editor behavior (Sound Forge, Pro Tools, etc.)
+    int sourceChannels = m_numChannels.load();
+    if (sourceChannels == 1 && numOutputChannels == 2)
+    {
+        // Duplicate mono (channel 0) to right channel (channel 1)
+        // The transport source already filled channel 0, now copy it to channel 1
+        buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+    }
 }
 
 //==============================================================================
