@@ -187,7 +187,8 @@ AudioEngine::AudioEngine()
       m_isLooping(false),
       m_sampleRate(0.0),
       m_numChannels(0),
-      m_bitDepth(0)
+      m_bitDepth(0),
+      m_levelMonitoringEnabled(false)
 {
     // Register basic audio formats (WAV for Phase 1)
     m_formatManager.registerBasicFormats();
@@ -201,6 +202,13 @@ AudioEngine::AudioEngine()
 
     // Create buffer source (initially empty)
     m_bufferSource = std::make_unique<MemoryAudioSource>();
+
+    // Initialize level monitoring state
+    for (int ch = 0; ch < MAX_CHANNELS; ++ch)
+    {
+        m_peakLevels[ch].store(0.0f);
+        m_rmsLevels[ch].store(0.0f);
+    }
 }
 
 AudioEngine::~AudioEngine()
@@ -559,6 +567,9 @@ void AudioEngine::play()
     // Don't reset position here - caller should use setPosition() before play()
     // if they want to start from a specific position
 
+    // Enable level monitoring for meters
+    setLevelMonitoringEnabled(true);
+
     m_transportSource.start();
     updatePlaybackState(PlaybackState::PLAYING);
 
@@ -588,6 +599,9 @@ void AudioEngine::stop()
     m_transportSource.stop();
     m_transportSource.setPosition(0.0);
     updatePlaybackState(PlaybackState::STOPPED);
+
+    // Disable level monitoring and reset meters
+    setLevelMonitoringEnabled(false);
 
     juce::Logger::writeToLog("Playback stopped");
 }
@@ -684,6 +698,44 @@ int AudioEngine::getBitDepth() const
 }
 
 //==============================================================================
+// Level Monitoring
+
+void AudioEngine::setLevelMonitoringEnabled(bool enabled)
+{
+    m_levelMonitoringEnabled.store(enabled);
+
+    // Reset levels when disabling
+    if (!enabled)
+    {
+        for (int ch = 0; ch < MAX_CHANNELS; ++ch)
+        {
+            m_peakLevels[ch].store(0.0f);
+            m_rmsLevels[ch].store(0.0f);
+        }
+    }
+
+    juce::Logger::writeToLog(enabled ? "Level monitoring enabled" : "Level monitoring disabled");
+}
+
+float AudioEngine::getPeakLevel(int channel) const
+{
+    if (channel >= 0 && channel < MAX_CHANNELS)
+    {
+        return m_peakLevels[channel].load();
+    }
+    return 0.0f;
+}
+
+float AudioEngine::getRMSLevel(int channel) const
+{
+    if (channel >= 0 && channel < MAX_CHANNELS)
+    {
+        return m_rmsLevels[channel].load();
+    }
+    return 0.0f;
+}
+
+//==============================================================================
 // ChangeListener Implementation
 
 void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* source)
@@ -745,6 +797,32 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // Duplicate mono (channel 0) to right channel (channel 1)
         // The transport source already filled channel 0, now copy it to channel 1
         buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+    }
+
+    // Calculate and store audio levels for meters (if monitoring is enabled)
+    if (m_levelMonitoringEnabled.load())
+    {
+        for (int ch = 0; ch < juce::jmin(numOutputChannels, MAX_CHANNELS); ++ch)
+        {
+            float peak = 0.0f;
+            float rmsSum = 0.0f;
+            const float* channelData = buffer.getReadPointer(ch);
+
+            // Calculate peak and RMS for this buffer
+            for (int i = 0; i < numSamples; ++i)
+            {
+                float sample = std::abs(channelData[i]);
+                peak = juce::jmax(peak, sample);
+                rmsSum += sample * sample;
+            }
+
+            // Store peak level (absolute max in buffer)
+            m_peakLevels[ch].store(peak);
+
+            // Store RMS level (root mean square)
+            float rms = (numSamples > 0) ? std::sqrt(rmsSum / numSamples) : 0.0f;
+            m_rmsLevels[ch].store(rms);
+        }
     }
 }
 

@@ -211,6 +211,35 @@ public:
     bool isLooping() const;
 
     //==============================================================================
+    // Level Monitoring
+
+    /**
+     * Enables or disables level monitoring for meters.
+     * When enabled, audio levels are calculated in the audio callback.
+     *
+     * @param enabled true to enable monitoring, false to disable
+     */
+    void setLevelMonitoringEnabled(bool enabled);
+
+    /**
+     * Gets the current peak level for a specific channel.
+     * Thread-safe, can be called from UI thread.
+     *
+     * @param channel Channel index (0 = left, 1 = right)
+     * @return Peak level in range [0.0, 1.0+]
+     */
+    float getPeakLevel(int channel) const;
+
+    /**
+     * Gets the current RMS level for a specific channel.
+     * Thread-safe, can be called from UI thread.
+     *
+     * @param channel Channel index (0 = left, 1 = right)
+     * @return RMS level in range [0.0, 1.0+]
+     */
+    float getRMSLevel(int channel) const;
+
+    //==============================================================================
     // Audio Properties
 
     /**
@@ -321,6 +350,12 @@ private:
     std::atomic<double> m_sampleRate;
     std::atomic<int> m_numChannels;
     std::atomic<int> m_bitDepth;
+
+    // Level monitoring state
+    std::atomic<bool> m_levelMonitoringEnabled;
+    static constexpr int MAX_CHANNELS = 2;  // Stereo support for MVP
+    std::atomic<float> m_peakLevels[MAX_CHANNELS];
+    std::atomic<float> m_rmsLevels[MAX_CHANNELS];
 
     //==============================================================================
     // Private Methods

@@ -31,15 +31,20 @@
 
 ## Features
 
-### ✅ Current Status (Phase 2 - 25% Complete)
+### ✅ Current Status (Phase 2 - 40% Complete)
 
-**Phase 2 Started**: Professional audio features being implemented. Gain adjustment with real-time playback is complete!
+**Phase 2 in Progress**: Professional audio features being implemented. Gain adjustment and level meters are complete!
 
-> **✅ Recent Addition**: Gain/volume adjustment with real-time playback updates is now complete (2025-10-12)! Users can adjust volume in real-time while audio is playing. Additional essential features (level meters, normalization, fade in/out) continue to be implemented in Phase 2. Currently suitable for basic audio editing with volume control.
+> **✅ Recent Additions**:
+> - **Gain/Volume adjustment** with real-time playback updates (2025-10-12) ✅
+> - **Level meters** with peak, RMS, and clipping detection (2025-10-12) ✅
+>
+> Users can now monitor audio levels in real-time during playback with professional peak/RMS meters and clipping indicators. Additional essential features (normalization, fade in/out) continue to be implemented in Phase 2. Currently suitable for basic audio editing with volume control and level monitoring.
 
 **What Works Right Now** ✅:
 - ✅ **Complete editing workflow**: Cut, copy, paste, delete - fully functional
-- ✅ **Gain/Volume adjustment**: ±1dB increments (Cmd+Up/Down) with real-time playback updates 🆕
+- ✅ **Gain/Volume adjustment**: ±1dB increments (Cmd+Up/Down) with real-time playback updates
+- ✅ **Level meters**: Real-time peak, RMS, and clipping detection during playback 🆕
 - ✅ **Instant waveform updates**: <10ms redraw speed (matching Sound Forge/Pro Tools)
 - ✅ **Edit playback**: Hear your edits immediately through buffer playback
 - ✅ **Save/Save As**: Production-ready file writing with comprehensive error handling
