@@ -45,6 +45,8 @@ target_sources(WaveEdit
         Source/UI/WaveformDisplay.h
         Source/UI/TransportControls.cpp
         Source/UI/TransportControls.h
+        Source/UI/Meters.cpp
+        Source/UI/Meters.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
 )

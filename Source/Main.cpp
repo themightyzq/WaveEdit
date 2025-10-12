@@ -32,6 +32,7 @@
 #include "Utils/UndoableEdits.h"
 #include "UI/WaveformDisplay.h"
 #include "UI/TransportControls.h"
+#include "UI/Meters.h"
 #include "UI/GainDialog.h"
 
 //==============================================================================
@@ -234,6 +235,7 @@ public:
         addAndMakeVisible(m_waveformDisplay);
         addAndMakeVisible(m_transportControls);
         addAndMakeVisible(m_selectionInfo);
+        addAndMakeVisible(m_meters);
 
         // Add keyboard focus to handle shortcuts
         setWantsKeyboardFocus(true);
@@ -673,6 +675,9 @@ public:
         // Selection info panel (30px height)
         m_selectionInfo.setBounds(bounds.removeFromTop(30));
 
+        // Reserve space for meters on the right (120px width)
+        m_meters.setBounds(bounds.removeFromRight(120));
+
         // Waveform display takes remaining space
         m_waveformDisplay.setBounds(bounds);
     }
@@ -684,6 +689,12 @@ public:
         {
             m_waveformDisplay.setPlaybackPosition(m_audioEngine.getCurrentPosition());
             repaint(); // Update status bar
+
+            // Update level meters with audio levels
+            m_meters.setPeakLevel(0, m_audioEngine.getPeakLevel(0));
+            m_meters.setPeakLevel(1, m_audioEngine.getPeakLevel(1));
+            m_meters.setRMSLevel(0, m_audioEngine.getRMSLevel(0));
+            m_meters.setRMSLevel(1, m_audioEngine.getRMSLevel(1));
         }
     }
 
@@ -2019,6 +2030,7 @@ private:
     WaveformDisplay m_waveformDisplay;
     TransportControls m_transportControls;
     SelectionInfoPanel m_selectionInfo;
+    Meters m_meters;
 
     bool m_isModified;
 
