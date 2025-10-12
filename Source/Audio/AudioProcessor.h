@@ -46,13 +46,29 @@ public:
      *
      * @param buffer Audio buffer to process (modified in place)
      * @param gainDB Gain in decibels (negative = quieter, positive = louder)
-     *               Range: -60dB to +20dB (silent to 10x amplification)
+     *               No hard limits (warns on extreme values < -100dB or > +40dB)
      * @return true if successful, false if buffer is invalid
      *
      * Thread Safety: Safe to call from any thread (no shared state)
      * Performance: O(n) where n = buffer size * channels
      */
     static bool applyGain(juce::AudioBuffer<float>& buffer, float gainDB);
+
+    /**
+     * Applies gain adjustment to a specific range in an audio buffer.
+     * Converts dB to linear gain and applies to specified sample range across all channels.
+     *
+     * @param buffer Audio buffer to process (modified in place)
+     * @param gainDB Gain in decibels (negative = quieter, positive = louder)
+     * @param startSample Starting sample index (0-based)
+     * @param numSamples Number of samples to process (or -1 for rest of buffer)
+     * @return true if successful, false if buffer is invalid or range is out of bounds
+     *
+     * Thread Safety: Safe to call from any thread (no shared state)
+     * Performance: O(n) where n = numSamples * channels
+     */
+    static bool applyGainToRange(juce::AudioBuffer<float>& buffer, float gainDB,
+                                 int startSample, int numSamples = -1);
 
     /**
      * Normalizes audio buffer to a target peak level.

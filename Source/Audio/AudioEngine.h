@@ -99,6 +99,18 @@ public:
     bool loadFromBuffer(const juce::AudioBuffer<float>& buffer, double sampleRate, int numChannels);
 
     /**
+     * Reloads audio buffer while preserving playback state.
+     * If currently playing, playback continues from the same position without interruption.
+     * Used for real-time edits like gain adjustments during playback.
+     *
+     * @param buffer The updated audio buffer
+     * @param sampleRate Sample rate of the audio data
+     * @param numChannels Number of audio channels
+     * @return true if reload succeeded, false otherwise
+     */
+    bool reloadBufferPreservingPlayback(const juce::AudioBuffer<float>& buffer, double sampleRate, int numChannels);
+
+    /**
      * Closes the currently loaded audio file and releases resources.
      */
     void closeAudioFile();
@@ -267,7 +279,7 @@ private:
         MemoryAudioSource();
         ~MemoryAudioSource() override;
 
-        void setBuffer(const juce::AudioBuffer<float>& buffer, double sampleRate);
+        void setBuffer(const juce::AudioBuffer<float>& buffer, double sampleRate, bool preservePosition = false);
         void clear();
 
         // PositionableAudioSource implementation

@@ -112,6 +112,12 @@ public:
     const juce::AudioBuffer<float>& getBuffer() const { return m_buffer; }
 
     /**
+     * Gets mutable access to the audio buffer for in-place operations.
+     * WARNING: Use carefully and ensure thread safety.
+     */
+    juce::AudioBuffer<float>& getMutableBuffer() { return m_buffer; }
+
+    /**
      * Gets a copy of audio data for a specific range.
      *
      * @param startSample Start sample (inclusive)

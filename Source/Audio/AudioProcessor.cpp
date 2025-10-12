@@ -27,13 +27,12 @@ bool AudioProcessor::applyGain(juce::AudioBuffer<float>& buffer, float gainDB)
         return false;
     }
 
-    // Validate gain range (-60dB to +20dB is reasonable)
-    if (gainDB < -60.0f || gainDB > 20.0f)
+    // Warn on extreme values but don't limit (per user requirement: unlimited range)
+    if (gainDB < -100.0f || gainDB > 40.0f)
     {
         juce::Logger::writeToLog(juce::String::formatted(
-            "AudioProcessor::applyGain - Gain out of range: %.2f dB (valid: -60 to +20)",
-            gainDB));
-        return false;
+            "AudioProcessor::applyGain - WARNING: Extreme gain value: %.2f dB", gainDB));
+        // Continue processing - don't return false
     }
 
     // Convert dB to linear gain
@@ -48,6 +47,56 @@ bool AudioProcessor::applyGain(juce::AudioBuffer<float>& buffer, float gainDB)
     juce::Logger::writeToLog(juce::String::formatted(
         "AudioProcessor::applyGain - Applied %.2f dB gain (%.2fx linear) to %d channels",
         gainDB, linearGain, buffer.getNumChannels()));
+
+    return true;
+}
+
+bool AudioProcessor::applyGainToRange(juce::AudioBuffer<float>& buffer, float gainDB,
+                                      int startSample, int numSamples)
+{
+    // Validate buffer
+    if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+    {
+        juce::Logger::writeToLog("AudioProcessor::applyGainToRange - Empty buffer");
+        return false;
+    }
+
+    // Determine actual range
+    int actualNumSamples = numSamples;
+    if (actualNumSamples < 0 || startSample + actualNumSamples > buffer.getNumSamples())
+    {
+        actualNumSamples = buffer.getNumSamples() - startSample;
+    }
+
+    // Validate range
+    if (startSample < 0 || startSample >= buffer.getNumSamples() || actualNumSamples <= 0)
+    {
+        juce::Logger::writeToLog(juce::String::formatted(
+            "AudioProcessor::applyGainToRange - Invalid range: start=%d, num=%d, bufferSize=%d",
+            startSample, actualNumSamples, buffer.getNumSamples()));
+        return false;
+    }
+
+    // Warn on extreme values but don't limit (per user requirement: unlimited range)
+    if (gainDB < -100.0f || gainDB > 40.0f)
+    {
+        juce::Logger::writeToLog(juce::String::formatted(
+            "AudioProcessor::applyGainToRange - WARNING: Extreme gain value: %.2f dB", gainDB));
+        // Continue processing - don't return false
+    }
+
+    // Convert dB to linear gain
+    float linearGain = dBToLinear(gainDB);
+
+    // Apply gain to specified range in all channels
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        buffer.applyGain(ch, startSample, actualNumSamples, linearGain);
+    }
+
+    juce::Logger::writeToLog(juce::String::formatted(
+        "AudioProcessor::applyGainToRange - Applied %.2f dB gain (%.2fx linear) to samples %d-%d (%d channels)",
+        gainDB, linearGain, startSample, startSample + actualNumSamples - 1, buffer.getNumChannels()));
 
     return true;
 }
