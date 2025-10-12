@@ -2,8 +2,9 @@
 
 **Last Updated**: 2025-10-12 (LEVEL METERS COMPLETE - MVP FUNCTIONAL)
 **Current Phase**: Phase 2 (Professional Features) - **40% COMPLETE**
-**Status**: ✅ **Gain ✅ | Level Meters ✅ | Ready for Normalization**
-**Target**: Implement critical musician features (gain ✅, meters ✅, normalize, fade)
+**Status**: ✅ **Gain ✅ | Level Meters ✅ | Ready for Process Menu**
+**Next Priority**: Create Process menu infrastructure for DSP operations
+**Target**: Implement critical musician features (gain ✅, meters ✅, process menu → normalize, fade)
 
 ---
 
@@ -603,10 +604,16 @@ Click [Snap: 100ms ▼] →
   - ✅ Thread-safe implementation (audio thread → UI thread)
   - ⚠️ MVP functional, aesthetic polish deferred to Phase 3
   - **Actual time**: 4 hours
-- ⏭️ **Normalization** ⭐ **NEXT PRIORITY** - Maximize audio levels
+- ⏭️ **Process menu infrastructure** ⭐ **NEXT PRIORITY** - Professional menu organization
+  - Add "Process" menu to menu bar (foundational for all DSP operations)
+  - Add "Gain..." menu item opening existing GainDialog
+  - Sets groundwork for normalize, fade in/out, and future DSP features
+  - **Estimated time**: 1-2 hours (menu structure + gain integration)
+- ⏭️ **Normalization** ⭐ **HIGH PRIORITY** - Maximize audio levels
   - Basic mastering requirement
   - Match loudness between clips
   - Infrastructure ready: `AudioProcessor::normalize()` method exists
+  - Add to Process menu with keyboard shortcut
   - **Estimated time**: 2-3 hours (UI integration only)
 - ⏭️ **Fade in/out** ⭐ **HIGH PRIORITY** - Smooth transitions
   - Prevents clicks/pops at edit boundaries
@@ -614,8 +621,9 @@ Click [Snap: 100ms ▼] →
   - Infrastructure ready: `AudioProcessor::fadeIn/fadeOut()` methods exist
   - **Estimated time**: 2-3 hours (UI integration only)
 
-**Progress**: 2/4 complete ✅ (40% done - MVP functional meters)
-**Remaining time for musician-essential features**: **4-6 hours**
+**Progress**: 2/5 complete ✅ (40% done - Gain ✅, Meters ✅ MVP)
+**Next**: Process menu infrastructure (1-2 hours) - Then normalization & fade
+**Remaining time for musician-essential features**: **5-8 hours**
 
 ### High Priority UI/UX Enhancements:
 - ⏭️ **Preferences page** (navigation, snap, zoom settings)
@@ -688,19 +696,28 @@ Click [Snap: 100ms ▼] →
    - ✅ Clipping detection (red indicator for >±1.0)
    - ✅ Visual feedback component in UI
    - ⚠️ Aesthetic polish deferred to Phase 3
-3. **Implement normalization** ⭐ **START HERE** (2-3 hours)
+3. **Create Process menu and add Gain menu item** ⭐ **START HERE** (1-2 hours)
+   - Add "Process" menu to menu bar (between Edit and Help)
+   - Add "Gain..." menu item with keyboard shortcut (Cmd+G)
+   - Opens GainDialog for precise gain adjustment (existing dialog)
+   - Follows Sound Forge Pro menu organization
+   - Sets groundwork for normalization, fade in/out, and other DSP operations
+   - **Rationale**: Professional audio editors group all audio processing in dedicated menu
+   - **Note**: Keep existing Cmd+Up/Down shortcuts for quick ±1dB adjustments
+4. **Implement normalization** (2-3 hours)
    - Use existing `AudioProcessor::normalize()` method
-   - Add keyboard shortcut and menu item
+   - Add to Process menu with keyboard shortcut
    - Create undo action
-4. **Implement fade in/out** (2-3 hours)
+5. **Implement fade in/out** (2-3 hours)
    - Use existing `AudioProcessor::fadeIn/fadeOut()` methods
-   - Add keyboard shortcuts
+   - Add to Process menu with keyboard shortcuts
    - Create undo actions
 
 ### Short Term (Next 1-2 Weeks):
-1. **Complete remaining critical musician features** (8-12 hours):
+1. **Complete remaining critical musician features** (5-8 hours):
    - ✅ Gain/Volume adjustment - COMPLETE
-   - Level meters (next up)
+   - ✅ Level meters - MVP COMPLETE
+   - Process menu infrastructure (next up) - Sets groundwork
    - Normalization
    - Fade in/out
 2. **Then implement UI/UX enhancements**:
