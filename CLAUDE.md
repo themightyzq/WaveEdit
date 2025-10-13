@@ -461,6 +461,9 @@ void mouseDown(const MouseEvent& event) {
 - `Ctrl+R`: Record (Phase 2)
 
 **Processing**
+- `Shift+G`: Gain adjustment dialog (Sound Forge compatible)
+- `Shift+Up`: Increase gain by 1 dB (quick adjustment)
+- `Shift+Down`: Decrease gain by 1 dB (quick adjustment)
 - `Ctrl+N`: Normalize (conflict with New - resolve in Phase 2)
 - `Ctrl+Shift+I`: Fade In
 - `Ctrl+Shift+O`: Fade Out
