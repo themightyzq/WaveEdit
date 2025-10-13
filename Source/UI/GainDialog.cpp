@@ -40,12 +40,18 @@ GainDialog::GainDialog()
 
 std::optional<float> GainDialog::showDialog()
 {
-    // MVP: Use a simple placeholder that returns std::nullopt for now
-    // The keyboard shortcuts (Shift+Up/Down) are the primary interface
-    // The menu command will be properly implemented with async dialog in Phase 2
-
-    // For now, just log that the feature is not yet implemented
-    juce::Logger::writeToLog("GainDialog::showDialog - Menu command not yet implemented, use Shift+Up/Down instead");
+    // Show helpful message directing users to working shortcuts
+    // Full interactive dialog with custom input will be implemented in Phase 2
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::AlertWindow::InfoIcon,
+        "Gain Adjustment",
+        "Quick Gain Shortcuts:\n\n"
+        "  • Shift+Up: Increase gain by 1 dB\n"
+        "  • Shift+Down: Decrease gain by 1 dB\n\n"
+        "These shortcuts work on the entire file or selected region.\n\n"
+        "Full gain dialog with custom values coming in Phase 2.",
+        "OK"
+    );
 
     return std::nullopt;
 }

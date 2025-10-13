@@ -754,7 +754,10 @@ public:
             // Processing commands
             CommandIDs::processGain,
             CommandIDs::processIncreaseGain,
-            CommandIDs::processDecreaseGain
+            CommandIDs::processDecreaseGain,
+            CommandIDs::processNormalize,
+            CommandIDs::processFadeIn,
+            CommandIDs::processFadeOut
         };
 
         commands.addArray(ids, juce::numElementsInArray(ids));
@@ -998,6 +1001,7 @@ public:
             // Processing operations
             case CommandIDs::processGain:
                 result.setInfo("Gain...", "Apply precise gain adjustment", "Process", 0);
+                result.addDefaultKeypress('g', juce::ModifierKeys::shiftModifier);
                 result.setActive(m_audioEngine.isFileLoaded());
                 break;
 
@@ -1011,6 +1015,24 @@ public:
                 result.setInfo("Decrease Gain", "Decrease gain by 1 dB", "Process", 0);
                 result.addDefaultKeypress(juce::KeyPress::downKey, juce::ModifierKeys::shiftModifier);
                 result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::processNormalize:
+                result.setInfo("Normalize...", "Normalize audio to peak level", "Process", 0);
+                result.addDefaultKeypress('n', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded());
+                break;
+
+            case CommandIDs::processFadeIn:
+                result.setInfo("Fade In", "Apply linear fade in to selection", "Process", 0);
+                result.addDefaultKeypress('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                break;
+
+            case CommandIDs::processFadeOut:
+                result.setInfo("Fade Out", "Apply linear fade out to selection", "Process", 0);
+                result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
                 break;
 
             default:
@@ -1225,6 +1247,18 @@ public:
                 applyGainAdjustment(-1.0f);
                 return true;
 
+            case CommandIDs::processNormalize:
+                applyNormalize();
+                return true;
+
+            case CommandIDs::processFadeIn:
+                applyFadeIn();
+                return true;
+
+            case CommandIDs::processFadeOut:
+                applyFadeOut();
+                return true;
+
             default:
                 return false;
         }
@@ -1289,11 +1323,11 @@ public:
         else if (menuIndex == 2) // Process menu
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::processGain);
-            // Future Phase 2 features (placeholders for now)
-            // menu.addSeparator();
-            // menu.addCommandItem(&m_commandManager, CommandIDs::processNormalize);
-            // menu.addCommandItem(&m_commandManager, CommandIDs::processFadeIn);
-            // menu.addCommandItem(&m_commandManager, CommandIDs::processFadeOut);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::processNormalize);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::processFadeIn);
+            menu.addCommandItem(&m_commandManager, CommandIDs::processFadeOut);
         }
         else if (menuIndex == 3) // Playback menu
         {
@@ -1921,6 +1955,89 @@ public:
         }
     }
 
+    //==============================================================================
+    // Normalization helpers
+
+    /**
+     * Apply normalization to entire file or selection.
+     * Normalizes audio to 0dB peak level (or selection).
+     * Creates undo action for the normalization.
+     */
+    void applyNormalize()
+    {
+        if (!m_audioEngine.isFileLoaded())
+        {
+            return;
+        }
+
+        // Get current buffer
+        auto& buffer = m_audioBufferManager.getMutableBuffer();
+        if (buffer.getNumSamples() == 0)
+        {
+            return;
+        }
+
+        // Determine region to process
+        int startSample = 0;
+        int numSamples = buffer.getNumSamples();
+        bool isSelection = false;
+
+        if (m_waveformDisplay.hasSelection())
+        {
+            // Normalize selection only
+            startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
+            int endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+            numSamples = endSample - startSample;
+            isSelection = true;
+        }
+
+        // Create a temporary buffer with just the region to normalize
+        juce::AudioBuffer<float> regionBuffer;
+        regionBuffer.setSize(buffer.getNumChannels(), numSamples);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            regionBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+        }
+
+        // Store before state for undo
+        juce::AudioBuffer<float> beforeBuffer;
+        beforeBuffer.makeCopyOf(regionBuffer, true);
+
+        // Calculate peak level before normalization for status message
+        float peakBefore = AudioProcessor::getPeakLevelDB(regionBuffer);
+
+        // Start a new transaction
+        juce::String transactionName = juce::String::formatted(
+            "Normalize (%s)",
+            isSelection ? "selection" : "entire file"
+        );
+        m_undoManager.beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will apply the normalization)
+        auto* undoAction = new NormalizeUndoAction(
+            m_audioBufferManager,
+            m_waveformDisplay,
+            m_audioEngine,
+            beforeBuffer,
+            startSample,
+            numSamples,
+            isSelection
+        );
+
+        // perform() calls NormalizeUndoAction::perform() which normalizes and updates display
+        m_undoManager.perform(undoAction);
+
+        // Mark as modified
+        m_isModified = true;
+
+        // Log the operation
+        juce::String region = isSelection ? "selection" : "entire file";
+        juce::String message = juce::String::formatted(
+            "Normalized %s (peak: %.2f dB → 0.0 dB, gain: %+.2f dB)",
+            region.toRawUTF8(), peakBefore, -peakBefore);
+        juce::Logger::writeToLog(message);
+    }
+
     /**
      * Undo action for gain adjustments.
      * Stores the before/after state and region information.
@@ -2018,6 +2135,451 @@ public:
         int m_numSamples;
         float m_gainDB;
         bool m_isSelection;
+    };
+
+    //==============================================================================
+    // Fade In/Out helpers
+
+    /**
+     * Apply fade in to selection.
+     * Creates undo action for the fade in operation.
+     */
+    void applyFadeIn()
+    {
+        if (!m_audioEngine.isFileLoaded())
+        {
+            return;
+        }
+
+        // Fade in requires a selection
+        if (!m_waveformDisplay.hasSelection())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Fade In",
+                "Please select a region to apply fade in.",
+                "OK"
+            );
+            return;
+        }
+
+        // Get current buffer
+        auto& buffer = m_audioBufferManager.getMutableBuffer();
+        if (buffer.getNumSamples() == 0)
+        {
+            return;
+        }
+
+        // Get selection bounds
+        int startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
+        int endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+        int numSamples = endSample - startSample;
+
+        if (numSamples <= 0)
+        {
+            return;
+        }
+
+        // Create a temporary buffer with just the region to fade
+        juce::AudioBuffer<float> regionBuffer;
+        regionBuffer.setSize(buffer.getNumChannels(), numSamples);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            regionBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+        }
+
+        // Store before state for undo
+        juce::AudioBuffer<float> beforeBuffer;
+        beforeBuffer.makeCopyOf(regionBuffer, true);
+
+        // Start a new transaction
+        juce::String transactionName = "Fade In (selection)";
+        m_undoManager.beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will apply the fade)
+        auto* undoAction = new FadeInUndoAction(
+            m_audioBufferManager,
+            m_waveformDisplay,
+            m_audioEngine,
+            beforeBuffer,
+            startSample,
+            numSamples
+        );
+
+        // perform() calls FadeInUndoAction::perform() which applies fade and updates display
+        m_undoManager.perform(undoAction);
+
+        // Mark as modified
+        m_isModified = true;
+
+        // Log the operation
+        juce::String message = juce::String::formatted(
+            "Applied fade in to selection (%d samples, %.3f seconds)",
+            numSamples, (double)numSamples / m_audioBufferManager.getSampleRate());
+        juce::Logger::writeToLog(message);
+    }
+
+    /**
+     * Apply fade out to selection.
+     * Creates undo action for the fade out operation.
+     */
+    void applyFadeOut()
+    {
+        if (!m_audioEngine.isFileLoaded())
+        {
+            return;
+        }
+
+        // Fade out requires a selection
+        if (!m_waveformDisplay.hasSelection())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Fade Out",
+                "Please select a region to apply fade out.",
+                "OK"
+            );
+            return;
+        }
+
+        // Get current buffer
+        auto& buffer = m_audioBufferManager.getMutableBuffer();
+        if (buffer.getNumSamples() == 0)
+        {
+            return;
+        }
+
+        // Get selection bounds
+        int startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
+        int endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+        int numSamples = endSample - startSample;
+
+        if (numSamples <= 0)
+        {
+            return;
+        }
+
+        // Create a temporary buffer with just the region to fade
+        juce::AudioBuffer<float> regionBuffer;
+        regionBuffer.setSize(buffer.getNumChannels(), numSamples);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            regionBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+        }
+
+        // Store before state for undo
+        juce::AudioBuffer<float> beforeBuffer;
+        beforeBuffer.makeCopyOf(regionBuffer, true);
+
+        // Start a new transaction
+        juce::String transactionName = "Fade Out (selection)";
+        m_undoManager.beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will apply the fade)
+        auto* undoAction = new FadeOutUndoAction(
+            m_audioBufferManager,
+            m_waveformDisplay,
+            m_audioEngine,
+            beforeBuffer,
+            startSample,
+            numSamples
+        );
+
+        // perform() calls FadeOutUndoAction::perform() which applies fade and updates display
+        m_undoManager.perform(undoAction);
+
+        // Mark as modified
+        m_isModified = true;
+
+        // Log the operation
+        juce::String message = juce::String::formatted(
+            "Applied fade out to selection (%d samples, %.3f seconds)",
+            numSamples, (double)numSamples / m_audioBufferManager.getSampleRate());
+        juce::Logger::writeToLog(message);
+    }
+
+    /**
+     * Undo action for normalization.
+     * Stores the before state and region information.
+     */
+    class NormalizeUndoAction : public juce::UndoableAction
+    {
+    public:
+        NormalizeUndoAction(AudioBufferManager& bufferManager,
+                           WaveformDisplay& waveform,
+                           AudioEngine& audioEngine,
+                           const juce::AudioBuffer<float>& beforeBuffer,
+                           int startSample,
+                           int numSamples,
+                           bool isSelection)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_beforeBuffer(),
+              m_startSample(startSample),
+              m_numSamples(numSamples),
+              m_isSelection(isSelection)
+        {
+            // Store only the affected region to save memory
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+        }
+
+        bool perform() override
+        {
+            // Get the buffer and create a region buffer for normalization
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Extract the region to normalize
+            juce::AudioBuffer<float> regionBuffer;
+            regionBuffer.setSize(buffer.getNumChannels(), m_numSamples);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                regionBuffer.copyFrom(ch, 0, buffer, ch, m_startSample, m_numSamples);
+            }
+
+            // Apply normalization to the region
+            AudioProcessor::normalize(regionBuffer, 0.0f); // 0dB target
+
+            // Copy normalized region back to main buffer
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, regionBuffer, ch, 0, m_numSamples);
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            // Log the operation
+            juce::String region = m_isSelection ? "selection" : "entire file";
+            juce::String message = juce::String::formatted("Normalized %s to 0dB peak",
+                                                            region.toRawUTF8());
+            juce::Logger::writeToLog(message);
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the before state (only the affected region)
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Copy the affected region from before buffer back to original position
+            for (int ch = 0; ch < m_beforeBuffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, m_beforeBuffer, ch, 0, m_numSamples);
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_beforeBuffer;
+        int m_startSample;
+        int m_numSamples;
+        bool m_isSelection;
+    };
+
+    /**
+     * Undo action for fade in.
+     * Stores the before state and region information.
+     */
+    class FadeInUndoAction : public juce::UndoableAction
+    {
+    public:
+        FadeInUndoAction(AudioBufferManager& bufferManager,
+                        WaveformDisplay& waveform,
+                        AudioEngine& audioEngine,
+                        const juce::AudioBuffer<float>& beforeBuffer,
+                        int startSample,
+                        int numSamples)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_beforeBuffer(),
+              m_startSample(startSample),
+              m_numSamples(numSamples)
+        {
+            // Store only the affected region to save memory
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+        }
+
+        bool perform() override
+        {
+            // Get the buffer and create a region buffer for fade in
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Extract the region to fade
+            juce::AudioBuffer<float> regionBuffer;
+            regionBuffer.setSize(buffer.getNumChannels(), m_numSamples);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                regionBuffer.copyFrom(ch, 0, buffer, ch, m_startSample, m_numSamples);
+            }
+
+            // Apply fade in to the region
+            AudioProcessor::fadeIn(regionBuffer, m_numSamples);
+
+            // Copy faded region back to main buffer
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, regionBuffer, ch, 0, m_numSamples);
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            // Log the operation
+            juce::String message = "Applied fade in to selection";
+            juce::Logger::writeToLog(message);
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the before state (only the affected region)
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Copy the affected region from before buffer back to original position
+            for (int ch = 0; ch < m_beforeBuffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, m_beforeBuffer, ch, 0, m_numSamples);
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_beforeBuffer;
+        int m_startSample;
+        int m_numSamples;
+    };
+
+    /**
+     * Undo action for fade out.
+     * Stores the before state and region information.
+     */
+    class FadeOutUndoAction : public juce::UndoableAction
+    {
+    public:
+        FadeOutUndoAction(AudioBufferManager& bufferManager,
+                         WaveformDisplay& waveform,
+                         AudioEngine& audioEngine,
+                         const juce::AudioBuffer<float>& beforeBuffer,
+                         int startSample,
+                         int numSamples)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_beforeBuffer(),
+              m_startSample(startSample),
+              m_numSamples(numSamples)
+        {
+            // Store only the affected region to save memory
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+        }
+
+        bool perform() override
+        {
+            // Get the buffer and create a region buffer for fade out
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Extract the region to fade
+            juce::AudioBuffer<float> regionBuffer;
+            regionBuffer.setSize(buffer.getNumChannels(), m_numSamples);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                regionBuffer.copyFrom(ch, 0, buffer, ch, m_startSample, m_numSamples);
+            }
+
+            // Apply fade out to the region
+            AudioProcessor::fadeOut(regionBuffer, m_numSamples);
+
+            // Copy faded region back to main buffer
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, regionBuffer, ch, 0, m_numSamples);
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            // Log the operation
+            juce::String message = "Applied fade out to selection";
+            juce::Logger::writeToLog(message);
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the before state (only the affected region)
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Copy the affected region from before buffer back to original position
+            for (int ch = 0; ch < m_beforeBuffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, m_beforeBuffer, ch, 0, m_numSamples);
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_beforeBuffer;
+        int m_startSample;
+        int m_numSamples;
     };
 
 private:
