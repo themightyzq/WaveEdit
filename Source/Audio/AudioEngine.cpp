@@ -799,8 +799,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
     }
 
-    // Calculate and store audio levels for meters (if monitoring is enabled)
-    if (m_levelMonitoringEnabled.load())
+    // Calculate and store audio levels for meters (if monitoring is enabled AND playing)
+    if (m_levelMonitoringEnabled.load() && m_transportSource.isPlaying())
     {
         for (int ch = 0; ch < juce::jmin(numOutputChannels, MAX_CHANNELS); ++ch)
         {
@@ -822,6 +822,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             // Store RMS level (root mean square)
             float rms = (numSamples > 0) ? std::sqrt(rmsSum / numSamples) : 0.0f;
             m_rmsLevels[ch].store(rms);
+        }
+    }
+    else if (m_levelMonitoringEnabled.load())
+    {
+        // When not playing, reset levels to zero
+        for (int ch = 0; ch < MAX_CHANNELS; ++ch)
+        {
+            m_peakLevels[ch].store(0.0f);
+            m_rmsLevels[ch].store(0.0f);
         }
     }
 }
