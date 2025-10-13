@@ -696,6 +696,14 @@ public:
             m_meters.setRMSLevel(0, m_audioEngine.getRMSLevel(0));
             m_meters.setRMSLevel(1, m_audioEngine.getRMSLevel(1));
         }
+        else
+        {
+            // When not playing, reset meters to zero (silence)
+            m_meters.setPeakLevel(0, 0.0f);
+            m_meters.setPeakLevel(1, 0.0f);
+            m_meters.setRMSLevel(0, 0.0f);
+            m_meters.setRMSLevel(1, 0.0f);
+        }
     }
 
     //==============================================================================
