@@ -16,6 +16,7 @@
 #include "Meters.h"
 
 Meters::Meters()
+    : m_audioEngine(nullptr)
 {
     // Initialize atomic values and state arrays
     for (int ch = 0; ch < MAX_CHANNELS; ++ch)
@@ -81,6 +82,14 @@ void Meters::reset()
     }
 
     repaint();
+}
+
+void Meters::setAudioEngine(AudioEngine* audioEngine)
+{
+    m_audioEngine = audioEngine;
+
+    // Reset meters when changing audio source
+    reset();
 }
 
 //==============================================================================

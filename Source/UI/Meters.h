@@ -19,6 +19,9 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <atomic>
 
+// Forward declarations
+class AudioEngine;
+
 /**
  * Professional audio level meters component with peak, RMS, and clipping detection.
  *
@@ -67,6 +70,14 @@ public:
      */
     void reset();
 
+    /**
+     * Sets the audio engine to monitor for level updates.
+     * Pass nullptr to disconnect from audio monitoring.
+     *
+     * @param audioEngine The audio engine to monitor, or nullptr
+     */
+    void setAudioEngine(AudioEngine* audioEngine);
+
     //==============================================================================
     // Component Overrides
 
@@ -90,6 +101,9 @@ private:
 
     int m_peakHoldTime[MAX_CHANNELS];                   // Peak hold timer (in timer callbacks)
     int m_clippingTime[MAX_CHANNELS];                   // Clipping indicator hold timer
+
+    // Audio source (not owned)
+    AudioEngine* m_audioEngine;
 
     //==============================================================================
     // Visual Constants

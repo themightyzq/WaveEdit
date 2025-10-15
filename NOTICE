@@ -1,0 +1,55 @@
+WaveEdit by ZQ SFX
+Copyright © 2025 ZQ SFX
+Licensed under GPL v3
+
+================================================================================
+
+This software is a professional audio editor built with JUCE framework.
+
+================================================================================
+
+JUCE Framework
+Version: 7.x
+Copyright: © 2022 Raw Material Software Limited
+License: GPL v3 / Commercial (we use GPL v3)
+Homepage: https://juce.com/
+
+================================================================================
+
+THIRD-PARTY LIBRARIES
+
+As of Phase 2, WaveEdit uses only the JUCE framework and standard C++ libraries.
+When additional open source libraries are integrated (Phase 3+), they will be
+documented here with full attribution including:
+- Library name and version
+- Copyright holder
+- License type
+- Homepage/repository URL
+
+For full license texts, see the Licenses/ directory.
+
+================================================================================
+
+FUTURE LIBRARY INTEGRATIONS (Phase 4+)
+
+The following libraries are planned for integration with proper attribution:
+
+- libsamplerate (BSD-2-Clause) - Sample rate conversion
+- FFTW or Kiss FFT (GPL v2+ / BSD-3-Clause) - FFT for spectrum analyzer
+- libebur128 (MIT) - EBU R128 loudness metering
+- RNNoise (BSD-3-Clause) - Noise suppression
+- Rubber Band Library (GPL v2+) - Pitch/time stretching
+- LAME (LGPL) - MP3 encoding
+- libFLAC (BSD-3-Clause) - FLAC codec
+- libvorbis (BSD-3-Clause) - Ogg Vorbis codec
+- Opus (BSD-3-Clause) - Opus codec
+- VST3 SDK (GPL v3) - VST3 plugin hosting
+
+All licenses are compatible with GPL v3.
+
+================================================================================
+
+For bug reports, feature requests, or contributions, please visit:
+https://github.com/zqsfx/waveedit (update when repository is created)
+
+================================================================================

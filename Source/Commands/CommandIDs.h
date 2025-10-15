@@ -91,6 +91,21 @@ namespace CommandIDs
 
         // Help Operations (0x9000 - 0x90FF)
         helpAbout       = 0x9000,
-        helpShortcuts   = 0x9001
+        helpShortcuts   = 0x9001,
+
+        // Tab Operations (0xA000 - 0xA0FF) - Phase 3 Multi-file support
+        tabClose        = 0xA000,  // Cmd+W - Close current tab
+        tabCloseAll     = 0xA001,  // Cmd+Shift+W - Close all tabs
+        tabNext         = 0xA002,  // Cmd+Tab or Cmd+Option+Right - Next tab
+        tabPrevious     = 0xA003,  // Cmd+Shift+Tab or Cmd+Option+Left - Previous tab
+        tabSelect1      = 0xA004,  // Cmd+1 - Jump to tab 1
+        tabSelect2      = 0xA005,  // Cmd+2 - Jump to tab 2
+        tabSelect3      = 0xA006,  // Cmd+3 - Jump to tab 3
+        tabSelect4      = 0xA007,  // Cmd+4 - Jump to tab 4
+        tabSelect5      = 0xA008,  // Cmd+5 - Jump to tab 5
+        tabSelect6      = 0xA009,  // Cmd+6 - Jump to tab 6
+        tabSelect7      = 0xA00A,  // Cmd+7 - Jump to tab 7
+        tabSelect8      = 0xA00B,  // Cmd+8 - Jump to tab 8
+        tabSelect9      = 0xA00C   // Cmd+9 - Jump to tab 9
     };
 }

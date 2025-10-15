@@ -34,6 +34,10 @@
 #include "UI/TransportControls.h"
 #include "UI/Meters.h"
 #include "UI/GainDialog.h"
+#include "UI/ErrorDialog.h"
+#include "UI/TabComponent.h"
+#include "Utils/Document.h"
+#include "Utils/DocumentManager.h"
 
 //==============================================================================
 /**
@@ -53,7 +57,7 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff2a2a2a));
+g.fillAll(juce::Colour(0xff2a2a2a));
 
         g.setColour(juce::Colour(0xff3a3a3a));
         g.drawRect(getLocalBounds(), 1);
@@ -210,32 +214,31 @@ class MainComponent : public juce::Component,
                       public juce::FileDragAndDropTarget,
                       public juce::ApplicationCommandTarget,
                       public juce::MenuBarModel,
-                      public juce::Timer
+                      public juce::Timer,
+                      public DocumentManager::Listener
 {
 public:
     MainComponent()
-        : m_waveformDisplay(m_audioEngine.getFormatManager()),
-          m_transportControls(m_audioEngine, m_waveformDisplay),
-          m_selectionInfo(m_waveformDisplay, m_audioBufferManager),
-          m_isModified(false)
+        : m_tabComponent(m_documentManager)
     {
         setSize(1200, 750);
 
-        // Initialize audio engine
-        if (!m_audioEngine.initializeAudioDevice())
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Audio Device Error",
-                "Failed to initialize audio device. Audio playback will not be available.",
-                "OK");
-        }
+        // Listen to document manager events
+        m_documentManager.addListener(this);
 
-        // Add UI components
-        addAndMakeVisible(m_waveformDisplay);
-        addAndMakeVisible(m_transportControls);
-        addAndMakeVisible(m_selectionInfo);
-        addAndMakeVisible(m_meters);
+        // Setup tab component
+        addAndMakeVisible(m_tabComponent);
+
+        // Setup no-file label
+        m_noFileLabel.setText("No file open", juce::dontSendNotification);
+        m_noFileLabel.setFont(juce::Font(20.0f));
+        m_noFileLabel.setJustificationType(juce::Justification::centred);
+        m_noFileLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+        addAndMakeVisible(m_noFileLabel);
+
+        // Create container for current document components
+        m_currentDocumentContainer = std::make_unique<juce::Component>();
+        addAndMakeVisible(*m_currentDocumentContainer);
 
         // Add keyboard focus to handle shortcuts
         setWantsKeyboardFocus(true);
@@ -246,23 +249,97 @@ public:
         // Add keyboard mappings
         addKeyListener(m_commandManager.getKeyMappings());
 
-        // Configure undo manager with transaction limits
-        // Limit to 100 undo actions, with up to 100 transactions kept
-        // This allows 100 individual undo steps for micro-level editing (e.g., gain adjustments)
-        // minTransactions set to 90 to allow some headroom for complex multi-unit transactions
-        m_undoManager.setMaxNumberOfStoredUnits(100, 90);
-
         // Start timer to update playback position
         startTimer(50); // Update every 50ms for smooth 60fps cursor
 
         // Clean up recent files on startup
         Settings::getInstance().cleanupRecentFiles();
+
+        // Update component visibility based on whether we have documents
+        updateComponentVisibility();
     }
 
     ~MainComponent() override
     {
-        m_audioEngine.closeAudioFile();
+        // Clear all undo histories before closing documents (prevents dangling references)
+        for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
+        {
+            if (auto* doc = m_documentManager.getDocument(i))
+            {
+                doc->getUndoManager().clearUndoHistory();
+                doc->getAudioEngine().stop();
+            }
+        }
+
         stopTimer();
+        m_documentManager.removeListener(this);
+    }
+
+    //==============================================================================
+    // DocumentManager::Listener methods
+
+    void currentDocumentChanged(Document* newDocument) override
+    {
+        // Stop audio in previous document (not the new one!)
+        if (m_previousDocument && m_previousDocument != newDocument)
+        {
+            m_previousDocument->getAudioEngine().stop();
+        }
+
+        // Update tracking
+        m_previousDocument = newDocument;
+
+        // Update window title to reflect new document
+        updateWindowTitle();
+
+        // Update UI to show new document
+        updateComponentVisibility();
+
+        // Repaint to update display
+        repaint();
+    }
+
+    void documentAdded(Document* document, int index) override
+    {
+        // Update tab component to show new tab
+        updateComponentVisibility();
+    }
+
+    void documentRemoved(Document* document, int index) override
+    {
+        // Update tab component to remove tab
+        updateComponentVisibility();
+    }
+
+    //==============================================================================
+    // UI Component Management
+
+    /**
+     * Updates visibility and arrangement of components based on current document state.
+     */
+    void updateComponentVisibility()
+    {
+        auto* doc = getCurrentDocument();
+        bool hasDoc = (doc != nullptr);
+
+        // Show/hide tab bar and no-file label
+        m_tabComponent.setVisible(hasDoc);
+        m_noFileLabel.setVisible(!hasDoc);
+        m_currentDocumentContainer->setVisible(hasDoc);
+
+        // Clear current container
+        m_currentDocumentContainer->removeAllChildren();
+
+        if (hasDoc)
+        {
+            // Add current document's components to container
+            m_currentDocumentContainer->addAndMakeVisible(doc->getWaveformDisplay());
+            m_currentDocumentContainer->addAndMakeVisible(doc->getTransportControls());
+            // Note: SelectionInfoPanel and Meters are part of the document's components
+        }
+
+        // Trigger layout update
+        resized();
     }
 
     //==============================================================================
@@ -273,12 +350,13 @@ public:
      */
     void selectAll()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
-        m_waveformDisplay.setSelection(0.0, m_audioBufferManager.getLengthInSeconds());
+        doc->getWaveformDisplay().setSelection(0.0, doc->getBufferManager().getLengthInSeconds());
         juce::Logger::writeToLog("Selected all audio");
     }
 
@@ -290,13 +368,14 @@ public:
      */
     bool validateSelection() const
     {
-        if (!m_waveformDisplay.hasSelection())
+        auto* doc = getCurrentDocument();
+        if (!doc || !doc->getWaveformDisplay().hasSelection())
         {
             return false;
         }
 
-        auto selectionStart = m_waveformDisplay.getSelectionStart();
-        auto selectionEnd = m_waveformDisplay.getSelectionEnd();
+        auto selectionStart = doc->getWaveformDisplay().getSelectionStart();
+        auto selectionEnd = doc->getWaveformDisplay().getSelectionEnd();
 
         // Check for negative times
         if (selectionStart < 0.0 || selectionEnd < 0.0)
@@ -308,7 +387,7 @@ public:
         }
 
         // Check for times beyond duration
-        double maxDuration = m_audioBufferManager.getLengthInSeconds();
+        double maxDuration = doc->getBufferManager().getLengthInSeconds();
         if (selectionStart > maxDuration || selectionEnd > maxDuration)
         {
             juce::Logger::writeToLog(juce::String::formatted(
@@ -334,29 +413,35 @@ public:
      */
     void copySelection()
     {
-        // CRITICAL FIX (2025-10-07): Validate selection before converting to samples
-        if (!validateSelection() || !m_audioBufferManager.hasAudioData())
+        auto* doc = getCurrentDocument();
+        if (!doc)
         {
             return;
         }
 
-        auto selectionStart = m_waveformDisplay.getSelectionStart();
-        auto selectionEnd = m_waveformDisplay.getSelectionEnd();
+        // CRITICAL FIX (2025-10-07): Validate selection before converting to samples
+        if (!validateSelection() || !doc->getBufferManager().hasAudioData())
+        {
+            return;
+        }
+
+        auto selectionStart = doc->getWaveformDisplay().getSelectionStart();
+        auto selectionEnd = doc->getWaveformDisplay().getSelectionEnd();
 
         // Convert time to samples (now safe - selection is validated)
-        auto startSample = m_audioBufferManager.timeToSample(selectionStart);
-        auto endSample = m_audioBufferManager.timeToSample(selectionEnd);
+        auto startSample = doc->getBufferManager().timeToSample(selectionStart);
+        auto endSample = doc->getBufferManager().timeToSample(selectionEnd);
 
         // CRITICAL FIX (2025-10-08): getAudioRange expects COUNT, not end position!
         // Calculate number of samples in selection
         auto numSamples = endSample - startSample;
 
         // Get the audio data for the selection
-        auto audioRange = m_audioBufferManager.getAudioRange(startSample, numSamples);
+        auto audioRange = doc->getBufferManager().getAudioRange(startSample, numSamples);
 
         if (audioRange.getNumSamples() > 0)
         {
-            AudioClipboard::getInstance().copyAudio(audioRange, m_audioBufferManager.getSampleRate());
+            AudioClipboard::getInstance().copyAudio(audioRange, doc->getBufferManager().getSampleRate());
 
             juce::Logger::writeToLog(juce::String::formatted(
                 "Copied %.2f seconds to clipboard", selectionEnd - selectionStart));
@@ -369,8 +454,14 @@ public:
      */
     void cutSelection()
     {
+        auto* doc = getCurrentDocument();
+        if (!doc)
+        {
+            return;
+        }
+
         // CRITICAL FIX (2025-10-07): Validate selection before operations
-        if (!validateSelection() || !m_audioBufferManager.hasAudioData())
+        if (!validateSelection() || !doc->getBufferManager().hasAudioData())
         {
             return;
         }
@@ -389,30 +480,31 @@ public:
      */
     void pasteAtCursor()
     {
-        if (!AudioClipboard::getInstance().hasAudio() || !m_audioBufferManager.hasAudioData())
+        auto* doc = getCurrentDocument();
+        if (!doc || !AudioClipboard::getInstance().hasAudio() || !doc->getBufferManager().hasAudioData())
         {
             return;
         }
 
         // CRITICAL FIX (BLOCKER #3): Begin new transaction for each edit operation
-        m_undoManager.beginNewTransaction("Paste");
+        doc->getUndoManager().beginNewTransaction("Paste");
 
         // Use edit cursor position if available, otherwise use playback position
         double cursorPos;
-        if (m_waveformDisplay.hasEditCursor())
+        if (doc->getWaveformDisplay().hasEditCursor())
         {
-            cursorPos = m_waveformDisplay.getEditCursorPosition();
+            cursorPos = doc->getWaveformDisplay().getEditCursorPosition();
         }
         else
         {
-            cursorPos = m_waveformDisplay.getPlaybackPosition();
+            cursorPos = doc->getWaveformDisplay().getPlaybackPosition();
         }
 
-        auto insertSample = m_audioBufferManager.timeToSample(cursorPos);
+        auto insertSample = doc->getBufferManager().timeToSample(cursorPos);
 
         // Check for sample rate mismatch
         auto clipboardSampleRate = AudioClipboard::getInstance().getSampleRate();
-        auto currentSampleRate = m_audioBufferManager.getSampleRate();
+        auto currentSampleRate = doc->getBufferManager().getSampleRate();
 
         if (std::abs(clipboardSampleRate - currentSampleRate) > 0.01)
         {
@@ -439,26 +531,26 @@ public:
         if (clipboardAudio.getNumSamples() > 0)
         {
             // If there's a selection, replace it; otherwise insert at cursor
-            if (m_waveformDisplay.hasSelection() && validateSelection())
+            if (doc->getWaveformDisplay().hasSelection() && validateSelection())
             {
-                auto selectionStart = m_waveformDisplay.getSelectionStart();
-                auto selectionEnd = m_waveformDisplay.getSelectionEnd();
+                auto selectionStart = doc->getWaveformDisplay().getSelectionStart();
+                auto selectionEnd = doc->getWaveformDisplay().getSelectionEnd();
                 // CRITICAL FIX (2025-10-07): Convert to samples (now safe - validated above)
-                auto startSample = m_audioBufferManager.timeToSample(selectionStart);
-                auto endSample = m_audioBufferManager.timeToSample(selectionEnd);
+                auto startSample = doc->getBufferManager().timeToSample(selectionStart);
+                auto endSample = doc->getBufferManager().timeToSample(selectionEnd);
 
                 // Create undoable replace action
                 auto replaceAction = new ReplaceAction(
-                    m_audioBufferManager,
-                    m_audioEngine,
-                    m_waveformDisplay,
+                    doc->getBufferManager(),
+                    doc->getAudioEngine(),
+                    doc->getWaveformDisplay(),
                     startSample,
                     endSample - startSample,
                     clipboardAudio
                 );
 
                 // Perform the replace and add to undo manager
-                m_undoManager.perform(replaceAction);
+                doc->getUndoManager().perform(replaceAction);
 
                 juce::Logger::writeToLog(juce::String::formatted(
                     "Pasted %.2f seconds from clipboard, replacing selection (undoable)",
@@ -468,15 +560,15 @@ public:
             {
                 // Create undoable insert action
                 auto insertAction = new InsertAction(
-                    m_audioBufferManager,
-                    m_audioEngine,
-                    m_waveformDisplay,
+                    doc->getBufferManager(),
+                    doc->getAudioEngine(),
+                    doc->getWaveformDisplay(),
                     insertSample,
                     clipboardAudio
                 );
 
                 // Perform the insert and add to undo manager
-                m_undoManager.perform(insertAction);
+                doc->getUndoManager().perform(insertAction);
 
                 juce::Logger::writeToLog(juce::String::formatted(
                     "Pasted %.2f seconds from clipboard (undoable)",
@@ -484,10 +576,10 @@ public:
             }
 
             // Mark as modified
-            m_isModified = true;
+            doc->setModified(true);
 
             // Clear selection after paste
-            m_waveformDisplay.clearSelection();
+            doc->getWaveformDisplay().clearSelection();
 
             // NOTE: Waveform display already updated by undo action's updatePlaybackAndDisplay()
             // Removed redundant reloadFromBuffer() call for performance
@@ -501,44 +593,47 @@ public:
      */
     void deleteSelection()
     {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
         // CRITICAL FIX (2025-10-07): Validate selection before converting to samples
-        if (!validateSelection() || !m_audioBufferManager.hasAudioData())
+        if (!validateSelection() || !doc->getBufferManager().hasAudioData())
         {
             return;
         }
 
         // CRITICAL FIX (BLOCKER #3): Begin new transaction for each edit operation
-        m_undoManager.beginNewTransaction("Delete");
+        doc->getUndoManager().beginNewTransaction("Delete");
 
-        auto selectionStart = m_waveformDisplay.getSelectionStart();
-        auto selectionEnd = m_waveformDisplay.getSelectionEnd();
+        auto selectionStart = doc->getWaveformDisplay().getSelectionStart();
+        auto selectionEnd = doc->getWaveformDisplay().getSelectionEnd();
 
         // Convert time to samples (now safe - selection is validated)
-        auto startSample = m_audioBufferManager.timeToSample(selectionStart);
-        auto endSample = m_audioBufferManager.timeToSample(selectionEnd);
+        auto startSample = doc->getBufferManager().timeToSample(selectionStart);
+        auto endSample = doc->getBufferManager().timeToSample(selectionEnd);
 
         // Create undoable delete action
         auto deleteAction = new DeleteAction(
-            m_audioBufferManager,
-            m_audioEngine,
-            m_waveformDisplay,
+            doc->getBufferManager(),
+            doc->getAudioEngine(),
+            doc->getWaveformDisplay(),
             startSample,
             endSample - startSample
         );
 
         // Perform the delete and add to undo manager
-        m_undoManager.perform(deleteAction);
+        doc->getUndoManager().perform(deleteAction);
 
         // Mark as modified
-        m_isModified = true;
+        doc->setModified(true);
 
         // Clear selection after delete
-        m_waveformDisplay.clearSelection();
+        doc->getWaveformDisplay().clearSelection();
 
         // CRITICAL FIX (Phase 1.4 - Edit Cursor Preservation):
         // Set edit cursor at the deletion point for professional workflow
         // This enables cursor preservation during subsequent operations
-        m_waveformDisplay.setEditCursor(selectionStart);
+        doc->getWaveformDisplay().setEditCursor(selectionStart);
 
         // NOTE: Waveform display already updated by undo action's updatePlaybackAndDisplay()
         // Removed redundant reloadFromBuffer() call for performance
@@ -552,6 +647,11 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        auto* doc = getCurrentDocument();
+
+        // CRITICAL FIX: Always draw background and status bar, regardless of document state
+        // The UI chrome must always be visible
+
         // Background
         g.fillAll(juce::Colour(0xff1a1a1a));
 
@@ -567,16 +667,16 @@ public:
         g.setColour(juce::Colour(0xff3a3a3a));
         g.drawLine(statusBar.getX(), statusBar.getY(), statusBar.getRight(), statusBar.getY(), 1.0f);
 
-        // Status bar text
-        if (m_audioEngine.isFileLoaded())
+        // Status bar text - adapt based on document state
+        if (doc && doc->getAudioEngine().isFileLoaded())
         {
             g.setColour(juce::Colours::white);
             g.setFont(12.0f);
 
             auto leftSection = statusBar.reduced(10, 0);
 
-            juce::String fileDisplayName = m_audioEngine.getCurrentFile().getFileName();
-            if (m_isModified)
+            juce::String fileDisplayName = doc->getAudioEngine().getCurrentFile().getFileName();
+            if (doc->isModified())
             {
                 fileDisplayName += " *";
             }
@@ -584,11 +684,11 @@ public:
             juce::String info = juce::String::formatted(
                 "%s | %.1f kHz | %d ch | %d bit | %.2f / %.2f s",
                 fileDisplayName.toRawUTF8(),
-                m_audioEngine.getSampleRate() / 1000.0,
-                m_audioEngine.getNumChannels(),
-                m_audioEngine.getBitDepth(),
-                m_audioEngine.getCurrentPosition(),
-                m_audioEngine.getTotalLength());
+                doc->getAudioEngine().getSampleRate() / 1000.0,
+                doc->getAudioEngine().getNumChannels(),
+                doc->getAudioEngine().getBitDepth(),
+                doc->getAudioEngine().getCurrentPosition(),
+                doc->getAudioEngine().getTotalLength());
 
             g.drawText(info, leftSection, juce::Justification::centredLeft, true);
 
@@ -611,9 +711,9 @@ public:
             // Two-tier snap mode indicator
             auto snapSection = statusBar.removeFromRight(200);
 
-            auto unitType = m_waveformDisplay.getSnapUnit();
-            int increment = m_waveformDisplay.getSnapIncrement();
-            bool zeroCrossing = m_waveformDisplay.isZeroCrossingEnabled();
+            auto unitType = doc->getWaveformDisplay().getSnapUnit();
+            int increment = doc->getWaveformDisplay().getSnapIncrement();
+            bool zeroCrossing = doc->getWaveformDisplay().isZeroCrossingEnabled();
 
             // Build snap text with unit and increment
             juce::String snapText;
@@ -645,7 +745,7 @@ public:
             auto rightSection = statusBar.removeFromRight(100);
             g.setColour(juce::Colours::white);
             juce::String stateText;
-            switch (m_audioEngine.getPlaybackState())
+            switch (doc->getAudioEngine().getPlaybackState())
             {
                 case PlaybackState::STOPPED: stateText = "Stopped"; break;
                 case PlaybackState::PLAYING: stateText = "Playing"; break;
@@ -669,40 +769,66 @@ public:
         // Reserve space for status bar at bottom
         bounds.removeFromBottom(25);
 
-        // Transport controls at top (80px height)
-        m_transportControls.setBounds(bounds.removeFromTop(80));
+        if (hasCurrentDocument())
+        {
+            // Tab bar at top (32px height)
+            m_tabComponent.setBounds(bounds.removeFromTop(32));
 
-        // Selection info panel (30px height)
-        m_selectionInfo.setBounds(bounds.removeFromTop(30));
+            // Current document container takes remaining space
+            m_currentDocumentContainer->setBounds(bounds);
 
-        // Reserve space for meters on the right (120px width)
-        m_meters.setBounds(bounds.removeFromRight(120));
+            // Layout document components within container
+            if (auto* doc = getCurrentDocument())
+            {
+                auto containerBounds = m_currentDocumentContainer->getLocalBounds();
 
-        // Waveform display takes remaining space
-        m_waveformDisplay.setBounds(bounds);
+                // Transport controls at top (80px height)
+                doc->getTransportControls().setBounds(containerBounds.removeFromTop(80));
+
+                // Waveform display takes remaining space
+                // TODO: Add SelectionInfoPanel and Meters when Document class is updated
+                doc->getWaveformDisplay().setBounds(containerBounds);
+            }
+        }
+        else
+        {
+            // Center the no-file label
+            m_noFileLabel.setBounds(bounds);
+        }
     }
 
     void timerCallback() override
     {
-        // Update waveform display with current playback position
-        if (m_audioEngine.isPlaying())
+        auto* doc = getCurrentDocument();
+        if (!doc)
         {
-            m_waveformDisplay.setPlaybackPosition(m_audioEngine.getCurrentPosition());
+            updateWindowTitle(); // Update window title even when no document
+            repaint(); // Update status bar only
+            return;
+        }
+
+        // Update window title (checks if modified state changed)
+        updateWindowTitle();
+
+        // Update waveform display with current playback position
+        if (doc->getAudioEngine().isPlaying())
+        {
+            doc->getWaveformDisplay().setPlaybackPosition(doc->getAudioEngine().getCurrentPosition());
             repaint(); // Update status bar
 
-            // Update level meters with audio levels
-            m_meters.setPeakLevel(0, m_audioEngine.getPeakLevel(0));
-            m_meters.setPeakLevel(1, m_audioEngine.getPeakLevel(1));
-            m_meters.setRMSLevel(0, m_audioEngine.getRMSLevel(0));
-            m_meters.setRMSLevel(1, m_audioEngine.getRMSLevel(1));
+            // TODO: Update level meters when Document class includes Meters
+            // meters.setPeakLevel(0, doc->getAudioEngine().getPeakLevel(0));
+            // meters.setPeakLevel(1, doc->getAudioEngine().getPeakLevel(1));
+            // meters.setRMSLevel(0, doc->getAudioEngine().getRMSLevel(0));
+            // meters.setRMSLevel(1, doc->getAudioEngine().getRMSLevel(1));
         }
         else
         {
-            // When not playing, reset meters to zero (silence)
-            m_meters.setPeakLevel(0, 0.0f);
-            m_meters.setPeakLevel(1, 0.0f);
-            m_meters.setRMSLevel(0, 0.0f);
-            m_meters.setRMSLevel(1, 0.0f);
+            // TODO: Reset meters when Document class includes Meters
+            // meters.setPeakLevel(0, 0.0f);
+            // meters.setPeakLevel(1, 0.0f);
+            // meters.setRMSLevel(0, 0.0f);
+            // meters.setRMSLevel(1, 0.0f);
         }
     }
 
@@ -773,274 +899,281 @@ public:
 
     void getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result) override
     {
+        auto* doc = getCurrentDocument();
+
+        // CRITICAL FIX: Always set command info (text, shortcuts) so menus and shortcuts work
+        // Use setActive() to disable document-dependent commands when no document exists
+
         switch (commandID)
         {
             case CommandIDs::fileOpen:
                 result.setInfo("Open...", "Open an audio file", "File", 0);
                 result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier);
+                // Always available (no document required)
                 break;
 
             case CommandIDs::fileSave:
                 result.setInfo("Save", "Save the current file", "File", 0);
                 result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && m_isModified);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->isModified());
                 break;
 
             case CommandIDs::fileSaveAs:
                 result.setInfo("Save As...", "Save the current file with a new name", "File", 0);
                 result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::fileClose:
                 result.setInfo("Close", "Close the current file", "File", 0);
                 result.addDefaultKeypress('w', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::fileExit:
                 result.setInfo("Exit", "Exit the application", "File", 0);
                 result.addDefaultKeypress('q', juce::ModifierKeys::commandModifier);
+                // Always available (no document required)
                 break;
 
             case CommandIDs::editUndo:
                 result.setInfo("Undo", "Undo the last operation", "Edit", 0);
                 result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier);
-                result.setActive(m_undoManager.canUndo());
+                result.setActive(doc && doc->getUndoManager().canUndo());
                 break;
 
             case CommandIDs::editRedo:
                 result.setInfo("Redo", "Redo the last undone operation", "Edit", 0);
                 result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
-                result.setActive(m_undoManager.canRedo());
+                result.setActive(doc && doc->getUndoManager().canRedo());
                 break;
 
             case CommandIDs::editSelectAll:
                 result.setInfo("Select All", "Select all audio", "Edit", 0);
                 result.addDefaultKeypress('a', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::editCut:
                 result.setInfo("Cut", "Cut selection to clipboard", "Edit", 0);
                 result.addDefaultKeypress('x', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::editCopy:
                 result.setInfo("Copy", "Copy selection to clipboard", "Edit", 0);
                 result.addDefaultKeypress('c', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::editPaste:
                 result.setInfo("Paste", "Paste from clipboard", "Edit", 0);
                 result.addDefaultKeypress('v', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && AudioClipboard::getInstance().hasAudio());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && AudioClipboard::getInstance().hasAudio());
                 break;
 
             case CommandIDs::editDelete:
                 result.setInfo("Delete", "Delete selection", "Edit", 0);
                 result.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::playbackPlay:
                 result.setInfo("Play/Stop", "Play or stop playback", "Playback", 0);
                 result.addDefaultKeypress(juce::KeyPress::spaceKey, 0);
                 result.addDefaultKeypress(juce::KeyPress::F12Key, 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::playbackPause:
                 result.setInfo("Pause", "Pause or resume playback", "Playback", 0);
                 result.addDefaultKeypress(juce::KeyPress::returnKey, 0);
                 result.addDefaultKeypress(juce::KeyPress::F12Key, juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::playbackStop:
                 result.setInfo("Stop", "Stop playback", "Playback", 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::playbackLoop:
                 result.setInfo("Loop", "Toggle loop mode", "Playback", 0);
                 result.addDefaultKeypress('q', 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // View/Zoom commands
             case CommandIDs::viewZoomIn:
                 result.setInfo("Zoom In", "Zoom in 2x", "View", 0);
                 result.addDefaultKeypress('=', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::viewZoomOut:
                 result.setInfo("Zoom Out", "Zoom out 2x", "View", 0);
                 result.addDefaultKeypress('-', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::viewZoomFit:
                 result.setInfo("Zoom to Fit", "Fit entire waveform to view", "View", 0);
                 result.addDefaultKeypress('0', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::viewZoomSelection:
                 result.setInfo("Zoom to Selection", "Zoom to current selection", "View", 0);
                 result.addDefaultKeypress('e', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::viewZoomOneToOne:
                 result.setInfo("Zoom 1:1", "Zoom to 1:1 sample resolution", "View", 0);
                 result.addDefaultKeypress('1', juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // Navigation commands
             case CommandIDs::navigateLeft:
                 result.setInfo("Navigate Left", "Move cursor left by snap increment", "Navigation", 0);
                 result.addDefaultKeypress(juce::KeyPress::leftKey, 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateRight:
                 result.setInfo("Navigate Right", "Move cursor right by snap increment", "Navigation", 0);
                 result.addDefaultKeypress(juce::KeyPress::rightKey, 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateStart:
                 result.setInfo("Jump to Start", "Jump to start of file", "Navigation", 0);
                 result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateEnd:
                 result.setInfo("Jump to End", "Jump to end of file", "Navigation", 0);
                 result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigatePageLeft:
                 result.setInfo("Page Left", "Move cursor left by page increment", "Navigation", 0);
                 result.addDefaultKeypress(juce::KeyPress::pageUpKey, 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigatePageRight:
                 result.setInfo("Page Right", "Move cursor right by page increment", "Navigation", 0);
                 result.addDefaultKeypress(juce::KeyPress::pageDownKey, 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateHomeVisible:
                 result.setInfo("Jump to Visible Start", "Jump to first visible sample", "Navigation", 0);
                 result.addDefaultKeypress(juce::KeyPress::homeKey, 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateEndVisible:
                 result.setInfo("Jump to Visible End", "Jump to last visible sample", "Navigation", 0);
                 result.addDefaultKeypress(juce::KeyPress::endKey, 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateCenterView:
                 result.setInfo("Center View", "Center view on cursor", "Navigation", 0);
                 result.addDefaultKeypress('.', 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // Selection extension commands
             case CommandIDs::selectExtendLeft:
                 result.setInfo("Extend Selection Left", "Extend selection left by increment", "Selection", 0);
                 result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendRight:
                 result.setInfo("Extend Selection Right", "Extend selection right by increment", "Selection", 0);
                 result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendStart:
                 result.setInfo("Extend to Visible Start", "Extend selection to visible start", "Selection", 0);
                 result.addDefaultKeypress(juce::KeyPress::homeKey, juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendEnd:
                 result.setInfo("Extend to Visible End", "Extend selection to visible end", "Selection", 0);
                 result.addDefaultKeypress(juce::KeyPress::endKey, juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendPageLeft:
                 result.setInfo("Extend Selection Page Left", "Extend selection left by page increment", "Selection", 0);
                 result.addDefaultKeypress(juce::KeyPress::pageUpKey, juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendPageRight:
                 result.setInfo("Extend Selection Page Right", "Extend selection right by page increment", "Selection", 0);
                 result.addDefaultKeypress(juce::KeyPress::pageDownKey, juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // Snap commands
             case CommandIDs::snapCycleMode:
                 result.setInfo("Cycle Snap Mode", "Cycle through snap modes", "Snap", 0);
                 result.addDefaultKeypress('g', 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::snapToggleZeroCrossing:
                 result.setInfo("Toggle Zero Crossing Snap", "Quick toggle zero crossing snap", "Snap", 0);
                 result.addDefaultKeypress('z', 0);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // Processing operations
             case CommandIDs::processGain:
                 result.setInfo("Gain...", "Apply precise gain adjustment", "Process", 0);
                 result.addDefaultKeypress('g', juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::processIncreaseGain:
                 result.setInfo("Increase Gain", "Increase gain by 1 dB", "Process", 0);
                 result.addDefaultKeypress(juce::KeyPress::upKey, juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::processDecreaseGain:
                 result.setInfo("Decrease Gain", "Decrease gain by 1 dB", "Process", 0);
                 result.addDefaultKeypress(juce::KeyPress::downKey, juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::processNormalize:
                 result.setInfo("Normalize...", "Normalize audio to peak level", "Process", 0);
                 result.addDefaultKeypress('n', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::processFadeIn:
                 result.setInfo("Fade In", "Apply linear fade in to selection", "Process", 0);
                 result.addDefaultKeypress('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::processFadeOut:
                 result.setInfo("Fade Out", "Apply linear fade out to selection", "Process", 0);
                 result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
-                result.setActive(m_audioEngine.isFileLoaded() && m_waveformDisplay.hasSelection());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             default:
@@ -1050,220 +1183,267 @@ public:
 
     bool perform(const InvocationInfo& info) override
     {
+        auto* doc = getCurrentDocument();
+
+        // CRITICAL FIX: Don't early return - allow document-independent commands
+        // Commands like File → Open and File → Exit must work without a document
+
         switch (info.commandID)
         {
             case CommandIDs::fileOpen:
                 openFile();
                 return true;
 
-            case CommandIDs::fileSave:
-                saveFile();
-                return true;
-
-            case CommandIDs::fileSaveAs:
-                saveFileAs();
-                return true;
-
-            case CommandIDs::fileClose:
-                closeFile();
-                return true;
-
             case CommandIDs::fileExit:
                 juce::JUCEApplication::getInstance()->systemRequestedQuit();
                 return true;
 
+            case CommandIDs::fileSave:
+                if (!doc) return false;
+                saveFile();
+                return true;
+
+            case CommandIDs::fileSaveAs:
+                if (!doc) return false;
+                saveFileAs();
+                return true;
+
+            case CommandIDs::fileClose:
+                if (!doc) return false;
+                closeFile();
+                return true;
+
             case CommandIDs::editUndo:
-                if (m_undoManager.canUndo())
+                if (!doc) return false;
+                if (doc->getUndoManager().canUndo())
                 {
                     juce::Logger::writeToLog(juce::String::formatted(
                         "Undo: %s (stack depth before: %d)",
-                        m_undoManager.getUndoDescription().toRawUTF8(),
-                        m_undoManager.getNumberOfUnitsTakenUpByStoredCommands()));
+                        doc->getUndoManager().getUndoDescription().toRawUTF8(),
+                        doc->getUndoManager().getNumberOfUnitsTakenUpByStoredCommands()));
 
-                    m_undoManager.undo();
-                    m_isModified = true;
+                    doc->getUndoManager().undo();
+                    doc->setModified(true);
 
                     juce::Logger::writeToLog(juce::String::formatted(
                         "After undo - Can undo: %s, Can redo: %s",
-                        m_undoManager.canUndo() ? "yes" : "no",
-                        m_undoManager.canRedo() ? "yes" : "no"));
+                        doc->getUndoManager().canUndo() ? "yes" : "no",
+                        doc->getUndoManager().canRedo() ? "yes" : "no"));
 
                     repaint();
                 }
                 return true;
 
             case CommandIDs::editRedo:
-                if (m_undoManager.canRedo())
+                if (!doc) return false;
+                if (doc->getUndoManager().canRedo())
                 {
                     juce::Logger::writeToLog(juce::String::formatted(
                         "Redo: %s (stack depth before: %d)",
-                        m_undoManager.getRedoDescription().toRawUTF8(),
-                        m_undoManager.getNumberOfUnitsTakenUpByStoredCommands()));
+                        doc->getUndoManager().getRedoDescription().toRawUTF8(),
+                        doc->getUndoManager().getNumberOfUnitsTakenUpByStoredCommands()));
 
-                    m_undoManager.redo();
-                    m_isModified = true;
+                    doc->getUndoManager().redo();
+                    doc->setModified(true);
 
                     juce::Logger::writeToLog(juce::String::formatted(
                         "After redo - Can undo: %s, Can redo: %s",
-                        m_undoManager.canUndo() ? "yes" : "no",
-                        m_undoManager.canRedo() ? "yes" : "no"));
+                        doc->getUndoManager().canUndo() ? "yes" : "no",
+                        doc->getUndoManager().canRedo() ? "yes" : "no"));
 
                     repaint();
                 }
                 return true;
 
             case CommandIDs::editSelectAll:
+                if (!doc) return false;
                 selectAll();
                 return true;
 
             case CommandIDs::editCut:
+                if (!doc) return false;
                 cutSelection();
                 return true;
 
             case CommandIDs::editCopy:
+                if (!doc) return false;
                 copySelection();
                 return true;
 
             case CommandIDs::editPaste:
+                if (!doc) return false;
                 pasteAtCursor();
                 return true;
 
             case CommandIDs::editDelete:
+                if (!doc) return false;
                 deleteSelection();
                 return true;
 
             case CommandIDs::playbackPlay:
+                if (!doc) return false;
                 togglePlayback();
                 return true;
 
             case CommandIDs::playbackPause:
+                if (!doc) return false;
                 pausePlayback();
                 return true;
 
             case CommandIDs::playbackStop:
+                if (!doc) return false;
                 stopPlayback();
                 return true;
 
             case CommandIDs::playbackLoop:
+                if (!doc) return false;
                 toggleLoop();
                 return true;
 
             // View/Zoom operations
             case CommandIDs::viewZoomIn:
-                m_waveformDisplay.zoomIn();
+                if (!doc) return false;
+                doc->getWaveformDisplay().zoomIn();
                 return true;
 
             case CommandIDs::viewZoomOut:
-                m_waveformDisplay.zoomOut();
+                if (!doc) return false;
+                doc->getWaveformDisplay().zoomOut();
                 return true;
 
             case CommandIDs::viewZoomFit:
-                m_waveformDisplay.zoomToFit();
+                if (!doc) return false;
+                doc->getWaveformDisplay().zoomToFit();
                 return true;
 
             case CommandIDs::viewZoomSelection:
-                m_waveformDisplay.zoomToSelection();
+                if (!doc) return false;
+                doc->getWaveformDisplay().zoomToSelection();
                 return true;
 
             case CommandIDs::viewZoomOneToOne:
-                m_waveformDisplay.zoomOneToOne();
+                if (!doc) return false;
+                doc->getWaveformDisplay().zoomOneToOne();
                 return true;
 
             // Navigation operations (simple movement)
             case CommandIDs::navigateLeft:
-                m_waveformDisplay.navigateLeft(false);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateLeft(false);
                 return true;
 
             case CommandIDs::navigateRight:
-                m_waveformDisplay.navigateRight(false);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateRight(false);
                 return true;
 
             case CommandIDs::navigateStart:
-                m_waveformDisplay.navigateToStart(false);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateToStart(false);
                 return true;
 
             case CommandIDs::navigateEnd:
-                m_waveformDisplay.navigateToEnd(false);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateToEnd(false);
                 return true;
 
             case CommandIDs::navigatePageLeft:
-                m_waveformDisplay.navigatePageLeft();
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigatePageLeft();
                 return true;
 
             case CommandIDs::navigatePageRight:
-                m_waveformDisplay.navigatePageRight();
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigatePageRight();
                 return true;
 
             case CommandIDs::navigateHomeVisible:
-                m_waveformDisplay.navigateToVisibleStart(false);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateToVisibleStart(false);
                 return true;
 
             case CommandIDs::navigateEndVisible:
-                m_waveformDisplay.navigateToVisibleEnd(false);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateToVisibleEnd(false);
                 return true;
 
             case CommandIDs::navigateCenterView:
-                m_waveformDisplay.centerViewOnCursor();
+                if (!doc) return false;
+                doc->getWaveformDisplay().centerViewOnCursor();
                 return true;
 
             // Selection extension operations
             case CommandIDs::selectExtendLeft:
-                m_waveformDisplay.navigateLeft(true);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateLeft(true);
                 return true;
 
             case CommandIDs::selectExtendRight:
-                m_waveformDisplay.navigateRight(true);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateRight(true);
                 return true;
 
             case CommandIDs::selectExtendStart:
-                m_waveformDisplay.navigateToVisibleStart(true);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateToVisibleStart(true);
                 return true;
 
             case CommandIDs::selectExtendEnd:
-                m_waveformDisplay.navigateToVisibleEnd(true);
+                if (!doc) return false;
+                doc->getWaveformDisplay().navigateToVisibleEnd(true);
                 return true;
 
             case CommandIDs::selectExtendPageLeft:
+                if (!doc) return false;
                 juce::Logger::writeToLog("selectExtendPageLeft command triggered");
-                m_waveformDisplay.navigatePageLeft(true);
+                doc->getWaveformDisplay().navigatePageLeft(true);
                 return true;
 
             case CommandIDs::selectExtendPageRight:
+                if (!doc) return false;
                 juce::Logger::writeToLog("selectExtendPageRight command triggered");
-                m_waveformDisplay.navigatePageRight(true);
+                doc->getWaveformDisplay().navigatePageRight(true);
                 return true;
 
             // Snap mode operations
             case CommandIDs::snapCycleMode:
+                if (!doc) return false;
                 cycleSnapMode();
                 return true;
 
             case CommandIDs::snapToggleZeroCrossing:
+                if (!doc) return false;
                 toggleZeroCrossingSnap();
                 return true;
 
             // Processing operations
             case CommandIDs::processGain:
+                if (!doc) return false;
                 showGainDialog();
                 return true;
 
             case CommandIDs::processIncreaseGain:
+                if (!doc) return false;
                 applyGainAdjustment(+1.0f);
                 return true;
 
             case CommandIDs::processDecreaseGain:
+                if (!doc) return false;
                 applyGainAdjustment(-1.0f);
                 return true;
 
             case CommandIDs::processNormalize:
+                if (!doc) return false;
                 applyNormalize();
                 return true;
 
             case CommandIDs::processFadeIn:
+                if (!doc) return false;
                 applyFadeIn();
                 return true;
 
             case CommandIDs::processFadeOut:
+                if (!doc) return false;
                 applyFadeOut();
                 return true;
 
@@ -1381,15 +1561,19 @@ public:
             return;
         }
 
-        // Check if current file has unsaved changes
-        if (m_isModified && !confirmDiscardChanges())
+        // Open each dropped file in its own tab
+        for (const auto& filePath : files)
         {
-            return;
+            juce::File file(filePath);
+            if (file.existsAsFile() && file.hasFileExtension(".wav"))
+            {
+                auto* newDoc = m_documentManager.openDocument(file);
+                if (newDoc)
+                {
+                    juce::Logger::writeToLog("Opened dropped file: " + file.getFileName());
+                }
+            }
         }
-
-        // Load the first file
-        juce::File file(files[0]);
-        loadFile(file);
     }
 
     //==============================================================================
@@ -1397,12 +1581,6 @@ public:
 
     void openFile()
     {
-        // Check if current file has unsaved changes
-        if (m_isModified && !confirmDiscardChanges())
-        {
-            return;
-        }
-
         // Don't create new file chooser if one is already active
         if (m_fileChooser != nullptr)
         {
@@ -1410,24 +1588,51 @@ public:
             return;
         }
 
-        // Create file chooser
+        // Create file chooser - now supports multiple file selection
         m_fileChooser = std::make_unique<juce::FileChooser>(
-            "Open Audio File",
+            "Open Audio File(s)",
             juce::File::getSpecialLocation(juce::File::userHomeDirectory),
             "*.wav",
             true);
 
         auto folderChooserFlags = juce::FileBrowserComponent::openMode |
-                                  juce::FileBrowserComponent::canSelectFiles;
+                                  juce::FileBrowserComponent::canSelectFiles |
+                                  juce::FileBrowserComponent::canSelectMultipleItems;
 
         m_fileChooser->launchAsync(folderChooserFlags, [this](const juce::FileChooser& chooser)
         {
-            auto file = chooser.getResult();
-            if (file != juce::File())
+            // CRITICAL FIX: Always reset file chooser, even if no files selected or error occurs
+            // This prevents "File chooser already active" error
+
+            auto files = chooser.getResults();
+
+            if (!files.isEmpty())
             {
-                loadFile(file);
+                // Open each selected file in its own document tab
+                for (const auto& file : files)
+                {
+                    if (file != juce::File())
+                    {
+                        // Use DocumentManager to open files (supports multiple tabs)
+                        auto* newDoc = m_documentManager.openDocument(file);
+                        if (newDoc)
+                        {
+                            juce::Logger::writeToLog("Opened file: " + file.getFileName());
+                        }
+                        else
+                        {
+                            // Show user-friendly error dialog
+                            ErrorDialog::showFileError(
+                                "open",
+                                file.getFullPathName(),
+                                "Unsupported format or corrupted data"
+                            );
+                        }
+                    }
+                }
             }
-            // Clear the file chooser after use
+
+            // CRITICAL: Always clear the file chooser after use, regardless of outcome
             m_fileChooser.reset();
         });
     }
@@ -1473,79 +1678,54 @@ public:
         AudioFileInfo info;
         if (!m_fileManager.getFileInfo(file, info))
         {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "File Error",
-                "Could not read file: " + file.getFileName() + "\n\n" + m_fileManager.getLastError(),
-                "OK");
+            ErrorDialog::showFileError(
+                "open",
+                file.getFullPathName(),
+                m_fileManager.getLastError()
+            );
             return;
         }
 
         // Check file permissions
         if (!file.hasReadAccess())
         {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Permission Error",
-                "No read permission for file: " + file.getFileName(),
-                "OK");
+            ErrorDialog::showFileError(
+                "open",
+                file.getFullPathName(),
+                "No read permission for this file"
+            );
             return;
         }
 
-        // Load the file into the audio engine
-        if (m_audioEngine.loadAudioFile(file))
+        // Use DocumentManager to open the file
+        auto* doc = m_documentManager.openDocument(file);
+        if (doc != nullptr)
         {
-            // Load file into waveform display with audio properties
-            if (!m_waveformDisplay.loadFile(file,
-                                           m_audioEngine.getSampleRate(),
-                                           m_audioEngine.getNumChannels()))
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Display Error",
-                    "Could not display waveform for file: " + file.getFileName(),
-                    "OK");
-            }
-
-            // Load file into AudioBufferManager for editing operations
-            if (!m_audioBufferManager.loadFromFile(file, m_audioEngine.getFormatManager()))
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Buffer Error",
-                    "Could not load file into editing buffer: " + file.getFileName(),
-                    "OK");
-            }
-
             // Add to recent files
             Settings::getInstance().addRecentFile(file);
 
-            // Clear undo history when loading a new file
-            m_undoManager.clearUndoHistory();
-
-            // Clear modified flag
-            m_isModified = false;
-
-            repaint();
+            // Document is now active, UI will update via listener
+            juce::Logger::writeToLog("Opened file: " + file.getFileName());
         }
         else
         {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Load Error",
-                "Could not load file: " + file.getFileName(),
-                "OK");
+            ErrorDialog::showFileError(
+                "open",
+                file.getFullPathName(),
+                "Could not load audio data from this file"
+            );
         }
     }
 
     void saveFile()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
-        auto currentFile = m_audioEngine.getCurrentFile();
+        auto currentFile = doc->getAudioEngine().getCurrentFile();
 
         // Check if file exists and is writable
         if (!currentFile.existsAsFile())
@@ -1557,27 +1737,24 @@ public:
 
         if (!currentFile.hasWriteAccess())
         {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Permission Error",
-                "No write permission for file: " + currentFile.getFileName() + "\n\n"
-                "Use 'Save As' to save to a different location.",
-                "OK");
+            juce::String message = "No write permission for this file.";
+            message += "\n\nUse 'Save As' to save to a different location.";
+            ErrorDialog::show("Permission Error", message, ErrorDialog::Severity::Error);
             return;
         }
 
         // Save the edited audio buffer to the file
         bool saveSuccess = m_fileManager.overwriteFile(
             currentFile,
-            m_audioBufferManager.getBuffer(),
-            m_audioBufferManager.getSampleRate(),
-            m_audioBufferManager.getBitDepth()
+            doc->getBufferManager().getBuffer(),
+            doc->getBufferManager().getSampleRate(),
+            doc->getBufferManager().getBitDepth()
         );
 
         if (saveSuccess)
         {
             // Clear modified flag
-            m_isModified = false;
+            doc->setModified(false);
             repaint();
 
             juce::Logger::writeToLog("File saved successfully: " + currentFile.getFullPathName());
@@ -1585,18 +1762,21 @@ public:
         else
         {
             // Show error dialog
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
+            ErrorDialog::showWithDetails(
                 "Save Failed",
-                "Could not save file: " + currentFile.getFileName() + "\n\n" +
-                "Error: " + m_fileManager.getLastError(),
-                "OK");
+                "Could not save file: " + currentFile.getFileName(),
+                m_fileManager.getLastError(),
+                ErrorDialog::Severity::Error
+            );
         }
     }
 
     void saveFileAs()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
@@ -1611,7 +1791,7 @@ public:
         // Create file chooser
         m_fileChooser = std::make_unique<juce::FileChooser>(
             "Save Audio File As",
-            m_audioEngine.getCurrentFile().getParentDirectory(),
+            doc->getAudioEngine().getCurrentFile().getParentDirectory(),
             "*.wav",
             true);
 
@@ -1621,6 +1801,9 @@ public:
 
         m_fileChooser->launchAsync(folderChooserFlags, [this](const juce::FileChooser& chooser)
         {
+            auto* doc = getCurrentDocument();
+            if (!doc) return;
+
             auto file = chooser.getResult();
             if (file != juce::File())
             {
@@ -1633,15 +1816,15 @@ public:
                 // Save the edited audio buffer to the new file
                 bool saveSuccess = m_fileManager.saveAsWav(
                     file,
-                    m_audioBufferManager.getBuffer(),
-                    m_audioBufferManager.getSampleRate(),
-                    m_audioBufferManager.getBitDepth()
+                    doc->getBufferManager().getBuffer(),
+                    doc->getBufferManager().getSampleRate(),
+                    doc->getBufferManager().getBitDepth()
                 );
 
                 if (saveSuccess)
                 {
                     // Clear modified flag
-                    m_isModified = false;
+                    doc->setModified(false);
 
                     // Add to recent files
                     Settings::getInstance().addRecentFile(file);
@@ -1668,21 +1851,48 @@ public:
 
     void closeFile()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
-        // Check for unsaved changes
-        if (m_isModified && !confirmDiscardChanges())
+        // Check if document has unsaved changes
+        if (doc->isModified())
         {
-            return;
+            auto result = juce::AlertWindow::showYesNoCancelBox(
+                juce::AlertWindow::WarningIcon,
+                "Unsaved Changes",
+                "Do you want to save changes to \"" + doc->getFilename() + "\" before closing?",
+                "Save",
+                "Don't Save",
+                "Cancel",
+                nullptr,
+                nullptr);
+
+            if (result == 0) // Cancel
+            {
+                return;
+            }
+            else if (result == 1) // Save
+            {
+                saveFile();  // Save before closing
+                if (doc->isModified())  // If save failed or was cancelled
+                {
+                    return;  // Don't close
+                }
+            }
+            // result == 2 means "Don't Save" - proceed with close
         }
 
-        m_audioEngine.closeAudioFile();
-        m_waveformDisplay.clear();
-        m_undoManager.clearUndoHistory();
-        m_isModified = false;
+        // Clear undo history to prevent dangling references
+        doc->getUndoManager().clearUndoHistory();
+
+        doc->getAudioEngine().closeAudioFile();
+        doc->getWaveformDisplay().clear();
+        doc->setModified(false);
         repaint();
     }
 
@@ -1702,14 +1912,17 @@ public:
 
     void togglePlayback()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
-        if (m_audioEngine.isPlaying())
+        if (doc->getAudioEngine().isPlaying())
         {
-            m_audioEngine.stop();
+            doc->getAudioEngine().stop();
         }
         else
         {
@@ -1717,54 +1930,54 @@ public:
             // Debug: Log current state
             juce::Logger::writeToLog("=== PLAYBACK START DEBUG ===");
             juce::Logger::writeToLog(juce::String::formatted("Has selection: %s",
-                m_waveformDisplay.hasSelection() ? "YES" : "NO"));
+                doc->getWaveformDisplay().hasSelection() ? "YES" : "NO"));
             juce::Logger::writeToLog(juce::String::formatted("Has edit cursor: %s",
-                m_waveformDisplay.hasEditCursor() ? "YES" : "NO"));
+                doc->getWaveformDisplay().hasEditCursor() ? "YES" : "NO"));
 
-            if (m_waveformDisplay.hasSelection())
+            if (doc->getWaveformDisplay().hasSelection())
             {
                 juce::Logger::writeToLog(juce::String::formatted("Selection: %.3f - %.3f s",
-                    m_waveformDisplay.getSelectionStart(),
-                    m_waveformDisplay.getSelectionEnd()));
+                    doc->getWaveformDisplay().getSelectionStart(),
+                    doc->getWaveformDisplay().getSelectionEnd()));
             }
 
-            if (m_waveformDisplay.hasEditCursor())
+            if (doc->getWaveformDisplay().hasEditCursor())
             {
                 juce::Logger::writeToLog(juce::String::formatted("Edit cursor: %.3f s",
-                    m_waveformDisplay.getEditCursorPosition()));
+                    doc->getWaveformDisplay().getEditCursorPosition()));
             }
 
             juce::Logger::writeToLog(juce::String::formatted("Current playback position: %.3f s",
-                m_waveformDisplay.getPlaybackPosition()));
+                doc->getWaveformDisplay().getPlaybackPosition()));
 
             // If there's a selection, start playback from the selection start
-            if (m_waveformDisplay.hasSelection())
+            if (doc->getWaveformDisplay().hasSelection())
             {
-                double startPos = m_waveformDisplay.getSelectionStart();
+                double startPos = doc->getWaveformDisplay().getSelectionStart();
                 juce::Logger::writeToLog(juce::String::formatted(
                     "→ Starting playback from selection start: %.3f s", startPos));
-                m_audioEngine.setPosition(startPos);
+                doc->getAudioEngine().setPosition(startPos);
             }
-            else if (m_waveformDisplay.hasEditCursor())
+            else if (doc->getWaveformDisplay().hasEditCursor())
             {
                 // No selection: play from edit cursor position if set
-                double startPos = m_waveformDisplay.getEditCursorPosition();
+                double startPos = doc->getWaveformDisplay().getEditCursorPosition();
                 juce::Logger::writeToLog(juce::String::formatted(
                     "→ Starting playback from edit cursor: %.3f s", startPos));
-                m_audioEngine.setPosition(startPos);
+                doc->getAudioEngine().setPosition(startPos);
             }
             else
             {
                 // No selection or cursor: play from current playback position
-                double startPos = m_waveformDisplay.getPlaybackPosition();
+                double startPos = doc->getWaveformDisplay().getPlaybackPosition();
                 juce::Logger::writeToLog(juce::String::formatted(
                     "→ Starting playback from playback position: %.3f s", startPos));
-                m_audioEngine.setPosition(startPos);
+                doc->getAudioEngine().setPosition(startPos);
             }
 
             juce::Logger::writeToLog("=== END DEBUG ===");
 
-            m_audioEngine.play();
+            doc->getAudioEngine().play();
         }
 
         repaint();
@@ -1772,31 +1985,37 @@ public:
 
     void stopPlayback()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
-        m_audioEngine.stop();
+        doc->getAudioEngine().stop();
         repaint();
     }
 
     void pausePlayback()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
-        auto state = m_audioEngine.getPlaybackState();
+        auto state = doc->getAudioEngine().getPlaybackState();
 
         if (state == PlaybackState::PLAYING)
         {
-            m_audioEngine.pause();
+            doc->getAudioEngine().pause();
         }
         else if (state == PlaybackState::PAUSED)
         {
-            m_audioEngine.play();
+            doc->getAudioEngine().play();
         }
 
         repaint();
@@ -1804,15 +2023,18 @@ public:
 
     void toggleLoop()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
         // PRIORITY 5g: Fix loop mode - wire up to AudioEngine
-        m_transportControls.toggleLoop();
-        bool loopEnabled = m_transportControls.isLoopEnabled();
-        m_audioEngine.setLooping(loopEnabled);
+        doc->getTransportControls().toggleLoop();
+        bool loopEnabled = doc->getTransportControls().isLoopEnabled();
+        doc->getAudioEngine().setLooping(loopEnabled);
 
         juce::Logger::writeToLog(loopEnabled ? "Loop mode ON" : "Loop mode OFF");
         repaint();
@@ -1844,29 +2066,35 @@ public:
 
     void cycleSnapMode()
     {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
         // Two-tier snap system: G key cycles through increments within current unit
-        m_waveformDisplay.cycleSnapIncrement();
+        doc->getWaveformDisplay().cycleSnapIncrement();
 
         // Force repaint to update snap mode indicator in status bar
         repaint();
 
         // Show status message with current unit and increment
-        auto unitType = m_waveformDisplay.getSnapUnit();
-        int increment = m_waveformDisplay.getSnapIncrement();
+        auto unitType = doc->getWaveformDisplay().getSnapUnit();
+        int increment = doc->getWaveformDisplay().getSnapIncrement();
         juce::String message = "Snap: " + AudioUnits::formatIncrement(increment, unitType);
         juce::Logger::writeToLog(message);
     }
 
     void toggleZeroCrossingSnap()
     {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
         // Two-tier snap system: Z key toggles zero-crossing (independent of unit snapping)
-        m_waveformDisplay.toggleZeroCrossing();
+        doc->getWaveformDisplay().toggleZeroCrossing();
 
         // Force repaint to update snap mode indicator in status bar
         repaint();
 
         // Show status message
-        bool enabled = m_waveformDisplay.isZeroCrossingEnabled();
+        bool enabled = doc->getWaveformDisplay().isZeroCrossingEnabled();
         juce::String message = enabled ? "Zero-crossing snap: ON" : "Zero-crossing snap: OFF";
         juce::Logger::writeToLog(message);
     }
@@ -1882,7 +2110,10 @@ public:
      */
     void applyGainAdjustment(float gainDB)
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
@@ -1893,7 +2124,7 @@ public:
         // This allows real-time gain adjustments during playback without interruption.
 
         // Get current buffer
-        auto& buffer = m_audioBufferManager.getMutableBuffer();
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
         if (buffer.getNumSamples() == 0)
         {
             return;
@@ -1904,11 +2135,11 @@ public:
         int numSamples = buffer.getNumSamples();
         bool isSelection = false;
 
-        if (m_waveformDisplay.hasSelection())
+        if (doc->getWaveformDisplay().hasSelection())
         {
             // Apply to selection only
-            startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
-            int endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+            startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+            int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
             numSamples = endSample - startSample;
             isSelection = true;
         }
@@ -1928,13 +2159,13 @@ public:
             gainDB,
             isSelection ? "selection" : "entire file"
         );
-        m_undoManager.beginNewTransaction(transactionName);
+        doc->getUndoManager().beginNewTransaction(transactionName);
 
         // Create undo action (perform() will apply the gain)
         auto* undoAction = new GainUndoAction(
-            m_audioBufferManager,
-            m_waveformDisplay,
-            m_audioEngine,
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine(),
             beforeBuffer,
             startSample,
             numSamples,
@@ -1944,10 +2175,10 @@ public:
 
         // perform() calls GainUndoAction::perform() which applies gain and updates display
         // while preserving playback state (uses reloadBufferPreservingPlayback internally)
-        m_undoManager.perform(undoAction);
+        doc->getUndoManager().perform(undoAction);
 
         // Mark as modified
-        m_isModified = true;
+        doc->setModified(true);
     }
 
     /**
@@ -1973,13 +2204,16 @@ public:
      */
     void applyNormalize()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
         // Get current buffer
-        auto& buffer = m_audioBufferManager.getMutableBuffer();
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
         if (buffer.getNumSamples() == 0)
         {
             return;
@@ -1990,11 +2224,11 @@ public:
         int numSamples = buffer.getNumSamples();
         bool isSelection = false;
 
-        if (m_waveformDisplay.hasSelection())
+        if (doc->getWaveformDisplay().hasSelection())
         {
             // Normalize selection only
-            startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
-            int endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+            startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+            int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
             numSamples = endSample - startSample;
             isSelection = true;
         }
@@ -2019,13 +2253,13 @@ public:
             "Normalize (%s)",
             isSelection ? "selection" : "entire file"
         );
-        m_undoManager.beginNewTransaction(transactionName);
+        doc->getUndoManager().beginNewTransaction(transactionName);
 
         // Create undo action (perform() will apply the normalization)
         auto* undoAction = new NormalizeUndoAction(
-            m_audioBufferManager,
-            m_waveformDisplay,
-            m_audioEngine,
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine(),
             beforeBuffer,
             startSample,
             numSamples,
@@ -2033,10 +2267,10 @@ public:
         );
 
         // perform() calls NormalizeUndoAction::perform() which normalizes and updates display
-        m_undoManager.perform(undoAction);
+        doc->getUndoManager().perform(undoAction);
 
         // Mark as modified
-        m_isModified = true;
+        doc->setModified(true);
 
         // Log the operation
         juce::String region = isSelection ? "selection" : "entire file";
@@ -2154,13 +2388,16 @@ public:
      */
     void applyFadeIn()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
         // Fade in requires a selection
-        if (!m_waveformDisplay.hasSelection())
+        if (!doc->getWaveformDisplay().hasSelection())
         {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::InfoIcon,
@@ -2172,15 +2409,15 @@ public:
         }
 
         // Get current buffer
-        auto& buffer = m_audioBufferManager.getMutableBuffer();
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
         if (buffer.getNumSamples() == 0)
         {
             return;
         }
 
         // Get selection bounds
-        int startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
-        int endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+        int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+        int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
         int numSamples = endSample - startSample;
 
         if (numSamples <= 0)
@@ -2202,28 +2439,28 @@ public:
 
         // Start a new transaction
         juce::String transactionName = "Fade In (selection)";
-        m_undoManager.beginNewTransaction(transactionName);
+        doc->getUndoManager().beginNewTransaction(transactionName);
 
         // Create undo action (perform() will apply the fade)
         auto* undoAction = new FadeInUndoAction(
-            m_audioBufferManager,
-            m_waveformDisplay,
-            m_audioEngine,
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine(),
             beforeBuffer,
             startSample,
             numSamples
         );
 
         // perform() calls FadeInUndoAction::perform() which applies fade and updates display
-        m_undoManager.perform(undoAction);
+        doc->getUndoManager().perform(undoAction);
 
         // Mark as modified
-        m_isModified = true;
+        doc->setModified(true);
 
         // Log the operation
         juce::String message = juce::String::formatted(
             "Applied fade in to selection (%d samples, %.3f seconds)",
-            numSamples, (double)numSamples / m_audioBufferManager.getSampleRate());
+            numSamples, (double)numSamples / doc->getBufferManager().getSampleRate());
         juce::Logger::writeToLog(message);
     }
 
@@ -2233,13 +2470,16 @@ public:
      */
     void applyFadeOut()
     {
-        if (!m_audioEngine.isFileLoaded())
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
         {
             return;
         }
 
         // Fade out requires a selection
-        if (!m_waveformDisplay.hasSelection())
+        if (!doc->getWaveformDisplay().hasSelection())
         {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::InfoIcon,
@@ -2251,15 +2491,15 @@ public:
         }
 
         // Get current buffer
-        auto& buffer = m_audioBufferManager.getMutableBuffer();
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
         if (buffer.getNumSamples() == 0)
         {
             return;
         }
 
         // Get selection bounds
-        int startSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionStart());
-        int endSample = m_audioBufferManager.timeToSample(m_waveformDisplay.getSelectionEnd());
+        int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+        int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
         int numSamples = endSample - startSample;
 
         if (numSamples <= 0)
@@ -2281,28 +2521,28 @@ public:
 
         // Start a new transaction
         juce::String transactionName = "Fade Out (selection)";
-        m_undoManager.beginNewTransaction(transactionName);
+        doc->getUndoManager().beginNewTransaction(transactionName);
 
         // Create undo action (perform() will apply the fade)
         auto* undoAction = new FadeOutUndoAction(
-            m_audioBufferManager,
-            m_waveformDisplay,
-            m_audioEngine,
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine(),
             beforeBuffer,
             startSample,
             numSamples
         );
 
         // perform() calls FadeOutUndoAction::perform() which applies fade and updates display
-        m_undoManager.perform(undoAction);
+        doc->getUndoManager().perform(undoAction);
 
         // Mark as modified
-        m_isModified = true;
+        doc->setModified(true);
 
         // Log the operation
         juce::String message = juce::String::formatted(
             "Applied fade out to selection (%d samples, %.3f seconds)",
-            numSamples, (double)numSamples / m_audioBufferManager.getSampleRate());
+            numSamples, (double)numSamples / doc->getBufferManager().getSampleRate());
         juce::Logger::writeToLog(message);
     }
 
@@ -2591,18 +2831,75 @@ public:
     };
 
 private:
-    AudioEngine m_audioEngine;
-    AudioFileManager m_fileManager;
-    AudioBufferManager m_audioBufferManager;
-    juce::ApplicationCommandManager m_commandManager;
-    juce::UndoManager m_undoManager;
-    std::unique_ptr<juce::FileChooser> m_fileChooser;
-    WaveformDisplay m_waveformDisplay;
-    TransportControls m_transportControls;
-    SelectionInfoPanel m_selectionInfo;
-    Meters m_meters;
+    // Multi-document management
+    DocumentManager m_documentManager;
+    TabComponent m_tabComponent;
+    Document* m_previousDocument = nullptr;  // Track previous document for cleanup during switching
 
-    bool m_isModified;
+    // Shared resources (keep these)
+    AudioFileManager m_fileManager;
+    juce::ApplicationCommandManager m_commandManager;
+    std::unique_ptr<juce::FileChooser> m_fileChooser;
+
+    // "No file open" label
+    juce::Label m_noFileLabel;
+
+    // Current document display containers (for showing active document's components)
+    std::unique_ptr<juce::Component> m_currentDocumentContainer;
+
+    // Helper methods for safe document access
+    Document* getCurrentDocument() const
+    {
+        return m_documentManager.getCurrentDocument();
+    }
+
+    bool hasCurrentDocument() const
+    {
+        return getCurrentDocument() != nullptr;
+    }
+
+    /**
+     * Updates the window title to reflect current document and modified state.
+     * Format: "filename.wav * - WaveEdit" (when modified)
+     *         "filename.wav - WaveEdit" (when not modified)
+     *         "WaveEdit" (when no document)
+     */
+    void updateWindowTitle()
+    {
+        // Get the top-level window (DocumentWindow)
+        auto* window = findParentComponentOfClass<juce::DocumentWindow>();
+        if (!window)
+            return;
+
+        auto* doc = getCurrentDocument();
+
+        // Build window title
+        juce::String title;
+        if (doc && doc->getAudioEngine().isFileLoaded())
+        {
+            // Get filename
+            juce::String filename = doc->getAudioEngine().getCurrentFile().getFileName();
+            if (filename.isEmpty())
+                filename = "Untitled";
+
+            // Add modified indicator
+            if (doc->isModified())
+                title = filename + " * - WaveEdit";
+            else
+                title = filename + " - WaveEdit";
+        }
+        else
+        {
+            // No document loaded
+            title = "WaveEdit";
+        }
+
+        // Only update if title changed (avoid unnecessary redraws)
+        if (window->getName() != title)
+        {
+            window->setName(title);
+        }
+    }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

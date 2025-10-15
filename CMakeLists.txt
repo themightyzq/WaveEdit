@@ -49,6 +49,14 @@ target_sources(WaveEdit
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
+        Source/UI/TabComponent.cpp
+        Source/UI/TabComponent.h
+        Source/UI/ErrorDialog.cpp
+        Source/UI/ErrorDialog.h
+        Source/Utils/Document.cpp
+        Source/Utils/Document.h
+        Source/Utils/DocumentManager.cpp
+        Source/Utils/DocumentManager.h
 )
 
 # JUCE modules required for audio editing application
@@ -123,3 +131,148 @@ install(TARGETS WaveEdit
     BUNDLE DESTINATION .
     RUNTIME DESTINATION bin
 )
+
+# ============================================================================
+# Automated Testing Infrastructure
+# ============================================================================
+
+# Option to enable/disable test building
+option(WAVEEDIT_BUILD_TESTS "Build WaveEdit automated tests" ON)
+
+if(WAVEEDIT_BUILD_TESTS)
+    message(STATUS "Building WaveEdit automated tests")
+
+    # Create a static library from Source/ files for test linking
+    # This avoids having Main.cpp's main() function conflict with test runner
+    add_library(WaveEditCore STATIC
+        Source/Audio/AudioEngine.cpp
+        Source/Audio/AudioEngine.h
+        Source/Audio/AudioBufferManager.cpp
+        Source/Audio/AudioBufferManager.h
+        Source/Audio/AudioFileManager.cpp
+        Source/Audio/AudioFileManager.h
+        Source/Audio/AudioProcessor.cpp
+        Source/Audio/AudioProcessor.h
+        Source/Commands/CommandIDs.h
+        Source/Utils/Settings.cpp
+        Source/Utils/Settings.h
+        Source/Utils/AudioClipboard.cpp
+        Source/Utils/AudioClipboard.h
+        Source/Utils/AudioBufferInputSource.cpp
+        Source/Utils/AudioBufferInputSource.h
+        Source/UI/WaveformDisplay.cpp
+        Source/UI/WaveformDisplay.h
+        Source/UI/TransportControls.cpp
+        Source/UI/TransportControls.h
+        Source/UI/Meters.cpp
+        Source/UI/Meters.h
+        Source/UI/GainDialog.cpp
+        Source/UI/GainDialog.h
+        Source/UI/TabComponent.cpp
+        Source/UI/TabComponent.h
+        Source/UI/ErrorDialog.cpp
+        Source/UI/ErrorDialog.h
+        Source/Utils/Document.cpp
+        Source/Utils/Document.h
+        Source/Utils/DocumentManager.cpp
+        Source/Utils/DocumentManager.h
+    )
+
+    # Link WaveEditCore to JUCE modules
+    target_link_libraries(WaveEditCore
+        PUBLIC
+            juce::juce_audio_basics
+            juce::juce_audio_devices
+            juce::juce_audio_formats
+            juce::juce_audio_processors
+            juce::juce_audio_utils
+            juce::juce_core
+            juce::juce_data_structures
+            juce::juce_events
+            juce::juce_graphics
+            juce::juce_gui_basics
+            juce::juce_gui_extra
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    # Include directories for WaveEditCore
+    target_include_directories(WaveEditCore
+        PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/Source
+            ${CMAKE_CURRENT_SOURCE_DIR}/Tests/TestUtils
+    )
+
+    # Preprocessor definitions for WaveEditCore
+    target_compile_definitions(WaveEditCore
+        PUBLIC
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0
+            JUCE_APPLICATION_NAME_STRING="WaveEdit"
+            JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
+    )
+
+    # Platform-specific settings for WaveEditCore
+    if(APPLE)
+        target_compile_definitions(WaveEditCore PUBLIC
+            JUCE_COREAUDIO_ENABLED=1
+        )
+    elseif(WIN32)
+        target_compile_definitions(WaveEditCore PUBLIC
+            JUCE_WASAPI_ENABLED=1
+            JUCE_DIRECTSOUND_ENABLED=0
+        )
+    elseif(UNIX)
+        target_compile_definitions(WaveEditCore PUBLIC
+            JUCE_ALSA_ENABLED=1
+            JUCE_JACK_ENABLED=1
+        )
+    endif()
+
+    # Create test console application using JUCE's console app macro
+    juce_add_console_app(WaveEditTests
+        COMPANY_NAME "ZQ SFX"
+        PRODUCT_NAME "WaveEdit Tests"
+        BUNDLE_ID "com.zqsfx.waveedittests"
+    )
+
+    # Test source files
+    # Note: Add test files as they are created
+    target_sources(WaveEditTests
+        PRIVATE
+            Tests/TestRunner.cpp                            # Main test runner
+            Tests/TestUtils/TestAudioFiles.h
+            Tests/TestUtils/AudioAssertions.h
+            Tests/Unit/AudioEngineTests.cpp                 # Week 2 ✅
+            Tests/Unit/AudioBufferManagerTests.cpp          # Week 2 ✅
+            Tests/Unit/AudioProcessorTests.cpp              # Week 2 ✅
+            # Tests/Unit/UndoRedoTests.cpp                    # Week 3
+            # Tests/Unit/DocumentManagerTests.cpp             # Week 3
+            # Tests/Integration/PlaybackIntegrationTests.cpp  # Week 4
+            # Tests/Integration/EditingWorkflowTests.cpp      # Week 4
+            # Tests/Integration/MultiDocumentTests.cpp        # Week 4
+            # Tests/EndToEnd/CompleteWorkflowTests.cpp        # Week 5
+            # Tests/EndToEnd/StressTests.cpp                  # Week 5
+            # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6
+            # Tests/Performance/PlaybackLatencyBenchmarks.cpp  # Week 6
+    )
+
+    # Link test executable to WaveEditCore and JUCE test utilities
+    target_link_libraries(WaveEditTests
+        PRIVATE
+            WaveEditCore
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    # Include test utilities
+    target_include_directories(WaveEditTests
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/Tests/TestUtils
+    )
+
+    message(STATUS "WaveEdit automated tests configured successfully")
+    message(STATUS "Build tests with: cmake --build . --target WaveEditTests")
+    message(STATUS "Run tests with: ./WaveEdit_artefacts/Debug/WaveEditTests (or Release)")
+
+endif()
