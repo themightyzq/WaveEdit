@@ -106,6 +106,22 @@ AUDIO_EDITING_INTEGRATION.md
 EDITING_WORKFLOW_FIXES.md
 SELECTION_VISIBILITY_FIX.md
 
+# Claude-generated testing and development documentation
+MANUAL_TESTING*.md
+TESTING_STATUS.md
+TEST_COVERAGE_GAPS.md
+FIX_VERIFICATION.md
+REFACTORING_STATUS.md
+*_PHASE*.md
+
+# Test infrastructure (keep tests local, not in repo)
+Tests/
+scripts/
+
+# Test/development source files
+Source/Test*.cpp
+Source/Test*.h
+
 # Other development tools
 .diversion/
 .dvignore
