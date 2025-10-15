@@ -134,7 +134,7 @@ TransportControls::TransportControls(AudioEngine& audioEngine, WaveformDisplay& 
     m_loopButton = std::make_unique<juce::DrawableButton>("Loop", juce::DrawableButton::ImageFitted);
     m_loopButton->setImages(createLoopIcon().get());
     m_loopButton->onClick = [this] { onLoopClicked(); };
-    m_loopButton->setTooltip("Toggle Loop (Q)");
+    m_loopButton->setTooltip("Toggle Loop (L)");
     m_loopButton->setClickingTogglesState(true);
     addAndMakeVisible(m_loopButton.get());
 

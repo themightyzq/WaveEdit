@@ -1,8 +1,80 @@
-# CLAUDE.md - AI Agent Instructions for WaveEdit
+# CLAUDE.md - AI Agent Instructions for WaveEdit by ZQ SFX
+
+## Company Information
+
+**Developer**: ZQ SFX
+**Copyright**: © 2025 ZQ SFX
+**License**: GPL v3
+**Project**: WaveEdit - Professional Audio Editor
+
+All code files, documentation, and branding materials must reflect ZQ SFX ownership.
+
+---
+
+## 📄 Documentation Structure & Purpose
+
+**MANDATORY**: These three documentation files have distinct purposes and must be maintained accordingly:
+
+### **CLAUDE.md (This File)** - AI Operations Manual
+**Purpose**: Instruction set and ruleset for AI agents to follow when working on this project.
+
+**Contains**:
+- Binding rules and architectural constraints
+- Coding standards and mandatory patterns
+- Task execution logic and quality control processes
+- Design philosophy and technical requirements
+- Architecture patterns and implementation examples
+- Case studies and lessons learned from past issues
+
+**Tone**: Authoritative, prescriptive. This is a contract, not a guide.
+
+**What NOT to include**:
+- ❌ Current project status or phase progress (belongs in TODO.md)
+- ❌ Feature lists or roadmaps (belongs in TODO.md)
+- ❌ Build instructions for end users (belongs in README.md)
+- ❌ Installation guides (belongs in README.md)
+
+**Analogy**: This is the law book. It tells AI agents what they must and must not do.
+
+---
+
+### **README.md** - Public Landing Page
+**Purpose**: Introductory overview for humans encountering the project (users, contributors, evaluators).
+
+**Contains**:
+- Project description and goals
+- Installation and build instructions
+- Usage examples and quick start guide
+- Feature highlights (what works now)
+- File/folder structure overview
+- Credits, license, and contact information
+
+**Tone**: Informative and welcoming. For end users and potential contributors.
+
+**Analogy**: This is the front door. It explains what the project is and how to use it.
+
+---
+
+### **TODO.md** - Developer Task Tracker
+**Purpose**: Running list of tasks, phases, priorities, and project status.
+
+**Contains**:
+- Current project status and phase progress
+- Task lists with priorities and time estimates
+- Bug tracking and issue documentation
+- Phase roadmaps and feature planning
+- Code review results and quality metrics
+- Backlog items and future enhancements
+
+**Tone**: Pragmatic, developer-facing. Actionable tasks and status updates.
+
+**Analogy**: This is the clipboard. Tracks work in progress, priorities, and next steps.
+
+---
 
 ## Project Overview
 
-**WaveEdit** is a cross-platform, professional audio editor inspired by Sound Forge Pro. This is a JUCE-based C++ application designed for speed, precision, and keyboard-driven workflow. The primary goal is to create a streamlined, sample-accurate audio editing tool with minimal friction—no project files, no complex session management, just open → edit → save.
+**WaveEdit** is a cross-platform, professional audio editor by ZQ SFX, inspired by Sound Forge Pro. This is a JUCE-based C++ application designed for speed, precision, and keyboard-driven workflow. The primary goal is to create a streamlined, sample-accurate audio editing tool with minimal friction—no project files, no complex session management, just open → edit → save.
 
 ### Core Design Philosophy
 
@@ -410,6 +482,453 @@ void mouseDown(const MouseEvent& event) {
 }
 ```
 
+### Multi-File Architecture (Phase 3)
+
+**CRITICAL REQUIREMENT**: WaveEdit must support loading and editing multiple audio files simultaneously with tab-based navigation.
+
+**Why This Matters**:
+- Professional workflow requires comparing/editing multiple files
+- Copy/paste between files is essential for sound design
+- Each file needs independent state (undo history, playback position, selection, regions)
+- Tab system matches industry standards (Pro Tools, Reaper, Adobe Audition)
+
+**Architecture Pattern**: Document/DocumentManager
+
+```cpp
+// Document.h - Represents a single audio file with all associated state
+class Document
+{
+public:
+    Document(const juce::File& file);
+    ~Document();
+
+    // File information
+    juce::String getFilename() const;
+    juce::File getFile() const;
+    bool isModified() const;
+    void setModified(bool modified);
+
+    // Audio engine (per-document playback/editing)
+    AudioEngine& getAudioEngine();
+    WaveformDisplay& getWaveformDisplay();
+    RegionManager& getRegionManager();
+
+    // Undo/redo (independent per file)
+    juce::UndoManager& getUndoManager();
+
+    // Playback state (independent per file)
+    double getPlaybackPosition() const;
+    void setPlaybackPosition(double position);
+
+    // Selection state (independent per file)
+    SelectionRange getSelection() const;
+    void setSelection(const SelectionRange& range);
+
+private:
+    juce::File m_file;
+    bool m_isModified;
+    std::unique_ptr<AudioEngine> m_audioEngine;
+    std::unique_ptr<WaveformDisplay> m_waveformDisplay;
+    std::unique_ptr<RegionManager> m_regionManager;
+    juce::UndoManager m_undoManager;
+    double m_playbackPosition;
+    SelectionRange m_selection;
+};
+
+// DocumentManager.h - Manages multiple open documents with tab interface
+class DocumentManager
+{
+public:
+    DocumentManager();
+    ~DocumentManager();
+
+    // Document lifecycle
+    Document* createDocument(const juce::File& file);
+    Document* openDocument(const juce::File& file);
+    bool closeDocument(int index);
+    bool closeAllDocuments();
+
+    // Tab management
+    Document* getCurrentDocument();
+    int getCurrentDocumentIndex() const;
+    void setCurrentDocumentIndex(int index);
+    int getNumDocuments() const;
+    Document* getDocument(int index);
+
+    // Inter-file clipboard (copy/paste between documents)
+    void copyToInterFileClipboard(const juce::AudioBuffer<float>& buffer, double sampleRate);
+    bool pasteFromInterFileClipboard(Document* targetDoc);
+    bool hasInterFileClipboard() const;
+
+    // Tab navigation shortcuts
+    void selectNextDocument();    // Cmd+Option+Right
+    void selectPreviousDocument(); // Cmd+Option+Left
+    void selectDocumentByIndex(int index); // Cmd+1 through Cmd+9
+
+private:
+    juce::OwnedArray<Document> m_documents;
+    int m_currentDocumentIndex;
+
+    // Inter-file clipboard
+    juce::AudioBuffer<float> m_interFileClipboard;
+    double m_interFileClipboardSampleRate;
+    bool m_hasInterFileClipboard;
+};
+```
+
+**Implementation Requirements**:
+
+1. **Tab Component** (`Source/UI/TabComponent.h/.cpp`)
+   - Visual tab bar at top of window
+   - Close button on each tab (X icon)
+   - Modified indicator (• dot) when file has unsaved changes
+   - Right-click menu: Close, Close Others, Close All, Save, Save As
+   - Drag-to-reorder tabs (optional Phase 4)
+
+2. **State Isolation**
+   - Each Document has independent AudioEngine instance
+   - Each Document has independent WaveformDisplay component
+   - Each Document has independent UndoManager (100 actions per file)
+   - Each Document has independent RegionManager
+   - Switching tabs swaps UI components and audio routing
+
+3. **Inter-File Clipboard**
+   - Separate clipboard for copy/paste between files
+   - Preserves sample rate information for resampling on paste
+   - Cmd+Shift+C: Copy to inter-file clipboard
+   - Cmd+Shift+V: Paste from inter-file clipboard
+
+4. **Tab Navigation Shortcuts**
+   - Cmd+Option+Right: Next tab
+   - Cmd+Option+Left: Previous tab
+   - Cmd+1 through Cmd+9: Jump to tab 1-9
+   - Cmd+W: Close current tab (with save prompt if modified)
+
+5. **Save Prompt on Close**
+   - If document is modified, show save dialog before closing
+   - "Save", "Don't Save", "Cancel" options
+   - Apply to tab close, window close, quit application
+
+**Files to Create**:
+- `Source/Utils/Document.h/.cpp` - Document class
+- `Source/Utils/DocumentManager.h/.cpp` - DocumentManager class
+- `Source/UI/TabComponent.h/.cpp` - Tab bar UI component
+
+**Files to Modify**:
+- `Source/MainComponent.h/.cpp` - Integrate TabComponent and DocumentManager
+- `Source/Commands/CommandIDs.h` - Add tab-related command IDs
+- `Source/Main.cpp` - Add tab navigation shortcuts
+
+**Estimated Time**: 12-16 hours
+
+---
+
+### Region System Architecture (Phase 3)
+
+**CRITICAL REQUIREMENT**: WaveEdit must support named regions/markers for organizing audio content and enabling advanced workflows.
+
+**Why This Matters**:
+- Professional workflow for organizing long files (podcasts, voiceovers, music)
+- Essential for batch export (export each region as separate file)
+- Industry standard feature (Sound Forge, Pro Tools, Reaper all have regions)
+- "Select inverse" enables advanced editing (e.g., delete all silence, keep only dialog)
+
+**Region Data Structure**:
+
+```cpp
+// Region.h - Represents a named audio region with start/end positions
+class Region
+{
+public:
+    Region(const juce::String& name, int64_t startSample, int64_t endSample);
+
+    juce::String getName() const;
+    void setName(const juce::String& name);
+
+    int64_t getStartSample() const;
+    void setStartSample(int64_t sample);
+
+    int64_t getEndSample() const;
+    void setEndSample(int64_t sample);
+
+    int64_t getLengthInSamples() const;
+    double getLengthInSeconds(double sampleRate) const;
+
+    juce::Colour getColor() const;
+    void setColor(const juce::Colour& color);
+
+    juce::var toJSON() const;
+    static Region fromJSON(const juce::var& json);
+
+private:
+    juce::String m_name;
+    int64_t m_startSample;
+    int64_t m_endSample;
+    juce::Colour m_color;
+};
+
+// RegionManager.h - Manages collection of regions for a document
+class RegionManager
+{
+public:
+    RegionManager();
+    ~RegionManager();
+
+    // Region lifecycle
+    void addRegion(const Region& region);
+    void removeRegion(int index);
+    void removeAllRegions();
+
+    // Region access
+    int getNumRegions() const;
+    Region* getRegion(int index);
+    const Region* getRegion(int index) const;
+
+    // Region navigation
+    int findRegionAtSample(int64_t sample) const;
+    void selectRegion(int index);
+    void selectInverseOfRegions(); // Select everything EXCEPT regions
+
+    // Persistence (JSON sidecar files)
+    bool saveToFile(const juce::File& audioFile) const;
+    bool loadFromFile(const juce::File& audioFile);
+
+    // Auto-region creation (Strip Silence)
+    void autoCreateRegions(const juce::AudioBuffer<float>& buffer,
+                           double sampleRate,
+                           float thresholdDB,
+                           float minRegionLengthMs,
+                           float minSilenceLengthMs,
+                           float preRollMs,
+                           float postRollMs);
+
+private:
+    juce::Array<Region> m_regions;
+    int m_selectedRegionIndex;
+};
+```
+
+**Persistence Format** (JSON Sidecar File):
+
+```json
+// example.wav -> example.wav.regions.json
+{
+    "version": "1.0",
+    "audioFile": "example.wav",
+    "sampleRate": 44100,
+    "regions": [
+        {
+            "name": "Intro",
+            "startSample": 0,
+            "endSample": 132300,
+            "color": "ff0000"
+        },
+        {
+            "name": "Verse 1",
+            "startSample": 132300,
+            "endSample": 264600,
+            "color": "00ff00"
+        }
+    ]
+}
+```
+
+**Auto-Region Creation Algorithm** (Strip Silence):
+
+```cpp
+void RegionManager::autoCreateRegions(const juce::AudioBuffer<float>& buffer,
+                                       double sampleRate,
+                                       float thresholdDB,
+                                       float minRegionLengthMs,
+                                       float minSilenceLengthMs,
+                                       float preRollMs,
+                                       float postRollMs)
+{
+    // Convert parameters to samples
+    float threshold = juce::Decibels::decibelsToGain(thresholdDB);
+    int minRegionSamples = (int)(minRegionLengthMs * sampleRate / 1000.0);
+    int minSilenceSamples = (int)(minSilenceLengthMs * sampleRate / 1000.0);
+    int preRollSamples = (int)(preRollMs * sampleRate / 1000.0);
+    int postRollSamples = (int)(postRollMs * sampleRate / 1000.0);
+
+    // Algorithm:
+    // 1. Scan buffer for sections above threshold (non-silent)
+    // 2. Detect silence gaps (below threshold for min silence duration)
+    // 3. Create regions for non-silent sections
+    // 4. Filter out regions shorter than min length
+    // 5. Add pre/post-roll margins
+    // 6. Name regions automatically ("Region 1", "Region 2", etc.)
+
+    // Implementation details in Source/Audio/AutoRegionCreator.cpp
+}
+```
+
+**UI Components**:
+
+1. **Region Display** (`Source/UI/RegionDisplay.h/.cpp`)
+   - Colored bars above/below waveform
+   - Region names overlay
+   - Click to select region
+   - Double-click to rename region
+   - Right-click menu: Rename, Delete, Change Color, Export
+
+2. **Region List Panel** (`Source/UI/RegionListPanel.h/.cpp`)
+   - List of all regions with start/end times
+   - Click to jump to region
+   - Rename inline editing
+   - Drag to reorder (visual only, doesn't change region positions)
+
+3. **Strip Silence Dialog** (`Source/UI/StripSilenceDialog.h/.cpp`)
+   - Threshold slider (dB)
+   - Min region length slider (ms)
+   - Min silence length slider (ms)
+   - Pre/post-roll sliders (ms)
+   - Preview button (highlight regions without creating)
+   - Create button (apply auto-region creation)
+
+**Keyboard Shortcuts**:
+- `M`: Add region at current selection
+- `Shift+M`: Delete region under cursor
+- `Cmd+M`: Open region list panel
+- `Alt+Left/Right`: Jump to previous/next region
+- `Cmd+Shift+I`: Select inverse of regions (everything NOT in regions)
+- `Cmd+Shift+R`: Strip Silence dialog (auto-create regions)
+
+**Files to Create**:
+- `Source/Utils/Region.h/.cpp` - Region data structure
+- `Source/Utils/RegionManager.h/.cpp` - Region collection manager
+- `Source/Audio/AutoRegionCreator.h/.cpp` - Strip Silence algorithm
+- `Source/UI/RegionDisplay.h/.cpp` - Visual region indicators
+- `Source/UI/RegionListPanel.h/.cpp` - Region list UI
+- `Source/UI/StripSilenceDialog.h/.cpp` - Auto-region creation dialog
+
+**Estimated Time**: 18-24 hours total
+- Basic region system: 8-10 hours
+- Region navigation with "select inverse": 4-6 hours
+- Auto-region creation / Strip Silence: 6-8 hours
+
+---
+
+### Open Source Library Integration (Phase 4+)
+
+**CRITICAL REQUIREMENT**: WaveEdit leverages open source libraries for advanced features while maintaining GPL v3 license compatibility and proper attribution.
+
+**GPL v3 Compatible Licenses**:
+- ✅ GPL v2 (compatible with GPL v3)
+- ✅ GPL v3 (same license)
+- ✅ LGPL (Lesser GPL - compatible)
+- ✅ BSD (2-clause, 3-clause) - permissive
+- ✅ MIT - permissive
+- ✅ Apache 2.0 - permissive
+- ❌ GPL v3 with additional restrictions - NOT compatible
+- ❌ Proprietary licenses - NOT compatible
+
+**Approved Open Source Libraries**:
+
+| Library | License | Purpose | Integration Phase |
+|---------|---------|---------|------------------|
+| **libsamplerate (SRC)** | BSD-2-Clause | High-quality sample rate conversion | Phase 4 |
+| **FFTW** | GPL v2+ | Fast Fourier Transform (spectrum analyzer) | Phase 4 |
+| **Kiss FFT** | BSD-3-Clause | Lightweight FFT alternative to FFTW | Phase 4 |
+| **libebur128** | MIT | EBU R128 loudness metering (broadcast standard) | Phase 4 |
+| **RNNoise** | BSD-3-Clause | ML-based noise suppression | Phase 4 |
+| **Rubber Band Library** | GPL v2+ | High-quality pitch/time stretching | Phase 4 |
+| **LAME** | LGPL | MP3 encoding | Phase 2-3 |
+| **libFLAC** | BSD-3-Clause | FLAC lossless codec | Phase 2-3 |
+| **libvorbis** | BSD-3-Clause | Ogg Vorbis codec | Phase 2-3 |
+| **Opus** | BSD-3-Clause | Opus codec | Phase 3-4 |
+| **VST3 SDK** | GPL v3 | VST3 plugin hosting | Phase 5 |
+
+**Attribution Requirements**:
+
+1. **NOTICE File** (`NOTICE` in project root)
+   - List all open source libraries used
+   - Include library name, version, license, copyright holder
+   - Include link to library homepage/repository
+
+2. **About Dialog** (Help → About WaveEdit)
+   - "Third-Party Licenses" button
+   - Show scrollable text with all library attributions
+   - Link to full license texts in Licenses/ directory
+
+3. **Licenses Directory** (`Licenses/` in project root)
+   - Full license text for each library (e.g., `Licenses/libsamplerate.txt`)
+   - Bundle with installer/application package
+
+4. **Source File Headers**
+   - If directly embedding library code (not linking), preserve original headers
+   - Add comment indicating library name and license
+
+**NOTICE File Example**:
+
+```
+WaveEdit by ZQ SFX
+Copyright © 2025 ZQ SFX
+Licensed under GPL v3
+
+This software includes the following open source libraries:
+
+---
+
+libsamplerate (Secret Rabbit Code)
+Version: 0.2.2
+Copyright: © 2002-2021 Erik de Castro Lopo
+License: BSD-2-Clause
+Homepage: http://www.mega-nerd.com/SRC/
+
+---
+
+FFTW - Fastest Fourier Transform in the West
+Version: 3.3.10
+Copyright: © 2003, 2007-2011 Matteo Frigo, © 2003, 2007-2011 Massachusetts Institute of Technology
+License: GPL v2 or later
+Homepage: http://www.fftw.org/
+
+---
+
+[... additional libraries ...]
+```
+
+**Integration Guidelines**:
+
+1. **CMake Integration**:
+   ```cmake
+   # Find system-installed library first
+   find_package(SampleRate QUIET)
+   if(NOT SampleRate_FOUND)
+       # Fall back to bundled version
+       add_subdirectory(ThirdParty/libsamplerate)
+   endif()
+
+   target_link_libraries(WaveEdit PRIVATE SampleRate::samplerate)
+   ```
+
+2. **Avoid Direct Code Embedding**:
+   - Prefer linking against system-installed libraries (Linux package managers)
+   - Bundle pre-compiled libraries for Windows/macOS (with attribution)
+   - Only embed source code if library is small and unmaintained
+
+3. **License Compatibility Check**:
+   - Before adding any new library, verify license compatibility
+   - Check for additional restrictions (e.g., "GPL v3 with exceptions")
+   - Document decision in NOTICE file
+
+4. **Update Attribution on Every Upgrade**:
+   - When upgrading library version, update NOTICE file
+   - Update copyright years if changed
+   - Re-verify license hasn't changed (rare but possible)
+
+**Files to Create**:
+- `NOTICE` - Open source library attributions (root directory)
+- `Licenses/` - Directory containing full license texts
+- `Source/UI/AboutDialog.h/.cpp` - About dialog with "Third-Party Licenses" button
+
+**Files to Modify**:
+- `CMakeLists.txt` - Add library dependencies
+- `README.md` - Document library dependencies for building from source
+
+**Estimated Time**: 2-3 hours per library integration (CMake setup, testing, attribution)
+
 ---
 
 ## Sound Forge Compatibility
@@ -746,27 +1265,40 @@ cmake --build . --config Release
 - **If the agent finds issues**: Fix them immediately. Do NOT proceed to step 2.
 - **Only proceed** when the code-reviewer approves the implementation
 
-#### Step 2: Functional Testing (Required)
+#### Step 2: Automated Testing (Required) ⚠️ **NEW MANDATORY REQUIREMENT**
+- **Write automated tests BEFORE marking feature complete**
+- Tests go in `Tests/Unit/`, `Tests/Integration/`, or `Tests/EndToEnd/`
+- **Unit tests**: Test individual components in isolation (AudioEngine, AudioBufferManager, etc.)
+- **Integration tests**: Test components working together (playback + editing, multi-document state)
+- **End-to-end tests**: Test complete user workflows (open → edit → save → verify)
+- **Run tests**: `./build/WaveEditTests_artefacts/Debug/WaveEditTests`
+- **If tests fail**: Fix the issues. Do NOT mark the task complete.
+- **Coverage target**: All critical code paths must have automated tests
+- **Only proceed** when all tests pass
+
+#### Step 3: Functional Testing (Required)
 - **Use the `test-runner` agent** (or appropriate testing agent) to validate functionality
 - Test the COMPLETE workflow, not just the isolated component
 - **Integration test**: Verify the feature works end-to-end with other components
 - **If tests fail**: Fix the issues. Do NOT mark the task complete.
 - **Only proceed** when all tests pass
 
-#### Step 3: Manual Verification (Required)
+#### Step 4: Manual Verification (Required)
 - **Build and run the application** (`./build-and-run.command`)
 - **Manually test** the feature as a user would
 - **Verify visual feedback**: Does the UI update correctly?
 - **Verify audio feedback**: Does playback work as expected?
 - **Check for errors**: Review console output for warnings/errors
 
-#### Step 4: Assessment Decision
-- ✅ **PASS**: Code reviewed, tests pass, manual test successful → Mark task as complete
+#### Step 5: Assessment Decision
+- ✅ **PASS**: Code reviewed, automated tests written and passing, functional tests pass, manual test successful → Mark task as complete
 - ❌ **FAIL**: Any issues found → Go back to Step 1, fix issues, repeat process
 - ⚠️ **PARTIAL**: Infrastructure done but not integrated → Mark as "⚠️ Infrastructure complete, integration needed"
 
 **NEVER** mark a task as "✅ Complete" if:
 - You haven't run the code-reviewer agent
+- **You haven't written automated tests** ⚠️ **NEW**
+- **Automated tests are failing** ⚠️ **NEW**
 - You haven't tested it end-to-end
 - You only implemented infrastructure without integration
 - Tests are failing
@@ -778,19 +1310,31 @@ cmake --build . --config Release
 ❌ Implemented AudioBufferManager ✅
 ❌ Implemented AudioClipboard ✅
 ❌ Implemented Cut/Copy/Paste ✅
-(But didn't verify playback works with edited buffer!)
+❌ No automated tests written
+❌ Didn't verify playback works with edited buffer!
 ```
 
-**Example of CORRECT process**:
+**Example of CORRECT process** (updated with automated testing requirement):
 ```
 1. ✅ Implement AudioEngine buffer playback
 2. ✅ Run code-reviewer agent → Found thread safety issue → Fixed
-3. ✅ Run test-runner agent → All tests pass
-4. ✅ Manual test: Load file → Edit → Play → HEAR edits ✓
-5. ✅ Mark task complete in TODO.md
+3. ✅ Write automated tests:
+   - Tests/Unit/AudioEngineTests.cpp (buffer loading, playback state)
+   - Tests/Integration/PlaybackIntegrationTests.cpp (edit + playback)
+4. ✅ Run automated tests → ./build/WaveEditTests_artefacts/Debug/WaveEditTests → All pass
+5. ✅ Run test-runner agent → All functional tests pass
+6. ✅ Manual test: Load file → Edit → Play → HEAR edits ✓
+7. ✅ Mark task complete in TODO.md
 ```
 
 **If you skip this process, you WILL create the exact problem we have now**: features that appear complete but don't actually work.
+
+**Automated Testing Benefits**:
+- Catches regressions when refactoring
+- Documents expected behavior
+- Enables confident code changes
+- Reduces manual testing time
+- Prevents shipping broken features
 
 ---
 
@@ -1138,203 +1682,73 @@ When in doubt, ask: "Would Sound Forge Pro do this?" If yes, implement it. If no
 
 ---
 
-**Last Updated**: 2025-10-12 (Level Meters Complete - MVP Functional)
+**Last Updated**: 2025-10-15 (Automated Testing Infrastructure Complete)
 **Project Start**: 2025-10-06
-**Current Phase**: Phase 2 (Professional Features) - 40% Complete ✅
-**Current Status**: ✅ **Level Meters MVP Complete - Functional, Needs Polish**
-**Code Review**: ✅ **9/10 Rating - Professional Implementation**
-**Next Steps**: Normalization, Fade in/out (Phase 2 remaining features)
+**Current Phase**: Phase 3.5 ✅ **COMPLETE** (All P0 UX gaps fixed)
+**Current Status**: ✅ **USER MVP - Ready for Limited Public Beta**
+**Code Quality**: ⭐⭐⭐⭐⭐ **9.5/10 - PRODUCTION GRADE (A+)**
+**Test Coverage**: ✅ **Infrastructure Complete** - Automated testing framework operational
+**Next Steps**: Write comprehensive test suite for existing features (Phase 4 work)
 
 ---
 
-## 🚨 CURRENT IMPLEMENTATION STATUS - READ THIS FIRST
+## 📍 Project Status
 
-**Last Updated**: 2025-10-12 (Code Review Complete + Mono Playback Fix)
+**For current project status, phase progress, code quality metrics, and task tracking, see [TODO.md](TODO.md).**
 
-### 📊 Code Review Results (2025-10-12 - COMPREHENSIVE REVIEW)
+This file (CLAUDE.md) contains AI instructions, architecture patterns, coding standards, and lessons learned. It does NOT track project status or roadmaps.
 
-**Overall Code Quality**: ✅ **8.5/10 - Professional Grade**
-- Exceptional architecture with proper thread safety
-- Clean JUCE integration following best practices
-- **No shortcuts or band-aids found** (except 1 documented MVP placeholder)
-- All Phase 1 completion claims verified as accurate
-- Memory management exemplary (RAII throughout, no raw new/delete)
+---
 
-**CLAUDE.md Adherence**: ✅ **9/10 - Excellent**
-- Proper file organization exactly as specified
-- Naming conventions strictly followed (PascalCase, camelCase, m_ prefix)
-- Allman brace style consistently used
-- Thread safety with proper locking (CriticalSection, atomic variables)
-- Comprehensive error handling for all failure cases
-- No TODOs in critical functionality
+## 📚 Case Studies & Lessons Learned
 
-**Thread Safety**: ✅ **10/10 - Perfect**
-- Proper use of `juce::CriticalSection` and `juce::ScopedLock`
-- Atomic variables for thread-safe state management
-- Message thread assertions throughout
-- No memory allocation in audio callbacks
-- Clear separation between audio thread and message thread
+### Case Study: Phase 3 Multi-File Integration Bugs (2025-10-14)
 
-**Bug Found and Fixed**: 🐛 → ✅ **VERIFIED WORKING**
-- **Mono Playback Bug**: Mono files only played on left channel (not centered)
-- **Root Cause**: Two separate code paths needed fixing:
-  1. `MemoryAudioSource::getNextAudioBlock()` (buffer playback) - lines 122-151
-  2. `audioDeviceIOCallbackWithContext()` (file playback) - lines 738-748
-- **Fix Applied**: Implemented mono-to-stereo duplication in both code paths
-  - Buffer playback: Duplicate during `getNextAudioBlock()` when copying from buffer
-  - File playback: Duplicate in audio callback after transport source fills buffer
-- **Result**: ✅ Mono files now play equally on both channels (professional behavior)
-- **User Verified**: "Great! Thanks fixed." - Complete fix confirmed working
+**Critical Lesson**: Integration Over Isolation (validates CLAUDE.md rule #8)
 
-**Musician/Sound Designer Assessment**: ⚠️ **6.5/10 - Needs Critical Features**
-- Current state: "Developer MVP" (excellent code, limited features)
-- Target state: "User MVP" (minimal but usable for real work)
-- **Gap**: 11-16 hours of DSP/UI work for essential audio tools
+**Context**: The Phase 3 multi-file refactoring (completed 2025-10-13) introduced 6 critical bugs that broke ALL functionality. This case study demonstrates why complete end-to-end integration is mandatory.
 
-**Repository Cleanup**: ✅ **Complete**
-- Removed 25 temporary documentation files
-- Removed 1 orphaned source file (`MainComponentEnhanced.cpp`)
-- Keeping only: CLAUDE.md, README.md, TODO.md, PERFORMANCE_OPTIMIZATION_SUMMARY.md
-- Clean repository structure ready for Phase 2
+**What Happened**: After implementing the multi-document architecture (Document, DocumentManager, TabComponent classes), the system appeared to work (files opened, tabs appeared, UI rendered) but ALL editing operations failed. User testing immediately revealed catastrophic failures.
 
-**Infrastructure for Phase 2**: ✅ **Ready**
-- Created `AudioProcessor` class (Source/Audio/AudioProcessor.h/.cpp)
-- Static utility methods for gain, normalize, fade in/out, DC offset removal
-- Code-reviewer approved: 8.5/10 (thread-safe, well-documented, production-ready)
-- Ready for UI integration in Phase 2
+**Root Cause Pattern**: Incomplete integration - components were implemented but not connected end-to-end.
 
-### 🔥 Phase 2 Progress - Critical Musician Features (40% Complete)
+**Critical Bugs**:
 
-**✅ GAIN/VOLUME ADJUSTMENT - COMPLETE** [2025-10-12]
-- ✅ Basic gain adjustment implemented (±1dB increments via Cmd+Up/Down)
-- ✅ Applies to entire file or selected region only
-- ✅ Full undo/redo support (each adjustment is separate undo step)
-- ✅ **Real-time audio updates during playback** - CRITICAL FIX
-- ✅ Waveform updates instantly after adjustment
-- ✅ Professional workflow for sound designers and musicians
+1. **Bug #1: All menus blank, no keyboard shortcuts**
+   - **Root Cause**: `getCommandInfo()` had early return `if (!doc) return;` preventing ALL command info from being set
+   - **Impact**: Complete UI failure - menus had no text, shortcuts never registered
+   - **Fix**: Removed early return, changed 247 occurrences to null-safe pattern `doc && doc->method()`
+   - **Lesson**: Never use early returns that prevent essential initialization
 
-**Technical Achievement**: Solved complex real-time audio buffer update problem
-- **Problem**: AudioTransportSource buffers audio internally; simply updating the buffer didn't affect playback
-- **Solution**: Disconnect/reconnect transport to flush internal buffers and force fresh audio reading
-- **Result**: Users can now hear gain changes in real-time during playback
-- **See**: "Real-Time Buffer Updates During Playback" section in Architecture Rules for full details
+2. **Bug #2: Cannot open files**
+   - **Root Cause**: `perform()` had early return blocking document-independent commands (fileOpen, fileExit)
+   - **Impact**: Users could not open ANY files - app was unusable
+   - **Fix**: Removed early return, added per-command null checks for 40+ commands
+   - **Lesson**: Distinguish between document-independent and document-dependent operations
 
-**✅ LEVEL METERS - MVP COMPLETE** [2025-10-12]
-- ✅ Peak level meters during playback (real-time audio monitoring)
-- ✅ RMS level indication (average energy display)
-- ✅ Clipping detection (red indicator for levels >±1.0)
-- ✅ Professional visual design (vertical meters, dB scale, color coding)
-- ✅ Thread-safe communication (atomic variables, no audio thread blocking)
-- ✅ Ballistic decay for smooth visual response (0.95 decay rate)
-- ✅ Peak hold indicators (2-second hold time)
-- ✅ **Code Review**: 9/10 - Professional implementation, production-ready
+3. **Bug #6: ALL editing broken (MOST CRITICAL)**
+   - **Root Cause**: `Document.loadFile()` loaded AudioEngine (playback) and WaveformDisplay (visual) but NEVER loaded AudioBufferManager (editing)
+   - **Symptom**: "Invalid selection: beyond duration (max=0.000000)" - buffer was empty!
+   - **Impact**: Copy, cut, paste, gain, normalize, fade - EVERYTHING failed
+   - **Fix**: Added ONE line: `m_bufferManager.loadFromFile(file, m_audioEngine.getFormatManager())`
+   - **Lesson**: This is EXACTLY what CLAUDE.md rule #8 warns against - "A component isn't 'done' until it's integrated and the user can use it end-to-end"
 
-**Implementation Details**:
-- **Files**: `Source/UI/Meters.h/.cpp`, `AudioEngine.h/.cpp` (level monitoring API)
-- **Performance**: <0.2ms audio thread overhead, 30fps UI updates
-- **Visual Design**: Matches Sound Forge/Pro Tools standards (green → orange → yellow → red)
-- **Status**: ✅ **Functional MVP - Works correctly, aesthetic polish deferred to Phase 3**
+**Analysis**:
+- **Pattern**: All 6 bugs were caused by incomplete integration
+- **Appearance vs Reality**: System "worked" visually (files opened, tabs appeared) but was fundamentally broken
+- **Time to Fix**: ~6 hours (investigation + fixes + testing)
+- **Prevention**: MANDATORY Quality Control Process must be followed
 
-**⚠️ Future Enhancement** (Phase 3+):
-- Aesthetic improvements: faster response, smoother animation, refined visual design
-- Optional features: numeric dB readout, adjustable decay rate, log scale option
+**Key Takeaway**: **NEVER** mark a feature complete without end-to-end testing. If the user cannot complete their workflow (open → edit → save → hear changes), the feature is NOT done.
 
-**⏭️ NEXT UP: Normalization** (2-3 hours estimated)
-- Normalize entire file or selection to target level
-- Infrastructure ready, UI integration needed
+**This case study must be referenced when**:
+- Implementing any new architecture or refactoring
+- Reviewing code that claims to be "complete"
+- Evaluating whether to merge a feature branch
 
-**🎯 Remaining Critical Features** (5-9 hours):
-- Normalization (infrastructure ready, UI integration needed)
-- Fade in/out (infrastructure ready, UI integration needed)
-
-### ✅ What's Working - Phase 1 MVP Complete 🎉
-
-**All Critical Blockers Resolved**:
-- ✅ **Audio Engine**: File loading, buffer playback, all transport controls functional
-- ✅ **Edit Operations**: Cut/copy/paste/delete all work correctly and can be heard/seen
-- ✅ **Waveform Display**: Fast rendering (<10ms updates) after all edit operations
-- ✅ **Save/Save As**: Production-ready file writing with comprehensive error handling
-- ✅ **Undo/Redo**: Multi-level undo system (100 actions) with consistent behavior
-- ✅ **Playback**: Users can hear their edits immediately after editing
-- ✅ **Selection-Bounded Playback**: Stops at selection end or loops within selection
-- ✅ **Visual Feedback**: Waveform updates instantly after all edit operations
-- ✅ **File Persistence**: Edits can be saved and persist when reopening files
-
-**Performance Achievements**:
-- ✅ **Waveform redraw**: <10ms (matching Sound Forge/Pro Tools professional standards)
-- ✅ **Fast direct rendering**: Caches AudioBuffer, bypasses slow thumbnail regeneration
-- ✅ **No visual lag**: Instant feedback for all edit operations
-- See `PERFORMANCE_OPTIMIZATION_SUMMARY.md` for technical details
-
-**Build Status**:
-- ✅ Clean builds, no errors
-- ⚠️ 1 warning (pre-existing, not related to recent changes)
-- ✅ All core features functional and tested
-
-### 🎯 Phase 1 MVP - 100% Complete ✅
-
-**All User-Requested Improvements Implemented**:
-
-**✅ PRIORITY 2: Bidirectional Selection Extension** [COMPLETED 2025-10-08]
-- **Problem**: Selection extension stops at zero instead of flipping direction
-- **Solution**: When selection shrinks through zero, flip direction with original start as anchor
-- **Impact**: Professional selection refinement workflow
-- **Files**: `WaveformDisplay.cpp` - `navigateLeft/Right()` methods with bidirectional logic
-- **Result**: ✅ Selection extends bidirectionally with skip-zero logic (user verified: "feels great")
-
-**✅ PRIORITY 3: Unify Navigation with Snap Mode** [COMPLETED 2025-10-08]
-- **Problem**: Arrow keys use fixed increment, Alt+Arrow is redundant
-- **Solution**: Arrow keys honor current snap mode increment, remove Alt+Arrow
-- **Impact**: Simpler, more intuitive navigation system
-- **Files**: `WaveformDisplay.cpp`, `CommandIDs.h`, `Main.cpp`
-- **Result**: ✅ Arrow keys now use `getSnapIncrementInSeconds()`, Alt+Arrow removed, navigation unified
-
-**✅ PRIORITY 4: Two-Tier Snap Mode System** [COMPLETED 2025-10-08]
-- **Problem**: Current snap mode cycling is confusing and slow to use
-- **Solution**: Separate unit selector (dropdown) + increment cycling (G key)
-- **Impact**: Professional, efficient snap mode workflow matching industry tools
-- **Files**: `WaveformDisplay.h/.cpp`, `NavigationPreferences.h`, `Main.cpp`, `AudioUnits.h`
-- **Result**: ✅ G key cycles increments within unit, status bar shows both unit and increment
-
-**✅ PRIORITY 5: MVP Playback and UI Polish** [COMPLETED 2025-10-09]
-- **Problem**: Multiple playback and UI issues affecting MVP quality
-- **Solution**: Fixed 7 critical issues including cursor-based playback and selection-bounded loop
-- **Impact**: Professional playback behavior matching Sound Forge
-- **Files**: `Main.cpp`, `TransportControls.h/.cpp`, `AudioEngine.h/.cpp`, `WaveformDisplay.cpp`
-- **Result**: ✅ All playback modes working correctly, UI cleaned up
-
-See [TODO.md](TODO.md) for detailed implementation summaries.
-
-### What to Do Next
-
-**IMMEDIATE NEXT STEPS (Phase 2 Start)**:
-1. ✅ ~~Complete all Phase 1 priorities~~ - DONE
-2. ✅ ~~Code review and repository cleanup~~ - DONE
-3. ✅ ~~Create AudioProcessor class for DSP operations~~ - DONE (8.5/10 approved)
-4. **Implement critical musician features** (11-16 hours estimated):
-   - Gain/Volume adjustment (2-3 hours) ⭐ **START HERE**
-   - Level meters during playback (4-6 hours)
-   - Normalization (2-3 hours)
-   - Fade in/out (3-4 hours)
-5. Then implement UI/UX enhancements:
-   - Preferences page
-   - Keyboard shortcut customization UI
-   - Auto-save functionality
-
-**Integration Testing Checklist** (All Pass ✅):
-```
-1. Open a WAV file → ✅ Works
-2. Make a selection (click-drag) → ✅ Works
-3. Press Cmd+X (cut) → ✅ Works
-4. Press Space (play) → ✅ Can hear edited audio
-5. Look at waveform → ✅ Updates instantly (<10ms)
-6. Press Cmd+S (save) → ✅ Writes to disk correctly
-7. Close file and reopen → ✅ Edits persist
-8. Play with selection + loop off → ✅ Stops at selection end
-9. Play with selection + loop on → ✅ Loops within selection
-```
-
-**Phase 1 Status**: ✅ **100% Complete - Ready for Phase 2**
+**Files Modified** (for reference):
+- `Source/Main.cpp` (lines 890-1438) - Command system fixes
+- `Source/Utils/Document.cpp` (lines 93-99) - AudioBufferManager integration
 
 ---
 
