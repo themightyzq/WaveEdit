@@ -27,11 +27,23 @@ Document::Document(const juce::File& file)
       m_isModified(false),
       m_waveformDisplay(m_audioEngine.getFormatManager()),
       m_transportControls(m_audioEngine, m_waveformDisplay),
+      m_regionDisplay(m_regionManager),  // Phase 3 Tier 2 - Region system
       m_savedPlaybackPosition(0.0)
 {
     // Configure undo manager with transaction limits (100 undo levels)
     // minTransactions set to 90 to allow headroom for complex multi-unit transactions
     m_undoManager.setMaxNumberOfStoredUnits(100, 90);
+
+    // Connect WaveformDisplay to RegionManager for region overlay rendering
+    m_waveformDisplay.setRegionManager(&m_regionManager);
+
+    // Connect WaveformDisplay to RegionDisplay for zoom/scroll synchronization
+    // When the waveform view changes (zoom, scroll), update RegionDisplay's visible range
+    m_waveformDisplay.onVisibleRangeChanged = [this](double startTime, double endTime)
+    {
+        m_regionDisplay.setVisibleRange(startTime, endTime);
+        m_regionDisplay.repaint();
+    };
 
     // Initialize audio engine
     if (!m_audioEngine.initializeAudioDevice())
@@ -109,6 +121,17 @@ bool Document::loadFile(const juce::File& file)
     }
 
     m_waveformDisplay.clearSelection();
+
+    // Initialize region display (Phase 3 Tier 2)
+    m_regionDisplay.setSampleRate(m_audioEngine.getSampleRate());
+    m_regionDisplay.setTotalDuration(m_bufferManager.getLengthInSeconds());
+    m_regionDisplay.setVisibleRange(0.0, m_bufferManager.getLengthInSeconds());
+
+    // Load regions from sidecar JSON file (if exists)
+    m_regionManager.loadFromFile(file);
+
+    // Connect WaveformDisplay to RegionManager for region overlay rendering
+    m_waveformDisplay.setRegionManager(&m_regionManager);
 
     // Reset playback position
     m_savedPlaybackPosition = 0.0;

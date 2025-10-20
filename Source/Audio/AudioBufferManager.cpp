@@ -265,3 +265,63 @@ bool AudioBufferManager::replaceRange(int64_t startSample, int64_t numSamplesToR
     // Then insert the new audio at the same position
     return insertAudio(startSample, newAudio);
 }
+
+bool AudioBufferManager::silenceRange(int64_t startSample, int64_t numSamples)
+{
+    juce::ScopedLock sl(m_lock);
+
+    // Validate range
+    if (startSample < 0 || numSamples <= 0 ||
+        startSample + numSamples > m_buffer.getNumSamples())
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Invalid range in silenceRange");
+        return false;
+    }
+
+    // Fill the range with zeros (digital silence)
+    for (int ch = 0; ch < m_buffer.getNumChannels(); ++ch)
+    {
+        m_buffer.clear(ch, static_cast<int>(startSample), static_cast<int>(numSamples));
+    }
+
+    juce::Logger::writeToLog("AudioBufferManager: Silenced " + juce::String(numSamples) +
+                             " samples starting at " + juce::String(startSample));
+
+    return true;
+}
+
+bool AudioBufferManager::trimToRange(int64_t startSample, int64_t numSamples)
+{
+    juce::ScopedLock sl(m_lock);
+
+    // Validate range
+    if (startSample < 0 || numSamples <= 0 ||
+        startSample + numSamples > m_buffer.getNumSamples())
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Invalid range in trimToRange");
+        return false;
+    }
+
+    // If trimming to entire buffer, nothing to do
+    if (startSample == 0 && numSamples == m_buffer.getNumSamples())
+    {
+        return true;
+    }
+
+    // Create new buffer with only the specified range
+    int numChannels = m_buffer.getNumChannels();
+    juce::AudioBuffer<float> newBuffer(numChannels, static_cast<int>(numSamples));
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        newBuffer.copyFrom(ch, 0, m_buffer, ch, static_cast<int>(startSample), static_cast<int>(numSamples));
+    }
+
+    // Replace buffer
+    m_buffer = newBuffer;
+
+    juce::Logger::writeToLog("AudioBufferManager: Trimmed to " + juce::String(numSamples) +
+                             " samples starting at " + juce::String(startSample));
+
+    return true;
+}

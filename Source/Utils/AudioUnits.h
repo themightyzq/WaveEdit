@@ -442,4 +442,89 @@ namespace AudioUnits
         }
     }
 
+    //==============================================================================
+    // Time Format Display (Phase 3.5 - Priority #5)
+
+    /**
+     * Time format for status bar and time displays.
+     */
+    enum class TimeFormat
+    {
+        Samples,        // Raw sample count (e.g., "44100")
+        Milliseconds,   // Milliseconds (e.g., "1000.00 ms")
+        Seconds,        // Seconds with decimals (e.g., "1.00 s")
+        Frames          // Video frames (e.g., "30 frames @ 30 fps")
+    };
+
+    /**
+     * Formats a time value (in seconds) according to the specified format.
+     *
+     * @param timeInSeconds Time value in seconds
+     * @param sampleRate Sample rate in Hz (used for sample count calculation)
+     * @param format The time format to use
+     * @param fps Frames per second (used for SMPTE and Frames formats, default 30.0)
+     * @return Formatted time string
+     */
+    inline juce::String formatTime(double timeInSeconds, double sampleRate, TimeFormat format, double fps = 30.0)
+    {
+        switch (format)
+        {
+            case TimeFormat::Samples:
+            {
+                int64_t samples = secondsToSamples(timeInSeconds, sampleRate);
+                return juce::String(samples) + " smp";
+            }
+
+            case TimeFormat::Milliseconds:
+            {
+                double ms = timeInSeconds * 1000.0;
+                return juce::String(ms, 2) + " ms";
+            }
+
+            case TimeFormat::Seconds:
+            {
+                return juce::String(timeInSeconds, 2) + " s";
+            }
+
+            case TimeFormat::Frames:
+            {
+                int totalFrames = static_cast<int>(timeInSeconds * fps);
+                return juce::String(totalFrames) + " fr @ " + juce::String(fps, 2) + " fps";
+            }
+
+            default:
+                return juce::String(timeInSeconds, 2) + " s";
+        }
+    }
+
+    /**
+     * Gets the next time format in the cycle (for format cycling).
+     */
+    inline TimeFormat getNextTimeFormat(TimeFormat current)
+    {
+        switch (current)
+        {
+            case TimeFormat::Samples:       return TimeFormat::Milliseconds;
+            case TimeFormat::Milliseconds:  return TimeFormat::Seconds;
+            case TimeFormat::Seconds:       return TimeFormat::Frames;
+            case TimeFormat::Frames:        return TimeFormat::Samples;
+            default:                        return TimeFormat::Seconds;
+        }
+    }
+
+    /**
+     * Converts time format enum to user-friendly string.
+     */
+    inline juce::String timeFormatToString(TimeFormat format)
+    {
+        switch (format)
+        {
+            case TimeFormat::Samples:       return "Samples";
+            case TimeFormat::Milliseconds:  return "Milliseconds";
+            case TimeFormat::Seconds:       return "Seconds";
+            case TimeFormat::Frames:        return "Frames";
+            default:                        return "Unknown";
+        }
+    }
+
 } // namespace AudioUnits

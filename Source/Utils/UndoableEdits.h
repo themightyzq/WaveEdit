@@ -20,6 +20,9 @@
 #include "../Audio/AudioBufferManager.h"
 #include "../Audio/AudioEngine.h"
 #include "../UI/WaveformDisplay.h"
+#include "../UI/RegionDisplay.h"
+#include "RegionManager.h"
+#include "Region.h"
 
 /**
  * Base class for undoable edit operations.
@@ -30,10 +33,14 @@ class UndoableEditBase : public juce::UndoableAction
 public:
     UndoableEditBase(AudioBufferManager& bufferManager,
                      AudioEngine& audioEngine,
-                     WaveformDisplay& waveformDisplay)
+                     WaveformDisplay& waveformDisplay,
+                     RegionManager* regionManager = nullptr,
+                     RegionDisplay* regionDisplay = nullptr)
         : m_bufferManager(bufferManager),
           m_audioEngine(audioEngine),
-          m_waveformDisplay(waveformDisplay)
+          m_waveformDisplay(waveformDisplay),
+          m_regionManager(regionManager),
+          m_regionDisplay(regionDisplay)
     {
     }
 
@@ -52,6 +59,8 @@ protected:
      * - NO view jump (preserves zoom and scroll)
      * - NO progressive redraw (synchronous update)
      * - Preserves edit cursor position
+     *
+     * Region Fix: Also updates RegionDisplay to synchronize region positions with waveform changes.
      */
     void updatePlaybackAndDisplay()
     {
@@ -78,11 +87,31 @@ protected:
         {
             juce::Logger::writeToLog("Warning: Failed to update waveform display after undo/redo");
         }
+
+        // REGION FIX: Update RegionDisplay to synchronize with waveform changes
+        // After delete/undo, the total duration changes and regions need to be redrawn
+        if (m_regionDisplay)
+        {
+            // Update total duration so RegionDisplay can properly position regions
+            double newDuration = static_cast<double>(m_bufferManager.getNumSamples()) / m_bufferManager.getSampleRate();
+            m_regionDisplay->setTotalDuration(newDuration);
+
+            // CRITICAL FIX: Also update the visible range from WaveformDisplay
+            // This ensures regions redraw correctly after undo without needing to zoom
+            double visibleStart = m_waveformDisplay.getVisibleRangeStart();
+            double visibleEnd = m_waveformDisplay.getVisibleRangeEnd();
+            m_regionDisplay->setVisibleRange(visibleStart, visibleEnd);
+
+            // Force repaint to show updated region positions
+            m_regionDisplay->repaint();
+        }
     }
 
     AudioBufferManager& m_bufferManager;
     AudioEngine& m_audioEngine;
     WaveformDisplay& m_waveformDisplay;
+    RegionManager* m_regionManager;    // Optional - may be nullptr if no regions exist
+    RegionDisplay* m_regionDisplay;    // Optional - may be nullptr if no region display
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UndoableEditBase)
 };
@@ -99,8 +128,10 @@ public:
                  AudioEngine& audioEngine,
                  WaveformDisplay& waveformDisplay,
                  int64_t startSample,
-                 int64_t numSamples)
-        : UndoableEditBase(bufferManager, audioEngine, waveformDisplay),
+                 int64_t numSamples,
+                 RegionManager* regionManager = nullptr,
+                 RegionDisplay* regionDisplay = nullptr)
+        : UndoableEditBase(bufferManager, audioEngine, waveformDisplay, regionManager, regionDisplay),
           m_startSample(startSample),
           m_numSamples(numSamples)
     {
@@ -112,15 +143,96 @@ public:
         // Store the audio data that will be deleted
         m_deletedAudio = m_bufferManager.getAudioRange(startSample, numSamples);
         m_sampleRate = m_bufferManager.getSampleRate();
+
+        // Save all region positions BEFORE the delete (for undo)
+        if (m_regionManager)
+        {
+            for (int i = 0; i < m_regionManager->getNumRegions(); ++i)
+            {
+                if (const auto* region = m_regionManager->getRegion(i))
+                {
+                    m_savedRegions.add(*region);
+                }
+            }
+        }
     }
 
     bool perform() override
     {
-        // Perform the delete operation
+        // Perform the delete operation on the buffer
         bool success = m_bufferManager.deleteRange(m_startSample, m_numSamples);
 
         if (success)
         {
+            // INTELLIGENT REGION MANAGEMENT:
+            // When deleting audio, we need to:
+            // 1. Delete regions completely within the deleted range
+            // 2. Shift regions after the deletion by the deleted amount
+            // This makes regions "follow" the waveform intelligently
+            if (m_regionManager && m_regionManager->getNumRegions() > 0)
+            {
+                int64_t deleteEnd = m_startSample + m_numSamples;
+
+                // Iterate backwards to safely remove regions during iteration
+                for (int i = m_regionManager->getNumRegions() - 1; i >= 0; --i)
+                {
+                    Region* region = m_regionManager->getRegion(i);
+                    if (!region) continue;
+
+                    int64_t regionStart = region->getStartSample();
+                    int64_t regionEnd = region->getEndSample();
+
+                    // Case 1: Region is completely before deletion - no change needed
+                    if (regionEnd <= m_startSample)
+                    {
+                        // Keep as-is
+                        continue;
+                    }
+                    // Case 2: Region is completely within deletion - remove it
+                    else if (regionStart >= m_startSample && regionEnd <= deleteEnd)
+                    {
+                        juce::Logger::writeToLog(juce::String::formatted(
+                            "Region '%s' deleted (was within deleted range)",
+                            region->getName().toRawUTF8()));
+                        m_regionManager->removeRegion(i);
+                    }
+                    // Case 3: Region starts within deletion but ends after - partial overlap (remove for simplicity)
+                    else if (regionStart >= m_startSample && regionStart < deleteEnd && regionEnd > deleteEnd)
+                    {
+                        juce::Logger::writeToLog(juce::String::formatted(
+                            "Region '%s' deleted (partially overlapped deletion)",
+                            region->getName().toRawUTF8()));
+                        m_regionManager->removeRegion(i);
+                    }
+                    // Case 4: Region starts before deletion but ends within - partial overlap (remove for simplicity)
+                    else if (regionStart < m_startSample && regionEnd > m_startSample && regionEnd <= deleteEnd)
+                    {
+                        juce::Logger::writeToLog(juce::String::formatted(
+                            "Region '%s' deleted (partially overlapped deletion)",
+                            region->getName().toRawUTF8()));
+                        m_regionManager->removeRegion(i);
+                    }
+                    // Case 5: Region completely spans deletion (starts before, ends after) - remove for simplicity
+                    else if (regionStart < m_startSample && regionEnd > deleteEnd)
+                    {
+                        juce::Logger::writeToLog(juce::String::formatted(
+                            "Region '%s' deleted (completely spanned deletion)",
+                            region->getName().toRawUTF8()));
+                        m_regionManager->removeRegion(i);
+                    }
+                    // Case 6: Region is completely after deletion - shift it back by deleted amount
+                    else if (regionStart >= deleteEnd)
+                    {
+                        region->setStartSample(regionStart - m_numSamples);
+                        region->setEndSample(regionEnd - m_numSamples);
+                        juce::Logger::writeToLog(juce::String::formatted(
+                            "Region '%s' shifted back by %lld samples",
+                            region->getName().toRawUTF8(),
+                            m_numSamples));
+                    }
+                }
+            }
+
             updatePlaybackAndDisplay();
         }
 
@@ -134,6 +246,19 @@ public:
 
         if (success)
         {
+            // Restore all saved region positions (undoes any shifts caused by the delete)
+            if (m_regionManager && !m_savedRegions.isEmpty())
+            {
+                // Remove all current regions
+                m_regionManager->removeAllRegions();
+
+                // Restore original regions with their original positions
+                for (const auto& region : m_savedRegions)
+                {
+                    m_regionManager->addRegion(region);
+                }
+            }
+
             updatePlaybackAndDisplay();
         }
 
@@ -151,6 +276,7 @@ private:
     int64_t m_numSamples;
     juce::AudioBuffer<float> m_deletedAudio;
     double m_sampleRate;
+    juce::Array<Region> m_savedRegions;  // Saved region positions for undo
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeleteAction)
 };

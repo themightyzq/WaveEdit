@@ -25,6 +25,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <functional>
 #include "../Utils/AudioUnits.h"
 #include "../Utils/NavigationPreferences.h"
 
@@ -100,6 +101,28 @@ public:
      * Returns the current playback position in seconds.
      */
     double getPlaybackPosition() const { return m_playbackPosition; }
+
+    /**
+     * Enables or disables follow-playback mode (auto-scroll).
+     * When enabled, the waveform automatically scrolls to keep the playback cursor visible.
+     *
+     * @param shouldFollow true to enable follow mode, false to disable
+     */
+    void setFollowPlayback(bool shouldFollow);
+
+    /**
+     * Returns true if follow-playback mode is enabled.
+     */
+    bool isFollowPlayback() const { return m_followPlayback; }
+
+    //==============================================================================
+    // View state callbacks
+
+    /**
+     * Callback triggered when the visible range changes (zoom, scroll, etc.).
+     * Parameters: (startTime, endTime) in seconds.
+     */
+    std::function<void(double, double)> onVisibleRangeChanged;
 
     //==============================================================================
     // Selection
@@ -214,6 +237,14 @@ public:
     void zoomOneToOne();
 
     /**
+     * Zooms to fit a specific region with small margins.
+     * If regionIndex is -1, uses the currently selected region from RegionManager.
+     *
+     * @param regionIndex Index of region to zoom to, or -1 for selected region
+     */
+    void zoomToRegion(int regionIndex = -1);
+
+    /**
      * Sets the visible range in seconds.
      *
      * @param startTime Start of visible range
@@ -262,10 +293,26 @@ public:
     }
 
     /**
-     * Cycles to the next snap increment within the current unit (Tier 2: G key).
+     * Cycles to the next snap increment within the current unit (Tier 2: increment dropdown).
      * Wraps around to the first increment after the last one.
      */
     void cycleSnapIncrement();
+
+    /**
+     * Toggles snap on/off (G key).
+     * When toggling on, restores the last used increment.
+     * When toggling off, remembers current increment for next enable.
+     */
+    void toggleSnap();
+
+    /**
+     * Checks if snap is enabled.
+     */
+    bool isSnapEnabled() const
+    {
+        juce::ScopedLock lock(m_snapLock);
+        return m_snapEnabled;
+    }
 
     /**
      * Gets the current snap increment value (raw, depends on unit type).
@@ -325,6 +372,13 @@ public:
      * Used for zero-crossing snapping.
      */
     void setAudioBufferReference(const juce::AudioBuffer<float>* buffer);
+
+    /**
+     * Sets the RegionManager reference for drawing region overlays.
+     *
+     * @param regionManager Pointer to the RegionManager (nullptr to disable overlays)
+     */
+    void setRegionManager(class RegionManager* regionManager);
 
     //==============================================================================
     // Audio-unit based keyboard navigation
@@ -426,8 +480,9 @@ private:
 
     /**
      * Updates the scrollbar range and position.
+     * @param sendNotification If false, doesn't trigger scrollBarMoved callback
      */
-    void updateScrollbar();
+    void updateScrollbar(bool sendNotification = true);
 
     /**
      * Draws the time ruler at the top of the display.
@@ -461,6 +516,12 @@ private:
     void drawEditCursor(juce::Graphics& g, juce::Rectangle<int> bounds);
 
     /**
+     * Draws semi-transparent region overlays on the waveform.
+     * Uses the same color palette as the Auto Region preview dialog.
+     */
+    void drawRegionOverlays(juce::Graphics& g, juce::Rectangle<int> bounds);
+
+    /**
      * Constrains the visible range to valid bounds.
      */
     void constrainVisibleRange();
@@ -490,6 +551,11 @@ private:
 
     // Playback state
     double m_playbackPosition;
+    bool m_followPlayback;              ///< Auto-scroll during playback when true
+    double m_lastPlaybackPosition;      ///< Previous playback position for movement detection
+    double m_lastUserScrollTime;        ///< Timestamp of last manual scroll (for auto-disable logic)
+    bool m_isScrollingProgrammatically; ///< Flag to distinguish auto-scroll from user scroll
+    mutable juce::CriticalSection m_playbackLock; ///< Thread safety for playback position updates
 
     // Selection state
     bool m_hasSelection;
@@ -513,6 +579,8 @@ private:
     // Two-tier snap mode system (unit selection + increment cycling)
     AudioUnits::UnitType m_snapUnitType;       // Tier 1: Unit type (Samples, Ms, Seconds, Frames)
     size_t m_snapIncrementIndex;                // Tier 2: Index into increment array (0 = off)
+    bool m_snapEnabled;                         // G key toggle: snap on/off (maintains last increment)
+    size_t m_lastSnapIncrementIndex;            // Remember last non-zero increment when disabled
     bool m_zeroCrossingEnabled;                 // Z key toggle: independent zero-crossing snap
     NavigationPreferences m_navigationPrefs;
     const juce::AudioBuffer<float>* m_audioBufferRef; // Reference for zero-crossing snap
@@ -523,6 +591,9 @@ private:
     bool m_useDirectRendering;  // If true, bypass thumbnail, render from buffer
     juce::CriticalSection m_bufferLock;  // Thread safety for buffer access
 
+    // Region overlay rendering (optional, nullptr if not set)
+    class RegionManager* m_regionManager;  // For drawing semi-transparent region overlays
+
     // Layout constants
     static constexpr int RULER_HEIGHT = 30;
     static constexpr int SCROLLBAR_HEIGHT = 16;
@@ -530,6 +601,11 @@ private:
 
     // Time comparison epsilon (1ms for sample-accurate comparisons)
     static constexpr double TIME_EPSILON = 0.001;
+
+    // Auto-scroll behavior constants
+    static constexpr double SCROLL_TRIGGER_RIGHT = 0.75;  ///< Trigger scroll when cursor reaches 75% from left
+    static constexpr double SCROLL_TRIGGER_LEFT = 0.20;   ///< Trigger scroll when cursor goes below 20% from left
+    static constexpr double CURSOR_POSITION_RATIO = 0.25; ///< Position cursor at 25% from left edge during auto-scroll
 
     // Animation callback
     void timerCallback() override;

@@ -68,6 +68,7 @@ bool AudioFileManager::isValidAudioFile(const juce::File& file)
 
     if (!file.existsAsFile())
     {
+        setError("File does not exist: " + file.getFullPathName());
         return false;
     }
 
@@ -76,6 +77,7 @@ bool AudioFileManager::isValidAudioFile(const juce::File& file)
 
     if (reader == nullptr)
     {
+        setError("Could not create reader for file: " + file.getFullPathName());
         return false;
     }
 

@@ -158,6 +158,24 @@ public:
     bool replaceRange(int64_t startSample, int64_t numSamplesToReplace,
                      const juce::AudioBuffer<float>& newAudio);
 
+    /**
+     * Fills a range with digital silence (zeros).
+     *
+     * @param startSample Start sample (inclusive)
+     * @param numSamples Number of samples to silence
+     * @return true if successful
+     */
+    bool silenceRange(int64_t startSample, int64_t numSamples);
+
+    /**
+     * Trims audio to keep only the specified range (deletes everything outside).
+     *
+     * @param startSample Start sample of range to keep (inclusive)
+     * @param numSamples Number of samples to keep
+     * @return true if successful
+     */
+    bool trimToRange(int64_t startSample, int64_t numSamples);
+
 private:
     juce::AudioBuffer<float> m_buffer;
     double m_sampleRate;

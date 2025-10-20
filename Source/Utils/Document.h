@@ -28,6 +28,8 @@
 #include "../Audio/AudioBufferManager.h"
 #include "../UI/WaveformDisplay.h"
 #include "../UI/TransportControls.h"
+#include "RegionManager.h"
+#include "../UI/RegionDisplay.h"
 
 /**
  * Document class represents a single audio file with all associated state.
@@ -155,6 +157,24 @@ public:
     juce::UndoManager& getUndoManager() { return m_undoManager; }
     const juce::UndoManager& getUndoManager() const { return m_undoManager; }
 
+    /**
+     * Gets the region manager for this document.
+     * The region manager tracks named regions/markers in the audio.
+     *
+     * @return Reference to the document's RegionManager
+     */
+    RegionManager& getRegionManager() { return m_regionManager; }
+    const RegionManager& getRegionManager() const { return m_regionManager; }
+
+    /**
+     * Gets the region display component for this document.
+     * The region display shows colored bars above the waveform.
+     *
+     * @return Reference to the document's RegionDisplay
+     */
+    RegionDisplay& getRegionDisplay() { return m_regionDisplay; }
+    const RegionDisplay& getRegionDisplay() const { return m_regionDisplay; }
+
     //==============================================================================
     // State Management
 
@@ -199,6 +219,10 @@ private:
 
     // Edit history
     juce::UndoManager m_undoManager;
+
+    // Region system (Phase 3 Tier 2)
+    RegionManager m_regionManager;
+    RegionDisplay m_regionDisplay;
 
     // Saved state (for tab switching)
     double m_savedPlaybackPosition;

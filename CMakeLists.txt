@@ -53,10 +53,30 @@ target_sources(WaveEdit
         Source/UI/TabComponent.h
         Source/UI/ErrorDialog.cpp
         Source/UI/ErrorDialog.h
+        Source/UI/SettingsPanel.cpp
+        Source/UI/SettingsPanel.h
+        Source/UI/FilePropertiesDialog.cpp
+        Source/UI/FilePropertiesDialog.h
+        Source/UI/GoToPositionDialog.cpp
+        Source/UI/GoToPositionDialog.h
+        Source/UI/StripSilenceDialog.cpp
+        Source/UI/StripSilenceDialog.h
+        Source/UI/BatchExportDialog.cpp
+        Source/UI/BatchExportDialog.h
         Source/Utils/Document.cpp
         Source/Utils/Document.h
         Source/Utils/DocumentManager.cpp
         Source/Utils/DocumentManager.h
+        Source/Utils/Region.cpp
+        Source/Utils/Region.h
+        Source/Utils/RegionManager.cpp
+        Source/Utils/RegionManager.h
+        Source/Utils/RegionExporter.cpp
+        Source/Utils/RegionExporter.h
+        Source/UI/RegionDisplay.cpp
+        Source/UI/RegionDisplay.h
+        Source/UI/RegionListPanel.cpp
+        Source/UI/RegionListPanel.h
 )
 
 # JUCE modules required for audio editing application
@@ -87,6 +107,9 @@ target_compile_definitions(WaveEdit
         JUCE_USE_CURL=0
         JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:WaveEdit,JUCE_PRODUCT_NAME>"
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:WaveEdit,JUCE_VERSION>"
+
+        # Enable modal loops for dialogs (required for BatchExportDialog, FilePropertiesDialog, etc.)
+        JUCE_MODAL_LOOPS_PERMITTED=1
 
         # VST3 support (for future phases)
         # JUCE_PLUGINHOST_VST3=1
@@ -172,10 +195,24 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/TabComponent.h
         Source/UI/ErrorDialog.cpp
         Source/UI/ErrorDialog.h
+        Source/UI/SettingsPanel.cpp
+        Source/UI/SettingsPanel.h
+        Source/UI/FilePropertiesDialog.cpp
+        Source/UI/FilePropertiesDialog.h
+        Source/UI/GoToPositionDialog.cpp
+        Source/UI/GoToPositionDialog.h
+        Source/UI/StripSilenceDialog.cpp
+        Source/UI/StripSilenceDialog.h
         Source/Utils/Document.cpp
         Source/Utils/Document.h
         Source/Utils/DocumentManager.cpp
         Source/Utils/DocumentManager.h
+        Source/Utils/Region.cpp
+        Source/Utils/Region.h
+        Source/Utils/RegionManager.cpp
+        Source/Utils/RegionManager.h
+        Source/UI/RegionDisplay.cpp
+        Source/UI/RegionDisplay.h
     )
 
     # Link WaveEditCore to JUCE modules
@@ -240,21 +277,24 @@ if(WAVEEDIT_BUILD_TESTS)
     # Note: Add test files as they are created
     target_sources(WaveEditTests
         PRIVATE
-            Tests/TestRunner.cpp                            # Main test runner
+            Tests/TestRunner.cpp                                # Main test runner
             Tests/TestUtils/TestAudioFiles.h
             Tests/TestUtils/AudioAssertions.h
-            Tests/Unit/AudioEngineTests.cpp                 # Week 2 ✅
-            Tests/Unit/AudioBufferManagerTests.cpp          # Week 2 ✅
-            Tests/Unit/AudioProcessorTests.cpp              # Week 2 ✅
-            # Tests/Unit/UndoRedoTests.cpp                    # Week 3
-            # Tests/Unit/DocumentManagerTests.cpp             # Week 3
-            # Tests/Integration/PlaybackIntegrationTests.cpp  # Week 4
-            # Tests/Integration/EditingWorkflowTests.cpp      # Week 4
-            # Tests/Integration/MultiDocumentTests.cpp        # Week 4
-            # Tests/EndToEnd/CompleteWorkflowTests.cpp        # Week 5
-            # Tests/EndToEnd/StressTests.cpp                  # Week 5
+            Tests/Unit/AudioEngineTests.cpp                     # Week 2 ✅
+            Tests/Unit/AudioBufferManagerTests.cpp              # Week 2 ✅
+            Tests/Unit/AudioProcessorTests.cpp                  # Week 2 ✅
+            Tests/Integration/FileIOTests.cpp                   # Week 3 ✅ (File I/O Integration)
+            Tests/Unit/UndoRedoTests.cpp                        # Week 3 ✅ (Undo/Redo Data Integrity)
+            Tests/Integration/MultiDocumentTests.cpp            # Week 4 ✅ (Multi-file architecture)
+            Tests/Integration/InterFileClipboardTests.cpp       # Week 4 ✅ (Inter-file clipboard)
+            Tests/Integration/PlaybackEditingIntegrationTests.cpp # Week 4 ✅ (Playback + Editing)
+            Tests/Unit/Phase35FeaturesTests.cpp                 # Week 4 ✅ (Phase 3.5: Time Format, Auto-Save)
+            Tests/Integration/EditingToolsTests.cpp             # Week 4 ✅ (Silence, Trim, DC Offset)
+            Tests/Unit/GoToPositionDialogTests.cpp              # Week 4 ✅ (Go To Position parsing)
+            # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
+            # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6
-            # Tests/Performance/PlaybackLatencyBenchmarks.cpp  # Week 6
+            # Tests/Performance/PlaybackLatencyBenchmarks.cpp   # Week 6
     )
 
     # Link test executable to WaveEditCore and JUCE test utilities
