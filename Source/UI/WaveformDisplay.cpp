@@ -22,6 +22,8 @@
 
 #include "WaveformDisplay.h"
 #include "../Utils/AudioBufferInputSource.h"
+#include "../Utils/RegionManager.h"
+#include "../Utils/Region.h"
 #include <cmath>
 
 //==============================================================================
@@ -38,6 +40,10 @@ WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
       m_visibleEnd(10.0),
       m_zoomLevel(1.0),
       m_playbackPosition(0.0),
+      m_followPlayback(true),  // Auto-scroll enabled by default
+      m_lastPlaybackPosition(0.0),
+      m_lastUserScrollTime(0.0),
+      m_isScrollingProgrammatically(false),
       m_hasSelection(false),
       m_selectionStart(0.0),
       m_selectionEnd(0.0),
@@ -51,9 +57,12 @@ WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
       m_selectionAlphaIncreasing(true),
       m_snapUnitType(AudioUnits::UnitType::Milliseconds),  // Default unit
       m_snapIncrementIndex(0),  // Default to OFF (index 0 = snap disabled)
+      m_snapEnabled(false),  // G key toggle: snap starts disabled
+      m_lastSnapIncrementIndex(1),  // Remember first increment (10ms default)
       m_zeroCrossingEnabled(false),
       m_audioBufferRef(nullptr),
-      m_useDirectRendering(false)
+      m_useDirectRendering(false),
+      m_regionManager(nullptr)
 {
     // Set up thumbnail
     m_thumbnail.addChangeListener(this);
@@ -277,22 +286,75 @@ void WaveformDisplay::clear()
 
 void WaveformDisplay::setPlaybackPosition(double positionInSeconds)
 {
+    juce::ScopedLock lock(m_playbackLock);  // Thread safety for playback state
+
     // Use epsilon comparison for floating point
     if (std::abs(m_playbackPosition - positionInSeconds) > TIME_EPSILON)
     {
+        m_lastPlaybackPosition = m_playbackPosition;
         m_playbackPosition = positionInSeconds;
 
-        // Auto-scroll to keep playback cursor visible
-        if (m_playbackPosition < m_visibleStart || m_playbackPosition > m_visibleEnd)
+        // Auto-scroll to keep playback cursor visible (only if follow mode enabled)
+        // EDGE CASE PROTECTION (2025-10-17): Don't auto-scroll while user is dragging selection
+        // This prevents jarring view jumps while user is making precise selections
+        if (m_followPlayback && !m_isDraggingSelection)
         {
             double visibleDuration = m_visibleEnd - m_visibleStart;
-            m_visibleStart = m_playbackPosition - visibleDuration * 0.25; // Position at 25% from left
-            m_visibleEnd = m_visibleStart + visibleDuration;
-            constrainVisibleRange();
-            updateScrollbar();
+
+            // Use smooth look-ahead scrolling: scroll before cursor reaches edge
+            // Keep cursor in the range [SCROLL_TRIGGER_LEFT to SCROLL_TRIGGER_RIGHT] of the visible area
+            double cursorPositionInView = (m_playbackPosition - m_visibleStart) / visibleDuration;
+
+            // Scroll if cursor is approaching right edge or past left edge
+            if (cursorPositionInView > SCROLL_TRIGGER_RIGHT || cursorPositionInView < SCROLL_TRIGGER_LEFT ||
+                m_playbackPosition < m_visibleStart || m_playbackPosition > m_visibleEnd)
+            {
+                // Position playback cursor at CURSOR_POSITION_RATIO from left edge (gives room to see ahead)
+                m_visibleStart = m_playbackPosition - visibleDuration * CURSOR_POSITION_RATIO;
+                m_visibleEnd = m_visibleStart + visibleDuration;
+                constrainVisibleRange();
+
+                // Update scrollbar without triggering callback (to prevent disabling follow mode)
+                updateScrollbar(false);
+            }
         }
 
         repaint();
+    }
+}
+
+void WaveformDisplay::setFollowPlayback(bool shouldFollow)
+{
+    juce::ScopedLock lock(m_playbackLock);  // Thread safety for playback state
+
+    // No change - nothing to do
+    if (m_followPlayback == shouldFollow)
+    {
+        return;
+    }
+
+    m_followPlayback = shouldFollow;
+
+    // ENHANCEMENT (2025-10-17): If enabling follow mode during playback, immediately scroll to show playback cursor
+    // This provides instant feedback when user toggles auto-scroll back on
+    if (shouldFollow && m_playbackPosition > 0.0 && m_fileLoaded)
+    {
+        double visibleDuration = m_visibleEnd - m_visibleStart;
+
+        // Check if playback cursor is already visible - only scroll if it's outside current view
+        bool cursorVisible = (m_playbackPosition >= m_visibleStart && m_playbackPosition <= m_visibleEnd);
+
+        if (!cursorVisible)
+        {
+            // Position playback cursor at CURSOR_POSITION_RATIO from left edge (gives room to see ahead)
+            m_visibleStart = m_playbackPosition - visibleDuration * CURSOR_POSITION_RATIO;
+            m_visibleEnd = m_visibleStart + visibleDuration;
+            constrainVisibleRange();
+
+            // Update scrollbar without sending notification (this is programmatic)
+            updateScrollbar(false);
+            repaint();
+        }
     }
 }
 
@@ -454,6 +516,10 @@ void WaveformDisplay::zoomIn()
     constrainVisibleRange();
     updateScrollbar();
     repaint();
+
+    // Notify listeners (RegionDisplay) of visible range change
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 }
 
 void WaveformDisplay::zoomOut()
@@ -479,6 +545,10 @@ void WaveformDisplay::zoomOut()
     constrainVisibleRange();
     updateScrollbar();
     repaint();
+
+    // Notify listeners (RegionDisplay) of visible range change
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 }
 
 void WaveformDisplay::zoomToFit()
@@ -494,6 +564,10 @@ void WaveformDisplay::zoomToFit()
 
     updateScrollbar();
     repaint();
+
+    // Notify listeners (RegionDisplay) of visible range change
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 }
 
 void WaveformDisplay::zoomToSelection()
@@ -513,6 +587,10 @@ void WaveformDisplay::zoomToSelection()
     constrainVisibleRange();
     updateScrollbar();
     repaint();
+
+    // Notify listeners (RegionDisplay) of visible range change
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 }
 
 //==============================================================================
@@ -535,6 +613,30 @@ void WaveformDisplay::cycleSnapIncrement()
 
     // Cycle to next increment (wrap around)
     m_snapIncrementIndex = (m_snapIncrementIndex + 1) % increments.size();
+
+    repaint();
+}
+
+void WaveformDisplay::toggleSnap()
+{
+    juce::ScopedLock lock(m_snapLock);
+
+    if (m_snapEnabled)
+    {
+        // Disabling snap: remember current increment and set to off
+        if (m_snapIncrementIndex > 0)
+        {
+            m_lastSnapIncrementIndex = m_snapIncrementIndex;
+        }
+        m_snapIncrementIndex = 0;  // 0 = snap off
+        m_snapEnabled = false;
+    }
+    else
+    {
+        // Enabling snap: restore last used increment
+        m_snapIncrementIndex = m_lastSnapIncrementIndex;
+        m_snapEnabled = true;
+    }
 
     repaint();
 }
@@ -563,6 +665,12 @@ void WaveformDisplay::setNavigationPreferences(const NavigationPreferences& pref
 void WaveformDisplay::setAudioBufferReference(const juce::AudioBuffer<float>* buffer)
 {
     m_audioBufferRef = buffer;
+}
+
+void WaveformDisplay::setRegionManager(RegionManager* regionManager)
+{
+    m_regionManager = regionManager;
+    repaint();  // Redraw with or without region overlays
 }
 
 double WaveformDisplay::getSnapIncrementInSeconds() const
@@ -675,6 +783,45 @@ void WaveformDisplay::zoomOneToOne()
     constrainVisibleRange();
     updateScrollbar();
     repaint();
+}
+
+void WaveformDisplay::zoomToRegion(int regionIndex)
+{
+    if (!m_fileLoaded || !m_regionManager)
+        return;
+
+    // If regionIndex is -1, use the currently selected region
+    if (regionIndex == -1)
+    {
+        regionIndex = m_regionManager->getSelectedRegionIndex();
+    }
+
+    // Validate region exists
+    if (regionIndex < 0 || regionIndex >= m_regionManager->getNumRegions())
+        return;
+
+    const Region* region = m_regionManager->getRegion(regionIndex);
+    if (!region)
+        return;
+
+    // Convert sample positions to seconds
+    double regionStart = static_cast<double>(region->getStartSample()) / m_sampleRate;
+    double regionEnd = static_cast<double>(region->getEndSample()) / m_sampleRate;
+    double regionDuration = regionEnd - regionStart;
+
+    // Add 10% padding on each side (same as zoomToSelection)
+    double padding = regionDuration * 0.1;
+
+    m_visibleStart = juce::jmax(0.0, regionStart - padding);
+    m_visibleEnd = juce::jmin(m_totalDuration, regionEnd + padding);
+
+    constrainVisibleRange();
+    updateScrollbar();
+    repaint();
+
+    // Notify listeners (RegionDisplay) of visible range change
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 }
 
 //==============================================================================
@@ -1100,6 +1247,10 @@ void WaveformDisplay::centerViewOnCursor()
     constrainVisibleRange();
     updateScrollbar();
     repaint();
+
+    // Notify listeners (RegionDisplay) of visible range change
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 }
 
 void WaveformDisplay::setVisibleRange(double startTime, double endTime)
@@ -1109,6 +1260,10 @@ void WaveformDisplay::setVisibleRange(double startTime, double endTime)
     constrainVisibleRange();
     updateScrollbar();
     repaint();
+
+    // Notify listeners (RegionDisplay) of visible range change
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 }
 
 //==============================================================================
@@ -1170,6 +1325,9 @@ void WaveformDisplay::paint(juce::Graphics& g)
             drawChannelWaveform(g, channelBounds, ch);
         }
     }
+
+    // Draw region overlays ON TOP of waveform (semi-transparent colored bands)
+    drawRegionOverlays(g, waveformArea);
 
     // Draw selection highlight ON TOP of waveform (so it's visible!)
     if (m_hasSelection)
@@ -1317,6 +1475,10 @@ void WaveformDisplay::mouseWheelMove(const juce::MouseEvent& event, const juce::
     updateScrollbar();
     repaint();
 
+    // Notify listeners of visible range change (e.g., RegionDisplay needs to update)
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
+
     juce::Logger::writeToLog(juce::String::formatted(
         "After zoom: view: %.2f-%.2f",
         m_visibleStart, m_visibleEnd));
@@ -1389,6 +1551,10 @@ void WaveformDisplay::changeListenerCallback(juce::ChangeBroadcaster* source)
             // Update scrollbar
             updateScrollbar();
 
+            // Notify listeners (RegionDisplay) of visible range change
+            if (onVisibleRangeChanged)
+                onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
+
             // NOTE: We do NOT switch rendering modes here anymore
             // Once a file has been edited, we stay in fast rendering mode permanently
             // Fast direct rendering is sufficient for all use cases and much faster
@@ -1409,12 +1575,23 @@ void WaveformDisplay::scrollBarMoved(juce::ScrollBar* scrollBarThatHasMoved, dou
         return;
     }
 
+    // Disable follow mode if user manually scrolled (not programmatic auto-scroll)
+    if (!m_isScrollingProgrammatically && m_followPlayback)
+    {
+        m_followPlayback = false;
+        m_lastUserScrollTime = juce::Time::getMillisecondCounterHiRes();
+    }
+
     double visibleDuration = m_visibleEnd - m_visibleStart;
     m_visibleStart = newRangeStart;
     m_visibleEnd = m_visibleStart + visibleDuration;
 
     constrainVisibleRange();
     repaint();
+
+    // Notify listeners (RegionDisplay) of visible range change
+    if (onVisibleRangeChanged)
+        onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 }
 
 //==============================================================================
@@ -1457,21 +1634,37 @@ double WaveformDisplay::xToTime(int x) const
     return juce::jlimit(0.0, m_totalDuration, time);
 }
 
-void WaveformDisplay::updateScrollbar()
+void WaveformDisplay::updateScrollbar(bool sendNotification)
 {
     if (!m_fileLoaded)
     {
         m_scrollbar.setRangeLimits(0.0, 1.0);
-        m_scrollbar.setCurrentRange(0.0, 1.0);
+        m_scrollbar.setCurrentRange(0.0, 1.0, juce::dontSendNotification);
         return;
+    }
+
+    // CRITICAL FIX (2025-10-17): Set flag to prevent disabling auto-scroll during programmatic scrolling
+    // When sendNotification is false, this is a programmatic scroll (auto-scroll triggered by playback)
+    // We must set this flag BEFORE updating the scrollbar to prevent scrollBarMoved() from disabling follow mode
+    bool wasProgrammatic = m_isScrollingProgrammatically;
+    if (!sendNotification)
+    {
+        m_isScrollingProgrammatically = true;
     }
 
     // Set scrollbar range
     m_scrollbar.setRangeLimits(0.0, m_totalDuration);
 
-    // Set visible range
+    // Set visible range (with optional notification control)
     double visibleDuration = m_visibleEnd - m_visibleStart;
-    m_scrollbar.setCurrentRange(m_visibleStart, visibleDuration);
+    auto notificationType = sendNotification ? juce::sendNotificationSync : juce::dontSendNotification;
+    m_scrollbar.setCurrentRange(m_visibleStart, visibleDuration, notificationType);
+
+    // Restore flag state
+    if (!sendNotification)
+    {
+        m_isScrollingProgrammatically = wasProgrammatic;
+    }
 }
 
 void WaveformDisplay::drawTimeRuler(juce::Graphics& g, juce::Rectangle<int> bounds)
@@ -1818,6 +2011,64 @@ void WaveformDisplay::drawEditCursor(juce::Graphics& g, juce::Rectangle<int> bou
     g.setFont(12.0f);
     g.drawText(timeLabel, labelX, labelY, labelWidth, labelHeight,
                juce::Justification::centred, true);
+}
+
+void WaveformDisplay::drawRegionOverlays(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    // Early exit if no RegionManager set
+    if (m_regionManager == nullptr)
+        return;
+
+    // Early exit if no regions
+    int numRegions = m_regionManager->getNumRegions();
+    if (numRegions == 0)
+        return;
+
+    // Draw each region overlay
+    for (int i = 0; i < numRegions; ++i)
+    {
+        const Region* region = m_regionManager->getRegion(i);
+        if (region == nullptr)
+            continue;
+
+        // Convert region sample positions to time
+        double startTime = static_cast<double>(region->getStartSample()) / m_sampleRate;
+        double endTime = static_cast<double>(region->getEndSample()) / m_sampleRate;
+
+        // Calculate pixel positions
+        int startX = timeToX(startTime);
+        int endX = timeToX(endTime);
+
+        // DEBUG: Log coordinate conversions for first region
+        if (i == 0)
+        {
+            juce::Logger::writeToLog(juce::String::formatted(
+                "WaveformDisplay: Region[0] %.2fs-%.2fs -> pixels %d-%d (width=%d, view=%.2f-%.2f)",
+                startTime, endTime, startX, endX, getWidth(), m_visibleStart, m_visibleEnd));
+        }
+
+        // Skip if region is completely outside visible range
+        if (endX < 0 || startX > bounds.getWidth())
+            continue;
+
+        // Constrain to visible area
+        startX = juce::jlimit(bounds.getX(), bounds.getRight(), startX);
+        endX = juce::jlimit(bounds.getX(), bounds.getRight(), endX);
+
+        int regionWidth = juce::jmax(1, endX - startX);
+
+        // CRITICAL FIX: Use region's actual color (matches RegionDisplay rendering)
+        // This ensures consistent color display across RegionDisplay bars and waveform overlays
+        juce::Colour regionColor = region->getColor();
+
+        // Draw region overlay (30% alpha fill)
+        g.setColour(regionColor.withAlpha(0.3f));
+        g.fillRect(startX, bounds.getY(), regionWidth, bounds.getHeight());
+
+        // Draw region border (80% alpha for stronger outline)
+        g.setColour(regionColor.withAlpha(0.8f));
+        g.drawRect(startX, bounds.getY(), regionWidth, bounds.getHeight(), 1);
+    }
 }
 
 void WaveformDisplay::constrainVisibleRange()

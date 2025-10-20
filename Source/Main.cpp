@@ -35,9 +35,16 @@
 #include "UI/Meters.h"
 #include "UI/GainDialog.h"
 #include "UI/ErrorDialog.h"
+#include "UI/SettingsPanel.h"
+#include "UI/FilePropertiesDialog.h"
+#include "UI/GoToPositionDialog.h"
+#include "UI/StripSilenceDialog.h"
+#include "UI/BatchExportDialog.h"
+#include "UI/RegionListPanel.h"
 #include "UI/TabComponent.h"
 #include "Utils/Document.h"
 #include "Utils/DocumentManager.h"
+#include "Utils/RegionExporter.h"
 
 //==============================================================================
 /**
@@ -215,11 +222,13 @@ class MainComponent : public juce::Component,
                       public juce::ApplicationCommandTarget,
                       public juce::MenuBarModel,
                       public juce::Timer,
-                      public DocumentManager::Listener
+                      public DocumentManager::Listener,
+                      public RegionListPanel::Listener
 {
 public:
-    MainComponent()
-        : m_tabComponent(m_documentManager)
+    MainComponent(juce::AudioDeviceManager& deviceManager)
+        : m_audioDeviceManager(deviceManager),
+          m_tabComponent(m_documentManager)
     {
         setSize(1200, 750);
 
@@ -255,6 +264,10 @@ public:
         // Clean up recent files on startup
         Settings::getInstance().cleanupRecentFiles();
 
+        // Load UI preferences from settings
+        int timeFormatInt = Settings::getInstance().getSetting("display.timeFormat", 2);  // Default to Seconds (2)
+        m_timeFormat = static_cast<AudioUnits::TimeFormat>(timeFormatInt);
+
         // Update component visibility based on whether we have documents
         updateComponentVisibility();
     }
@@ -286,6 +299,14 @@ public:
             m_previousDocument->getAudioEngine().stop();
         }
 
+        // Close region list panel if open
+        if (m_regionListWindow)
+        {
+            delete m_regionListWindow;  // Window owns the panel, will delete it too
+            m_regionListWindow = nullptr;
+            m_regionListPanel = nullptr;  // Window deleted the panel, just null our pointer
+        }
+
         // Update tracking
         m_previousDocument = newDocument;
 
@@ -301,6 +322,9 @@ public:
 
     void documentAdded(Document* document, int index) override
     {
+        // Wire up region callbacks for this document
+        setupRegionCallbacks(document);
+
         // Update tab component to show new tab
         updateComponentVisibility();
     }
@@ -309,6 +333,81 @@ public:
     {
         // Update tab component to remove tab
         updateComponentVisibility();
+    }
+
+    //==============================================================================
+    // RegionListPanel::Listener methods
+
+    void regionListPanelJumpToRegion(int regionIndex) override
+    {
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            if (auto* region = doc->getRegionManager().getRegion(regionIndex))
+            {
+                // Jump to region and select its range
+                int64_t startSample = region->getStartSample();
+                int64_t endSample = region->getEndSample();
+
+                // Convert to time for selection
+                double sampleRate = doc->getBufferManager().getSampleRate();
+                double startTime = static_cast<double>(startSample) / sampleRate;
+                double endTime = static_cast<double>(endSample) / sampleRate;
+
+                // Set selection
+                doc->getWaveformDisplay().setSelection(startTime, endTime);
+
+                // Center view on region start
+                doc->getWaveformDisplay().setVisibleRange(startTime, endTime);
+                doc->getWaveformDisplay().zoomToSelection();
+            }
+        }
+    }
+
+    void regionListPanelRegionDeleted(int regionIndex) override
+    {
+        // Region already deleted from RegionManager
+        // Just refresh the waveform display
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            doc->getWaveformDisplay().repaint();
+        }
+    }
+
+    void regionListPanelRegionRenamed(int regionIndex, const juce::String& newName) override
+    {
+        // Region already renamed in RegionManager
+        // Refresh both the waveform display and the region display
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            doc->getWaveformDisplay().repaint();
+            doc->getRegionDisplay().repaint();  // This ensures region names update in the waveform
+        }
+    }
+
+    void regionListPanelRegionSelected(int regionIndex) override
+    {
+        // Single-click: Select the region's range and zoom out to show full waveform
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            if (auto* region = doc->getRegionManager().getRegion(regionIndex))
+            {
+                // Get region boundaries
+                int64_t startSample = region->getStartSample();
+                int64_t endSample = region->getEndSample();
+
+                // Convert to time for selection
+                double sampleRate = doc->getBufferManager().getSampleRate();
+                double startTime = static_cast<double>(startSample) / sampleRate;
+                double endTime = static_cast<double>(endSample) / sampleRate;
+
+                // Zoom out to show full waveform first
+                doc->getWaveformDisplay().zoomToFit();
+
+                // Then set selection to the region
+                doc->getWaveformDisplay().setSelection(startTime, endTime);
+                doc->getWaveformDisplay().repaint();
+            }
+        }
     }
 
     //==============================================================================
@@ -335,6 +434,7 @@ public:
             // Add current document's components to container
             m_currentDocumentContainer->addAndMakeVisible(doc->getWaveformDisplay());
             m_currentDocumentContainer->addAndMakeVisible(doc->getTransportControls());
+            m_currentDocumentContainer->addAndMakeVisible(doc->getRegionDisplay());
             // Note: SelectionInfoPanel and Meters are part of the document's components
         }
 
@@ -612,13 +712,15 @@ public:
         auto startSample = doc->getBufferManager().timeToSample(selectionStart);
         auto endSample = doc->getBufferManager().timeToSample(selectionEnd);
 
-        // Create undoable delete action
+        // Create undoable delete action (with region manager and display for undo support)
         auto deleteAction = new DeleteAction(
             doc->getBufferManager(),
             doc->getAudioEngine(),
             doc->getWaveformDisplay(),
             startSample,
-            endSample - startSample
+            endSample - startSample,
+            &doc->getRegionManager(),  // Pass region manager for undo support
+            &doc->getRegionDisplay()   // Pass region display to update visuals after undo
         );
 
         // Perform the delete and add to undo manager
@@ -681,14 +783,24 @@ public:
                 fileDisplayName += " *";
             }
 
+            // Format time according to user preference
+            juce::String currentTime = AudioUnits::formatTime(
+                doc->getAudioEngine().getCurrentPosition(),
+                doc->getAudioEngine().getSampleRate(),
+                m_timeFormat);
+            juce::String totalTime = AudioUnits::formatTime(
+                doc->getAudioEngine().getTotalLength(),
+                doc->getAudioEngine().getSampleRate(),
+                m_timeFormat);
+
             juce::String info = juce::String::formatted(
-                "%s | %.1f kHz | %d ch | %d bit | %.2f / %.2f s",
+                "%s | %.1f kHz | %d ch | %d bit | %s / %s",
                 fileDisplayName.toRawUTF8(),
                 doc->getAudioEngine().getSampleRate() / 1000.0,
                 doc->getAudioEngine().getNumChannels(),
                 doc->getAudioEngine().getBitDepth(),
-                doc->getAudioEngine().getCurrentPosition(),
-                doc->getAudioEngine().getTotalLength());
+                currentTime.toRawUTF8(),
+                totalTime.toRawUTF8());
 
             g.drawText(info, leftSection, juce::Justification::centredLeft, true);
 
@@ -707,6 +819,40 @@ public:
                     AudioClipboard::getInstance().getSampleRate());
                 g.drawText(clipboardInfo, clipboardSection, juce::Justification::centred, true);
             }
+
+            // Zoom level display (before snap mode)
+            auto zoomSection = statusBar.removeFromRight(120);
+            double zoomPercentage = doc->getWaveformDisplay().getZoomPercentage();
+            juce::String zoomText;
+            if (zoomPercentage >= 10000.0)
+            {
+                zoomText = juce::String::formatted("Zoom: %.0fk%%", zoomPercentage / 1000.0);
+            }
+            else if (zoomPercentage >= 1000.0)
+            {
+                zoomText = juce::String::formatted("Zoom: %.1fk%%", zoomPercentage / 1000.0);
+            }
+            else
+            {
+                zoomText = juce::String::formatted("Zoom: %.0f%%", zoomPercentage);
+            }
+
+            g.setColour(juce::Colours::lightcyan);
+            g.setFont(12.0f);
+            g.drawText(zoomText, zoomSection.reduced(5, 0), juce::Justification::centred, true);
+
+            // Time format indicator (clickable) - fixed position to left of snap settings
+            auto formatSection = statusBar.removeFromRight(120);
+
+            // Store bounds for mouse click detection
+            m_formatIndicatorBounds = formatSection;
+
+            juce::String formatName = AudioUnits::timeFormatToString(m_timeFormat);
+            juce::String formatText = "[" + formatName + " ▼]";
+
+            g.setColour(juce::Colours::lightgreen);
+            g.setFont(12.0f);
+            g.drawText(formatText, formatSection.reduced(5, 0), juce::Justification::centred, true);
 
             // Two-tier snap mode indicator
             auto snapSection = statusBar.removeFromRight(200);
@@ -785,6 +931,9 @@ public:
                 // Transport controls at top (80px height)
                 doc->getTransportControls().setBounds(containerBounds.removeFromTop(80));
 
+                // Region display below transport (32px height)
+                doc->getRegionDisplay().setBounds(containerBounds.removeFromTop(32));
+
                 // Waveform display takes remaining space
                 // TODO: Add SelectionInfoPanel and Meters when Document class is updated
                 doc->getWaveformDisplay().setBounds(containerBounds);
@@ -794,6 +943,15 @@ public:
         {
             // Center the no-file label
             m_noFileLabel.setBounds(bounds);
+        }
+    }
+
+    void mouseDown(const juce::MouseEvent& event) override
+    {
+        // Check if click is on time format indicator
+        if (m_formatIndicatorBounds.contains(event.getPosition()))
+        {
+            showTimeFormatMenu();
         }
     }
 
@@ -830,6 +988,15 @@ public:
             // meters.setRMSLevel(0, 0.0f);
             // meters.setRMSLevel(1, 0.0f);
         }
+
+        // Auto-save check (Phase 3.5 - Priority #6)
+        // Check auto-save every ~60 seconds (1200 ticks at 50ms each)
+        m_autoSaveTimerTicks++;
+        if (m_autoSaveTimerTicks >= m_autoSaveCheckInterval)
+        {
+            m_autoSaveTimerTicks = 0;  // Reset counter
+            performAutoSave();
+        }
     }
 
     //==============================================================================
@@ -847,6 +1014,22 @@ public:
             CommandIDs::fileSave,
             CommandIDs::fileSaveAs,
             CommandIDs::fileClose,
+            CommandIDs::fileProperties,  // Alt+Enter - Show file properties
+            CommandIDs::filePreferences, // Cmd+, - Preferences/Settings
+            // Tab commands
+            CommandIDs::tabClose,
+            CommandIDs::tabCloseAll,
+            CommandIDs::tabNext,
+            CommandIDs::tabPrevious,
+            CommandIDs::tabSelect1,
+            CommandIDs::tabSelect2,
+            CommandIDs::tabSelect3,
+            CommandIDs::tabSelect4,
+            CommandIDs::tabSelect5,
+            CommandIDs::tabSelect6,
+            CommandIDs::tabSelect7,
+            CommandIDs::tabSelect8,
+            CommandIDs::tabSelect9,
             CommandIDs::fileExit,
             CommandIDs::editUndo,
             CommandIDs::editRedo,
@@ -855,6 +1038,8 @@ public:
             CommandIDs::editCopy,
             CommandIDs::editPaste,
             CommandIDs::editDelete,
+            CommandIDs::editSilence,
+            CommandIDs::editTrim,
             CommandIDs::playbackPlay,
             CommandIDs::playbackPause,
             CommandIDs::playbackStop,
@@ -865,6 +1050,9 @@ public:
             CommandIDs::viewZoomFit,
             CommandIDs::viewZoomSelection,
             CommandIDs::viewZoomOneToOne,
+            CommandIDs::viewCycleTimeFormat,  // Shift+G - Cycle time format
+            CommandIDs::viewAutoScroll,       // Cmd+Shift+F - Auto-scroll during playback
+            CommandIDs::viewZoomToRegion,     // Z or Cmd+Option+Z - Zoom to selected region
             // Navigation commands
             CommandIDs::navigateLeft,
             CommandIDs::navigateRight,
@@ -875,6 +1063,7 @@ public:
             CommandIDs::navigateHomeVisible,
             CommandIDs::navigateEndVisible,
             CommandIDs::navigateCenterView,
+            CommandIDs::navigateGoToPosition,
             // Selection extension commands
             CommandIDs::selectExtendLeft,
             CommandIDs::selectExtendRight,
@@ -891,7 +1080,18 @@ public:
             CommandIDs::processDecreaseGain,
             CommandIDs::processNormalize,
             CommandIDs::processFadeIn,
-            CommandIDs::processFadeOut
+            CommandIDs::processFadeOut,
+            CommandIDs::processDCOffset,
+            // Region commands (Phase 3 Tier 2)
+            CommandIDs::regionAdd,
+            CommandIDs::regionDelete,
+            CommandIDs::regionNext,
+            CommandIDs::regionPrevious,
+            CommandIDs::regionSelectInverse,
+            CommandIDs::regionSelectAll,
+            CommandIDs::regionStripSilence,
+            CommandIDs::regionExportAll,
+            CommandIDs::regionShowList
         };
 
         commands.addArray(ids, juce::numElementsInArray(ids));
@@ -926,7 +1126,13 @@ public:
 
             case CommandIDs::fileClose:
                 result.setInfo("Close", "Close the current file", "File", 0);
-                result.addDefaultKeypress('w', juce::ModifierKeys::commandModifier);
+                // No keyboard shortcut - Cmd+W handled by tabClose for consistency
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::fileProperties:
+                result.setInfo("Properties...", "Show file properties", "File", 0);
+                result.addDefaultKeypress(juce::KeyPress::returnKey, juce::ModifierKeys::altModifier);
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
@@ -934,6 +1140,91 @@ public:
                 result.setInfo("Exit", "Exit the application", "File", 0);
                 result.addDefaultKeypress('q', juce::ModifierKeys::commandModifier);
                 // Always available (no document required)
+                break;
+
+            case CommandIDs::filePreferences:
+                result.setInfo("Preferences...", "Open preferences dialog", "File", 0);
+                result.addDefaultKeypress(',', juce::ModifierKeys::commandModifier);
+                // Always available (no document required)
+                break;
+
+            // Tab operations
+            case CommandIDs::tabClose:
+                result.setInfo("Close Tab", "Close current tab", "File", 0);
+                result.addDefaultKeypress('w', juce::ModifierKeys::commandModifier);
+                result.setActive(hasCurrentDocument());
+                break;
+
+            case CommandIDs::tabCloseAll:
+                result.setInfo("Close All Tabs", "Close all open tabs", "File", 0);
+                result.addDefaultKeypress('w', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(hasCurrentDocument());
+                break;
+
+            case CommandIDs::tabNext:
+                result.setInfo("Next Tab", "Switch to next tab", "File", 0);
+                result.addDefaultKeypress(juce::KeyPress::tabKey, juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() > 1);
+                break;
+
+            case CommandIDs::tabPrevious:
+                result.setInfo("Previous Tab", "Switch to previous tab", "File", 0);
+                result.addDefaultKeypress(juce::KeyPress::tabKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(m_documentManager.getNumDocuments() > 1);
+                break;
+
+            case CommandIDs::tabSelect1:
+                result.setInfo("Jump to Tab 1", "Switch to tab 1", "File", 0);
+                result.addDefaultKeypress('1', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 1);
+                break;
+
+            case CommandIDs::tabSelect2:
+                result.setInfo("Jump to Tab 2", "Switch to tab 2", "File", 0);
+                result.addDefaultKeypress('2', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 2);
+                break;
+
+            case CommandIDs::tabSelect3:
+                result.setInfo("Jump to Tab 3", "Switch to tab 3", "File", 0);
+                result.addDefaultKeypress('3', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 3);
+                break;
+
+            case CommandIDs::tabSelect4:
+                result.setInfo("Jump to Tab 4", "Switch to tab 4", "File", 0);
+                result.addDefaultKeypress('4', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 4);
+                break;
+
+            case CommandIDs::tabSelect5:
+                result.setInfo("Jump to Tab 5", "Switch to tab 5", "File", 0);
+                result.addDefaultKeypress('5', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 5);
+                break;
+
+            case CommandIDs::tabSelect6:
+                result.setInfo("Jump to Tab 6", "Switch to tab 6", "File", 0);
+                result.addDefaultKeypress('6', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 6);
+                break;
+
+            case CommandIDs::tabSelect7:
+                result.setInfo("Jump to Tab 7", "Switch to tab 7", "File", 0);
+                result.addDefaultKeypress('7', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 7);
+                break;
+
+            case CommandIDs::tabSelect8:
+                result.setInfo("Jump to Tab 8", "Switch to tab 8", "File", 0);
+                result.addDefaultKeypress('8', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 8);
+                break;
+
+            case CommandIDs::tabSelect9:
+                result.setInfo("Jump to Tab 9", "Switch to tab 9", "File", 0);
+                result.addDefaultKeypress('9', juce::ModifierKeys::commandModifier);
+                result.setActive(m_documentManager.getNumDocuments() >= 9);
                 break;
 
             case CommandIDs::editUndo:
@@ -975,6 +1266,18 @@ public:
             case CommandIDs::editDelete:
                 result.setInfo("Delete", "Delete selection", "Edit", 0);
                 result.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
+                break;
+
+            case CommandIDs::editSilence:
+                result.setInfo("Silence", "Fill selection with silence", "Edit", 0);
+                result.addDefaultKeypress('l', juce::ModifierKeys::commandModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
+                break;
+
+            case CommandIDs::editTrim:
+                result.setInfo("Trim", "Delete everything outside selection", "Edit", 0);
+                result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier);
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
@@ -1030,8 +1333,28 @@ public:
 
             case CommandIDs::viewZoomOneToOne:
                 result.setInfo("Zoom 1:1", "Zoom to 1:1 sample resolution", "View", 0);
-                result.addDefaultKeypress('1', juce::ModifierKeys::commandModifier);
+                result.addDefaultKeypress('0', juce::ModifierKeys::commandModifier);  // Cmd+0 (not Cmd+1, which is used for tab switching)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::viewCycleTimeFormat:
+                result.setInfo("Cycle Time Format", "Cycle through time display formats (Samples/Ms/Sec/Frames)", "View", 0);
+                result.addDefaultKeypress('g', juce::ModifierKeys::shiftModifier);  // Shift+G for Format
+                result.setActive(true);  // Always active
+                break;
+
+            case CommandIDs::viewAutoScroll:
+                result.setInfo("Follow Playback", "Auto-scroll to follow playback cursor", "View", 0);
+                result.addDefaultKeypress('f', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);  // Cmd+Shift+F
+                result.setTicked(doc && doc->getWaveformDisplay().isFollowPlayback());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::viewZoomToRegion:
+                result.setInfo("Zoom to Region", "Zoom to fit selected region with margins", "View", 0);
+                result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);  // Cmd+Option+Z
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             // Navigation commands
@@ -1089,6 +1412,12 @@ public:
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
+            case CommandIDs::navigateGoToPosition:
+                result.setInfo("Go To Position...", "Jump to exact position", "Navigation", 0);
+                result.addDefaultKeypress('g', juce::ModifierKeys::commandModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
             // Selection extension commands
             case CommandIDs::selectExtendLeft:
                 result.setInfo("Extend Selection Left", "Extend selection left by increment", "Selection", 0);
@@ -1128,7 +1457,7 @@ public:
 
             // Snap commands
             case CommandIDs::snapCycleMode:
-                result.setInfo("Cycle Snap Mode", "Cycle through snap modes", "Snap", 0);
+                result.setInfo("Toggle Snap", "Toggle snap on/off (maintains last increment)", "Snap", 0);
                 result.addDefaultKeypress('g', 0);
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
@@ -1142,7 +1471,7 @@ public:
             // Processing operations
             case CommandIDs::processGain:
                 result.setInfo("Gain...", "Apply precise gain adjustment", "Process", 0);
-                result.addDefaultKeypress('g', juce::ModifierKeys::shiftModifier);
+                result.addDefaultKeypress('g', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);  // Cmd+Shift+G (changed from Shift+G to avoid conflict with viewCycleTimeFormat)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
@@ -1166,7 +1495,7 @@ public:
 
             case CommandIDs::processFadeIn:
                 result.setInfo("Fade In", "Apply linear fade in to selection", "Process", 0);
-                result.addDefaultKeypress('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.addDefaultKeypress('f', juce::ModifierKeys::commandModifier);  // Changed from Cmd+Shift+I to Cmd+F (no conflict)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
@@ -1174,6 +1503,67 @@ public:
                 result.setInfo("Fade Out", "Apply linear fade out to selection", "Process", 0);
                 result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
+                break;
+
+            case CommandIDs::processDCOffset:
+                result.setInfo("Remove DC Offset", "Remove DC offset from entire file", "Process", 0);
+                result.addDefaultKeypress('d', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            // Region commands (Phase 3 Tier 2)
+            case CommandIDs::regionAdd:
+                result.setInfo("Add Region", "Create region from current selection", "Region", 0);
+                result.addDefaultKeypress('r', 0);  // Just 'R' key (no modifiers)
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
+                break;
+
+            case CommandIDs::regionDelete:
+                result.setInfo("Delete Region", "Delete selected region", "Region", 0);
+                result.addDefaultKeypress(juce::KeyPress::deleteKey, juce::ModifierKeys::commandModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::regionNext:
+                result.setInfo("Next Region", "Jump to next region", "Region", 0);
+                result.addDefaultKeypress(']', 0);  // Just ']' key (no modifiers)
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::regionPrevious:
+                result.setInfo("Previous Region", "Jump to previous region", "Region", 0);
+                result.addDefaultKeypress('[', 0);  // Just '[' key (no modifiers)
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::regionSelectInverse:
+                result.setInfo("Select Inverse of Regions", "Select everything NOT in regions", "Region", 0);
+                result.addDefaultKeypress('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::regionSelectAll:
+                result.setInfo("Select All Regions", "Select union of all regions", "Region", 0);
+                result.addDefaultKeypress('a', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::regionStripSilence:
+                result.setInfo("Auto Region", "Auto-create regions from non-silent sections", "Region", 0);
+                result.addDefaultKeypress('r', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::regionExportAll:
+                result.setInfo("Export Regions As Files", "Export each region as a separate audio file", "Region", 0);
+                result.addDefaultKeypress('e', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getRegionManager().getNumRegions() > 0);
+                break;
+
+            case CommandIDs::regionShowList:
+                result.setInfo("Show Region List", "Display list of all regions", "Region", 0);
+                result.addDefaultKeypress('m', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             default:
@@ -1198,6 +1588,64 @@ public:
                 juce::JUCEApplication::getInstance()->systemRequestedQuit();
                 return true;
 
+            case CommandIDs::filePreferences:
+                SettingsPanel::showDialog(this, m_audioDeviceManager);
+                return true;
+
+            // Tab operations
+            case CommandIDs::tabClose:
+                if (!doc) return false;
+                m_documentManager.closeDocument(doc);
+                return true;
+
+            case CommandIDs::tabCloseAll:
+                m_documentManager.closeAllDocuments();
+                return true;
+
+            case CommandIDs::tabNext:
+                m_documentManager.selectNextDocument();
+                return true;
+
+            case CommandIDs::tabPrevious:
+                m_documentManager.selectPreviousDocument();
+                return true;
+
+            case CommandIDs::tabSelect1:
+                m_documentManager.setCurrentDocumentIndex(0);
+                return true;
+
+            case CommandIDs::tabSelect2:
+                m_documentManager.setCurrentDocumentIndex(1);
+                return true;
+
+            case CommandIDs::tabSelect3:
+                m_documentManager.setCurrentDocumentIndex(2);
+                return true;
+
+            case CommandIDs::tabSelect4:
+                m_documentManager.setCurrentDocumentIndex(3);
+                return true;
+
+            case CommandIDs::tabSelect5:
+                m_documentManager.setCurrentDocumentIndex(4);
+                return true;
+
+            case CommandIDs::tabSelect6:
+                m_documentManager.setCurrentDocumentIndex(5);
+                return true;
+
+            case CommandIDs::tabSelect7:
+                m_documentManager.setCurrentDocumentIndex(6);
+                return true;
+
+            case CommandIDs::tabSelect8:
+                m_documentManager.setCurrentDocumentIndex(7);
+                return true;
+
+            case CommandIDs::tabSelect9:
+                m_documentManager.setCurrentDocumentIndex(8);
+                return true;
+
             case CommandIDs::fileSave:
                 if (!doc) return false;
                 saveFile();
@@ -1211,6 +1659,11 @@ public:
             case CommandIDs::fileClose:
                 if (!doc) return false;
                 closeFile();
+                return true;
+
+            case CommandIDs::fileProperties:
+                if (!doc) return false;
+                FilePropertiesDialog::showDialog(this, *doc);
                 return true;
 
             case CommandIDs::editUndo:
@@ -1326,6 +1779,27 @@ public:
                 doc->getWaveformDisplay().zoomOneToOne();
                 return true;
 
+            case CommandIDs::viewCycleTimeFormat:
+                // Cycle to next time format
+                m_timeFormat = AudioUnits::getNextTimeFormat(m_timeFormat);
+                // Save to settings
+                Settings::getInstance().setSetting("display.timeFormat", static_cast<int>(m_timeFormat));
+                Settings::getInstance().save();
+                // Force UI update
+                repaint();
+                return true;
+
+            case CommandIDs::viewAutoScroll:
+                if (!doc) return false;
+                // Toggle follow-playback mode
+                doc->getWaveformDisplay().setFollowPlayback(!doc->getWaveformDisplay().isFollowPlayback());
+                return true;
+
+            case CommandIDs::viewZoomToRegion:
+                if (!doc) return false;
+                doc->getWaveformDisplay().zoomToRegion();
+                return true;
+
             // Navigation operations (simple movement)
             case CommandIDs::navigateLeft:
                 if (!doc) return false;
@@ -1372,6 +1846,34 @@ public:
                 doc->getWaveformDisplay().centerViewOnCursor();
                 return true;
 
+            case CommandIDs::navigateGoToPosition:
+            {
+                if (!doc) return false;
+                // Show Go To Position dialog
+                auto& engine = doc->getAudioEngine();
+                GoToPositionDialog::showDialog(
+                    this,
+                    m_timeFormat,
+                    engine.getSampleRate(),
+                    30.0,  // Default FPS (TODO: make this user-configurable in settings)
+                    static_cast<int64_t>(engine.getTotalLength() * engine.getSampleRate()),
+                    [this](int64_t positionInSamples)
+                    {
+                        // Callback when user confirms position
+                        auto* doc = m_documentManager.getCurrentDocument();
+                        if (doc)
+                        {
+                            double positionInSeconds = AudioUnits::samplesToSeconds(
+                                positionInSamples,
+                                doc->getAudioEngine().getSampleRate());
+                            doc->getWaveformDisplay().setEditCursor(positionInSeconds);
+                            doc->getWaveformDisplay().clearSelection();  // Clear selection, just move cursor
+                            doc->getWaveformDisplay().centerViewOnCursor();  // Scroll to position
+                        }
+                    });
+                return true;
+            }
+
             // Selection extension operations
             case CommandIDs::selectExtendLeft:
                 if (!doc) return false;
@@ -1416,6 +1918,80 @@ public:
                 toggleZeroCrossingSnap();
                 return true;
 
+            // Region operations (Phase 3 Tier 2)
+            case CommandIDs::regionAdd:
+                if (!doc) return false;
+                addRegionFromSelection();
+                return true;
+
+            case CommandIDs::regionDelete:
+                if (!doc) return false;
+                deleteSelectedRegion();
+                return true;
+
+            case CommandIDs::regionNext:
+                if (!doc) return false;
+                jumpToNextRegion();
+                return true;
+
+            case CommandIDs::regionPrevious:
+                if (!doc) return false;
+                jumpToPreviousRegion();
+                return true;
+
+            case CommandIDs::regionSelectInverse:
+                if (!doc) return false;
+                selectInverseOfRegions();
+                return true;
+
+            case CommandIDs::regionSelectAll:
+                if (!doc) return false;
+                selectAllRegions();
+                return true;
+
+            case CommandIDs::regionStripSilence:
+                if (!doc) return false;
+                showStripSilenceDialog();
+                return true;
+
+            case CommandIDs::regionExportAll:
+                if (!doc) return false;
+                showBatchExportDialog();
+                return true;
+
+            case CommandIDs::regionShowList:
+            {
+                if (auto* doc = m_documentManager.getCurrentDocument())
+                {
+                    // Create the panel if it doesn't exist
+                    if (!m_regionListPanel)
+                    {
+                        m_regionListPanel = new RegionListPanel(
+                            &doc->getRegionManager(),
+                            doc->getBufferManager().getSampleRate()
+                        );
+                        m_regionListPanel->setListener(this);
+                    }
+                    else
+                    {
+                        // Update with current document's data
+                        m_regionListPanel->setSampleRate(doc->getBufferManager().getSampleRate());
+                    }
+
+                    // Show in a window
+                    if (!m_regionListWindow || !m_regionListWindow->isVisible())
+                    {
+                        m_regionListWindow = m_regionListPanel->showInWindow(false); // non-modal
+                    }
+                    else
+                    {
+                        // Bring existing window to front
+                        m_regionListWindow->toFront(true);
+                    }
+                }
+                return true;
+            }
+
             // Processing operations
             case CommandIDs::processGain:
                 if (!doc) return false;
@@ -1447,6 +2023,21 @@ public:
                 applyFadeOut();
                 return true;
 
+            case CommandIDs::processDCOffset:
+                if (!doc) return false;
+                applyDCOffsetRemoval();
+                return true;
+
+            case CommandIDs::editSilence:
+                if (!doc) return false;
+                silenceSelection();
+                return true;
+
+            case CommandIDs::editTrim:
+                if (!doc) return false;
+                trimToSelection();
+                return true;
+
             default:
                 return false;
         }
@@ -1457,7 +2048,7 @@ public:
 
     juce::StringArray getMenuBarNames() override
     {
-        return { "File", "Edit", "Process", "Playback", "Help" };
+        return { "File", "Edit", "View", "Region", "Process", "Playback", "Help" };
     }
 
     juce::PopupMenu getMenuForIndex(int menuIndex, const juce::String& /*menuName*/) override
@@ -1472,6 +2063,7 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::fileSaveAs);
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::fileClose);
+            menu.addCommandItem(&m_commandManager, CommandIDs::fileProperties);
             menu.addSeparator();
 
             // Recent files submenu
@@ -1490,6 +2082,8 @@ public:
                 menu.addSeparator();
             }
 
+            menu.addCommandItem(&m_commandManager, CommandIDs::filePreferences);
+            menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::fileExit);
         }
         else if (menuIndex == 1) // Edit menu
@@ -1506,18 +2100,56 @@ public:
 
             menu.addSeparator();
 
+            menu.addCommandItem(&m_commandManager, CommandIDs::editSilence);
+            menu.addCommandItem(&m_commandManager, CommandIDs::editTrim);
+
+            menu.addSeparator();
+
             menu.addCommandItem(&m_commandManager, CommandIDs::editSelectAll);
         }
-        else if (menuIndex == 2) // Process menu
+        else if (menuIndex == 2) // View menu
+        {
+            // Zoom commands
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomIn);
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomOut);
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomFit);
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomSelection);
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomOneToOne);
+
+            menu.addSeparator();
+
+            // Display options
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewCycleTimeFormat);
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewAutoScroll);
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomToRegion);
+        }
+        else if (menuIndex == 3) // Region menu
+        {
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionAdd);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionDelete);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionNext);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionPrevious);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionSelectInverse);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionSelectAll);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionStripSilence);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionExportAll);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionShowList);
+        }
+        else if (menuIndex == 4) // Process menu
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::processGain);
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::processNormalize);
+            menu.addCommandItem(&m_commandManager, CommandIDs::processDCOffset);
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::processFadeIn);
             menu.addCommandItem(&m_commandManager, CommandIDs::processFadeOut);
         }
-        else if (menuIndex == 3) // Playback menu
+        else if (menuIndex == 5) // Playback menu
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPlay);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPause);
@@ -1525,7 +2157,7 @@ public:
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoop);
         }
-        else if (menuIndex == 4) // Help menu
+        else if (menuIndex == 6) // Help menu
         {
             menu.addItem("About WaveEdit", [this] { showAbout(); });
         }
@@ -2069,17 +2701,25 @@ public:
         auto* doc = getCurrentDocument();
         if (!doc) return;
 
-        // Two-tier snap system: G key cycles through increments within current unit
-        doc->getWaveformDisplay().cycleSnapIncrement();
+        // G key toggles snap on/off (maintains last used increment)
+        doc->getWaveformDisplay().toggleSnap();
 
         // Force repaint to update snap mode indicator in status bar
         repaint();
 
-        // Show status message with current unit and increment
-        auto unitType = doc->getWaveformDisplay().getSnapUnit();
-        int increment = doc->getWaveformDisplay().getSnapIncrement();
-        juce::String message = "Snap: " + AudioUnits::formatIncrement(increment, unitType);
-        juce::Logger::writeToLog(message);
+        // Show status message with current state
+        bool enabled = doc->getWaveformDisplay().isSnapEnabled();
+        if (enabled)
+        {
+            auto unitType = doc->getWaveformDisplay().getSnapUnit();
+            int increment = doc->getWaveformDisplay().getSnapIncrement();
+            juce::String message = "Snap: ON (" + AudioUnits::formatIncrement(increment, unitType) + ")";
+            juce::Logger::writeToLog(message);
+        }
+        else
+        {
+            juce::Logger::writeToLog("Snap: OFF");
+        }
     }
 
     void toggleZeroCrossingSnap()
@@ -2097,6 +2737,506 @@ public:
         bool enabled = doc->getWaveformDisplay().isZeroCrossingEnabled();
         juce::String message = enabled ? "Zero-crossing snap: ON" : "Zero-crossing snap: OFF";
         juce::Logger::writeToLog(message);
+    }
+
+    //==============================================================================
+    // Region helpers (Phase 3 Tier 2)
+
+    void addRegionFromSelection()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getWaveformDisplay().hasSelection())
+        {
+            juce::Logger::writeToLog("Cannot create region: No selection");
+            return;
+        }
+
+        // Get selection in samples
+        double startTime = doc->getWaveformDisplay().getSelectionStart();
+        double endTime = doc->getWaveformDisplay().getSelectionEnd();
+        int64_t startSample = doc->getBufferManager().timeToSample(startTime);
+        int64_t endSample = doc->getBufferManager().timeToSample(endTime);
+
+        // Create region with auto-generated numerical name (001, 002, etc.)
+        int regionNum = doc->getRegionManager().getNumRegions() + 1;
+        juce::String regionName = juce::String(regionNum).paddedLeft('0', 3);  // Zero-padded to 3 digits
+        Region newRegion(regionName, startSample, endSample);
+
+        // Start a new transaction
+        juce::String transactionName = "Add Region: " + regionName;
+        doc->getUndoManager().beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will add the region)
+        auto* undoAction = new AddRegionUndoAction(
+            doc->getRegionManager(),
+            doc->getRegionDisplay(),
+            doc->getFile(),
+            newRegion
+        );
+
+        // perform() calls AddRegionUndoAction::perform() which adds the region
+        doc->getUndoManager().perform(undoAction);
+
+        // Repaint to show new region
+        repaint();
+
+        juce::Logger::writeToLog("Added region: " + regionName);
+    }
+
+    void deleteSelectedRegion()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        // Get selected region index
+        int regionIndex = doc->getRegionManager().getSelectedRegionIndex();
+        if (regionIndex < 0)
+        {
+            juce::Logger::writeToLog("Cannot delete region: No region selected");
+            return;
+        }
+
+        // Get region before deleting (for logging)
+        const Region* region = doc->getRegionManager().getRegion(regionIndex);
+        if (!region)
+        {
+            juce::Logger::writeToLog("Cannot delete region: Invalid region index");
+            return;
+        }
+
+        juce::String regionName = region->getName();
+
+        // Start a new transaction
+        juce::String transactionName = "Delete Region: " + regionName;
+        doc->getUndoManager().beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will delete the region)
+        auto* undoAction = new DeleteRegionUndoAction(
+            doc->getRegionManager(),
+            doc->getRegionDisplay(),
+            doc->getFile(),
+            regionIndex
+        );
+
+        // perform() calls DeleteRegionUndoAction::perform() which deletes the region
+        doc->getUndoManager().perform(undoAction);
+
+        // Repaint to update display
+        repaint();
+
+        juce::Logger::writeToLog("Deleted region: " + regionName);
+    }
+
+    void jumpToNextRegion()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        int numRegions = doc->getRegionManager().getNumRegions();
+        if (numRegions == 0)
+        {
+            juce::Logger::writeToLog("No regions to navigate");
+            return;
+        }
+
+        // Create sorted list of region indices by start sample (timeline order)
+        juce::Array<int> sortedIndices;
+        for (int i = 0; i < numRegions; ++i)
+            sortedIndices.add(i);
+
+        // Sort by timeline order (start sample position) using std::sort
+        std::sort(sortedIndices.begin(), sortedIndices.end(),
+            [&](int a, int b)
+            {
+                const Region* regionA = doc->getRegionManager().getRegion(a);
+                const Region* regionB = doc->getRegionManager().getRegion(b);
+                if (!regionA || !regionB) return false;
+                return regionA->getStartSample() < regionB->getStartSample();
+            });
+
+        // Get current selected region index
+        int currentIndex = doc->getRegionManager().getSelectedRegionIndex();
+
+        // Find position in sorted list
+        int nextIndex;
+        if (currentIndex < 0)
+        {
+            // No region selected, start from first in timeline
+            nextIndex = sortedIndices[0];
+        }
+        else
+        {
+            // Find current position in sorted list
+            int currentPos = sortedIndices.indexOf(currentIndex);
+            if (currentPos < 0)
+                currentPos = 0; // Fallback if not found
+
+            // Move to next in timeline order with wraparound
+            int nextPos = (currentPos + 1) % sortedIndices.size();
+            nextIndex = sortedIndices[nextPos];
+        }
+
+        const Region* nextRegion = doc->getRegionManager().getRegion(nextIndex);
+        if (nextRegion)
+        {
+            // Set selection to region bounds
+            double startTime = doc->getBufferManager().sampleToTime(nextRegion->getStartSample());
+            double endTime = doc->getBufferManager().sampleToTime(nextRegion->getEndSample());
+            doc->getWaveformDisplay().setSelection(startTime, endTime);
+
+            // Select region in manager
+            doc->getRegionManager().setSelectedRegionIndex(nextIndex);
+
+            repaint();
+            juce::Logger::writeToLog("Jumped to next region (timeline order): " + nextRegion->getName());
+        }
+    }
+
+    void jumpToPreviousRegion()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        int numRegions = doc->getRegionManager().getNumRegions();
+        if (numRegions == 0)
+        {
+            juce::Logger::writeToLog("No regions to navigate");
+            return;
+        }
+
+        // Create sorted list of region indices by start sample (timeline order)
+        juce::Array<int> sortedIndices;
+        for (int i = 0; i < numRegions; ++i)
+            sortedIndices.add(i);
+
+        // Sort by timeline order (start sample position) using std::sort
+        std::sort(sortedIndices.begin(), sortedIndices.end(),
+            [&](int a, int b)
+            {
+                const Region* regionA = doc->getRegionManager().getRegion(a);
+                const Region* regionB = doc->getRegionManager().getRegion(b);
+                if (!regionA || !regionB) return false;
+                return regionA->getStartSample() < regionB->getStartSample();
+            });
+
+        // Get current selected region index
+        int currentIndex = doc->getRegionManager().getSelectedRegionIndex();
+
+        // Find position in sorted list
+        int prevIndex;
+        if (currentIndex < 0)
+        {
+            // No region selected, start from last in timeline
+            prevIndex = sortedIndices[sortedIndices.size() - 1];
+        }
+        else
+        {
+            // Find current position in sorted list
+            int currentPos = sortedIndices.indexOf(currentIndex);
+            if (currentPos < 0)
+                currentPos = 0; // Fallback if not found
+
+            // Move to previous in timeline order with wraparound
+            int prevPos = (currentPos - 1 + sortedIndices.size()) % sortedIndices.size();
+            prevIndex = sortedIndices[prevPos];
+        }
+
+        const Region* prevRegion = doc->getRegionManager().getRegion(prevIndex);
+        if (prevRegion)
+        {
+            // Set selection to region bounds
+            double startTime = doc->getBufferManager().sampleToTime(prevRegion->getStartSample());
+            double endTime = doc->getBufferManager().sampleToTime(prevRegion->getEndSample());
+            doc->getWaveformDisplay().setSelection(startTime, endTime);
+
+            // Select region in manager
+            doc->getRegionManager().setSelectedRegionIndex(prevIndex);
+
+            repaint();
+            juce::Logger::writeToLog("Jumped to previous region (timeline order): " + prevRegion->getName());
+        }
+    }
+
+    void selectInverseOfRegions()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        // Get inverse ranges (everything NOT in regions)
+        int64_t totalSamples = doc->getBufferManager().getNumSamples();
+        auto inverseRanges = doc->getRegionManager().getInverseRanges(totalSamples);
+
+        if (inverseRanges.isEmpty())
+        {
+            juce::Logger::writeToLog("No inverse selection: All audio covered by regions");
+            return;
+        }
+
+        // For MVP: Select the first inverse range
+        // TODO Phase 4: Support multi-range selection
+        auto firstRange = inverseRanges[0];
+        double startTime = doc->getBufferManager().sampleToTime(firstRange.first);
+        double endTime = doc->getBufferManager().sampleToTime(firstRange.second);
+
+        doc->getWaveformDisplay().setSelection(startTime, endTime);
+        repaint();
+
+        juce::Logger::writeToLog(juce::String::formatted(
+            "Selected inverse of regions (%d gap%s found, showing first)",
+            inverseRanges.size(),
+            inverseRanges.size() == 1 ? "" : "s"));
+    }
+
+    void selectAllRegions()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (doc->getRegionManager().getNumRegions() == 0)
+        {
+            juce::Logger::writeToLog("No regions to select");
+            return;
+        }
+
+        // Find union of all regions (earliest start to latest end)
+        int64_t earliestStart = std::numeric_limits<int64_t>::max();
+        int64_t latestEnd = 0;
+
+        for (int i = 0; i < doc->getRegionManager().getNumRegions(); ++i)
+        {
+            const Region* region = doc->getRegionManager().getRegion(i);
+            if (region)
+            {
+                earliestStart = std::min(earliestStart, region->getStartSample());
+                latestEnd = std::max(latestEnd, region->getEndSample());
+            }
+        }
+
+        double startTime = doc->getBufferManager().sampleToTime(earliestStart);
+        double endTime = doc->getBufferManager().sampleToTime(latestEnd);
+
+        doc->getWaveformDisplay().setSelection(startTime, endTime);
+        repaint();
+
+        juce::Logger::writeToLog("Selected union of all regions");
+    }
+
+    /**
+     * Show Auto Region dialog for auto-creating regions from non-silent audio.
+     */
+    void showStripSilenceDialog()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        // Get audio buffer, sample rate, and current file from current document
+        const auto& buffer = doc->getBufferManager().getBuffer();
+        double sampleRate = doc->getBufferManager().getSampleRate();
+        juce::File currentFile = doc->getAudioEngine().getCurrentFile();
+
+        // CRITICAL: Capture old regions BEFORE showing dialog
+        // This enables undo support since the dialog modifies regions directly
+        juce::Array<Region> oldRegions;
+        const auto& allRegions = doc->getRegionManager().getAllRegions();
+        for (const auto& region : allRegions)
+        {
+            oldRegions.add(region);
+        }
+
+        // Create dialog
+        auto* dialog = new StripSilenceDialog(doc->getRegionManager(), buffer, sampleRate);
+
+        // Set up Apply callback with retrospective undo support
+        dialog->onApply = [this, doc, currentFile, oldRegions = oldRegions](int numRegionsCreated) mutable
+        {
+            // Get current region display from document
+            auto& regionDisplay = doc->getRegionDisplay();
+
+            // NOTE: The dialog already applied Auto Region in applyStripSilence(false)
+            // So the regions are already changed. We create a retrospective undo action.
+
+            // Capture new regions (after Auto Region)
+            juce::Array<Region> newRegions;
+            const auto& currentRegions = doc->getRegionManager().getAllRegions();
+            for (const auto& region : currentRegions)
+            {
+                newRegions.add(region);
+            }
+
+            // Create retrospective undo action
+            // This action doesn't need to call perform() since changes are already applied
+            auto* undoAction = new RetrospectiveStripSilenceUndoAction(
+                doc->getRegionManager(),
+                regionDisplay,
+                currentFile,
+                oldRegions,
+                newRegions
+            );
+
+            // Add to undo manager (don't call perform() since changes already applied)
+            doc->getUndoManager().perform(undoAction, "Auto Region");
+
+            // Save regions to JSON file
+            doc->getRegionManager().saveToFile(currentFile);
+
+            // Request repaint to show created regions
+            regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Auto Region: Created " + juce::String(numRegionsCreated) + " regions with undo support");
+        };
+
+        // Set up Cancel callback
+        dialog->onCancel = []()
+        {
+            juce::Logger::writeToLog("Auto Region: Cancelled by user");
+        };
+
+        // Show dialog modally
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned(dialog);
+        options.dialogTitle = "Auto Region";
+        options.dialogBackgroundColour = juce::Colour(0xff2a2a2a);
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        options.useBottomRightCornerResizer = false;
+
+        // Center over main window
+        auto mainBounds = getScreenBounds();
+        auto dialogBounds = juce::Rectangle<int>(0, 0, 650, 580);  // Size for waveform preview
+        dialogBounds.setCentre(mainBounds.getCentre());
+        options.content->setBounds(dialogBounds);
+
+        // Launch dialog
+        options.launchAsync();
+    }
+
+    /**
+     * Shows the batch export dialog for exporting regions as separate files.
+     * Called from message thread only.
+     */
+    void showBatchExportDialog()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        // Validate preconditions
+        if (!doc->getAudioEngine().isFileLoaded())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "No Audio File",
+                "Please load an audio file before exporting regions.",
+                "OK"
+            );
+            return;
+        }
+
+        // Check if we have regions to export
+        if (doc->getRegionManager().getNumRegions() == 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "No Regions to Export",
+                "There are no regions defined in this file.\n\n"
+                "Create regions first using:\n"
+                "  • R - Create region from selection\n"
+                "  • Cmd+Shift+R - Auto-create regions (Strip Silence)",
+                "OK"
+            );
+            return;
+        }
+
+        // Show the batch export dialog
+        auto exportSettings = BatchExportDialog::showDialog(
+            doc->getFile(),
+            doc->getRegionManager()
+        );
+
+        if (!exportSettings.has_value())
+        {
+            // User cancelled
+            return;
+        }
+
+        // Prepare export settings for RegionExporter
+        RegionExporter::ExportSettings settings;
+        settings.outputDirectory = exportSettings->outputDirectory;
+        settings.includeRegionName = exportSettings->includeRegionName;
+        settings.includeIndex = exportSettings->includeIndex;
+        settings.bitDepth = 24; // Default to 24-bit for professional quality
+
+        // Create progress dialog with progress value
+        double progressValue = 0.0;
+        auto progressDialog = std::make_unique<juce::AlertWindow>(
+            "Exporting Regions",
+            "Exporting regions to separate files...",
+            juce::AlertWindow::NoIcon
+        );
+        progressDialog->addProgressBarComponent(progressValue);
+        progressDialog->enterModalState();
+
+        // Export regions with progress callback
+        int totalRegions = doc->getRegionManager().getNumRegions();
+        int exportedCount = RegionExporter::exportRegions(
+            doc->getBufferManager().getBuffer(),
+            doc->getAudioEngine().getSampleRate(),
+            doc->getRegionManager(),
+            doc->getFile(),
+            settings,
+            [dlg = progressDialog.get(), totalRegions, &progressValue](int current, int total, const juce::String& regionName)
+            {
+                // Update progress value (referenced by AlertWindow)
+                progressValue = static_cast<double>(current + 1) / static_cast<double>(total);
+
+                // Update message
+                dlg->setMessage("Exporting: " + regionName +
+                               " (" + juce::String(current + 1) + "/" +
+                               juce::String(totalRegions) + ")");
+
+                return true; // Continue export
+            }
+        );
+
+        // Close progress dialog
+        progressDialog->exitModalState(0);
+        progressDialog.reset();
+
+        // Show result message
+        if (exportedCount == totalRegions)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Export Complete",
+                "Successfully exported " + juce::String(exportedCount) +
+                " region" + (exportedCount > 1 ? "s" : "") + " to:\n\n" +
+                settings.outputDirectory.getFullPathName(),
+                "OK"
+            );
+        }
+        else if (exportedCount > 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Partial Export",
+                "Exported " + juce::String(exportedCount) + " of " +
+                juce::String(totalRegions) + " regions.\n\n" +
+                "Check the console log for details about failed exports.",
+                "OK"
+            );
+        }
+        else
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Export Failed",
+                "Failed to export any regions.\n\n"
+                "Check the console log for error details.",
+                "OK"
+            );
+        }
     }
 
     //==============================================================================
@@ -2547,6 +3687,215 @@ public:
     }
 
     /**
+     * Apply silence to selection.
+     * Fills the selected region with digital silence (zeros).
+     * Creates undo action for the silence operation.
+     */
+    void silenceSelection()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
+        {
+            return;
+        }
+
+        // Silence requires a selection
+        if (!doc->getWaveformDisplay().hasSelection())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Silence",
+                "Please select a region to silence.",
+                "OK"
+            );
+            return;
+        }
+
+        // Get current buffer
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
+        if (buffer.getNumSamples() == 0)
+        {
+            return;
+        }
+
+        // Get selection bounds
+        int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+        int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+        int numSamples = endSample - startSample;
+
+        if (numSamples <= 0)
+        {
+            return;
+        }
+
+        // Create a temporary buffer with just the region to silence
+        juce::AudioBuffer<float> regionBuffer;
+        regionBuffer.setSize(buffer.getNumChannels(), numSamples);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            regionBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+        }
+
+        // Store before state for undo
+        juce::AudioBuffer<float> beforeBuffer;
+        beforeBuffer.makeCopyOf(regionBuffer, true);
+
+        // Start a new transaction
+        juce::String transactionName = "Silence (selection)";
+        doc->getUndoManager().beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will apply the silence)
+        auto* undoAction = new SilenceUndoAction(
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine(),
+            beforeBuffer,
+            startSample,
+            numSamples
+        );
+
+        // perform() calls SilenceUndoAction::perform() which silences and updates display
+        doc->getUndoManager().perform(undoAction);
+
+        // Mark as modified
+        doc->setModified(true);
+
+        // Log the operation
+        juce::String message = juce::String::formatted(
+            "Silenced selection (%d samples, %.3f seconds)",
+            numSamples, (double)numSamples / doc->getBufferManager().getSampleRate());
+        juce::Logger::writeToLog(message);
+    }
+
+    /**
+     * Trim to selection.
+     * Deletes everything OUTSIDE the selection, keeping only the selected region.
+     * Creates undo action for the trim operation.
+     */
+    void trimToSelection()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
+        {
+            return;
+        }
+
+        // Trim requires a selection
+        if (!doc->getWaveformDisplay().hasSelection())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Trim",
+                "Please select a region to keep. Everything outside will be deleted.",
+                "OK"
+            );
+            return;
+        }
+
+        // Get current buffer
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
+        if (buffer.getNumSamples() == 0)
+        {
+            return;
+        }
+
+        // Get selection bounds
+        double selectionStart = doc->getWaveformDisplay().getSelectionStart();
+        double selectionEnd = doc->getWaveformDisplay().getSelectionEnd();
+        int startSample = doc->getBufferManager().timeToSample(selectionStart);
+        int endSample = doc->getBufferManager().timeToSample(selectionEnd);
+        int numSamples = endSample - startSample;
+
+        if (numSamples <= 0)
+        {
+            return;
+        }
+
+        // Store entire buffer before trimming for undo
+        juce::AudioBuffer<float> beforeBuffer;
+        beforeBuffer.makeCopyOf(buffer, true);
+
+        // Start a new transaction
+        juce::String transactionName = "Trim (selection)";
+        doc->getUndoManager().beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will apply the trim)
+        auto* undoAction = new TrimUndoAction(
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine(),
+            beforeBuffer,
+            startSample,
+            numSamples
+        );
+
+        // perform() calls TrimUndoAction::perform() which trims and updates display
+        doc->getUndoManager().perform(undoAction);
+
+        // Mark as modified
+        doc->setModified(true);
+
+        // Log the operation
+        juce::String message = juce::String::formatted(
+            "Trimmed to selection (%d samples kept, %.3f seconds)",
+            numSamples, (double)numSamples / doc->getBufferManager().getSampleRate());
+        juce::Logger::writeToLog(message);
+    }
+
+    /**
+     * Apply DC offset removal to entire file.
+     * DC offset causes waveform asymmetry and can affect dynamics processing.
+     * Creates undo action for the DC offset removal operation.
+     */
+    void applyDCOffsetRemoval()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
+        {
+            return;
+        }
+
+        // Get current buffer
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
+        if (buffer.getNumSamples() == 0)
+        {
+            return;
+        }
+
+        // Store entire buffer before processing for undo
+        juce::AudioBuffer<float> beforeBuffer;
+        beforeBuffer.makeCopyOf(buffer, true);
+
+        // Start a new transaction
+        juce::String transactionName = "Remove DC Offset (entire file)";
+        doc->getUndoManager().beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will apply the DC offset removal)
+        auto* undoAction = new DCOffsetRemovalUndoAction(
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine(),
+            beforeBuffer
+        );
+
+        // perform() calls DCOffsetRemovalUndoAction::perform() which removes DC offset and updates display
+        doc->getUndoManager().perform(undoAction);
+
+        // Mark as modified
+        doc->setModified(true);
+
+        // Log the operation
+        juce::String message = "Removed DC offset from entire file";
+        juce::Logger::writeToLog(message);
+    }
+
+    /**
      * Undo action for normalization.
      * Stores the before state and region information.
      */
@@ -2830,7 +4179,716 @@ public:
         int m_numSamples;
     };
 
+    /**
+     * Undo action for silence.
+     * Stores the before state and region information.
+     */
+    class SilenceUndoAction : public juce::UndoableAction
+    {
+    public:
+        SilenceUndoAction(AudioBufferManager& bufferManager,
+                         WaveformDisplay& waveform,
+                         AudioEngine& audioEngine,
+                         const juce::AudioBuffer<float>& beforeBuffer,
+                         int startSample,
+                         int numSamples)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_beforeBuffer(),
+              m_startSample(startSample),
+              m_numSamples(numSamples)
+        {
+            // Store only the affected region to save memory
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+        }
+
+        bool perform() override
+        {
+            // Silence the region using AudioBufferManager
+            bool success = m_bufferManager.silenceRange(m_startSample, m_numSamples);
+
+            if (!success)
+            {
+                juce::Logger::writeToLog("SilenceUndoAction::perform - Failed to silence range");
+                return false;
+            }
+
+            // Get the updated buffer
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            // Log the operation
+            juce::Logger::writeToLog("Applied silence to selection");
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the before state (only the affected region)
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Copy the affected region from before buffer back to original position
+            for (int ch = 0; ch < m_beforeBuffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, m_beforeBuffer, ch, 0, m_numSamples);
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_beforeBuffer;
+        int m_startSample;
+        int m_numSamples;
+    };
+
+    /**
+     * Undo action for trim.
+     * Stores the entire buffer before trimming since trim changes the file length.
+     */
+    class TrimUndoAction : public juce::UndoableAction
+    {
+    public:
+        TrimUndoAction(AudioBufferManager& bufferManager,
+                      WaveformDisplay& waveform,
+                      AudioEngine& audioEngine,
+                      const juce::AudioBuffer<float>& beforeBuffer,
+                      int startSample,
+                      int numSamples)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_beforeBuffer(),
+              m_startSample(startSample),
+              m_numSamples(numSamples)
+        {
+            // Store entire buffer since trim changes the file length
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+        }
+
+        bool perform() override
+        {
+            // Trim to the range using AudioBufferManager
+            bool success = m_bufferManager.trimToRange(m_startSample, m_numSamples);
+
+            if (!success)
+            {
+                juce::Logger::writeToLog("TrimUndoAction::perform - Failed to trim range");
+                return false;
+            }
+
+            // Get the updated buffer
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            // Update waveform display - clear selection since file length changed
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              false, false); // preserveView=false, preserveEditCursor=false
+            m_waveformDisplay.clearSelection();
+            m_waveformDisplay.setEditCursor(0.0);
+
+            // Log the operation
+            juce::Logger::writeToLog("Trimmed to selection");
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the entire buffer (before trim)
+            auto& buffer = m_bufferManager.getMutableBuffer();
+            buffer.setSize(m_beforeBuffer.getNumChannels(), m_beforeBuffer.getNumSamples());
+            buffer.makeCopyOf(m_beforeBuffer, true);
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display - clear selection since file length changed
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              false, false); // preserveView=false, preserveEditCursor=false
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_beforeBuffer;
+        int m_startSample;
+        int m_numSamples;
+    };
+
+    /**
+     * Undo action for DC offset removal.
+     * Stores the entire buffer before processing.
+     */
+    class DCOffsetRemovalUndoAction : public juce::UndoableAction
+    {
+    public:
+        DCOffsetRemovalUndoAction(AudioBufferManager& bufferManager,
+                                 WaveformDisplay& waveform,
+                                 AudioEngine& audioEngine,
+                                 const juce::AudioBuffer<float>& beforeBuffer)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_beforeBuffer()
+        {
+            // Store entire buffer before DC offset removal
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+        }
+
+        bool perform() override
+        {
+            // Apply DC offset removal to the entire buffer
+            auto& buffer = m_bufferManager.getMutableBuffer();
+            bool success = AudioProcessor::removeDCOffset(buffer);
+
+            if (!success)
+            {
+                juce::Logger::writeToLog("DCOffsetRemovalUndoAction::perform - Failed to remove DC offset");
+                return false;
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            // Log the operation
+            juce::Logger::writeToLog("Removed DC offset from entire file");
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the entire buffer (before DC offset removal)
+            auto& buffer = m_bufferManager.getMutableBuffer();
+            buffer.makeCopyOf(m_beforeBuffer, true);
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_beforeBuffer;
+    };
+
+    //==============================================================================
+    // Region Undo Actions (Phase 3 Tier 2)
+
+    /**
+     * Undoable action for adding a region.
+     * Stores the region data to enable undo/redo.
+     */
+    class AddRegionUndoAction : public juce::UndoableAction
+    {
+    public:
+        AddRegionUndoAction(RegionManager& regionManager,
+                           RegionDisplay& regionDisplay,
+                           const juce::File& audioFile,
+                           const Region& region)
+            : m_regionManager(regionManager),
+              m_regionDisplay(regionDisplay),
+              m_audioFile(audioFile),
+              m_region(region),
+              m_regionIndex(-1)
+        {
+        }
+
+        bool perform() override
+        {
+            // Add region to manager
+            m_regionManager.addRegion(m_region);
+            m_regionIndex = m_regionManager.getNumRegions() - 1;
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Added region: " + m_region.getName());
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Remove the region we added
+            if (m_regionIndex >= 0 && m_regionIndex < m_regionManager.getNumRegions())
+            {
+                m_regionManager.removeRegion(m_regionIndex);
+
+                // Save to sidecar JSON file
+                m_regionManager.saveToFile(m_audioFile);
+
+                // Update display
+                m_regionDisplay.repaint();
+
+                juce::Logger::writeToLog("Undid region addition: " + m_region.getName());
+            }
+            return true;
+        }
+
+        int getSizeInUnits() override { return sizeof(*this) + sizeof(Region); }
+
+    private:
+        RegionManager& m_regionManager;
+        RegionDisplay& m_regionDisplay;
+        juce::File m_audioFile;
+        Region m_region;
+        int m_regionIndex;  // Index where region was added
+    };
+
+    /**
+     * Undoable action for deleting a region.
+     * Stores the deleted region and its index to enable restoration.
+     */
+    class DeleteRegionUndoAction : public juce::UndoableAction
+    {
+    public:
+        DeleteRegionUndoAction(RegionManager& regionManager,
+                              RegionDisplay& regionDisplay,
+                              const juce::File& audioFile,
+                              int regionIndex)
+            : m_regionManager(regionManager),
+              m_regionDisplay(regionDisplay),
+              m_audioFile(audioFile),
+              m_regionIndex(regionIndex),
+              m_deletedRegion("", 0, 0)  // Placeholder, will be filled in perform()
+        {
+        }
+
+        bool perform() override
+        {
+            // Store the region before deleting it
+            const Region* region = m_regionManager.getRegion(m_regionIndex);
+            if (region == nullptr)
+            {
+                juce::Logger::writeToLog("DeleteRegionUndoAction::perform - Invalid region index");
+                return false;
+            }
+
+            // Copy the region data
+            m_deletedRegion = *region;
+
+            // Delete the region
+            m_regionManager.removeRegion(m_regionIndex);
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Deleted region: " + m_deletedRegion.getName());
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Re-insert the region at its original index
+            m_regionManager.insertRegionAt(m_regionIndex, m_deletedRegion);
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Undid region deletion: " + m_deletedRegion.getName());
+            return true;
+        }
+
+        int getSizeInUnits() override { return sizeof(*this) + sizeof(Region); }
+
+    private:
+        RegionManager& m_regionManager;
+        RegionDisplay& m_regionDisplay;
+        juce::File m_audioFile;
+        int m_regionIndex;
+        Region m_deletedRegion;
+    };
+
+    /**
+     * Undoable action for renaming a region.
+     * Stores old and new names to enable undo/redo.
+     */
+    class RenameRegionUndoAction : public juce::UndoableAction
+    {
+    public:
+        RenameRegionUndoAction(RegionManager& regionManager,
+                              RegionDisplay& regionDisplay,
+                              const juce::File& audioFile,
+                              int regionIndex,
+                              const juce::String& oldName,
+                              const juce::String& newName)
+            : m_regionManager(regionManager),
+              m_regionDisplay(regionDisplay),
+              m_audioFile(audioFile),
+              m_regionIndex(regionIndex),
+              m_oldName(oldName),
+              m_newName(newName)
+        {
+        }
+
+        bool perform() override
+        {
+            // Rename the region
+            Region* region = m_regionManager.getRegion(m_regionIndex);
+            if (region == nullptr)
+            {
+                juce::Logger::writeToLog("RenameRegionUndoAction::perform - Invalid region index");
+                return false;
+            }
+
+            region->setName(m_newName);
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Renamed region from '" + m_oldName + "' to '" + m_newName + "'");
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the old name
+            Region* region = m_regionManager.getRegion(m_regionIndex);
+            if (region != nullptr)
+            {
+                region->setName(m_oldName);
+
+                // Save to sidecar JSON file
+                m_regionManager.saveToFile(m_audioFile);
+
+                // Update display
+                m_regionDisplay.repaint();
+
+                juce::Logger::writeToLog("Undid region rename: restored '" + m_oldName + "'");
+            }
+            return true;
+        }
+
+        int getSizeInUnits() override { return sizeof(*this) + m_oldName.length() + m_newName.length(); }
+
+    private:
+        RegionManager& m_regionManager;
+        RegionDisplay& m_regionDisplay;
+        juce::File m_audioFile;
+        int m_regionIndex;
+        juce::String m_oldName;
+        juce::String m_newName;
+    };
+
+    /**
+     * Undoable action for changing a region's color.
+     * Stores old and new colors to enable undo/redo.
+     */
+    class ChangeRegionColorUndoAction : public juce::UndoableAction
+    {
+    public:
+        ChangeRegionColorUndoAction(RegionManager& regionManager,
+                                   RegionDisplay& regionDisplay,
+                                   const juce::File& audioFile,
+                                   int regionIndex,
+                                   const juce::Colour& oldColor,
+                                   const juce::Colour& newColor)
+            : m_regionManager(regionManager),
+              m_regionDisplay(regionDisplay),
+              m_audioFile(audioFile),
+              m_regionIndex(regionIndex),
+              m_oldColor(oldColor),
+              m_newColor(newColor)
+        {
+        }
+
+        bool perform() override
+        {
+            // Change the region color
+            Region* region = m_regionManager.getRegion(m_regionIndex);
+            if (region == nullptr)
+            {
+                juce::Logger::writeToLog("ChangeRegionColorUndoAction::perform - Invalid region index");
+                return false;
+            }
+
+            region->setColor(m_newColor);
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Changed region color");
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the old color
+            Region* region = m_regionManager.getRegion(m_regionIndex);
+            if (region != nullptr)
+            {
+                region->setColor(m_oldColor);
+
+                // Save to sidecar JSON file
+                m_regionManager.saveToFile(m_audioFile);
+
+                // Update display
+                m_regionDisplay.repaint();
+
+                juce::Logger::writeToLog("Undid region color change");
+            }
+            return true;
+        }
+
+        int getSizeInUnits() override { return sizeof(*this) + sizeof(juce::Colour) * 2; }
+
+    private:
+        RegionManager& m_regionManager;
+        RegionDisplay& m_regionDisplay;
+        juce::File m_audioFile;
+        int m_regionIndex;
+        juce::Colour m_oldColor;
+        juce::Colour m_newColor;
+    };
+
+    /**
+     * Undoable action for Auto Region auto-region creation.
+     * Stores the old region state and the new regions created by Auto Region.
+     */
+    class StripSilenceUndoAction : public juce::UndoableAction
+    {
+    public:
+        StripSilenceUndoAction(RegionManager& regionManager,
+                              RegionDisplay& regionDisplay,
+                              const juce::File& audioFile,
+                              const juce::AudioBuffer<float>& buffer,
+                              double sampleRate,
+                              float thresholdDB,
+                              float minRegionLengthMs,
+                              float minSilenceLengthMs,
+                              float preRollMs,
+                              float postRollMs)
+            : m_regionManager(regionManager),
+              m_regionDisplay(regionDisplay),
+              m_audioFile(audioFile),
+              m_buffer(buffer),
+              m_sampleRate(sampleRate),
+              m_thresholdDB(thresholdDB),
+              m_minRegionLengthMs(minRegionLengthMs),
+              m_minSilenceLengthMs(minSilenceLengthMs),
+              m_preRollMs(preRollMs),
+              m_postRollMs(postRollMs)
+        {
+            // Store old regions before Auto Region is applied
+            const auto& allRegions = m_regionManager.getAllRegions();
+            for (const auto& region : allRegions)
+            {
+                m_oldRegions.add(region);
+            }
+        }
+
+        bool perform() override
+        {
+            // Apply Auto Region algorithm (clears old regions and creates new ones)
+            m_regionManager.autoCreateRegions(m_buffer, m_sampleRate,
+                                             m_thresholdDB, m_minRegionLengthMs,
+                                             m_minSilenceLengthMs,
+                                             m_preRollMs, m_postRollMs);
+
+            // Store the newly created regions for redo
+            m_newRegions.clear();
+            const auto& allRegions = m_regionManager.getAllRegions();
+            for (const auto& region : allRegions)
+            {
+                m_newRegions.add(region);
+            }
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Auto Region: Created " + juce::String(m_newRegions.size()) + " regions");
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Clear current regions
+            m_regionManager.removeAllRegions();
+
+            // Restore old regions (before Auto Region was applied)
+            for (const auto& region : m_oldRegions)
+            {
+                m_regionManager.addRegion(region);
+            }
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Undid Auto Region: Restored " + juce::String(m_oldRegions.size()) + " original regions");
+            return true;
+        }
+
+        int getSizeInUnits() override
+        {
+            // Only count the regions - m_buffer is stored by reference (not copied)
+            return sizeof(*this) +
+                   m_oldRegions.size() * sizeof(Region) +
+                   m_newRegions.size() * sizeof(Region);
+        }
+
+    private:
+        RegionManager& m_regionManager;
+        RegionDisplay& m_regionDisplay;
+        juce::File m_audioFile;
+        const juce::AudioBuffer<float>& m_buffer;
+        double m_sampleRate;
+        float m_thresholdDB;
+        float m_minRegionLengthMs;
+        float m_minSilenceLengthMs;
+        float m_preRollMs;
+        float m_postRollMs;
+
+        juce::Array<Region> m_oldRegions;  // Regions before Auto Region
+        juce::Array<Region> m_newRegions;  // Regions created by Auto Region
+    };
+
+    /**
+     * Retrospective undoable action for Auto Region.
+     * Used when the dialog has already applied changes.
+     * Stores both old and new region states for undo/redo.
+     */
+    class RetrospectiveStripSilenceUndoAction : public juce::UndoableAction
+    {
+    public:
+        RetrospectiveStripSilenceUndoAction(RegionManager& regionManager,
+                                            RegionDisplay& regionDisplay,
+                                            const juce::File& audioFile,
+                                            const juce::Array<Region>& oldRegions,
+                                            const juce::Array<Region>& newRegions)
+            : m_regionManager(regionManager),
+              m_regionDisplay(regionDisplay),
+              m_audioFile(audioFile),
+              m_oldRegions(oldRegions),
+              m_newRegions(newRegions)
+        {
+        }
+
+        bool perform() override
+        {
+            // Changes are already applied by the dialog.
+            // This method is only called on redo, so restore new regions.
+            m_regionManager.removeAllRegions();
+
+            for (const auto& region : m_newRegions)
+            {
+                m_regionManager.addRegion(region);
+            }
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Redo Auto Region: Restored " + juce::String(m_newRegions.size()) + " regions");
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Clear current regions
+            m_regionManager.removeAllRegions();
+
+            // Restore old regions (before Auto Region was applied)
+            for (const auto& region : m_oldRegions)
+            {
+                m_regionManager.addRegion(region);
+            }
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Undo Auto Region: Restored " + juce::String(m_oldRegions.size()) + " original regions");
+            return true;
+        }
+
+        int getSizeInUnits() override
+        {
+            return sizeof(*this) +
+                   m_oldRegions.size() * sizeof(Region) +
+                   m_newRegions.size() * sizeof(Region);
+        }
+
+    private:
+        RegionManager& m_regionManager;
+        RegionDisplay& m_regionDisplay;
+        juce::File m_audioFile;
+        juce::Array<Region> m_oldRegions;  // Regions before Auto Region
+        juce::Array<Region> m_newRegions;  // Regions created by Auto Region
+    };
+
 private:
+    // Audio device manager (shared across all documents)
+    juce::AudioDeviceManager& m_audioDeviceManager;
+
     // Multi-document management
     DocumentManager m_documentManager;
     TabComponent m_tabComponent;
@@ -2841,13 +4899,173 @@ private:
     juce::ApplicationCommandManager m_commandManager;
     std::unique_ptr<juce::FileChooser> m_fileChooser;
 
+    // UI preferences (Phase 3.5)
+    AudioUnits::TimeFormat m_timeFormat = AudioUnits::TimeFormat::Seconds;  // Default to seconds
+    juce::Rectangle<int> m_formatIndicatorBounds;  // Bounds of clickable format indicator in status bar
+
+    // Auto-save tracking (Phase 3.5 - Priority #6)
+    int m_autoSaveTimerTicks = 0;  // Counter for auto-save timer (incremented every 50ms)
+    const int m_autoSaveCheckInterval = 1200;  // Check auto-save every 1200 ticks (60 seconds)
+    juce::ThreadPool m_autoSaveThreadPool {1};  // Background thread pool for auto-save (1 thread)
+
     // "No file open" label
     juce::Label m_noFileLabel;
 
     // Current document display containers (for showing active document's components)
     std::unique_ptr<juce::Component> m_currentDocumentContainer;
 
+    // Region List Panel (Phase 3.4)
+    RegionListPanel* m_regionListPanel = nullptr;  // Window owns this, we just track it
+    juce::DocumentWindow* m_regionListWindow = nullptr;
+
     // Helper methods for safe document access
+
+    /**
+     * Wires up region callbacks for a document.
+     * This connects RegionDisplay user interactions to RegionManager state updates.
+     */
+    void setupRegionCallbacks(Document* doc)
+    {
+        if (!doc)
+            return;
+
+        auto& regionDisplay = doc->getRegionDisplay();
+
+        // onRegionClicked: Select region and update waveform selection
+        regionDisplay.onRegionClicked = [doc](int regionIndex)
+        {
+            if (!doc) return;
+
+            const Region* region = doc->getRegionManager().getRegion(regionIndex);
+            if (!region)
+            {
+                juce::Logger::writeToLog("Cannot select region: Invalid region index");
+                return;
+            }
+
+            // Update selected region in manager
+            doc->getRegionManager().setSelectedRegionIndex(regionIndex);
+
+            // Update waveform selection to match region bounds
+            double startTime = doc->getBufferManager().sampleToTime(region->getStartSample());
+            double endTime = doc->getBufferManager().sampleToTime(region->getEndSample());
+            doc->getWaveformDisplay().setSelection(startTime, endTime);
+
+            // Repaint to show visual feedback
+            doc->getRegionDisplay().repaint();
+
+            juce::Logger::writeToLog("Selected region: " + region->getName() +
+                                    " (" + juce::String(startTime, 3) + "s - " +
+                                    juce::String(endTime, 3) + "s)");
+        };
+
+        // onRegionDoubleClicked: Show rename dialog (placeholder for now)
+        regionDisplay.onRegionDoubleClicked = [](int regionIndex)
+        {
+            juce::Logger::writeToLog("Region " + juce::String(regionIndex) + " double-clicked (rename dialog - coming soon)");
+        };
+
+        // onRegionRenamed: Update region name with undo support
+        regionDisplay.onRegionRenamed = [doc](int regionIndex, const juce::String& newName)
+        {
+            if (!doc) return;
+
+            Region* region = doc->getRegionManager().getRegion(regionIndex);
+            if (!region)
+            {
+                juce::Logger::writeToLog("Cannot rename region: Invalid region index");
+                return;
+            }
+
+            juce::String oldName = region->getName();
+
+            // Start a new transaction
+            juce::String transactionName = "Rename Region: " + oldName + " → " + newName;
+            doc->getUndoManager().beginNewTransaction(transactionName);
+
+            // Create undo action
+            auto* undoAction = new RenameRegionUndoAction(
+                doc->getRegionManager(),
+                doc->getRegionDisplay(),
+                doc->getFile(),
+                regionIndex,
+                oldName,
+                newName
+            );
+
+            // perform() calls RenameRegionUndoAction::perform() which renames the region
+            doc->getUndoManager().perform(undoAction);
+
+            juce::Logger::writeToLog("Renamed region from '" + oldName + "' to '" + newName + "'");
+        };
+
+        // onRegionColorChanged: Update region color with undo support
+        regionDisplay.onRegionColorChanged = [doc](int regionIndex, const juce::Colour& newColor)
+        {
+            if (!doc) return;
+
+            Region* region = doc->getRegionManager().getRegion(regionIndex);
+            if (!region)
+            {
+                juce::Logger::writeToLog("Cannot change region color: Invalid region index");
+                return;
+            }
+
+            juce::Colour oldColor = region->getColor();
+
+            // Start a new transaction
+            juce::String transactionName = "Change Region Color";
+            doc->getUndoManager().beginNewTransaction(transactionName);
+
+            // Create undo action
+            auto* undoAction = new ChangeRegionColorUndoAction(
+                doc->getRegionManager(),
+                doc->getRegionDisplay(),
+                doc->getFile(),
+                regionIndex,
+                oldColor,
+                newColor
+            );
+
+            // perform() calls ChangeRegionColorUndoAction::perform() which changes the color
+            doc->getUndoManager().perform(undoAction);
+
+            juce::Logger::writeToLog("Changed region color");
+        };
+
+        // onRegionDeleted: Remove region from manager with undo support
+        regionDisplay.onRegionDeleted = [doc](int regionIndex)
+        {
+            if (!doc) return;
+
+            Region* region = doc->getRegionManager().getRegion(regionIndex);
+            if (!region)
+            {
+                juce::Logger::writeToLog("Cannot delete region: Invalid region index");
+                return;
+            }
+
+            juce::String regionName = region->getName();
+
+            // Start a new transaction
+            juce::String transactionName = "Delete Region: " + regionName;
+            doc->getUndoManager().beginNewTransaction(transactionName);
+
+            // Create undo action
+            auto* undoAction = new DeleteRegionUndoAction(
+                doc->getRegionManager(),
+                doc->getRegionDisplay(),
+                doc->getFile(),
+                regionIndex
+            );
+
+            // perform() calls DeleteRegionUndoAction::perform() which deletes the region
+            doc->getUndoManager().perform(undoAction);
+
+            juce::Logger::writeToLog("Deleted region: " + regionName);
+        };
+    }
+
     Document* getCurrentDocument() const
     {
         return m_documentManager.getCurrentDocument();
@@ -2901,6 +5119,248 @@ private:
         }
     }
 
+    /**
+     * Shows a popup menu to select time format.
+     * Displays the 4 available formats and updates m_timeFormat when user selects one.
+     */
+    void showTimeFormatMenu()
+    {
+        juce::PopupMenu menu;
+
+        // Add all 4 time formats
+        menu.addItem(1, "Samples", true, m_timeFormat == AudioUnits::TimeFormat::Samples);
+        menu.addItem(2, "Milliseconds", true, m_timeFormat == AudioUnits::TimeFormat::Milliseconds);
+        menu.addItem(3, "Seconds", true, m_timeFormat == AudioUnits::TimeFormat::Seconds);
+        menu.addItem(4, "Frames", true, m_timeFormat == AudioUnits::TimeFormat::Frames);
+
+        // Show menu at mouse position
+        menu.showMenuAsync(juce::PopupMenu::Options(),
+            [this](int result)
+            {
+                if (result > 0)
+                {
+                    // Update time format based on selection
+                    switch (result)
+                    {
+                        case 1: m_timeFormat = AudioUnits::TimeFormat::Samples; break;
+                        case 2: m_timeFormat = AudioUnits::TimeFormat::Milliseconds; break;
+                        case 3: m_timeFormat = AudioUnits::TimeFormat::Seconds; break;
+                        case 4: m_timeFormat = AudioUnits::TimeFormat::Frames; break;
+                    }
+
+                    // Save to settings
+                    Settings::getInstance().setSetting("display.timeFormat", static_cast<int>(m_timeFormat));
+                    Settings::getInstance().save();
+
+                    // Force UI update
+                    repaint();
+                }
+            });
+    }
+
+    /**
+     * Auto-save job that runs on background thread.
+     * Performs file I/O without blocking the message thread.
+     */
+    struct AutoSaveJob : public juce::ThreadPoolJob
+    {
+        juce::AudioBuffer<float> bufferCopy;
+        juce::File targetFile;
+        juce::File originalFile;
+        double sampleRate;
+        int bitDepth;
+
+        AutoSaveJob(const juce::AudioBuffer<float>& buffer,
+                    const juce::File& target,
+                    const juce::File& original,
+                    double rate,
+                    int depth)
+            : juce::ThreadPoolJob("AutoSave"),
+              targetFile(target),
+              originalFile(original),
+              sampleRate(rate),
+              bitDepth(depth)
+        {
+            // Make a copy of the buffer for thread safety
+            bufferCopy.makeCopyOf(buffer);
+        }
+
+        JobStatus runJob() override
+        {
+            try
+            {
+                // Create output stream
+                auto outputStream = targetFile.createOutputStream();
+                if (!outputStream)
+                {
+                    logFailure("Could not create output stream");
+                    return jobHasFinished;
+                }
+
+                // Create WAV writer
+                juce::WavAudioFormat wavFormat;
+                std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
+                    outputStream.get(),
+                    sampleRate,
+                    bufferCopy.getNumChannels(),
+                    bitDepth,
+                    {},
+                    0));
+
+                if (!writer)
+                {
+                    logFailure("Could not create audio writer");
+                    return jobHasFinished;
+                }
+
+                // Write buffer to file
+                outputStream.release();  // Writer takes ownership
+                bool success = writer->writeFromAudioSampleBuffer(bufferCopy, 0, bufferCopy.getNumSamples());
+                writer.reset();  // Flush and close
+
+                if (success)
+                {
+                    // Log success on message thread
+                    juce::MessageManager::callAsync([file = targetFile]()
+                    {
+                        juce::Logger::writeToLog("Auto-saved: " + file.getFullPathName());
+                    });
+                }
+                else
+                {
+                    logFailure("Write operation failed");
+                }
+            }
+            catch (const std::exception& e)
+            {
+                logFailure(juce::String("Exception: ") + e.what());
+            }
+            catch (...)
+            {
+                logFailure("Unknown exception");
+            }
+
+            return jobHasFinished;
+        }
+
+    private:
+        void logFailure(const juce::String& reason)
+        {
+            juce::MessageManager::callAsync([file = originalFile, reason]()
+            {
+                juce::Logger::writeToLog("Auto-save failed for " + file.getFullPathName() + ": " + reason);
+            });
+        }
+    };
+
+    /**
+     * Performs auto-save of modified documents to temp location.
+     * Called periodically by timerCallback (every ~60 seconds).
+     * Thread-safe: Copies buffers and runs file I/O on background thread.
+     */
+    void performAutoSave()
+    {
+        // Check if auto-save is enabled (thread-safe read from Settings singleton)
+        bool autoSaveEnabled = Settings::getInstance().getSetting("autoSave.enabled", true);
+        if (!autoSaveEnabled)
+            return;
+
+        // Get auto-save directory
+        juce::File autoSaveDir = Settings::getInstance().getSettingsDirectory().getChildFile("autosave");
+        if (!autoSaveDir.exists())
+            autoSaveDir.createDirectory();
+
+        // Check each document for auto-save
+        for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
+        {
+            auto* doc = m_documentManager.getDocument(i);
+            if (!doc || !doc->isModified())
+                continue;  // Skip unmodified documents
+
+            // Check if document has a file (skip untitled documents for now)
+            if (!doc->getAudioEngine().isFileLoaded())
+                continue;
+
+            // Create auto-save filename: autosave_[originalname]_[timestamp].wav
+            juce::File originalFile = doc->getAudioEngine().getCurrentFile();
+            juce::String timestamp = juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
+            juce::String autoSaveFilename = "autosave_" + originalFile.getFileNameWithoutExtension() + "_" + timestamp + ".wav";
+            juce::File autoSaveFile = autoSaveDir.getChildFile(autoSaveFilename);
+
+            // Get audio data (on message thread - safe)
+            const auto& buffer = doc->getBufferManager().getBuffer();
+            double sampleRate = doc->getAudioEngine().getSampleRate();
+            int bitDepth = doc->getAudioEngine().getBitDepth();
+
+            // Create auto-save job (makes buffer copy for thread safety)
+            auto* job = new AutoSaveJob(buffer, autoSaveFile, originalFile, sampleRate, bitDepth);
+
+            // Add job to thread pool (will run on background thread)
+            m_autoSaveThreadPool.addJob(job, true);  // deleteJobWhenFinished = true
+        }
+
+        // Clean up old auto-save files (fast operation, OK on message thread)
+        cleanupOldAutoSaves(autoSaveDir);
+    }
+
+    /**
+     * Cleans up old auto-save files, keeping only the most recent 3 per original file.
+     */
+    void cleanupOldAutoSaves(const juce::File& autoSaveDir)
+    {
+        if (!autoSaveDir.exists())
+            return;
+
+        // Get all auto-save files
+        juce::Array<juce::File> autoSaveFiles;
+        autoSaveDir.findChildFiles(autoSaveFiles, juce::File::findFiles, false, "autosave_*.wav");
+
+        // Group files by original name
+        std::map<juce::String, juce::Array<juce::File>> filesByOriginal;
+        for (auto& file : autoSaveFiles)
+        {
+            // Extract original name from autosave_[originalname]_[timestamp].wav
+            juce::String filename = file.getFileNameWithoutExtension();
+            juce::StringArray parts = juce::StringArray::fromTokens(filename, "_", "");
+            if (parts.size() >= 2)
+            {
+                juce::String originalName = parts[1];
+                filesByOriginal[originalName].add(file);
+            }
+        }
+
+        // For each original file, keep only the newest 3 auto-saves
+        for (auto& pair : filesByOriginal)
+        {
+            auto& files = pair.second;
+            if (files.size() <= 3)
+                continue;
+
+            // Sort by modification time (newest first)
+            // JUCE Array::sort needs a comparator object, not a lambda
+            struct FileComparator
+            {
+                static int compareElements(const juce::File& first, const juce::File& second)
+                {
+                    auto timeA = first.getLastModificationTime();
+                    auto timeB = second.getLastModificationTime();
+                    if (timeA > timeB) return -1;
+                    if (timeA < timeB) return 1;
+                    return 0;
+                }
+            };
+            FileComparator comp;
+            files.sort(comp, false);
+
+            // Delete all but the newest 3
+            for (int i = 3; i < files.size(); ++i)
+            {
+                files[i].deleteFile();
+                juce::Logger::writeToLog("Deleted old auto-save: " + files[i].getFullPathName());
+            }
+        }
+    }
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 
@@ -2932,8 +5392,20 @@ public:
 
     void initialise(const juce::String& /*commandLine*/) override
     {
+        // Initialize audio device manager
+        juce::String audioError = m_audioDeviceManager.initialise(
+            2,      // number of input channels
+            2,      // number of output channels
+            nullptr, // saved state
+            true);   // select default device
+
+        if (audioError.isNotEmpty())
+        {
+            juce::Logger::writeToLog("Audio initialization error: " + audioError);
+        }
+
         // Create main window
-        mainWindow.reset(new MainWindow(getApplicationName()));
+        mainWindow.reset(new MainWindow(getApplicationName(), m_audioDeviceManager));
     }
 
     void shutdown() override
@@ -2960,7 +5432,7 @@ public:
     class MainWindow : public juce::DocumentWindow
     {
     public:
-        MainWindow(juce::String name)
+        MainWindow(juce::String name, juce::AudioDeviceManager& deviceManager)
             : DocumentWindow(name,
                              juce::Desktop::getInstance().getDefaultLookAndFeel()
                                  .findColour(juce::ResizableWindow::backgroundColourId),
@@ -2968,8 +5440,8 @@ public:
         {
             setUsingNativeTitleBar(true);
 
-            // Create main component
-            auto* mainComp = new MainComponent();
+            // Create main component with audio device manager
+            auto* mainComp = new MainComponent(deviceManager);
             setContentOwned(mainComp, true);
 
             // Set up menu bar
@@ -3006,6 +5478,7 @@ public:
     };
 
 private:
+    juce::AudioDeviceManager m_audioDeviceManager;
     std::unique_ptr<MainWindow> mainWindow;
 };
 

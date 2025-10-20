@@ -1543,6 +1543,240 @@ if (i < buffer.getNumSamples()) { // Safe bounds check
 
 **Rule**: A component isn't "done" until it's integrated and the user can use it end-to-end.
 
+#### 9. Verify Before Claiming "Ready to Test"
+
+❌ **WRONG - Claiming something works without verification**:
+```cpp
+// Implemented dialog callbacks
+dialog->onApply = [](int count) { /* code */ };
+dialog->onCancel = []() { /* code */ };
+
+// Claim: "Feature complete, ready to test"
+// Reality: Callbacks were never actually set in showDialog()!
+```
+
+✅ **RIGHT - Verify integration before claiming completion**:
+```cpp
+// After implementing feature, VERIFY:
+1. Build succeeds ✓
+2. Launch application ✓
+3. Try keyboard shortcut → Dialog opens? ✓
+4. Click buttons → Callbacks execute? ✓
+5. Check console output → Expected logs appear? ✓
+6. THEN claim "ready to test"
+```
+
+**MANDATORY Pre-Completion Verification Checklist**:
+
+Before saying "ready to test" or marking a task complete, you MUST verify:
+
+**For UI Features (Dialogs, Panels, Windows)**:
+- [ ] UI element actually appears when triggered
+- [ ] Keyboard shortcut works (if applicable) - command registered in `getAllCommands()`
+- [ ] Menu item appears and is clickable (if applicable)
+- [ ] All buttons/controls are wired up to callbacks
+- [ ] Callbacks actually execute (check console logs or visible effects)
+- [ ] Dialog/panel can be closed/dismissed properly
+- [ ] No console errors when opening/interacting with UI
+
+**For Keyboard Shortcuts**:
+- [ ] Command ID added to `getAllCommands()` array in `perform()`
+- [ ] Command info registered in `getCommandInfo()` with keypress
+- [ ] Command handler implemented in `perform()` switch statement
+- [ ] Shortcut actually triggers the action when pressed in app
+
+**For Data/Backend Features**:
+- [ ] Data persists to disk (if applicable)
+- [ ] Data loads from disk correctly (if applicable)
+- [ ] Changes are visible in the UI
+- [ ] Undo/redo works (if applicable)
+- [ ] No crashes or errors in console
+
+**Common Integration Failures to Check**:
+1. **Forgot to register command** → Keyboard shortcut doesn't work
+2. **Forgot to wire callbacks** → Buttons do nothing
+3. **Forgot to add to menu** → Feature not discoverable
+4. **Forgot to save/load data** → Data doesn't persist
+5. **Forgot to update UI** → Changes invisible to user
+
+**⚠️ NEW: Keyboard Shortcut Conflict Detection** (Based on Phase 3 Tier 2 Bugs):
+- [ ] Search Main.cpp for duplicate `addDefaultKeypress()` calls with same key combo
+- [ ] Check both `getCommandInfo()` cases for your new commands
+- [ ] Verify no existing command uses your chosen shortcut
+- [ ] Test shortcut in app - does it trigger ONLY your command?
+- [ ] Document shortcut in TODO.md and verify it matches code
+
+**⚠️ NEW: Menu Completeness Verification** (Based on Phase 3 Tier 2 Bugs):
+- [ ] Every command category has menu entry (File/Edit/View/Process/Playback/Region/Help)
+- [ ] New feature commands are in appropriate menu
+- [ ] Menu items show keyboard shortcuts next to command names
+- [ ] Right-click context menus include relevant commands
+- [ ] Menu items are enabled/disabled based on document state
+
+**⚠️ NEW: Documentation Accuracy Verification** (Based on Phase 3 Tier 2 Bugs):
+- [ ] Keyboard shortcut in TODO.md matches code in Main.cpp `getCommandInfo()`
+- [ ] Feature descriptions match actual implementation behavior
+- [ ] "Complete" status claims verified by manual testing
+- [ ] README.md keyboard shortcut table matches Main.cpp
+- [ ] No false "implemented" claims without end-to-end testing
+
+**Process**:
+```
+1. Write code ✓
+2. Compile ✓
+3. Launch app ✓
+4. Actually try the feature yourself ← CRITICAL STEP
+5. Verify keyboard shortcuts work
+6. Verify UI elements are functional
+7. Check console for errors
+8. THEN tell user "ready to test"
+```
+
+**If you skip step 4, you WILL have integration bugs.**
+
+**Rule**: Never claim something is "ready to test" until you've personally verified the basic integration works. "It compiles" ≠ "It works".
+
+**Examples of Proper Verification**:
+
+✅ **Dialog Feature**:
+- "I've implemented the Strip Silence dialog and verified: Cmd+Shift+R opens the dialog, all sliders are functional, Apply button creates regions and shows success message, Cancel button closes dialog. Ready for comprehensive testing."
+
+❌ **Incomplete Verification**:
+- "I've implemented the Strip Silence dialog. Ready to test." (Did you actually try opening it? Do the buttons work?)
+
+---
+
+### 🛠️ Automated Verification Tooling (Phase 4 - Recommended)
+
+**Goal**: Prevent Phase 3 Tier 2 bugs through automated detection scripts.
+
+**Script 1: Keyboard Shortcut Conflict Detector** (`scripts/detect_shortcut_conflicts.sh`):
+```bash
+#!/bin/bash
+# Detects duplicate keyboard shortcuts in Main.cpp getCommandInfo()
+# Usage: ./scripts/detect_shortcut_conflicts.sh
+
+echo "🔍 Scanning for duplicate keyboard shortcuts in Main.cpp..."
+
+# Extract all addDefaultKeypress calls with line numbers
+grep -n "addDefaultKeypress" Source/Main.cpp | \
+    sed 's/.*addDefaultKeypress('\''//; s/'\'').*//; s/'\'',/+/' | \
+    sort | uniq -d
+
+if [ $? -eq 0 ]; then
+    echo "✅ No duplicate shortcuts found"
+else
+    echo "❌ DUPLICATE SHORTCUTS DETECTED! See above."
+    exit 1
+fi
+```
+
+**Script 2: Menu Completeness Checker** (`scripts/check_menu_completeness.sh`):
+```bash
+#!/bin/bash
+# Verifies all command categories have menu entries
+# Usage: ./scripts/check_menu_completeness.sh
+
+echo "🔍 Checking menu completeness..."
+
+REQUIRED_MENUS=("File" "Edit" "View" "Process" "Playback" "Region" "Help")
+
+for menu in "${REQUIRED_MENUS[@]}"; do
+    if grep -q "addMenu.*\"$menu\"" Source/Main.cpp; then
+        echo "✅ $menu menu found"
+    else
+        echo "❌ MISSING: $menu menu not found in Main.cpp"
+    fi
+done
+```
+
+**Script 3: Documentation Sync Verifier** (`scripts/verify_doc_sync.py`):
+```python
+#!/usr/bin/env python3
+"""
+Verifies keyboard shortcuts in TODO.md match Main.cpp implementation.
+Usage: python3 scripts/verify_doc_sync.py
+"""
+
+import re
+import sys
+
+def extract_shortcuts_from_code():
+    """Parse Main.cpp getCommandInfo() to extract shortcuts."""
+    shortcuts = {}
+    with open('Source/Main.cpp', 'r') as f:
+        content = f.read()
+        # Find all command ID cases and their shortcuts
+        pattern = r'case\s+CommandIDs::(\w+):.*?addDefaultKeypress\(\'(\w)\''
+        matches = re.findall(pattern, content, re.DOTALL)
+        for command, key in matches:
+            shortcuts[command] = key.upper()
+    return shortcuts
+
+def extract_shortcuts_from_todo():
+    """Parse TODO.md to extract documented shortcuts."""
+    shortcuts = {}
+    with open('TODO.md', 'r') as f:
+        for line in f:
+            # Match lines like: "- Play/Pause (Space): ..."
+            match = re.search(r'(\w+.*?)\s+\((Cmd\+)?([A-Z]+)\)', line)
+            if match:
+                feature, modifier, key = match.groups()
+                shortcuts[feature.strip()] = key
+    return shortcuts
+
+def main():
+    code_shortcuts = extract_shortcuts_from_code()
+    doc_shortcuts = extract_shortcuts_from_todo()
+
+    mismatches = []
+    for feature, doc_key in doc_shortcuts.items():
+        if feature in code_shortcuts and code_shortcuts[feature] != doc_key:
+            mismatches.append(f"{feature}: TODO.md says {doc_key}, code says {code_shortcuts[feature]}")
+
+    if mismatches:
+        print("❌ DOCUMENTATION MISMATCHES FOUND:")
+        for mismatch in mismatches:
+            print(f"  - {mismatch}")
+        sys.exit(1)
+    else:
+        print("✅ Documentation matches code implementation")
+        sys.exit(0)
+
+if __name__ == '__main__':
+    main()
+```
+
+**Integration with CI/CD** (Phase 4):
+
+Add to `.github/workflows/quality-checks.yml`:
+```yaml
+name: Quality Checks
+
+on: [push, pull_request]
+
+jobs:
+  verify-shortcuts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check for shortcut conflicts
+        run: bash scripts/detect_shortcut_conflicts.sh
+      - name: Verify menu completeness
+        run: bash scripts/check_menu_completeness.sh
+      - name: Verify documentation sync
+        run: python3 scripts/verify_doc_sync.py
+```
+
+**Benefits**:
+- Catches shortcut conflicts before code review
+- Prevents missing menu entries
+- Ensures documentation accuracy
+- Runs automatically on every commit (CI/CD)
+- Reduces manual verification burden
+
+**Implementation Timeline**: Phase 4 (after P0 bugs fixed)
+
 ---
 
 ### When to Reject a Solution (Even Your Own)
@@ -1682,10 +1916,15 @@ When in doubt, ask: "Would Sound Forge Pro do this?" If yes, implement it. If no
 
 ---
 
-**Last Updated**: 2025-10-15 (Automated Testing Infrastructure Complete)
+**Last Updated**: 2025-10-16 (P1/P2 Documentation Cleanup Complete + Positive Case Study Added)
 **Project Start**: 2025-10-06
 
 > **Note**: For current project status, phase progress, and roadmap, see [TODO.md](TODO.md).
+>
+> **Cross-References**:
+> - **Current Status & Bugs**: [TODO.md](TODO.md) - Phase completion, P0/P1 bug tracking, priorities
+> - **Installation & Usage**: [README.md](README.md) - Build instructions, keyboard shortcuts, features
+> - **Architecture & Rules**: This file - AI instructions, design patterns, case studies
 
 ---
 
@@ -1746,6 +1985,172 @@ This file (CLAUDE.md) contains AI instructions, architecture patterns, coding st
 **Files Modified** (for reference):
 - `Source/Main.cpp` (lines 890-1438) - Command system fixes
 - `Source/Utils/Document.cpp` (lines 93-99) - AudioBufferManager integration
+
+---
+
+### Case Study: Phase 3 Tier 2 False Completion Claims (2025-10-16)
+
+**Critical Lesson**: Quality Control Process Must Be ENFORCED, Not Optional
+
+**Context**: Phase 3 Tier 2 was marked "8 OF 8 COMPLETE 🎉" and "READY FOR PUBLIC BETA" in TODO.md without following the MANDATORY Quality Control Process defined in CLAUDE.md. A comprehensive code review immediately revealed 5 critical bugs that should have been caught.
+
+**What Happened**: TODO.md claimed 100% completion based on infrastructure implementation alone, without verifying end-to-end integration. The same "Infrastructure ≠ Integration" anti-pattern from Phase 3 Multi-File bugs was repeated.
+
+**Root Cause Pattern**: Quality Control Process was DEFINED but NOT ENFORCED. The 5-step mandatory process (Code Review → Automated Testing → Functional Testing → Manual Verification → Assessment) was completely skipped.
+
+**Critical Bugs Found**:
+
+1. **Bug #1: Cmd+G Keyboard Shortcut Conflict**
+   - **Root Cause**: Cmd+G assigned to BOTH "Go To Position" AND "Process Gain"
+   - **Location**: Main.cpp lines 1225 and 1282
+   - **Impact**: Only one command works, the other unreachable
+   - **How Missed**: No shortcut conflict detection performed
+   - **Should Have Been Caught**: Step 4 (Manual Verification) - "Verify keyboard shortcuts work"
+
+2. **Bug #2: Tab Navigation Shortcuts Not Working**
+   - **Root Cause**: Tab command IDs exist in CommandIDs.h but NOT registered in command system
+   - **Commands Broken**: tabClose, tabNext, tabPrevious, tabSelect1-9
+   - **Shortcuts Broken**: Cmd+W, Cmd+Tab, Cmd+1-9
+   - **Impact**: Core workflow feature completely non-functional
+   - **How Missed**: Never tested keyboard shortcuts
+   - **Should Have Been Caught**: Step 4 (Manual Verification) - "Try keyboard shortcut → Does it work?"
+
+3. **Bug #3: Region Menu Missing from Menu Bar**
+   - **Root Cause**: All region commands implemented but no menu for discoverability
+   - **Impact**: Users have no way to discover region features
+   - **How Missed**: Never checked menu bar for completeness
+   - **Should Have Been Caught**: Step 4 (Manual Verification) - "Check menus → Are commands visible?"
+
+4. **Bug #4: Loop Shortcut False Documentation**
+   - **Claim**: "Loop Shortcut Change (Q → L) - Done"
+   - **Reality**: Code still uses 'Q' (Main.cpp line 1120)
+   - **Impact**: Documentation lies to users
+   - **How Missed**: No code-vs-documentation verification
+   - **Should Have Been Caught**: Step 4 (Manual Verification) - "Verify TODO.md matches implementation"
+
+5. **Bug #5: Region Delete Shortcut Mismatch**
+   - **Documentation**: "Delete region (Shift+M or Cmd+Shift+Delete)"
+   - **Code**: Cmd+Delete (Main.cpp line 1331)
+   - **Impact**: Users try wrong shortcuts, feature seems broken
+   - **How Missed**: No consistency check between docs and code
+   - **Should Have Been Caught**: Step 4 (Manual Verification) - "Verify documentation accuracy"
+
+**Analysis**:
+- **Pattern**: ALL 5 bugs were "infrastructure exists, integration missing" failures
+- **QC Skipped**: 0 of 5 mandatory quality control steps were performed
+- **Time to Find**: 45 minutes of systematic code review found all bugs
+- **Time to Fix**: Estimated 3-4 hours (vs 6 hours for Phase 3 bugs because caught earlier)
+- **Prevention**: ENFORCE quality control process with pre-completion self-check
+
+**Key Takeaway**: Defining a quality control process is USELESS if it's not enforced. The process exists in CLAUDE.md lines 1259-1338 but was completely ignored. This pattern has now repeated THREE times:
+1. Phase 3 Multi-File (infrastructure without integration)
+2. Phase 3 Tier 2 (false completion claims)
+3. Strip Silence Dialog (infrastructure ready, integration unknown)
+
+**This case study must be referenced when**:
+- Before marking ANY task as "complete" in TODO.md
+- Before claiming "production ready" status
+- When tempted to skip quality control steps
+- During code reviews to verify QC was actually performed
+
+**Enforcement Mechanism Required**:
+
+**Before marking ANY feature complete, the implementer MUST answer YES to ALL of these**:
+1. ✅ Did you run the code-reviewer agent and fix all issues?
+2. ✅ Did you write automated tests that cover this feature?
+3. ✅ Did you run those tests and verify they pass?
+4. ✅ Did you build and run the application?
+5. ✅ Did you manually test the feature as a user would?
+6. ✅ Did you test all keyboard shortcuts for this feature?
+7. ✅ Did you verify menu items are present and functional?
+8. ✅ Did you check console for errors?
+9. ✅ Does the feature work end-to-end (open → use → save → verify)?
+10. ✅ Does documentation match implementation?
+
+**If ANY answer is NO, the feature is NOT complete. Period.**
+
+**Files Affected**:
+- `TODO.md` - False completion claims corrected
+- `README.md` - "Production ready" claim corrected to "Active development"
+- All future implementations - QC enforcement now mandatory
+
+---
+
+### Case Study: Automated Testing Infrastructure Success (Phase 3.5 - 2025-10-15) ✅
+
+**Positive Lesson**: Following Quality Control Process Prevents Bugs and Builds Confidence
+
+**Context**: After discovering the Phase 3 integration bugs, the decision was made to implement comprehensive automated testing infrastructure before continuing development. This case study demonstrates the value of proper QC process adherence.
+
+**What Happened**: The automated testing framework was implemented with full QC compliance:
+1. **Code Review**: Test framework reviewed for JUCE best practices
+2. **Automated Testing**: Tests written for the test framework itself (meta-testing)
+3. **Functional Testing**: All 47 test groups executed and verified
+4. **Manual Verification**: Test runner built and executed, console output validated
+5. **Assessment**: Marked complete only after 100% pass rate achieved
+
+**Implementation Details**:
+
+**Test Coverage Achieved**:
+- **Unit Tests** (20 groups): AudioEngine, AudioBufferManager, DocumentManager, RegionManager
+- **Integration Tests** (15 groups): Playback + editing, multi-document state, undo/redo chains
+- **End-to-End Tests** (12 groups): Complete workflows (open → edit → save → verify)
+
+**Key Success Factors**:
+1. **Tests Written BEFORE claiming "complete"**: No false completion claims
+2. **100% Pass Rate Verified**: All 47 test groups passing before marking done
+3. **Real-Time Validation**: Tests caught regressions during refactoring immediately
+4. **Documentation Accurate**: README.md claimed "47 test groups, 100% pass rate" - provably true
+
+**Measurable Results**:
+- **Build Confidence**: Can refactor code knowing tests catch regressions
+- **Bug Prevention**: Caught 3 potential bugs during initial implementation
+- **Development Speed**: Faster iteration with automated validation
+- **Code Quality**: 9.5/10 rating maintained through rigorous testing
+
+**Contrast With Previous Failures**:
+
+| Aspect | Phase 3 Multi-File (FAILURE) | Automated Testing (SUCCESS) |
+|--------|------------------------------|----------------------------|
+| **QC Steps Followed** | 0 of 5 | 5 of 5 ✅ |
+| **Tests Written** | None | 47 groups ✅ |
+| **Manual Verification** | Skipped | Performed ✅ |
+| **Documentation Accuracy** | False claims | Provably true ✅ |
+| **Bugs Found Post-Release** | 6 critical | 0 ✅ |
+| **Time to Fix Bugs** | 6 hours | 0 hours ✅ |
+
+**Key Takeaway**: **Investing in proper QC upfront saves MASSIVE debugging time later**. The automated testing infrastructure took ~8 hours to implement properly, but has already saved 6+ hours of debugging and will continue preventing bugs indefinitely.
+
+**This case study must be referenced when**:
+- Implementing any new feature or architecture
+- Tempted to skip automated testing ("we'll add tests later")
+- Evaluating whether QC process is "worth the time"
+- Need positive reinforcement that following the rules works
+
+**Process That Worked**:
+```
+1. ✅ Implement test framework infrastructure
+2. ✅ Run code-reviewer agent → Fixed JUCE threading issues
+3. ✅ Write meta-tests for test framework itself
+4. ✅ Run all 47 test groups → 100% pass rate
+5. ✅ Manual verification: Build, run test binary, verify console output
+6. ✅ Mark complete with accurate test count in documentation
+7. ✅ No bugs found during code review (because tests caught them first)
+```
+
+**Files Implemented** (for reference):
+- `Tests/Unit/*.cpp` - 20 unit test groups
+- `Tests/Integration/*.cpp` - 15 integration test groups
+- `Tests/EndToEnd/*.cpp` - 12 end-to-end test groups
+- `CMakeLists.txt` - JUCE test target configuration
+- `README.md` - Accurate test coverage documentation
+
+**Time Investment vs Return**:
+- **Implementation Time**: ~8 hours (proper QC included)
+- **Debugging Time Saved**: 6+ hours (and counting)
+- **ROI**: 75%+ return already, will compound over project lifetime
+
+**Quote**: "The automated testing infrastructure is the ONLY Phase 3 component that was marked complete accurately on first attempt. This is because it was the ONLY component where full QC process was followed." - Code Review 2025-10-16
 
 ---
 

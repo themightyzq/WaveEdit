@@ -32,6 +32,7 @@ namespace CommandIDs
         fileClose       = 0x1004,
         fileProperties  = 0x1005,
         fileExit        = 0x1006,
+        filePreferences = 0x1007,  // Cmd+, - Preferences/Settings dialog
 
         // Edit Operations (0x2000 - 0x20FF)
         editUndo        = 0x2000,
@@ -41,6 +42,8 @@ namespace CommandIDs
         editPaste       = 0x2004,
         editDelete      = 0x2005,
         editSelectAll   = 0x2006,
+        editSilence     = 0x2007,  // Ctrl+L - Fill selection with silence
+        editTrim        = 0x2008,  // Ctrl+T - Delete everything OUTSIDE selection
 
         // Playback Operations (0x3000 - 0x30FF)
         playbackPlay    = 0x3000,
@@ -55,6 +58,9 @@ namespace CommandIDs
         viewZoomFit     = 0x4002,
         viewZoomSelection = 0x4003,
         viewZoomOneToOne  = 0x4004,
+        viewCycleTimeFormat = 0x4005,  // Phase 3.5 - Cycle through time formats
+        viewAutoScroll    = 0x4006,  // Phase 3 Tier 2 - Auto-scroll during playback (Cmd+Shift+F)
+        viewZoomToRegion  = 0x4007,  // Phase 3.3 - Zoom to fit selected region with margins
 
         // Processing Operations (0x5000 - 0x50FF)
         processFadeIn   = 0x5000,
@@ -75,6 +81,7 @@ namespace CommandIDs
         navigateHomeVisible  = 0x6008,  // Home (first visible sample)
         navigateEndVisible   = 0x6009,  // End (last visible sample)
         navigateCenterView   = 0x600A,  // Period (.) - center on cursor/selection
+        navigateGoToPosition = 0x600B,  // Cmd+G - Go To Position dialog
 
         // Selection Operations (0x7000 - 0x70FF)
         selectExtendLeft     = 0x7000,  // Shift+Left Arrow - extend selection left
@@ -85,7 +92,7 @@ namespace CommandIDs
         selectExtendPageRight= 0x7005,  // Shift+Page Down - extend selection right by page
 
         // Snap Operations (0x8000 - 0x80FF)
-        snapCycleMode        = 0x8000,  // G key - cycle through snap modes
+        snapCycleMode        = 0x8000,  // G key - toggle snap on/off (maintains last increment)
         snapToggleZeroCrossing = 0x8001, // Z key - quick toggle zero crossing
         snapPreferences      = 0x8002,  // Shift+G - open snap preferences
 
@@ -106,6 +113,17 @@ namespace CommandIDs
         tabSelect6      = 0xA009,  // Cmd+6 - Jump to tab 6
         tabSelect7      = 0xA00A,  // Cmd+7 - Jump to tab 7
         tabSelect8      = 0xA00B,  // Cmd+8 - Jump to tab 8
-        tabSelect9      = 0xA00C   // Cmd+9 - Jump to tab 9
+        tabSelect9      = 0xA00C,  // Cmd+9 - Jump to tab 9
+
+        // Region Operations (0xB000 - 0xB0FF) - Phase 3 Tier 2
+        regionAdd       = 0xB000,  // R - Create region from selection
+        regionDelete    = 0xB001,  // Cmd+Shift+Delete - Delete region under cursor
+        regionNext      = 0xB002,  // ] - Jump to and select next region
+        regionPrevious  = 0xB003,  // [ - Jump to and select previous region
+        regionSelectInverse = 0xB004,  // Cmd+Shift+I - Select everything NOT in regions
+        regionSelectAll = 0xB005,  // Cmd+Shift+A - Select union of all regions
+        regionStripSilence = 0xB006,  // Cmd+Shift+R - Auto-create regions from non-silent sections (Strip Silence)
+        regionExportAll = 0xB007,  // Cmd+Shift+E - Export each region as separate file (Batch Export)
+        regionShowList  = 0xB008   // Cmd+Shift+M - Show/hide Region List Panel
     };
 }

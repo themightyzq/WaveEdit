@@ -298,12 +298,139 @@ bool DocumentManager::pasteFromInterFileClipboard(Document* targetDoc, double po
     if (m_interFileClipboard.getNumSamples() == 0)
         return false;
 
-    // TODO: Implement actual paste operation on the document's buffer
-    // This will require access to the document's AudioBufferManager
-    // For now, just log the operation
+    // Get target document's buffer and sample rate
+    auto& bufferManager = targetDoc->getBufferManager();
+    double targetSampleRate = bufferManager.getSampleRate();
+
+    // Check if target document has a valid buffer initialized
+    const auto& targetBuffer = bufferManager.getBuffer();
+    if (targetBuffer.getNumSamples() == 0 || targetBuffer.getNumChannels() == 0)
+    {
+        juce::Logger::writeToLog("Cannot paste into uninitialized document (no buffer)");
+        return false;
+    }
+
+    // Convert position to sample position
+    int64_t insertSample = static_cast<int64_t>(position * targetSampleRate);
+
+    // Get target channel count for conversion if needed
+    int targetChannels = targetBuffer.getNumChannels();
+
+    // Prepare audio to paste (handle sample rate conversion if needed)
+    juce::AudioBuffer<float> audioToPaste;
+
+    if (std::abs(m_interFileClipboardSampleRate - targetSampleRate) < 0.01)
+    {
+        // Sample rates match - direct copy (channel conversion will happen later if needed)
+        audioToPaste.makeCopyOf(m_interFileClipboard);
+    }
+    else
+    {
+        // Sample rates differ - need conversion
+        double ratio = targetSampleRate / m_interFileClipboardSampleRate;
+        int newNumSamples = static_cast<int>(m_interFileClipboard.getNumSamples() * ratio);
+
+        audioToPaste.setSize(m_interFileClipboard.getNumChannels(), newNumSamples, false, false, false);
+
+        // Simple linear interpolation for sample rate conversion
+        for (int ch = 0; ch < m_interFileClipboard.getNumChannels(); ++ch)
+        {
+            const float* srcData = m_interFileClipboard.getReadPointer(ch);
+            float* dstData = audioToPaste.getWritePointer(ch);
+
+            for (int i = 0; i < newNumSamples; ++i)
+            {
+                double srcPos = i / ratio;
+                int srcIndex = static_cast<int>(srcPos);
+                float frac = static_cast<float>(srcPos - srcIndex);
+
+                if (srcIndex + 1 < m_interFileClipboard.getNumSamples())
+                {
+                    // Linear interpolation between samples
+                    dstData[i] = srcData[srcIndex] * (1.0f - frac) + srcData[srcIndex + 1] * frac;
+                }
+                else if (srcIndex < m_interFileClipboard.getNumSamples())
+                {
+                    // Last sample - no interpolation
+                    dstData[i] = srcData[srcIndex];
+                }
+                else
+                {
+                    // Beyond source - fill with zero
+                    dstData[i] = 0.0f;
+                }
+            }
+        }
+    }
+
+    // Handle channel conversion if needed
+    if (audioToPaste.getNumChannels() != targetChannels)
+    {
+        juce::AudioBuffer<float> convertedBuffer(targetChannels, audioToPaste.getNumSamples());
+
+        if (audioToPaste.getNumChannels() == 1 && targetChannels == 2)
+        {
+            // Mono to stereo: duplicate mono channel to both stereo channels
+            for (int i = 0; i < audioToPaste.getNumSamples(); ++i)
+            {
+                float sample = audioToPaste.getSample(0, i);
+                convertedBuffer.setSample(0, i, sample);
+                convertedBuffer.setSample(1, i, sample);
+            }
+        }
+        else if (audioToPaste.getNumChannels() == 2 && targetChannels == 1)
+        {
+            // Stereo to mono: average both channels
+            for (int i = 0; i < audioToPaste.getNumSamples(); ++i)
+            {
+                float left = audioToPaste.getSample(0, i);
+                float right = audioToPaste.getSample(1, i);
+                convertedBuffer.setSample(0, i, (left + right) * 0.5f);
+            }
+        }
+        else
+        {
+            // General case: copy what we can, pad with zeros if needed
+            for (int ch = 0; ch < targetChannels; ++ch)
+            {
+                if (ch < audioToPaste.getNumChannels())
+                {
+                    // Copy from source
+                    convertedBuffer.copyFrom(ch, 0, audioToPaste, ch, 0, audioToPaste.getNumSamples());
+                }
+                else
+                {
+                    // Pad with zeros
+                    convertedBuffer.clear(ch, 0, audioToPaste.getNumSamples());
+                }
+            }
+        }
+
+        // Replace audioToPaste with converted buffer
+        audioToPaste = std::move(convertedBuffer);
+    }
+
+    // Insert the audio into the target document's buffer
+    if (!bufferManager.insertAudio(insertSample, audioToPaste))
+    {
+        juce::Logger::writeToLog("Failed to insert audio from inter-file clipboard");
+        return false;
+    }
+
+    // Mark document as modified
+    targetDoc->setModified(true);
+
+    // Reload the audio engine buffer to reflect the changes
+    auto& audioEngine = targetDoc->getAudioEngine();
+    const auto& updatedBuffer = bufferManager.getBuffer();
+    audioEngine.loadFromBuffer(updatedBuffer, targetSampleRate, updatedBuffer.getNumChannels());
 
     juce::Logger::writeToLog(juce::String::formatted(
-        "Pasting from inter-file clipboard at position %.2f seconds", position));
+        "Pasted %.2f seconds of audio at position %.2f seconds (sample rate conversion: %.0f Hz → %.0f Hz)",
+        m_interFileClipboard.getNumSamples() / m_interFileClipboardSampleRate,
+        position,
+        m_interFileClipboardSampleRate,
+        targetSampleRate));
 
     return true;
 }
