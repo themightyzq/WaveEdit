@@ -3,7 +3,7 @@
 
     Settings.h
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -123,12 +123,44 @@ public:
      */
     void setSetting(const juce::String& key, const juce::var& value);
 
+    //==============================================================================
+    // Region Settings (Phase 3.3)
+
+    /**
+     * Gets whether region boundaries should snap to zero-crossings.
+     *
+     * @return true if enabled, false otherwise (default: false)
+     */
+    bool getSnapRegionsToZeroCrossings() const;
+
+    /**
+     * Sets whether region boundaries should snap to zero-crossings.
+     *
+     * @param enabled true to enable snap, false to disable
+     */
+    void setSnapRegionsToZeroCrossings(bool enabled);
+
+    /**
+     * Gets whether regions should auto-play when selected.
+     *
+     * @return true if enabled, false otherwise (default: false)
+     */
+    bool getAutoPreviewRegions() const;
+
+    /**
+     * Sets whether regions should auto-play when selected.
+     *
+     * @param enabled true to enable auto-preview, false to disable
+     */
+    void setAutoPreviewRegions(bool enabled);
+
 private:
     //==============================================================================
     // Private Members
 
     juce::ValueTree m_settingsTree;
     juce::File m_settingsFile;
+    mutable juce::CriticalSection m_settingsLock;  // Thread-safe access to settings
 
     static constexpr int MAX_RECENT_FILES = 10;
 

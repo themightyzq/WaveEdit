@@ -59,6 +59,8 @@ target_sources(WaveEdit
         Source/UI/FilePropertiesDialog.h
         Source/UI/GoToPositionDialog.cpp
         Source/UI/GoToPositionDialog.h
+        Source/UI/EditRegionBoundariesDialog.cpp
+        Source/UI/EditRegionBoundariesDialog.h
         Source/UI/StripSilenceDialog.cpp
         Source/UI/StripSilenceDialog.h
         Source/UI/BatchExportDialog.cpp
@@ -201,6 +203,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/FilePropertiesDialog.h
         Source/UI/GoToPositionDialog.cpp
         Source/UI/GoToPositionDialog.h
+        Source/UI/EditRegionBoundariesDialog.cpp
+        Source/UI/EditRegionBoundariesDialog.h
         Source/UI/StripSilenceDialog.cpp
         Source/UI/StripSilenceDialog.h
         Source/Utils/Document.cpp
@@ -291,6 +295,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/Phase35FeaturesTests.cpp                 # Week 4 ✅ (Phase 3.5: Time Format, Auto-Save)
             Tests/Integration/EditingToolsTests.cpp             # Week 4 ✅ (Silence, Trim, DC Offset)
             Tests/Unit/GoToPositionDialogTests.cpp              # Week 4 ✅ (Go To Position parsing)
+            Tests/Integration/RegionListBatchRenameTests.cpp    # Week 4 ✅ (Batch Rename regions)
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6

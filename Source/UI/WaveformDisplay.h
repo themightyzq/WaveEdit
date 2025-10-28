@@ -338,6 +338,15 @@ public:
     double getSnapIncrementInSeconds() const;
 
     /**
+     * Gets the current snap increment converted to samples.
+     * Used for region boundary nudging and sample-accurate operations.
+     * Returns default increment (441 samples = 10ms @ 44.1kHz) if snap is off.
+     *
+     * @return Snap increment in samples
+     */
+    int64_t getSnapIncrementInSamples() const;
+
+    /**
      * Toggles zero-crossing snap on/off (independent Z key toggle).
      */
     void toggleZeroCrossing();

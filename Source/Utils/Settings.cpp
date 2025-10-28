@@ -3,7 +3,7 @@
 
     Settings.cpp
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -309,6 +309,8 @@ int Settings::cleanupRecentFiles()
 
 juce::var Settings::getSetting(const juce::String& key, const juce::var& defaultValue) const
 {
+    juce::ScopedLock lock(m_settingsLock);  // Thread-safe access
+
     auto tree = const_cast<Settings*>(this)->getTreeByPath(key, false);
 
     if (!tree.isValid())
@@ -321,6 +323,8 @@ juce::var Settings::getSetting(const juce::String& key, const juce::var& default
 
 void Settings::setSetting(const juce::String& key, const juce::var& value)
 {
+    juce::ScopedLock lock(m_settingsLock);  // Thread-safe access
+
     auto tree = getTreeByPath(key, true);
 
     if (tree.isValid())
@@ -328,6 +332,33 @@ void Settings::setSetting(const juce::String& key, const juce::var& value)
         tree.setProperty("value", value, nullptr);
         save();
     }
+}
+
+//==============================================================================
+// Region Settings (Phase 3.3)
+
+bool Settings::getSnapRegionsToZeroCrossings() const
+{
+    // Default: false (snap disabled by default)
+    return getSetting("region.snapToZeroCrossings", false);
+}
+
+void Settings::setSnapRegionsToZeroCrossings(bool enabled)
+{
+    setSetting("region.snapToZeroCrossings", enabled);
+    juce::Logger::writeToLog("Region zero-crossing snap: " + juce::String(enabled ? "enabled" : "disabled"));
+}
+
+bool Settings::getAutoPreviewRegions() const
+{
+    // Default: false (auto-preview disabled by default)
+    return getSetting("region.autoPreview", false);
+}
+
+void Settings::setAutoPreviewRegions(bool enabled)
+{
+    setSetting("region.autoPreview", enabled);
+    juce::Logger::writeToLog("Region auto-preview: " + juce::String(enabled ? "enabled" : "disabled"));
 }
 
 //==============================================================================

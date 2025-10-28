@@ -126,6 +126,7 @@ bool Document::loadFile(const juce::File& file)
     m_regionDisplay.setSampleRate(m_audioEngine.getSampleRate());
     m_regionDisplay.setTotalDuration(m_bufferManager.getLengthInSeconds());
     m_regionDisplay.setVisibleRange(0.0, m_bufferManager.getLengthInSeconds());
+    m_regionDisplay.setAudioBuffer(&m_bufferManager.getBuffer());  // Phase 3.3 - For zero-crossing snap
 
     // Load regions from sidecar JSON file (if exists)
     m_regionManager.loadFromFile(file);

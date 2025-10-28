@@ -49,6 +49,7 @@ void RegionListPanel::NameEditor::focusLost(FocusChangeType cause)
 RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate)
     : m_regionManager(regionManager)
     , m_sampleRate(sampleRate)
+    , m_renameTabs(*this, juce::TabbedButtonBar::TabsAtTop)
 {
     // Set up search box
     m_searchLabel.setText("Search:", juce::dontSendNotification);
@@ -67,6 +68,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_table.setColour(juce::ListBox::outlineColourId, juce::Colour(0xff3a3a3a));
     m_table.setOutlineThickness(1);
     m_table.setRowHeight(m_rowHeight);
+    m_table.setMultipleSelectionEnabled(true);  // Enable multi-selection for batch operations
     m_table.setModel(this);
 
     // Configure table columns
@@ -77,12 +79,244 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     header.addColumn("Start", StartColumn, 120, 80, 200);
     header.addColumn("End", EndColumn, 120, 80, 200);
     header.addColumn("Duration", DurationColumn, 120, 80, 200);
+    header.addColumn("New Name", NewNameColumn, 200, 100, 400,
+                    juce::TableHeaderComponent::notSortable | juce::TableHeaderComponent::visible);
+    header.setColumnVisible(NewNameColumn, false);  // Initially hidden, shown when batch rename is active
 
     header.setColour(juce::TableHeaderComponent::textColourId, m_textColour);
     header.setColour(juce::TableHeaderComponent::backgroundColourId, juce::Colour(0xff2a2a2a));
     header.setColour(juce::TableHeaderComponent::highlightColourId, juce::Colour(0xff3a3a3a));
 
     addAndMakeVisible(m_table);
+
+    // Set up batch rename UI
+    m_batchRenameToggleButton.setButtonText("Batch Rename");
+    m_batchRenameToggleButton.onClick = [this]()
+    {
+        expandBatchRenameSection(!m_batchRenameSectionExpanded);
+    };
+    addAndMakeVisible(m_batchRenameToggleButton);
+
+    // Configure batch rename section
+    m_batchRenameSection.setVisible(false);  // Initially collapsed
+
+    // Set up Pattern mode UI
+    m_patternLabel.setText("Pattern:", juce::dontSendNotification);
+    m_patternLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_batchRenameSection.addAndMakeVisible(m_patternLabel);
+
+    m_patternComboBox.addItem("Region {n}", 1);
+    m_patternComboBox.addItem("Region {N}", 2);
+    m_patternComboBox.addItem("{original} {n}", 3);
+    m_patternComboBox.addItem("Custom...", 4);
+    m_patternComboBox.setSelectedId(1);
+    m_patternComboBox.onChange = [this]()
+    {
+        if (m_patternComboBox.getSelectedId() == 4)
+        {
+            m_customPatternEditor.setVisible(true);
+            m_patternHelpLabel.setVisible(true);
+        }
+        else
+        {
+            m_customPatternEditor.setVisible(false);
+            m_patternHelpLabel.setVisible(false);
+            m_customPattern = m_patternComboBox.getText();
+        }
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_patternComboBox);
+
+    m_startNumberLabel.setText("Start:", juce::dontSendNotification);
+    m_startNumberLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_batchRenameSection.addAndMakeVisible(m_startNumberLabel);
+
+    m_decrementButton.setButtonText("-");
+    m_decrementButton.onClick = [this]()
+    {
+        if (m_startNumber > 0)
+        {
+            m_startNumber--;
+            m_startNumberValue.setText(juce::String(m_startNumber), juce::dontSendNotification);
+            updateBatchRenamePreview();
+        }
+    };
+    m_batchRenameSection.addAndMakeVisible(m_decrementButton);
+
+    m_incrementButton.setButtonText("+");
+    m_incrementButton.onClick = [this]()
+    {
+        m_startNumber++;
+        m_startNumberValue.setText(juce::String(m_startNumber), juce::dontSendNotification);
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_incrementButton);
+
+    m_startNumberValue.setText("1", juce::dontSendNotification);
+    m_startNumberValue.setColour(juce::Label::textColourId, m_textColour);
+    m_startNumberValue.setJustificationType(juce::Justification::centred);
+    m_batchRenameSection.addAndMakeVisible(m_startNumberValue);
+
+    m_customPatternEditor.setMultiLine(false);
+    m_customPatternEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
+    m_customPatternEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_customPatternEditor.onTextChange = [this]()
+    {
+        m_customPattern = m_customPatternEditor.getText();
+        updateBatchRenamePreview();
+    };
+    m_customPatternEditor.setVisible(false);
+    m_batchRenameSection.addAndMakeVisible(m_customPatternEditor);
+
+    m_patternHelpLabel.setText("Use {n} for numbers, {N} for zero-padded, {original} for original name",
+                               juce::dontSendNotification);
+    m_patternHelpLabel.setColour(juce::Label::textColourId, juce::Colour(0xff888888));
+    m_patternHelpLabel.setFont(juce::Font(11.0f));
+    m_patternHelpLabel.setVisible(false);
+    m_batchRenameSection.addAndMakeVisible(m_patternHelpLabel);
+
+    // Set up Find/Replace mode UI
+    m_findLabel.setText("Find:", juce::dontSendNotification);
+    m_findLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_batchRenameSection.addAndMakeVisible(m_findLabel);
+
+    m_findEditor.setMultiLine(false);
+    m_findEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
+    m_findEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_findEditor.onTextChange = [this]()
+    {
+        m_findText = m_findEditor.getText();
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_findEditor);
+
+    m_replaceLabel.setText("Replace:", juce::dontSendNotification);
+    m_replaceLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_batchRenameSection.addAndMakeVisible(m_replaceLabel);
+
+    m_replaceEditor.setMultiLine(false);
+    m_replaceEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
+    m_replaceEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_replaceEditor.onTextChange = [this]()
+    {
+        m_replaceText = m_replaceEditor.getText();
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_replaceEditor);
+
+    m_caseSensitiveToggle.setButtonText("Case Sensitive");
+    m_caseSensitiveToggle.setColour(juce::ToggleButton::textColourId, m_textColour);
+    m_caseSensitiveToggle.onClick = [this]()
+    {
+        m_caseSensitive = m_caseSensitiveToggle.getToggleState();
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_caseSensitiveToggle);
+
+    m_replaceAllToggle.setButtonText("Replace All Occurrences");
+    m_replaceAllToggle.setColour(juce::ToggleButton::textColourId, m_textColour);
+    m_replaceAllToggle.setToggleState(true, juce::dontSendNotification);
+    m_replaceAllToggle.onClick = [this]()
+    {
+        m_replaceAll = m_replaceAllToggle.getToggleState();
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_replaceAllToggle);
+
+    // Set up Prefix/Suffix mode UI
+    m_prefixLabel.setText("Prefix:", juce::dontSendNotification);
+    m_prefixLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_batchRenameSection.addAndMakeVisible(m_prefixLabel);
+
+    m_prefixEditor.setMultiLine(false);
+    m_prefixEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
+    m_prefixEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_prefixEditor.onTextChange = [this]()
+    {
+        m_prefixText = m_prefixEditor.getText();
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_prefixEditor);
+
+    m_suffixLabel.setText("Suffix:", juce::dontSendNotification);
+    m_suffixLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_batchRenameSection.addAndMakeVisible(m_suffixLabel);
+
+    m_suffixEditor.setMultiLine(false);
+    m_suffixEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
+    m_suffixEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_suffixEditor.onTextChange = [this]()
+    {
+        m_suffixText = m_suffixEditor.getText();
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_suffixEditor);
+
+    m_addNumberingToggle.setButtonText("Add Sequential Numbering");
+    m_addNumberingToggle.setColour(juce::ToggleButton::textColourId, m_textColour);
+    m_addNumberingToggle.onClick = [this]()
+    {
+        m_addNumbering = m_addNumberingToggle.getToggleState();
+        updateBatchRenamePreview();
+    };
+    m_batchRenameSection.addAndMakeVisible(m_addNumberingToggle);
+
+    // OLD PREVIEW (no longer used - preview now shown in "New Name" column)
+    // m_previewLabel.setText("Preview:", juce::dontSendNotification);
+    // m_previewLabel.setColour(juce::Label::textColourId, m_textColour);
+    // m_batchRenameSection.addAndMakeVisible(m_previewLabel);
+
+    // m_previewList.setMultiLine(true);
+    // m_previewList.setReadOnly(true);
+    // m_previewList.setScrollbarsShown(true);
+    // m_previewList.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff1a1a1a));
+    // m_previewList.setColour(juce::TextEditor::textColourId, m_textColour);
+    // m_previewList.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
+    // m_batchRenameSection.addAndMakeVisible(m_previewList);
+
+    // Set up action buttons
+
+    m_applyButton.setButtonText("Apply");
+    m_applyButton.onClick = [this]() { applyBatchRename(); };
+    m_batchRenameSection.addAndMakeVisible(m_applyButton);
+
+    m_cancelButton.setButtonText("Cancel");
+    m_cancelButton.onClick = [this]() { cancelBatchRename(); };
+    m_batchRenameSection.addAndMakeVisible(m_cancelButton);
+
+    // Set up tabbed component with three mode tabs
+    auto* patternTab = new juce::Component();
+    patternTab->addAndMakeVisible(m_patternLabel);
+    patternTab->addAndMakeVisible(m_patternComboBox);
+    patternTab->addAndMakeVisible(m_startNumberLabel);
+    patternTab->addAndMakeVisible(m_decrementButton);
+    patternTab->addAndMakeVisible(m_incrementButton);
+    patternTab->addAndMakeVisible(m_startNumberValue);
+    patternTab->addAndMakeVisible(m_customPatternEditor);
+    patternTab->addAndMakeVisible(m_patternHelpLabel);
+
+    auto* findReplaceTab = new juce::Component();
+    findReplaceTab->addAndMakeVisible(m_findLabel);
+    findReplaceTab->addAndMakeVisible(m_findEditor);
+    findReplaceTab->addAndMakeVisible(m_replaceLabel);
+    findReplaceTab->addAndMakeVisible(m_replaceEditor);
+    findReplaceTab->addAndMakeVisible(m_caseSensitiveToggle);
+    findReplaceTab->addAndMakeVisible(m_replaceAllToggle);
+
+    auto* prefixSuffixTab = new juce::Component();
+    prefixSuffixTab->addAndMakeVisible(m_prefixLabel);
+    prefixSuffixTab->addAndMakeVisible(m_prefixEditor);
+    prefixSuffixTab->addAndMakeVisible(m_suffixLabel);
+    prefixSuffixTab->addAndMakeVisible(m_suffixEditor);
+    prefixSuffixTab->addAndMakeVisible(m_addNumberingToggle);
+
+    m_renameTabs.addTab("Pattern", juce::Colour(0xff2a2a2a), patternTab, true);
+    m_renameTabs.addTab("Find/Replace", juce::Colour(0xff2a2a2a), findReplaceTab, true);
+    m_renameTabs.addTab("Prefix/Suffix", juce::Colour(0xff2a2a2a), prefixSuffixTab, true);
+    m_renameTabs.setCurrentTabIndex(0);
+    m_batchRenameSection.addAndMakeVisible(m_renameTabs);
+
+    addChildComponent(m_batchRenameSection);  // addChildComponent = not visible by default
 
     // Initialize filtered regions
     updateFilteredRegions();
@@ -108,6 +342,11 @@ void RegionListPanel::setListener(Listener* listener)
     m_listener = listener;
 }
 
+void RegionListPanel::setCommandManager(juce::ApplicationCommandManager* commandManager)
+{
+    m_commandManager = commandManager;
+}
+
 void RegionListPanel::setSampleRate(double sampleRate)
 {
     m_sampleRate = sampleRate;
@@ -119,6 +358,7 @@ void RegionListPanel::refresh()
 {
     updateFilteredRegions();
     m_table.updateContent();
+    m_table.repaint();  // Force immediate visual update
 }
 
 void RegionListPanel::selectRegion(int regionIndex)
@@ -135,15 +375,57 @@ void RegionListPanel::selectRegion(int regionIndex)
     }
 }
 
+std::vector<int> RegionListPanel::getSelectedRegionIndices() const
+{
+    std::vector<int> indices;
+
+    // Get all selected rows from the table
+    const auto selectedRows = m_table.getSelectedRows();
+
+    // Convert filtered row indices to original region indices
+    for (int i = 0; i < selectedRows.size(); ++i)
+    {
+        int row = selectedRows[i];
+        if (row >= 0 && row < m_filteredRegions.size())
+        {
+            indices.push_back(m_filteredRegions[row].originalIndex);
+        }
+    }
+
+    return indices;
+}
+
 juce::DocumentWindow* RegionListPanel::showInWindow(bool modal)
 {
-    // Custom window class that properly handles the close button
-    class RegionListWindow : public juce::DocumentWindow
+    // Custom window class that properly handles the close button and global keyboard shortcuts
+    // Uses JUCE's ApplicationCommandTarget chain for proper command routing
+    class RegionListWindow : public juce::DocumentWindow,
+                             public juce::ApplicationCommandTarget
     {
     public:
-        RegionListWindow(const juce::String& name, juce::Colour backgroundColour, int requiredButtons)
+        RegionListWindow(const juce::String& name, juce::Colour backgroundColour, int requiredButtons,
+                        juce::ApplicationCommandManager* cmdManager)
             : DocumentWindow(name, backgroundColour, requiredButtons)
+            , m_commandManager(cmdManager)
+            , m_mainCommandTarget(nullptr)
         {
+            // CRITICAL: Add KeyListener to enable keyboard shortcuts in this window
+            // This connects keyboard events → KeyPressMappingSet → Commands
+            if (m_commandManager != nullptr)
+            {
+                addKeyListener(m_commandManager->getKeyMappings());
+
+                // Store the main command target for command chain routing
+                // Use a dummy command ID to get the first target (MainComponent)
+                m_mainCommandTarget = m_commandManager->getFirstCommandTarget(0);
+            }
+        }
+
+        ~RegionListWindow() override
+        {
+            // Clean up the key listener on destruction
+            if (m_commandManager != nullptr)
+                removeKeyListener(m_commandManager->getKeyMappings());
         }
 
         void closeButtonPressed() override
@@ -151,16 +433,54 @@ juce::DocumentWindow* RegionListPanel::showInWindow(bool modal)
             // Hide the window instead of deleting it (can be reopened)
             setVisible(false);
         }
+
+        //==============================================================================
+        // ApplicationCommandTarget overrides - forward all commands to MainComponent
+
+        juce::ApplicationCommandTarget* getNextCommandTarget() override
+        {
+            // CRITICAL: Chain to MainComponent so it can handle all commands
+            // When JUCE can't find a handler in this window, it follows this chain
+            // Return the stored main target (captured in constructor)
+            return m_mainCommandTarget;
+        }
+
+        void getAllCommands(juce::Array<juce::CommandID>& commands) override
+        {
+            // We don't define our own commands - they're all in MainComponent
+            (void)commands;
+        }
+
+        void getCommandInfo(juce::CommandID /*commandID*/, juce::ApplicationCommandInfo& /*result*/) override
+        {
+            // We don't define command info - MainComponent does
+        }
+
+        bool perform(const InvocationInfo& /*info*/) override
+        {
+            // We don't handle any commands ourselves
+            // Return false so JUCE calls getNextCommandTarget() and tries MainComponent
+            return false;
+        }
+
+    private:
+        juce::ApplicationCommandManager* m_commandManager;
+        juce::ApplicationCommandTarget* m_mainCommandTarget;  // Main command target for routing
     };
 
     auto* window = new RegionListWindow("Region List",
                                         juce::Colour(0xff2a2a2a),
-                                        juce::DocumentWindow::allButtons);
+                                        juce::DocumentWindow::allButtons,
+                                        m_commandManager);
 
     window->setContentOwned(this, true);
     window->setResizable(true, true);
-    window->setResizeLimits(600, 400, 1200, 800);
-    window->centreWithSize(800, 600);
+    window->setResizeLimits(700, 700, 1400, 1000);  // Increased minimums to accommodate batch rename section
+    window->centreWithSize(900, 800);  // Larger default size for better visibility
+
+    // Note: We DON'T call setFirstCommandTarget() here!
+    // JUCE automatically routes commands based on which window has focus.
+    // Calling setFirstCommandTarget() would break main window shortcuts.
 
     if (modal)
     {
@@ -188,14 +508,137 @@ void RegionListPanel::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Search bar at top
-    auto searchBounds = bounds.removeFromTop(40).reduced(8);
-    m_searchLabel.setBounds(searchBounds.removeFromLeft(60));
-    searchBounds.removeFromLeft(4);
-    m_searchBox.setBounds(searchBounds);
+    // Top toolbar: Search bar + Batch Rename button
+    auto toolbarBounds = bounds.removeFromTop(40).reduced(8);
+    m_batchRenameToggleButton.setBounds(toolbarBounds.removeFromRight(120));
+    toolbarBounds.removeFromRight(8);  // Spacing
+
+    m_searchLabel.setBounds(toolbarBounds.removeFromLeft(60));
+    toolbarBounds.removeFromLeft(4);
+    m_searchBox.setBounds(toolbarBounds);
+
+    bounds.removeFromTop(4);  // Spacing after toolbar
+
+    // Batch rename section (if expanded)
+    if (m_batchRenameSectionExpanded && m_batchRenameSection.isVisible())
+    {
+        auto batchRenameBounds = bounds.removeFromTop(280);  // Height for tabs + buttons (preview now in table column)
+        m_batchRenameSection.setBounds(batchRenameBounds);
+
+        // Layout batch rename section components
+        auto sectionBounds = batchRenameBounds.reduced(8);
+
+        // Tabs at top (takes ~200px - reduced to give more space to preview)
+        auto tabsBounds = sectionBounds.removeFromTop(200);
+        m_renameTabs.setBounds(tabsBounds);
+
+        // Layout tab contents
+        auto* patternTab = m_renameTabs.getTabContentComponent(0);
+        if (patternTab)
+        {
+            auto patternBounds = patternTab->getLocalBounds().reduced(8);
+
+            // Pattern combo box row
+            auto comboRow = patternBounds.removeFromTop(28);
+            m_patternLabel.setBounds(comboRow.removeFromLeft(60));
+            comboRow.removeFromLeft(4);
+            m_patternComboBox.setBounds(comboRow.removeFromLeft(200));
+
+            patternBounds.removeFromTop(8);  // Spacing
+
+            // Start number controls row
+            auto numberRow = patternBounds.removeFromTop(28);
+            m_startNumberLabel.setBounds(numberRow.removeFromLeft(60));
+            numberRow.removeFromLeft(4);
+            m_decrementButton.setBounds(numberRow.removeFromLeft(30));
+            numberRow.removeFromLeft(4);
+            m_startNumberValue.setBounds(numberRow.removeFromLeft(60));
+            numberRow.removeFromLeft(4);
+            m_incrementButton.setBounds(numberRow.removeFromLeft(30));
+
+            patternBounds.removeFromTop(8);  // Spacing
+
+            // Custom pattern editor (if visible)
+            if (m_customPatternEditor.isVisible())
+            {
+                m_customPatternEditor.setBounds(patternBounds.removeFromTop(28));
+                patternBounds.removeFromTop(4);
+                m_patternHelpLabel.setBounds(patternBounds.removeFromTop(20));
+            }
+        }
+
+        auto* findReplaceTab = m_renameTabs.getTabContentComponent(1);
+        if (findReplaceTab)
+        {
+            auto findReplaceBounds = findReplaceTab->getLocalBounds().reduced(8);
+
+            // Find row
+            auto findRow = findReplaceBounds.removeFromTop(28);
+            m_findLabel.setBounds(findRow.removeFromLeft(60));
+            findRow.removeFromLeft(4);
+            m_findEditor.setBounds(findRow);
+
+            findReplaceBounds.removeFromTop(8);  // Spacing
+
+            // Replace row
+            auto replaceRow = findReplaceBounds.removeFromTop(28);
+            m_replaceLabel.setBounds(replaceRow.removeFromLeft(60));
+            replaceRow.removeFromLeft(4);
+            m_replaceEditor.setBounds(replaceRow);
+
+            findReplaceBounds.removeFromTop(8);  // Spacing
+
+            // Toggles
+            m_caseSensitiveToggle.setBounds(findReplaceBounds.removeFromTop(24));
+            findReplaceBounds.removeFromTop(4);
+            m_replaceAllToggle.setBounds(findReplaceBounds.removeFromTop(24));
+        }
+
+        auto* prefixSuffixTab = m_renameTabs.getTabContentComponent(2);
+        if (prefixSuffixTab)
+        {
+            auto prefixSuffixBounds = prefixSuffixTab->getLocalBounds().reduced(8);
+
+            // Prefix row
+            auto prefixRow = prefixSuffixBounds.removeFromTop(28);
+            m_prefixLabel.setBounds(prefixRow.removeFromLeft(60));
+            prefixRow.removeFromLeft(4);
+            m_prefixEditor.setBounds(prefixRow);
+
+            prefixSuffixBounds.removeFromTop(8);  // Spacing
+
+            // Suffix row
+            auto suffixRow = prefixSuffixBounds.removeFromTop(28);
+            m_suffixLabel.setBounds(suffixRow.removeFromLeft(60));
+            suffixRow.removeFromLeft(4);
+            m_suffixEditor.setBounds(suffixRow);
+
+            prefixSuffixBounds.removeFromTop(8);  // Spacing
+
+            // Add numbering toggle
+            m_addNumberingToggle.setBounds(prefixSuffixBounds.removeFromTop(24));
+        }
+
+        sectionBounds.removeFromTop(8);  // Spacing after tabs
+
+        // OLD PREVIEW (no longer used - preview now shown in "New Name" column)
+        // m_previewLabel.setBounds(sectionBounds.removeFromTop(20));
+        // sectionBounds.removeFromTop(4);
+        // m_previewList.setBounds(sectionBounds);
+
+        // Apply/Cancel buttons at bottom
+        auto buttonHeight = 32;
+        auto buttonRow = sectionBounds.removeFromTop(buttonHeight);
+
+        // Layout buttons
+        m_cancelButton.setBounds(buttonRow.removeFromRight(80));
+        buttonRow.removeFromRight(8);
+        m_applyButton.setBounds(buttonRow.removeFromRight(80));
+
+        bounds.removeFromTop(8);  // Spacing after batch rename section
+    }
 
     // Table fills remaining space
-    bounds.removeFromTop(4);
     m_table.setBounds(bounds.reduced(8));
 }
 
@@ -297,6 +740,16 @@ void RegionListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
             g.drawText(filteredRegion.formattedDuration, 4, 0, width - 8, height,
                       juce::Justification::centredLeft, true);
             break;
+
+        case NewNameColumn:
+        {
+            // Show the preview of the new name after all batch operations are applied
+            juce::String newName = generateNewName(filteredRegion.originalIndex, *region);
+            g.setColour(juce::Colours::lightgreen);  // Distinguish preview text
+            g.drawText(newName, 4, 0, width - 8, height,
+                      juce::Justification::centredLeft, true);
+            break;
+        }
     }
 }
 
@@ -388,6 +841,32 @@ void RegionListPanel::returnKeyPressed(int lastRowSelected)
     jumpToSelectedRegion();
 }
 
+void RegionListPanel::backgroundClicked(const juce::MouseEvent& event)
+{
+    // Show context menu on right-click when multiple regions are selected
+    if (event.mods.isRightButtonDown())
+    {
+        const int numSelected = m_table.getNumSelectedRows();
+
+        if (numSelected >= 2)
+        {
+            juce::PopupMenu menu;
+            menu.addItem(1, juce::String::formatted("Batch Rename... (%d regions)", numSelected));
+
+            menu.showMenuAsync(juce::PopupMenu::Options(),
+                [this](int result)
+                {
+                    if (result == 1 && m_listener)
+                    {
+                        // Get selected region indices
+                        auto selectedIndices = getSelectedRegionIndices();
+                        m_listener->regionListPanelBatchRename(selectedIndices);
+                    }
+                });
+        }
+    }
+}
+
 //==============================================================================
 // TextEditor::Listener overrides
 //==============================================================================
@@ -453,6 +932,25 @@ void RegionListPanel::timerCallback()
             m_lastKnownRegionCount = currentRegionCount;
         }
     }
+}
+
+//==============================================================================
+// Tab change callback
+//==============================================================================
+
+void RegionListPanel::onTabChanged(int newTabIndex)
+{
+    // Update current rename mode based on selected tab
+    switch (newTabIndex)
+    {
+        case 0: m_currentRenameMode = RenameMode::Pattern; break;
+        case 1: m_currentRenameMode = RenameMode::FindReplace; break;
+        case 2: m_currentRenameMode = RenameMode::PrefixSuffix; break;
+        default: m_currentRenameMode = RenameMode::Pattern; break;
+    }
+
+    // Update preview to reflect the new mode
+    updateBatchRenamePreview();
 }
 
 //==============================================================================
@@ -674,4 +1172,220 @@ void RegionListPanel::finishEditingName(bool applyChanges)
 juce::String RegionListPanel::formatTimeForDisplay(double timeInSeconds) const
 {
     return AudioUnits::formatTime(timeInSeconds, m_sampleRate, m_timeFormat);
+}
+
+void RegionListPanel::expandBatchRenameSection(bool expand)
+{
+    m_batchRenameSectionExpanded = expand;
+    m_batchRenameSection.setVisible(expand);
+
+    // Show/hide the "New Name" preview column
+    m_table.getHeader().setColumnVisible(NewNameColumn, expand);
+
+    // Update button text to show current state
+    m_batchRenameToggleButton.setButtonText(expand ? "Hide Batch Rename" : "Batch Rename");
+
+    // Trigger relayout
+    resized();
+
+    // If expanding, update preview to show current selection
+    if (expand)
+    {
+        updateBatchRenamePreview();
+    }
+}
+
+//==============================================================================
+// Batch rename helper methods (stubs for now - will be implemented in Phase 2.4-2.8)
+//==============================================================================
+
+void RegionListPanel::updateBatchRenameMode()
+{
+    // TODO: Phase 2.4-2.6 - Update UI based on current rename mode
+}
+
+void RegionListPanel::updateBatchRenamePreview()
+{
+    // Trigger table repaint to update the "New Name" column preview
+    // The preview is now shown directly in the table's NewNameColumn
+    m_table.repaint();
+}
+
+juce::String RegionListPanel::generateNewName(int index, const Region& region) const
+{
+    // Apply ALL rename operations cumulatively (Pattern → Find/Replace → Prefix/Suffix)
+    // This allows users to preview the combined effect of all operations
+
+    juce::String newName = region.getName();
+
+    // STEP 1: Apply Pattern operation (if pattern has been customized from default)
+    {
+        // Pattern mode: Replace {n}, {N}, {original} placeholders
+        juce::String patternName = m_customPattern;
+
+        // Calculate the region number (1-based index from m_startNumber)
+        int regionNumber = m_startNumber + index;
+
+        // Replace {n} with sequential number
+        patternName = patternName.replace("{n}", juce::String(regionNumber));
+
+        // Replace {N} with zero-padded number
+        // Determine padding width based on total number of regions
+        auto selectedIndices = getSelectedRegionIndices();
+        int maxNumber = m_startNumber + static_cast<int>(selectedIndices.size()) - 1;
+        int paddingWidth = juce::String(maxNumber).length();
+        juce::String paddedNumber = juce::String(regionNumber).paddedLeft('0', paddingWidth);
+        patternName = patternName.replace("{N}", paddedNumber);
+
+        // Replace {original} with original region name
+        patternName = patternName.replace("{original}", newName);
+
+        // Use pattern result as new base name
+        newName = patternName;
+    }
+
+    // STEP 2: Apply Find/Replace operation to the result from step 1
+    {
+        if (!m_findText.isEmpty())
+        {
+            if (m_replaceAll)
+            {
+                // Replace all occurrences
+                if (m_caseSensitive)
+                {
+                    newName = newName.replace(m_findText, m_replaceText);
+                }
+                else
+                {
+                    // JUCE doesn't have replaceIgnoreCase, so implement manually
+                    juce::String result;
+                    juce::String remaining = newName;
+                    juce::String findLower = m_findText.toLowerCase();
+
+                    while (true)
+                    {
+                        int pos = remaining.toLowerCase().indexOf(findLower);
+                        if (pos < 0)
+                        {
+                            // No more matches - append remaining text
+                            result += remaining;
+                            break;
+                        }
+
+                        // Append text before match + replacement
+                        result += remaining.substring(0, pos);
+                        result += m_replaceText;
+
+                        // Continue with text after match
+                        remaining = remaining.substring(pos + m_findText.length());
+                    }
+
+                    newName = result;
+                }
+            }
+            else
+            {
+                // Replace first occurrence only
+                if (m_caseSensitive)
+                {
+                    newName = newName.replaceFirstOccurrenceOf(m_findText, m_replaceText);
+                }
+                else
+                {
+                    // JUCE doesn't have replaceFirstOccurrenceOfIgnoreCase, so we need to implement it
+                    // Find the first occurrence (case-insensitive) and replace it
+                    int pos = newName.toLowerCase().indexOf(m_findText.toLowerCase());
+                    if (pos >= 0)
+                    {
+                        newName = newName.substring(0, pos) + m_replaceText +
+                                 newName.substring(pos + m_findText.length());
+                    }
+                }
+            }
+        }
+    }
+
+    // STEP 3: Apply Prefix/Suffix operation to the result from step 2
+    {
+        // Add prefix
+        if (!m_prefixText.isEmpty())
+        {
+            newName = m_prefixText + newName;
+        }
+
+        // Add sequential numbering (before suffix)
+        if (m_addNumbering)
+        {
+            int regionNumber = m_startNumber + index;
+            newName = newName + " " + juce::String(regionNumber);
+        }
+
+        // Add suffix
+        if (!m_suffixText.isEmpty())
+        {
+            newName = newName + m_suffixText;
+        }
+    }
+
+    return newName;
+}
+
+void RegionListPanel::applyBatchRename()
+{
+    if (!m_regionManager || !m_listener)
+        return;
+
+    // Get selected region indices
+    auto selectedIndices = getSelectedRegionIndices();
+    if (selectedIndices.empty())
+    {
+        // No regions selected - show message
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
+                                                "Batch Rename",
+                                                "No regions selected.\n\nSelect one or more regions to rename.");
+        return;
+    }
+
+    // Generate new names for all selected regions
+    std::vector<juce::String> newNames;
+    newNames.reserve(selectedIndices.size());
+
+    for (int i = 0; i < static_cast<int>(selectedIndices.size()); ++i)
+    {
+        int regionIndex = selectedIndices[i];
+        const auto* region = m_regionManager->getRegion(regionIndex);
+
+        if (region)
+        {
+            juce::String newName = generateNewName(i, *region);
+            newNames.push_back(newName);
+        }
+        else
+        {
+            // Region invalid - this shouldn't happen
+            newNames.push_back(juce::String());
+        }
+    }
+
+    // Call listener to create undo action and apply renames
+    // The listener (Main.cpp) will:
+    // 1. Collect old names
+    // 2. Create BatchRenameRegionUndoAction
+    // 3. Add to undo manager
+    // 4. Perform the action (applies renames)
+    // 5. Refresh RegionDisplay
+    m_listener->regionListPanelBatchRenameApply(selectedIndices, newNames);
+
+    // Collapse batch rename section
+    expandBatchRenameSection(false);
+
+    // Refresh table to show updated names
+    m_table.updateContent();
+    m_table.repaint();
+}
+
+void RegionListPanel::cancelBatchRename()
+{
+    // Collapse section without applying changes
+    expandBatchRenameSection(false);
 }

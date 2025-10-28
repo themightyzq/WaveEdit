@@ -38,6 +38,7 @@
 #include "UI/SettingsPanel.h"
 #include "UI/FilePropertiesDialog.h"
 #include "UI/GoToPositionDialog.h"
+#include "UI/EditRegionBoundariesDialog.h"
 #include "UI/StripSilenceDialog.h"
 #include "UI/BatchExportDialog.h"
 #include "UI/RegionListPanel.h"
@@ -407,6 +408,80 @@ public:
                 doc->getWaveformDisplay().setSelection(startTime, endTime);
                 doc->getWaveformDisplay().repaint();
             }
+        }
+    }
+
+    void regionListPanelBatchRename(const std::vector<int>& regionIndices) override
+    {
+        // Called when user wants to start batch rename workflow (e.g., from Cmd+Shift+N shortcut)
+        // This method now simply expands the batch rename section in the RegionListPanel
+        if (!m_regionListPanel)
+            return;
+
+        // Expand the batch rename section (if collapsed)
+        m_regionListPanel->expandBatchRenameSection(true);
+
+        // Note: The actual rename logic happens in regionListPanelBatchRenameApply()
+        // when the user clicks "Apply" button in the batch rename section
+    }
+
+    void regionListPanelBatchRenameApply(const std::vector<int>& regionIndices,
+                                          const std::vector<juce::String>& newNames) override
+    {
+        // Called when user clicks "Apply" in the batch rename section
+        auto* doc = m_documentManager.getCurrentDocument();
+        if (!doc || regionIndices.empty() || newNames.empty())
+            return;
+
+        // Ensure indices and names match
+        if (regionIndices.size() != newNames.size())
+        {
+            jassertfalse;  // Programming error - should never happen
+            return;
+        }
+
+        // Collect old names for undo
+        std::vector<juce::String> oldNames;
+        oldNames.reserve(regionIndices.size());
+
+        for (int index : regionIndices)
+        {
+            if (auto* region = doc->getRegionManager().getRegion(index))
+            {
+                oldNames.push_back(region->getName());
+            }
+            else
+            {
+                // Region no longer exists - shouldn't happen
+                jassertfalse;
+                return;
+            }
+        }
+
+        // Create undo action with old and new names
+        auto* undoAction = new BatchRenameRegionUndoAction(
+            doc->getRegionManager(),
+            &doc->getRegionDisplay(),
+            regionIndices,
+            oldNames,
+            newNames
+        );
+
+        // Add to undo manager and perform
+        doc->getUndoManager().perform(undoAction);
+
+        // Debug: Log undo/redo state
+        juce::Logger::writeToLog("Batch rename action added to undo manager. Can undo: " +
+                                   juce::String(doc->getUndoManager().canUndo() ? "YES" : "NO"));
+
+        // Refresh displays
+        doc->getWaveformDisplay().repaint();
+        doc->getRegionDisplay().repaint();
+
+        // Refresh region list panel
+        if (m_regionListPanel)
+        {
+            m_regionListPanel->refresh();
         }
     }
 
@@ -1053,6 +1128,7 @@ public:
             CommandIDs::viewCycleTimeFormat,  // Shift+G - Cycle time format
             CommandIDs::viewAutoScroll,       // Cmd+Shift+F - Auto-scroll during playback
             CommandIDs::viewZoomToRegion,     // Z or Cmd+Option+Z - Zoom to selected region
+            CommandIDs::viewAutoPreviewRegions,  // Toggle auto-play regions on select
             // Navigation commands
             CommandIDs::navigateLeft,
             CommandIDs::navigateRight,
@@ -1091,7 +1167,19 @@ public:
             CommandIDs::regionSelectAll,
             CommandIDs::regionStripSilence,
             CommandIDs::regionExportAll,
-            CommandIDs::regionShowList
+            CommandIDs::regionShowList,
+            CommandIDs::regionSnapToZeroCrossing,  // Phase 3.3 - Toggle zero-crossing snap
+            // Region nudge commands (Phase 3.3 - Feature #6)
+            CommandIDs::regionNudgeStartLeft,
+            CommandIDs::regionNudgeStartRight,
+            CommandIDs::regionNudgeEndLeft,
+            CommandIDs::regionNudgeEndRight,
+            CommandIDs::regionBatchRename,  // Phase 3.4 - Batch rename selected regions
+            // Region editing commands (Phase 3.4)
+            CommandIDs::regionMerge,
+            CommandIDs::regionSplit,
+            CommandIDs::regionCopy,
+            CommandIDs::regionPaste
         };
 
         commands.addArray(ids, juce::numElementsInArray(ids));
@@ -1321,7 +1409,7 @@ public:
 
             case CommandIDs::viewZoomFit:
                 result.setInfo("Zoom to Fit", "Fit entire waveform to view", "View", 0);
-                result.addDefaultKeypress('0', juce::ModifierKeys::commandModifier);
+                result.addDefaultKeypress('0', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
@@ -1355,6 +1443,14 @@ public:
                 result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);  // Cmd+Option+Z
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
                                  doc->getRegionManager().getSelectedRegionIndex() >= 0);
+                break;
+
+            case CommandIDs::viewAutoPreviewRegions:
+                result.setInfo("Auto-Preview Regions", "Automatically play regions when clicked", "View", 0);
+                result.addDefaultKeypress('P', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);  // Cmd+Alt+P
+                result.setTicked(Settings::getInstance().getAutoPreviewRegions());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getRegionManager().getNumRegions() > 0);
                 break;
 
             // Navigation commands
@@ -1560,10 +1656,76 @@ public:
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getRegionManager().getNumRegions() > 0);
                 break;
 
+            case CommandIDs::regionBatchRename:
+                result.setInfo("Batch Rename Regions", "Rename multiple selected regions at once", "Region", 0);
+                result.addDefaultKeypress('n', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getRegionManager().getNumRegions() >= 2);
+                break;
+
+            // Region editing commands (Phase 3.4)
+            case CommandIDs::regionMerge:
+                result.setInfo("Merge Regions", "Merge selected regions", "Region", 0);
+                result.addDefaultKeypress('m', juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && canMergeRegions(doc));
+                break;
+
+            case CommandIDs::regionSplit:
+                result.setInfo("Split Region at Cursor", "Split region at cursor position", "Region", 0);
+                result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier);
+                result.setActive(doc && canSplitRegion(doc));
+                break;
+
+            case CommandIDs::regionCopy:
+                result.setInfo("Copy Region", "Copy selected region definition to clipboard", "Region", 0);
+                result.addDefaultKeypress('c', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getRegionManager().getSelectedRegionIndex() >= 0);
+                break;
+
+            case CommandIDs::regionPaste:
+                result.setInfo("Paste Regions at Cursor", "Paste regions at cursor position", "Region", 0);
+                result.addDefaultKeypress('v', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && m_hasRegionClipboard);
+                break;
+
             case CommandIDs::regionShowList:
                 result.setInfo("Show Region List", "Display list of all regions", "Region", 0);
                 result.addDefaultKeypress('m', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::regionSnapToZeroCrossing:
+                result.setInfo("Snap to Zero Crossings", "Snap region boundaries to zero crossings", "Region", 0);
+                result.setTicked(Settings::getInstance().getSnapRegionsToZeroCrossings());
+                result.setActive(true);  // Always available (checkbox menu item)
+                break;
+
+            // Region nudge commands (Phase 3.3 - Feature #6)
+            case CommandIDs::regionNudgeStartLeft:
+                result.setInfo("Nudge Region Start Left", "Move region start boundary left by snap increment", "Region", 0);
+                result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getRegionManager().getSelectedRegionIndex() >= 0);
+                break;
+
+            case CommandIDs::regionNudgeStartRight:
+                result.setInfo("Nudge Region Start Right", "Move region start boundary right by snap increment", "Region", 0);
+                result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getRegionManager().getSelectedRegionIndex() >= 0);
+                break;
+
+            case CommandIDs::regionNudgeEndLeft:
+                result.setInfo("Nudge Region End Left", "Move region end boundary left by snap increment", "Region", 0);
+                result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::shiftModifier | juce::ModifierKeys::altModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getRegionManager().getSelectedRegionIndex() >= 0);
+                break;
+
+            case CommandIDs::regionNudgeEndRight:
+                result.setInfo("Nudge Region End Right", "Move region end boundary right by snap increment", "Region", 0);
+                result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::shiftModifier | juce::ModifierKeys::altModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             default:
@@ -1683,6 +1845,10 @@ public:
                         doc->getUndoManager().canUndo() ? "yes" : "no",
                         doc->getUndoManager().canRedo() ? "yes" : "no"));
 
+                    // Refresh RegionListPanel if open
+                    if (m_regionListPanel)
+                        m_regionListPanel->refresh();
+
                     repaint();
                 }
                 return true;
@@ -1703,6 +1869,10 @@ public:
                         "After redo - Can undo: %s, Can redo: %s",
                         doc->getUndoManager().canUndo() ? "yes" : "no",
                         doc->getUndoManager().canRedo() ? "yes" : "no"));
+
+                    // Refresh RegionListPanel if open
+                    if (m_regionListPanel)
+                        m_regionListPanel->refresh();
 
                     repaint();
                 }
@@ -1798,6 +1968,11 @@ public:
             case CommandIDs::viewZoomToRegion:
                 if (!doc) return false;
                 doc->getWaveformDisplay().zoomToRegion();
+                return true;
+
+            case CommandIDs::viewAutoPreviewRegions:
+                // Toggle auto-preview setting (global, not per-document)
+                Settings::getInstance().setAutoPreviewRegions(!Settings::getInstance().getAutoPreviewRegions());
                 return true;
 
             // Navigation operations (simple movement)
@@ -1959,6 +2134,67 @@ public:
                 showBatchExportDialog();
                 return true;
 
+            case CommandIDs::regionBatchRename:
+            {
+                if (!doc) return false;
+
+                // Open Region List Panel with batch rename section expanded
+                // (Same logic as regionShowList, plus batch rename section expansion)
+
+                // Create the panel if it doesn't exist
+                if (!m_regionListPanel)
+                {
+                    m_regionListPanel = new RegionListPanel(
+                        &doc->getRegionManager(),
+                        doc->getBufferManager().getSampleRate()
+                    );
+                    m_regionListPanel->setListener(this);
+                    m_regionListPanel->setCommandManager(&m_commandManager);
+                }
+                else
+                {
+                    // Update with current document's data
+                    m_regionListPanel->setSampleRate(doc->getBufferManager().getSampleRate());
+                }
+
+                // Show in a window
+                if (!m_regionListWindow || !m_regionListWindow->isVisible())
+                {
+                    m_regionListWindow = m_regionListPanel->showInWindow(false); // non-modal
+                }
+                else
+                {
+                    // Bring existing window to front
+                    m_regionListWindow->toFront(true);
+                }
+
+                // Expand batch rename section
+                m_regionListPanel->expandBatchRenameSection(true);
+
+                return true;
+            }
+
+            // Region editing commands (Phase 3.4)
+            case CommandIDs::regionMerge:
+                if (!doc) return false;
+                mergeSelectedRegions();
+                return true;
+
+            case CommandIDs::regionSplit:
+                if (!doc) return false;
+                splitRegionAtCursor();
+                return true;
+
+            case CommandIDs::regionCopy:
+                if (!doc) return false;
+                copyRegionsToClipboard();
+                return true;
+
+            case CommandIDs::regionPaste:
+                if (!doc) return false;
+                pasteRegionsFromClipboard();
+                return true;
+
             case CommandIDs::regionShowList:
             {
                 if (auto* doc = m_documentManager.getCurrentDocument())
@@ -1971,6 +2207,7 @@ public:
                             doc->getBufferManager().getSampleRate()
                         );
                         m_regionListPanel->setListener(this);
+                        m_regionListPanel->setCommandManager(&m_commandManager);
                     }
                     else
                     {
@@ -1991,6 +2228,39 @@ public:
                 }
                 return true;
             }
+
+            case CommandIDs::regionSnapToZeroCrossing:
+            {
+                // Toggle the preference setting
+                bool currentValue = Settings::getInstance().getSnapRegionsToZeroCrossings();
+                Settings::getInstance().setSnapRegionsToZeroCrossings(!currentValue);
+
+                // Update menu checkmark by invalidating command info
+                m_commandManager.commandStatusChanged();
+
+                return true;
+            }
+
+            // Region nudge commands (Phase 3.3 - Feature #6)
+            case CommandIDs::regionNudgeStartLeft:
+                if (!doc) return false;
+                nudgeRegionBoundary(true, true);  // nudgeStart=true, moveLeft=true
+                return true;
+
+            case CommandIDs::regionNudgeStartRight:
+                if (!doc) return false;
+                nudgeRegionBoundary(true, false);  // nudgeStart=true, moveLeft=false
+                return true;
+
+            case CommandIDs::regionNudgeEndLeft:
+                if (!doc) return false;
+                nudgeRegionBoundary(false, true);  // nudgeStart=false, moveLeft=true
+                return true;
+
+            case CommandIDs::regionNudgeEndRight:
+                if (!doc) return false;
+                nudgeRegionBoundary(false, false);  // nudgeStart=false, moveLeft=false
+                return true;
 
             // Processing operations
             case CommandIDs::processGain:
@@ -2122,6 +2392,7 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::viewCycleTimeFormat);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewAutoScroll);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomToRegion);
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewAutoPreviewRegions);
         }
         else if (menuIndex == 3) // Region menu
         {
@@ -2136,6 +2407,14 @@ public:
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::regionStripSilence);
             menu.addCommandItem(&m_commandManager, CommandIDs::regionExportAll);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionBatchRename);
+            menu.addSeparator();
+            // Region editing (Phase 3.4)
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionMerge);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionSplit);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionCopy);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionPaste);
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::regionShowList);
         }
@@ -2759,6 +3038,27 @@ public:
         int64_t startSample = doc->getBufferManager().timeToSample(startTime);
         int64_t endSample = doc->getBufferManager().timeToSample(endTime);
 
+        // Apply zero-crossing snap if enabled (Phase 3.3)
+        if (Settings::getInstance().getSnapRegionsToZeroCrossings())
+        {
+            const auto& buffer = doc->getBufferManager().getBuffer();
+            if (buffer.getNumChannels() > 0 && buffer.getNumSamples() > 0)
+            {
+                int channel = 0;  // Use first channel for snap detection
+                int searchRadius = 1000;  // 1000 samples (~22ms at 44.1kHz)
+
+                int64_t originalStart = startSample;
+                int64_t originalEnd = endSample;
+
+                startSample = AudioUnits::snapToZeroCrossing(startSample, buffer, channel, searchRadius);
+                endSample = AudioUnits::snapToZeroCrossing(endSample, buffer, channel, searchRadius);
+
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "Zero-crossing snap: start %lld -> %lld, end %lld -> %lld",
+                    originalStart, startSample, originalEnd, endSample));
+            }
+        }
+
         // Create region with auto-generated numerical name (001, 002, etc.)
         int regionNum = doc->getRegionManager().getNumRegions() + 1;
         juce::String regionName = juce::String(regionNum).paddedLeft('0', 3);  // Zero-padded to 3 digits
@@ -3113,6 +3413,223 @@ public:
         options.launchAsync();
     }
 
+    //==============================================================================
+    // Region editing helper methods (Phase 3.4)
+
+    /**
+     * Checks if the selected region can be merged with the next region.
+     */
+    bool canMergeRegions(Document* doc) const
+    {
+        if (!doc) return false;
+
+        auto& regionManager = doc->getRegionManager();
+        int numSelected = regionManager.getNumSelectedRegions();
+
+        // Phase 3.5: Multi-selection merge support
+        if (numSelected >= 2)
+        {
+            // Multiple regions selected: Can merge them all
+            return true;
+        }
+        else if (numSelected == 1)
+        {
+            // Single region selected: Can merge if there's a next region (legacy behavior)
+            int selectedIndex = regionManager.getPrimarySelectionIndex();
+            return (selectedIndex >= 0 && selectedIndex < regionManager.getNumRegions() - 1);
+        }
+
+        // No regions selected: Cannot merge
+        return false;
+    }
+
+    /**
+     * Checks if the region under cursor can be split.
+     */
+    bool canSplitRegion(Document* doc) const
+    {
+        if (!doc) return false;
+
+        auto& regionManager = doc->getRegionManager();
+        auto& waveformDisplay = doc->getWaveformDisplay();
+        auto& bufferManager = doc->getBufferManager();
+
+        int64_t cursorSample = bufferManager.timeToSample(waveformDisplay.getEditCursorPosition());
+        int regionIndex = regionManager.findRegionAtSample(cursorSample);
+
+        if (regionIndex < 0)
+            return false;
+
+        const Region* region = regionManager.getRegion(regionIndex);
+        if (!region)
+            return false;
+
+        // Can split if cursor is within region and both resulting regions have >= 1 sample
+        return cursorSample > region->getStartSample() &&
+               cursorSample < region->getEndSample();
+    }
+
+    /**
+     * Merges the selected region with the next adjacent region.
+     */
+    void mergeSelectedRegions()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc || !canMergeRegions(doc))
+            return;
+
+        auto& regionManager = doc->getRegionManager();
+
+        // Save original regions and indices for undo
+        juce::Array<int> originalIndices;
+        juce::Array<Region> originalRegions;
+        auto selectedIndices = regionManager.getSelectedRegionIndices();
+
+        for (int idx : selectedIndices)
+        {
+            const Region* region = regionManager.getRegion(idx);
+            if (region != nullptr)
+            {
+                originalIndices.add(idx);
+                originalRegions.add(*region);
+            }
+        }
+
+        // Create and perform undo action
+        auto* undoAction = new MultiMergeRegionsUndoAction(
+            regionManager,
+            doc->getRegionDisplay(),
+            doc->getFile(),
+            originalIndices,
+            originalRegions
+        );
+
+        doc->getUndoManager().perform(undoAction);
+
+        // Repaint displays
+        doc->getWaveformDisplay().repaint();
+
+        juce::String mergedNames;
+        for (int i = 0; i < originalRegions.size(); ++i)
+        {
+            if (i > 0) mergedNames += " + ";
+            mergedNames += originalRegions[i].getName();
+        }
+        juce::Logger::writeToLog("Merged " + juce::String(originalRegions.size()) + " regions: " + mergedNames);
+    }
+
+    /**
+     * Splits the region at the cursor position.
+     */
+    void splitRegionAtCursor()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc || !canSplitRegion(doc))
+            return;
+
+        auto& regionManager = doc->getRegionManager();
+        auto& waveformDisplay = doc->getWaveformDisplay();
+        auto& bufferManager = doc->getBufferManager();
+
+        int64_t splitSample = bufferManager.timeToSample(waveformDisplay.getEditCursorPosition());
+        int regionIndex = regionManager.findRegionAtSample(splitSample);
+
+        // Save original region for undo
+        Region originalRegion = *regionManager.getRegion(regionIndex);
+
+        // Create undo action
+        auto* undoAction = new SplitRegionUndoAction(
+            regionManager,
+            &doc->getRegionDisplay(),
+            regionIndex,
+            splitSample,
+            originalRegion
+        );
+
+        doc->getUndoManager().perform(undoAction);
+
+        juce::Logger::writeToLog("Split region: " + originalRegion.getName());
+    }
+
+    /**
+     * Copies the selected region definition to clipboard.
+     */
+    void copyRegionsToClipboard()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        auto& regionManager = doc->getRegionManager();
+
+        // Copy only the selected region to clipboard
+        m_regionClipboard.clear();
+
+        int selectedIndex = regionManager.getSelectedRegionIndex();
+        if (selectedIndex >= 0)
+        {
+            if (const auto* region = regionManager.getRegion(selectedIndex))
+            {
+                m_regionClipboard.push_back(*region);
+                juce::Logger::writeToLog("Copied region '" + region->getName() + "' to clipboard");
+            }
+        }
+
+        m_hasRegionClipboard = !m_regionClipboard.empty();
+    }
+
+    /**
+     * Pastes regions from clipboard at cursor position.
+     */
+    void pasteRegionsFromClipboard()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc || !m_hasRegionClipboard) return;
+
+        auto& regionManager = doc->getRegionManager();
+        auto& waveformDisplay = doc->getWaveformDisplay();
+        auto& bufferManager = doc->getBufferManager();
+
+        // Get cursor position as paste offset
+        int64_t cursorSample = bufferManager.timeToSample(waveformDisplay.getEditCursorPosition());
+
+        // Calculate offset (align first region's start to cursor)
+        if (m_regionClipboard.empty()) return;
+
+        int64_t firstRegionStart = m_regionClipboard[0].getStartSample();
+        int64_t offset = cursorSample - firstRegionStart;
+
+        // Paste all regions with offset
+        int numPasted = 0;
+        for (const auto& region : m_regionClipboard)
+        {
+            int64_t newStart = region.getStartSample() + offset;
+            int64_t newEnd = region.getEndSample() + offset;
+
+            // Check if fits within audio duration (both negative and exceeding boundaries)
+            int64_t maxSample = bufferManager.getNumSamples();
+            if (newStart < 0 || newEnd > maxSample)
+            {
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "Stopped pasting: Region '%s' would be outside file bounds (start=%lld, end=%lld, max=%lld)",
+                    region.getName().toRawUTF8(), newStart, newEnd, maxSample));
+                break;  // Stop pasting if region would be out of bounds
+            }
+
+            Region newRegion(region.getName(), newStart, newEnd);
+            newRegion.setColor(region.getColor());
+            regionManager.addRegion(newRegion);
+            numPasted++;
+        }
+
+        doc->getRegionDisplay().repaint();
+
+        juce::Logger::writeToLog(juce::String::formatted(
+            "Pasted %d region%s at sample %lld",
+            numPasted,
+            numPasted == 1 ? "" : "s",
+            cursorSample));
+    }
+
     /**
      * Shows the batch export dialog for exporting regions as separate files.
      * Called from message thread only.
@@ -3237,6 +3754,107 @@ public:
                 "OK"
             );
         }
+    }
+
+    /**
+     * Nudge region boundary by current snap increment.
+     * Phase 3.3 - Feature #6: Keyboard precision control for region boundaries.
+     *
+     * @param nudgeStart true to nudge start boundary, false to nudge end boundary
+     * @param moveLeft true to move left (negative), false to move right (positive)
+     */
+    void nudgeRegionBoundary(bool nudgeStart, bool moveLeft)
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        // Get selected region
+        int regionIndex = doc->getRegionManager().getSelectedRegionIndex();
+        if (regionIndex < 0)
+        {
+            juce::Logger::writeToLog("Cannot nudge region: No region selected");
+            return;
+        }
+
+        Region* region = doc->getRegionManager().getRegion(regionIndex);
+        if (!region)
+        {
+            juce::Logger::writeToLog("Cannot nudge region: Invalid region index");
+            return;
+        }
+
+        // Get current snap increment in samples
+        int64_t increment = doc->getWaveformDisplay().getSnapIncrementInSamples();
+        if (moveLeft)
+            increment = -increment;
+
+        // Calculate new boundary position
+        int64_t oldPosition = nudgeStart ? region->getStartSample() : region->getEndSample();
+        int64_t newPosition = oldPosition + increment;
+
+        // Validate boundaries
+        int64_t totalSamples = doc->getBufferManager().getNumSamples();
+
+        if (nudgeStart)
+        {
+            // Start boundary constraints:
+            // - Can't go below 0
+            // - Can't exceed end boundary (must maintain at least 1 sample region)
+            int64_t endSample = region->getEndSample();
+            newPosition = juce::jlimit((int64_t)0, endSample - 1, newPosition);
+        }
+        else
+        {
+            // End boundary constraints:
+            // - Can't go below start boundary (must maintain at least 1 sample region)
+            // - Can't exceed total duration
+            int64_t startSample = region->getStartSample();
+            newPosition = juce::jlimit(startSample + 1, totalSamples, newPosition);
+        }
+
+        // Check if position actually changed
+        if (newPosition == oldPosition)
+        {
+            juce::Logger::writeToLog("Cannot nudge region: Boundary already at limit");
+            return;
+        }
+
+        // Start a new transaction
+        juce::String transactionName = juce::String::formatted(
+            "Nudge Region %s %s: %s",
+            nudgeStart ? "Start" : "End",
+            moveLeft ? "Left" : "Right",
+            region->getName().toRawUTF8()
+        );
+        doc->getUndoManager().beginNewTransaction(transactionName);
+
+        // Create undo action (perform() will apply the nudge)
+        auto* undoAction = new NudgeRegionUndoAction(
+            doc->getRegionManager(),
+            &doc->getRegionDisplay(),
+            regionIndex,
+            nudgeStart,
+            oldPosition,
+            newPosition
+        );
+
+        // perform() calls NudgeRegionUndoAction::perform() which updates the boundary
+        doc->getUndoManager().perform(undoAction);
+
+        // Log the nudge
+        double oldTime = doc->getBufferManager().sampleToTime(oldPosition);
+        double newTime = doc->getBufferManager().sampleToTime(newPosition);
+        juce::Logger::writeToLog(juce::String::formatted(
+            "Nudged region '%s' %s: %.3fs -> %.3fs (delta: %lld samples)",
+            region->getName().toRawUTF8(),
+            nudgeStart ? "start" : "end",
+            oldTime,
+            newTime,
+            increment
+        ));
+
+        // Repaint to show updated region
+        repaint();
     }
 
     //==============================================================================
@@ -4701,6 +5319,177 @@ public:
     };
 
     /**
+     * Undoable action for resizing a region's boundaries.
+     * Stores old and new start/end samples to enable undo/redo.
+     */
+    class ResizeRegionUndoAction : public juce::UndoableAction
+    {
+    public:
+        ResizeRegionUndoAction(RegionManager& regionManager,
+                              RegionDisplay& regionDisplay,
+                              const juce::File& audioFile,
+                              int regionIndex,
+                              int64_t oldStart,
+                              int64_t oldEnd,
+                              int64_t newStart,
+                              int64_t newEnd)
+            : m_regionManager(regionManager),
+              m_regionDisplay(regionDisplay),
+              m_audioFile(audioFile),
+              m_regionIndex(regionIndex),
+              m_oldStart(oldStart),
+              m_oldEnd(oldEnd),
+              m_newStart(newStart),
+              m_newEnd(newEnd)
+        {
+        }
+
+        bool perform() override
+        {
+            // Resize the region
+            Region* region = m_regionManager.getRegion(m_regionIndex);
+            if (region == nullptr)
+            {
+                juce::Logger::writeToLog("ResizeRegionUndoAction::perform - Invalid region index");
+                return false;
+            }
+
+            region->setStartSample(m_newStart);
+            region->setEndSample(m_newEnd);
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Resized region: %lld-%lld → %lld-%lld",
+                m_oldStart, m_oldEnd, m_newStart, m_newEnd));
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the old boundaries
+            Region* region = m_regionManager.getRegion(m_regionIndex);
+            if (region != nullptr)
+            {
+                region->setStartSample(m_oldStart);
+                region->setEndSample(m_oldEnd);
+
+                // Save to sidecar JSON file
+                m_regionManager.saveToFile(m_audioFile);
+
+                // Update display
+                m_regionDisplay.repaint();
+
+                juce::Logger::writeToLog("Undid region resize");
+            }
+            return true;
+        }
+
+        int getSizeInUnits() override { return sizeof(*this) + sizeof(int64_t) * 4; }
+
+    private:
+        RegionManager& m_regionManager;
+        RegionDisplay& m_regionDisplay;
+        juce::File m_audioFile;
+        int m_regionIndex;
+        int64_t m_oldStart;
+        int64_t m_oldEnd;
+        int64_t m_newStart;
+        int64_t m_newEnd;
+    };
+
+    /**
+     * Undoable action for merging multiple selected regions.
+     * Stores the original regions and their indices to enable restoration.
+     */
+    class MultiMergeRegionsUndoAction : public juce::UndoableAction
+    {
+    public:
+        MultiMergeRegionsUndoAction(RegionManager& regionManager,
+                                    RegionDisplay& regionDisplay,
+                                    const juce::File& audioFile,
+                                    const juce::Array<int>& originalIndices,
+                                    const juce::Array<Region>& originalRegions)
+            : m_regionManager(regionManager),
+              m_regionDisplay(regionDisplay),
+              m_audioFile(audioFile),
+              m_originalIndices(originalIndices),
+              m_originalRegions(originalRegions),
+              m_mergedRegionIndex(-1)
+        {
+            // Store the merged region that will be created
+            // We need to create it now for undo purposes
+        }
+
+        bool perform() override
+        {
+            // Merge using RegionManager's multi-selection merge
+            if (!m_regionManager.mergeSelectedRegions())
+            {
+                juce::Logger::writeToLog("MultiMergeRegionsUndoAction::perform() - Merge failed");
+                return false;
+            }
+
+            // Store the index of the merged region (should be where first region was)
+            m_mergedRegionIndex = m_originalIndices[0];
+
+            // Save to sidecar JSON file
+            m_regionManager.saveToFile(m_audioFile);
+
+            // Update display
+            m_regionDisplay.repaint();
+
+            juce::Logger::writeToLog("Merged " + juce::String(m_originalRegions.size()) + " regions");
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Remove the merged region
+            if (m_mergedRegionIndex >= 0 && m_mergedRegionIndex < m_regionManager.getNumRegions())
+            {
+                m_regionManager.removeRegion(m_mergedRegionIndex);
+
+                // Restore original regions at their original indices
+                for (int i = 0; i < m_originalIndices.size(); ++i)
+                {
+                    int originalIndex = m_originalIndices[i];
+                    const Region& region = m_originalRegions[i];
+
+                    // Insert at original position
+                    m_regionManager.insertRegionAt(originalIndex, region);
+                }
+
+                // Save to sidecar JSON file
+                m_regionManager.saveToFile(m_audioFile);
+
+                // Update display
+                m_regionDisplay.repaint();
+
+                juce::Logger::writeToLog("Undid merge of " + juce::String(m_originalRegions.size()) + " regions");
+            }
+            return true;
+        }
+
+        int getSizeInUnits() override
+        {
+            return sizeof(*this) + m_originalRegions.size() * sizeof(Region);
+        }
+
+    private:
+        RegionManager& m_regionManager;
+        RegionDisplay& m_regionDisplay;
+        juce::File m_audioFile;
+        juce::Array<int> m_originalIndices;  // Original indices of regions being merged
+        juce::Array<Region> m_originalRegions;  // Original regions before merge
+        int m_mergedRegionIndex;  // Index where merged region was placed
+    };
+
+    /**
      * Undoable action for Auto Region auto-region creation.
      * Stores the old region state and the new regions created by Auto Region.
      */
@@ -4918,6 +5707,10 @@ private:
     RegionListPanel* m_regionListPanel = nullptr;  // Window owns this, we just track it
     juce::DocumentWindow* m_regionListWindow = nullptr;
 
+    // Region clipboard (Phase 3.4) - for copy/paste region definitions
+    std::vector<Region> m_regionClipboard;
+    bool m_hasRegionClipboard = false;
+
     // Helper methods for safe document access
 
     /**
@@ -4932,7 +5725,7 @@ private:
         auto& regionDisplay = doc->getRegionDisplay();
 
         // onRegionClicked: Select region and update waveform selection
-        regionDisplay.onRegionClicked = [doc](int regionIndex)
+        regionDisplay.onRegionClicked = [this, doc](int regionIndex)
         {
             if (!doc) return;
 
@@ -4943,10 +5736,11 @@ private:
                 return;
             }
 
-            // Update selected region in manager
-            doc->getRegionManager().setSelectedRegionIndex(regionIndex);
+            // CRITICAL FIX: Do NOT modify selection state here!
+            // RegionDisplay has already handled multi-selection correctly in mouseDown()
+            // This callback should ONLY update the waveform display, not override selection
 
-            // Update waveform selection to match region bounds
+            // Update waveform selection to match the clicked region bounds
             double startTime = doc->getBufferManager().sampleToTime(region->getStartSample());
             double endTime = doc->getBufferManager().sampleToTime(region->getEndSample());
             doc->getWaveformDisplay().setSelection(startTime, endTime);
@@ -4954,15 +5748,46 @@ private:
             // Repaint to show visual feedback
             doc->getRegionDisplay().repaint();
 
+            // Synchronize with RegionListPanel if open
+            if (m_regionListPanel)
+            {
+                m_regionListPanel->selectRegion(regionIndex);
+            }
+
+            // Auto-preview: Automatically play region if enabled
+            if (Settings::getInstance().getAutoPreviewRegions())
+            {
+                // Stop any current playback first
+                if (doc->getAudioEngine().isPlaying())
+                {
+                    doc->getAudioEngine().stop();
+                }
+
+                // Start playing from region start
+                // Note: Playback will continue to end of file unless stopped manually
+                // Future enhancement: Add auto-stop at region end using timer
+                doc->getAudioEngine().setPosition(startTime);
+                doc->getAudioEngine().play();
+
+                juce::Logger::writeToLog("Auto-previewing region: " + region->getName() +
+                                         " (" + juce::String(startTime, 3) + "s - " +
+                                         juce::String(endTime, 3) + "s)");
+            }
+
             juce::Logger::writeToLog("Selected region: " + region->getName() +
                                     " (" + juce::String(startTime, 3) + "s - " +
                                     juce::String(endTime, 3) + "s)");
         };
 
-        // onRegionDoubleClicked: Show rename dialog (placeholder for now)
-        regionDisplay.onRegionDoubleClicked = [](int regionIndex)
+        // onRegionDoubleClicked: Zoom to fit the double-clicked region
+        regionDisplay.onRegionDoubleClicked = [doc](int regionIndex)
         {
-            juce::Logger::writeToLog("Region " + juce::String(regionIndex) + " double-clicked (rename dialog - coming soon)");
+            if (!doc) return;
+
+            // Zoom to the double-clicked region
+            doc->getWaveformDisplay().zoomToRegion(regionIndex);
+
+            juce::Logger::writeToLog("Zoomed to region " + juce::String(regionIndex));
         };
 
         // onRegionRenamed: Update region name with undo support
@@ -5063,6 +5888,133 @@ private:
             doc->getUndoManager().perform(undoAction);
 
             juce::Logger::writeToLog("Deleted region: " + regionName);
+        };
+
+        // onRegionResized: Update region boundaries with undo support
+        regionDisplay.onRegionResized = [doc](int regionIndex, int64_t oldStart, int64_t oldEnd, int64_t newStart, int64_t newEnd)
+        {
+            if (!doc) return;
+
+            Region* region = doc->getRegionManager().getRegion(regionIndex);
+            if (!region)
+            {
+                juce::Logger::writeToLog("Cannot resize region: Invalid region index");
+                return;
+            }
+
+            // Skip if boundaries haven't changed (using parameters, not region)
+            if (oldStart == newStart && oldEnd == newEnd)
+                return;
+
+            // Start a new transaction
+            juce::String transactionName = "Resize Region: " + region->getName();
+            doc->getUndoManager().beginNewTransaction(transactionName);
+
+            // Create undo action with original boundaries from parameters
+            auto* undoAction = new ResizeRegionUndoAction(
+                doc->getRegionManager(),
+                doc->getRegionDisplay(),
+                doc->getFile(),
+                regionIndex,
+                oldStart,
+                oldEnd,
+                newStart,
+                newEnd
+            );
+
+            // perform() calls ResizeRegionUndoAction::perform() which resizes the region
+            doc->getUndoManager().perform(undoAction);
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Resized region '%s': %lld-%lld → %lld-%lld samples",
+                region->getName().toRawUTF8(),
+                oldStart, oldEnd, newStart, newEnd));
+        };
+
+        // onRegionResizing: Real-time visual feedback during region resize drag
+        regionDisplay.onRegionResizing = [doc]()
+        {
+            if (!doc) return;
+
+            // Repaint WaveformDisplay to update region overlays in real-time
+            doc->getWaveformDisplay().repaint();
+        };
+
+        // onRegionEditBoundaries: Show dialog to edit region boundaries numerically
+        regionDisplay.onRegionEditBoundaries = [this, doc](int regionIndex)
+        {
+            if (!doc) return;
+
+            Region* region = doc->getRegionManager().getRegion(regionIndex);
+            if (!region)
+            {
+                juce::Logger::writeToLog("Cannot edit region boundaries: Invalid region index");
+                return;
+            }
+
+            // Get audio context
+            double sampleRate = doc->getBufferManager().getSampleRate();
+            double fps = 30.0;  // Default FPS (TODO: make this user-configurable in settings)
+            int64_t totalSamples = doc->getBufferManager().getNumSamples();
+            AudioUnits::TimeFormat currentFormat = m_timeFormat;
+
+            // Show dialog
+            EditRegionBoundariesDialog::showDialog(
+                this,  // parent component
+                *region,
+                currentFormat,
+                sampleRate,
+                fps,
+                totalSamples,
+                [doc, regionIndex](int64_t newStart, int64_t newEnd)
+                {
+                    // Callback when user clicks OK
+                    Region* region = doc->getRegionManager().getRegion(regionIndex);
+                    if (!region) return;
+
+                    // Get old boundaries for undo
+                    int64_t oldStart = region->getStartSample();
+                    int64_t oldEnd = region->getEndSample();
+
+                    // Skip if boundaries haven't changed
+                    if (oldStart == newStart && oldEnd == newEnd)
+                    {
+                        juce::Logger::writeToLog("No changes to region boundaries");
+                        return;
+                    }
+
+                    // Start a new transaction
+                    juce::String transactionName = "Edit Region Boundaries: " + region->getName();
+                    doc->getUndoManager().beginNewTransaction(transactionName);
+
+                    // Create undo action
+                    auto* undoAction = new ResizeRegionUndoAction(
+                        doc->getRegionManager(),
+                        doc->getRegionDisplay(),
+                        doc->getFile(),
+                        regionIndex,
+                        oldStart,
+                        oldEnd,
+                        newStart,
+                        newEnd
+                    );
+
+                    // Perform action
+                    doc->getUndoManager().perform(undoAction);
+
+                    // Mark document as modified
+                    doc->setModified(true);
+
+                    // Repaint to show updated region
+                    doc->getRegionDisplay().repaint();
+                    doc->getWaveformDisplay().repaint();
+
+                    juce::Logger::writeToLog(juce::String::formatted(
+                        "Edited region '%s' boundaries: %lld-%lld → %lld-%lld samples",
+                        region->getName().toRawUTF8(),
+                        oldStart, oldEnd, newStart, newEnd));
+                }
+            );
         };
     }
 

@@ -24,6 +24,7 @@
 
 #include "Region.h"
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <set>
 
 /**
  * Manages a collection of regions for a document.
@@ -130,8 +131,82 @@ public:
      */
     int findRegionAtSample(int64_t sample) const;
 
+    //==============================================================================
+    // Multi-selection API (Phase 3.5)
+
+    /**
+     * Selects a single region, optionally adding to existing selection.
+     *
+     * @param index Region index to select
+     * @param addToSelection If true, adds to selection; if false, replaces selection
+     */
+    void selectRegion(int index, bool addToSelection = false);
+
+    /**
+     * Selects multiple regions by indices.
+     *
+     * @param indices Array of region indices to select
+     */
+    void selectRegions(const juce::Array<int>& indices);
+
+    /**
+     * Selects a range of regions (inclusive).
+     * Used for Shift+Click range selection.
+     *
+     * @param startIndex First region in range
+     * @param endIndex Last region in range
+     */
+    void selectRegionRange(int startIndex, int endIndex);
+
+    /**
+     * Toggles a region in/out of selection.
+     * Used for Cmd+Click individual toggle.
+     *
+     * @param index Region index to toggle
+     */
+    void toggleRegionSelection(int index);
+
+    /**
+     * Clears all region selections.
+     */
+    void clearSelection();
+
+    /**
+     * Gets all selected region indices.
+     *
+     * @return Array of selected indices (sorted)
+     */
+    juce::Array<int> getSelectedRegionIndices() const;
+
+    /**
+     * Gets the number of selected regions.
+     *
+     * @return Count of selected regions
+     */
+    int getNumSelectedRegions() const;
+
+    /**
+     * Checks if a region is selected.
+     *
+     * @param index Region index to check
+     * @return true if region is selected
+     */
+    bool isRegionSelected(int index) const;
+
+    /**
+     * Gets the primary selection index (last clicked region).
+     * Used as anchor for Shift+Click range selection.
+     *
+     * @return Primary selection index, or -1 if no selection
+     */
+    int getPrimarySelectionIndex() const;
+
+    //==============================================================================
+    // Legacy single-selection API (backward compatibility)
+
     /**
      * Gets the currently selected region index.
+     * For backward compatibility - returns primary selection.
      *
      * @return Selected region index, or -1 if no selection
      */
@@ -139,15 +214,11 @@ public:
 
     /**
      * Sets the currently selected region.
+     * For backward compatibility - clears multi-selection and selects one region.
      *
      * @param index Region index to select, or -1 to clear selection
      */
     void setSelectedRegionIndex(int index);
-
-    /**
-     * Clears the region selection.
-     */
-    void clearSelection();
 
     /**
      * Gets the next region after the specified sample position.
@@ -164,6 +235,33 @@ public:
      * @return Index of previous region, or -1 if none
      */
     int getPreviousRegionIndex(int64_t currentSample) const;
+
+    /**
+     * Gets all region indices that overlap with a sample range.
+     * Used for batch operations on regions within a time selection.
+     *
+     * @param startSample Start of sample range (inclusive)
+     * @param endSample End of sample range (inclusive)
+     * @return Vector of region indices that overlap the range
+     */
+    std::vector<int> getRegionIndicesInRange(int64_t startSample, int64_t endSample) const;
+
+    /**
+     * Gets the region at the specified sample position.
+     * Convenience wrapper around findRegionAtSample() that returns the Region pointer.
+     *
+     * @param sample Sample position to search for
+     * @return Pointer to region, or nullptr if not in any region
+     */
+    Region* getRegionAt(int64_t sample);
+
+    /**
+     * Gets the region at the specified sample position (const version).
+     *
+     * @param sample Sample position to search for
+     * @return Pointer to region, or nullptr if not in any region
+     */
+    const Region* getRegionAt(int64_t sample) const;
 
     //==============================================================================
     // Selection helpers (for "select inverse" workflow)
@@ -237,9 +335,62 @@ public:
                             float preRollMs,
                             float postRollMs);
 
+    //==============================================================================
+    // Region editing operations - Phase 3.4
+
+    /**
+     * Merges all selected regions into a single region.
+     * If only one region is selected, merges with next region (legacy behavior).
+     * The merged region spans from earliest start to latest end of all selected regions.
+     * Name format: "RegionA + RegionB + RegionC + ..."
+     * Fills gaps between non-adjacent regions automatically.
+     *
+     * @return true if successful, false if no regions selected or merge failed
+     */
+    bool mergeSelectedRegions();
+
+    /**
+     * Legacy merge method for backward compatibility.
+     * Merges two specific regions by index.
+     *
+     * @param firstIndex Index of the first region
+     * @param secondIndex Index of the second region
+     * @return true if successful, false if invalid indices
+     */
+    bool mergeRegions(int firstIndex, int secondIndex);
+
+    /**
+     * Splits a region at a sample position.
+     * Creates two regions from one, dividing at the split point.
+     * Names: "RegionName (1)" and "RegionName (2)"
+     *
+     * @param regionIndex Index of the region to split
+     * @param splitSample Sample position for the split (must be within region bounds)
+     * @return true if successful, false if split position invalid
+     */
+    bool splitRegion(int regionIndex, int64_t splitSample);
+
+    //==============================================================================
+    // Internal helpers
+
+    /**
+     * Performs merge operation (used by undo/redo).
+     * Removes specified regions and inserts merged region.
+     *
+     * @param indicesToRemove Sorted set of region indices to remove
+     * @param mergedRegion The new merged region to insert
+     */
+    void performMerge(const std::set<int>& indicesToRemove, const Region& mergedRegion);
+
 private:
     juce::Array<Region> m_regions;
-    int m_selectedRegionIndex;
+
+    // Multi-selection state (Phase 3.5)
+    std::set<int> m_selectedRegionIndices;  // Sorted, unique selected indices
+    int m_primarySelectionIndex;             // Last clicked region (for Shift+Click anchor)
+
+    // Thread safety (proper locking, not just debug asserts)
+    mutable juce::CriticalSection m_lock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RegionManager)
 };
