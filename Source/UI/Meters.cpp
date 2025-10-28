@@ -3,7 +3,7 @@
 
     Meters.cpp
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

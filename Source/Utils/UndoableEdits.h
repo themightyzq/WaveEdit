@@ -3,7 +3,7 @@
 
     UndoableEdits.h
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -435,4 +435,327 @@ private:
     double m_sampleRate;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReplaceAction)
+};
+
+//==============================================================================
+/**
+ * Undoable region boundary nudge operation.
+ * Stores the old and new boundary positions for a region.
+ */
+class NudgeRegionUndoAction : public juce::UndoableAction
+{
+public:
+    /**
+     * Creates a nudge action for a region boundary.
+     *
+     * @param regionManager Reference to the RegionManager
+     * @param regionDisplay Optional pointer to RegionDisplay for repainting
+     * @param regionIndex Index of the region to nudge
+     * @param nudgeType Which boundary to nudge (start or end)
+     * @param oldPosition Old boundary position in samples
+     * @param newPosition New boundary position in samples
+     */
+    NudgeRegionUndoAction(RegionManager& regionManager,
+                          RegionDisplay* regionDisplay,
+                          int regionIndex,
+                          bool nudgeStart,
+                          int64_t oldPosition,
+                          int64_t newPosition)
+        : m_regionManager(regionManager),
+          m_regionDisplay(regionDisplay),
+          m_regionIndex(regionIndex),
+          m_nudgeStart(nudgeStart),
+          m_oldPosition(oldPosition),
+          m_newPosition(newPosition)
+    {
+        jassert(regionIndex >= 0 && regionIndex < m_regionManager.getNumRegions());
+    }
+
+    bool perform() override
+    {
+        // Apply the new boundary position
+        Region* region = m_regionManager.getRegion(m_regionIndex);
+        if (!region) return false;
+
+        if (m_nudgeStart)
+            region->setStartSample(m_newPosition);
+        else
+            region->setEndSample(m_newPosition);
+
+        // Update visual display
+        if (m_regionDisplay)
+            m_regionDisplay->repaint();
+
+        return true;
+    }
+
+    bool undo() override
+    {
+        // Restore the old boundary position
+        Region* region = m_regionManager.getRegion(m_regionIndex);
+        if (!region) return false;
+
+        if (m_nudgeStart)
+            region->setStartSample(m_oldPosition);
+        else
+            region->setEndSample(m_oldPosition);
+
+        // Update visual display
+        if (m_regionDisplay)
+            m_regionDisplay->repaint();
+
+        return true;
+    }
+
+    int getSizeInUnits() override
+    {
+        // Minimal memory footprint (just storing integers)
+        return sizeof(*this);
+    }
+
+private:
+    RegionManager& m_regionManager;
+    RegionDisplay* m_regionDisplay;
+    int m_regionIndex;
+    bool m_nudgeStart;  // true = nudge start, false = nudge end
+    int64_t m_oldPosition;
+    int64_t m_newPosition;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NudgeRegionUndoAction)
+};
+
+//==============================================================================
+/**
+ * Undoable batch rename operation for multiple regions.
+ * Stores old and new names for all renamed regions.
+ */
+class BatchRenameRegionUndoAction : public juce::UndoableAction
+{
+public:
+    /**
+     * Creates a batch rename action.
+     *
+     * @param regionManager Reference to the RegionManager
+     * @param regionDisplay Optional pointer to RegionDisplay for repainting
+     * @param regionIndices Indices of regions to rename
+     * @param oldNames Old names of the regions
+     * @param newNames New names for the regions
+     */
+    BatchRenameRegionUndoAction(RegionManager& regionManager,
+                                 RegionDisplay* regionDisplay,
+                                 const std::vector<int>& regionIndices,
+                                 const std::vector<juce::String>& oldNames,
+                                 const std::vector<juce::String>& newNames)
+        : m_regionManager(regionManager),
+          m_regionDisplay(regionDisplay),
+          m_regionIndices(regionIndices),
+          m_oldNames(oldNames),
+          m_newNames(newNames)
+    {
+        jassert(regionIndices.size() == oldNames.size());
+        jassert(regionIndices.size() == newNames.size());
+        jassert(!regionIndices.empty());
+    }
+
+    bool perform() override
+    {
+        // Apply new names to all regions
+        for (size_t i = 0; i < m_regionIndices.size(); ++i)
+        {
+            Region* region = m_regionManager.getRegion(m_regionIndices[i]);
+            if (!region) return false;
+
+            region->setName(m_newNames[i]);
+        }
+
+        // Update visual display
+        if (m_regionDisplay)
+            m_regionDisplay->repaint();
+
+        return true;
+    }
+
+    bool undo() override
+    {
+        // Restore old names to all regions
+        for (size_t i = 0; i < m_regionIndices.size(); ++i)
+        {
+            Region* region = m_regionManager.getRegion(m_regionIndices[i]);
+            if (!region) return false;
+
+            region->setName(m_oldNames[i]);
+        }
+
+        // Update visual display
+        if (m_regionDisplay)
+            m_regionDisplay->repaint();
+
+        return true;
+    }
+
+    int getSizeInUnits() override
+    {
+        // Approximate memory usage (indices + string data)
+        int size = sizeof(*this);
+        for (const auto& name : m_oldNames)
+            size += name.length();
+        for (const auto& name : m_newNames)
+            size += name.length();
+        return size;
+    }
+
+private:
+    RegionManager& m_regionManager;
+    RegionDisplay* m_regionDisplay;
+    std::vector<int> m_regionIndices;
+    std::vector<juce::String> m_oldNames;
+    std::vector<juce::String> m_newNames;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BatchRenameRegionUndoAction)
+};
+
+//==============================================================================
+/**
+ * Undoable merge operation for two adjacent regions.
+ * Stores original regions so they can be restored on undo.
+ */
+class MergeRegionsUndoAction : public juce::UndoableAction
+{
+public:
+    /**
+     * Creates a merge regions action.
+     *
+     * @param regionManager Reference to the RegionManager
+     * @param regionDisplay Optional pointer to RegionDisplay for repainting
+     * @param firstIndex Index of the first region
+     * @param secondIndex Index of the second region
+     * @param originalFirst Copy of the first region before merge
+     * @param originalSecond Copy of the second region before merge
+     */
+    MergeRegionsUndoAction(RegionManager& regionManager,
+                           RegionDisplay* regionDisplay,
+                           int firstIndex,
+                           int secondIndex,
+                           const Region& originalFirst,
+                           const Region& originalSecond)
+        : m_regionManager(regionManager),
+          m_regionDisplay(regionDisplay),
+          m_firstIndex(firstIndex),
+          m_secondIndex(secondIndex),
+          m_originalFirst(originalFirst),
+          m_originalSecond(originalSecond)
+    {
+    }
+
+    bool perform() override
+    {
+        bool success = m_regionManager.mergeRegions(m_firstIndex, m_secondIndex);
+        if (success && m_regionDisplay)
+            m_regionDisplay->repaint();
+        return success;
+    }
+
+    bool undo() override
+    {
+        // Restore the original two regions
+        Region* mergedRegion = m_regionManager.getRegion(m_firstIndex);
+        if (!mergedRegion) return false;
+
+        // Verify index is still valid before insertion
+        if (m_secondIndex > m_regionManager.getNumRegions())
+        {
+            juce::Logger::writeToLog("Warning: Cannot undo merge - region index out of bounds");
+            return false;
+        }
+
+        // Restore first region's original state
+        mergedRegion->setName(m_originalFirst.getName());
+        mergedRegion->setEndSample(m_originalFirst.getEndSample());
+
+        // Re-insert the second region
+        m_regionManager.insertRegionAt(m_secondIndex, m_originalSecond);
+
+        if (m_regionDisplay)
+            m_regionDisplay->repaint();
+
+        return true;
+    }
+
+    int getSizeInUnits() override { return sizeof(*this); }
+
+private:
+    RegionManager& m_regionManager;
+    RegionDisplay* m_regionDisplay;
+    int m_firstIndex, m_secondIndex;
+    Region m_originalFirst, m_originalSecond;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MergeRegionsUndoAction)
+};
+
+//==============================================================================
+/**
+ * Undoable split operation for a region.
+ * Stores original region so it can be restored on undo.
+ */
+class SplitRegionUndoAction : public juce::UndoableAction
+{
+public:
+    /**
+     * Creates a split region action.
+     *
+     * @param regionManager Reference to the RegionManager
+     * @param regionDisplay Optional pointer to RegionDisplay for repainting
+     * @param regionIndex Index of the region to split
+     * @param splitSample Sample position for the split
+     * @param originalRegion Copy of the region before split
+     */
+    SplitRegionUndoAction(RegionManager& regionManager,
+                          RegionDisplay* regionDisplay,
+                          int regionIndex,
+                          int64_t splitSample,
+                          const Region& originalRegion)
+        : m_regionManager(regionManager),
+          m_regionDisplay(regionDisplay),
+          m_regionIndex(regionIndex),
+          m_splitSample(splitSample),
+          m_originalRegion(originalRegion)
+    {
+    }
+
+    bool perform() override
+    {
+        bool success = m_regionManager.splitRegion(m_regionIndex, m_splitSample);
+        if (success && m_regionDisplay)
+            m_regionDisplay->repaint();
+        return success;
+    }
+
+    bool undo() override
+    {
+        // Remove the second half of the split region
+        m_regionManager.removeRegion(m_regionIndex + 1);
+
+        // Restore first region to original state
+        Region* firstHalf = m_regionManager.getRegion(m_regionIndex);
+        if (!firstHalf) return false;
+
+        firstHalf->setName(m_originalRegion.getName());
+        firstHalf->setEndSample(m_originalRegion.getEndSample());
+
+        if (m_regionDisplay)
+            m_regionDisplay->repaint();
+
+        return true;
+    }
+
+    int getSizeInUnits() override { return sizeof(*this); }
+
+private:
+    RegionManager& m_regionManager;
+    RegionDisplay* m_regionDisplay;
+    int m_regionIndex;
+    int64_t m_splitSample;
+    Region m_originalRegion;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SplitRegionUndoAction)
 };

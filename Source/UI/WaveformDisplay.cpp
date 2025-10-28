@@ -707,6 +707,40 @@ double WaveformDisplay::getSnapIncrementInSeconds() const
     }
 }
 
+int64_t WaveformDisplay::getSnapIncrementInSamples() const
+{
+    int increment = getSnapIncrement();
+
+    // If increment is 0, snap is off - return default 10ms in samples
+    if (increment == 0)
+    {
+        return static_cast<int64_t>(m_sampleRate * 0.01); // 10ms default
+    }
+
+    // Convert increment to samples based on unit type
+    switch (m_snapUnitType)
+    {
+        case AudioUnits::UnitType::Samples:
+            return increment;
+
+        case AudioUnits::UnitType::Milliseconds:
+            return static_cast<int64_t>((increment / 1000.0) * m_sampleRate);
+
+        case AudioUnits::UnitType::Seconds:
+            // Increment is in tenths of seconds (e.g., 1 = 0.1s, 10 = 1.0s)
+            return static_cast<int64_t>((increment / 10.0) * m_sampleRate);
+
+        case AudioUnits::UnitType::Frames:
+            return AudioUnits::framesToSamples(increment, m_navigationPrefs.getFrameRate(), m_sampleRate);
+
+        case AudioUnits::UnitType::Custom:
+            return increment;
+
+        default:
+            return static_cast<int64_t>(m_sampleRate * 0.01); // 10ms default
+    }
+}
+
 double WaveformDisplay::snapTimeToUnit(double time) const
 {
     int increment = getSnapIncrement();

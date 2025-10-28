@@ -83,6 +83,23 @@ public:
          * @param regionIndex Index of the region that was selected
          */
         virtual void regionListPanelRegionSelected(int regionIndex) = 0;
+
+        /**
+         * Called when the user wants to batch rename multiple regions.
+         *
+         * @param regionIndices Indices of the regions to rename
+         */
+        virtual void regionListPanelBatchRename(const std::vector<int>& regionIndices) {}
+
+        /**
+         * Called when the user applies batch rename changes.
+         * The listener should create an undo action and apply the renames.
+         *
+         * @param regionIndices Indices of the regions being renamed
+         * @param newNames New names for the regions (same order as indices)
+         */
+        virtual void regionListPanelBatchRenameApply(const std::vector<int>& regionIndices,
+                                                      const std::vector<juce::String>& newNames) {}
     };
 
     /**
@@ -99,6 +116,13 @@ public:
      * Sets the listener for region list events.
      */
     void setListener(Listener* listener);
+
+    /**
+     * Sets the command manager for global keyboard shortcuts.
+     * This allows shortcuts (undo, redo, etc.) to work even when
+     * the Region List window has focus.
+     */
+    void setCommandManager(juce::ApplicationCommandManager* commandManager);
 
     /**
      * Updates the sample rate for time formatting.
@@ -118,12 +142,26 @@ public:
     void selectRegion(int regionIndex);
 
     /**
+     * Gets the indices of all currently selected regions.
+     *
+     * @return Vector of original region indices (not filtered row indices)
+     */
+    std::vector<int> getSelectedRegionIndices() const;
+
+    /**
      * Shows this panel in a window.
      *
      * @param modal If true, shows as a modal window
      * @return The created window (caller owns this)
      */
     juce::DocumentWindow* showInWindow(bool modal = false);
+
+    /**
+     * Expands or collapses the batch rename section.
+     *
+     * @param expand true to expand, false to collapse
+     */
+    void expandBatchRenameSection(bool expand);
 
     //==============================================================================
     // Component overrides
@@ -146,6 +184,7 @@ public:
     void selectedRowsChanged(int lastRowSelected) override;
     void deleteKeyPressed(int lastRowSelected) override;
     void returnKeyPressed(int lastRowSelected) override;
+    void backgroundClicked(const juce::MouseEvent& event) override;
 
 private:
     /**
@@ -157,7 +196,18 @@ private:
         NameColumn = 2,
         StartColumn = 3,
         EndColumn = 4,
-        DurationColumn = 5
+        DurationColumn = 5,
+        NewNameColumn = 6  // Preview column for batch rename (only visible when batch rename active)
+    };
+
+    /**
+     * Batch rename modes.
+     */
+    enum class RenameMode
+    {
+        Pattern,        // Sequential numbering with patterns ({n}, {N}, {original})
+        FindReplace,    // Text find/replace
+        PrefixSuffix   // Add prefix/suffix
     };
 
     /**
@@ -172,6 +222,26 @@ private:
         juce::String formattedStart;
         juce::String formattedEnd;
         juce::String formattedDuration;
+    };
+
+    /**
+     * Custom TabbedComponent that notifies owner of tab changes.
+     */
+    class CallbackTabbedComponent : public juce::TabbedComponent
+    {
+    public:
+        CallbackTabbedComponent(RegionListPanel& owner, juce::TabbedButtonBar::Orientation orientation)
+            : juce::TabbedComponent(orientation), m_owner(owner)
+        {
+        }
+
+        void currentTabChanged(int newCurrentTabIndex, const juce::String& newCurrentTabName) override
+        {
+            m_owner.onTabChanged(newCurrentTabIndex);
+        }
+
+    private:
+        RegionListPanel& m_owner;
     };
 
     /**
@@ -210,11 +280,20 @@ private:
     void finishEditingName(bool applyChanges);
     juce::String formatTimeForDisplay(double timeInSeconds) const;
 
+    // Batch rename helper methods
+    void onTabChanged(int newTabIndex);
+    void updateBatchRenameMode();
+    void updateBatchRenamePreview();
+    juce::String generateNewName(int index, const Region& region) const;
+    void applyBatchRename();
+    void cancelBatchRename();
+
     //==============================================================================
     // Member variables
     RegionManager* m_regionManager;
     double m_sampleRate;
     Listener* m_listener = nullptr;
+    juce::ApplicationCommandManager* m_commandManager = nullptr;
 
     // UI Components
     juce::Label m_searchLabel;
@@ -244,6 +323,60 @@ private:
     const juce::Colour m_alternateRowColour { 0xff252525 };
     const juce::Colour m_selectedRowColour { 0xff3a3a3a };
     const juce::Colour m_textColour { 0xffe0e0e0 };
+
+    //==============================================================================
+    // Batch rename UI components
+
+    // Toggle button and container
+    juce::TextButton m_batchRenameToggleButton;
+    juce::Component m_batchRenameSection;
+    bool m_batchRenameSectionExpanded = false;
+
+    // Mode tabs
+    CallbackTabbedComponent m_renameTabs;
+
+    // Pattern mode components
+    juce::Label m_patternLabel;
+    juce::ComboBox m_patternComboBox;
+    juce::Label m_startNumberLabel;
+    juce::TextButton m_decrementButton;
+    juce::TextButton m_incrementButton;
+    juce::Label m_startNumberValue;
+    juce::TextEditor m_customPatternEditor;
+    juce::Label m_patternHelpLabel;
+
+    // Find/Replace mode components
+    juce::Label m_findLabel;
+    juce::Label m_replaceLabel;
+    juce::TextEditor m_findEditor;
+    juce::TextEditor m_replaceEditor;
+    juce::ToggleButton m_caseSensitiveToggle;
+    juce::ToggleButton m_replaceAllToggle;
+
+    // Prefix/Suffix mode components
+    juce::Label m_prefixLabel;
+    juce::Label m_suffixLabel;
+    juce::TextEditor m_prefixEditor;
+    juce::TextEditor m_suffixEditor;
+    juce::ToggleButton m_addNumberingToggle;
+
+    // Preview and action buttons
+    juce::Label m_previewLabel;
+    juce::TextEditor m_previewList;
+    juce::TextButton m_applyButton;
+    juce::TextButton m_cancelButton;
+
+    // State
+    RenameMode m_currentRenameMode = RenameMode::Pattern;
+    int m_startNumber = 1;
+    juce::String m_customPattern = "Region {n}";
+    juce::String m_findText;
+    juce::String m_replaceText;
+    bool m_caseSensitive = false;
+    bool m_replaceAll = true;
+    juce::String m_prefixText;
+    juce::String m_suffixText;
+    bool m_addNumbering = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RegionListPanel)
 };

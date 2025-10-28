@@ -3,7 +3,7 @@
 
     CommandIDs.h
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -61,6 +61,7 @@ namespace CommandIDs
         viewCycleTimeFormat = 0x4005,  // Phase 3.5 - Cycle through time formats
         viewAutoScroll    = 0x4006,  // Phase 3 Tier 2 - Auto-scroll during playback (Cmd+Shift+F)
         viewZoomToRegion  = 0x4007,  // Phase 3.3 - Zoom to fit selected region with margins
+        viewAutoPreviewRegions = 0x4008,  // Phase 3.4 - Auto-play regions when selected
 
         // Processing Operations (0x5000 - 0x50FF)
         processFadeIn   = 0x5000,
@@ -124,6 +125,16 @@ namespace CommandIDs
         regionSelectAll = 0xB005,  // Cmd+Shift+A - Select union of all regions
         regionStripSilence = 0xB006,  // Cmd+Shift+R - Auto-create regions from non-silent sections (Strip Silence)
         regionExportAll = 0xB007,  // Cmd+Shift+E - Export each region as separate file (Batch Export)
-        regionShowList  = 0xB008   // Cmd+Shift+M - Show/hide Region List Panel
+        regionShowList  = 0xB008,  // Cmd+Shift+M - Show/hide Region List Panel
+        regionSnapToZeroCrossing = 0xB009,  // Phase 3.3 - Toggle region zero-crossing snap preference
+        regionNudgeStartLeft = 0xB00A,  // Cmd+Shift+Left - Nudge region start boundary left by snap increment
+        regionNudgeStartRight = 0xB00B,  // Cmd+Shift+Right - Nudge region start boundary right by snap increment
+        regionNudgeEndLeft = 0xB00C,  // Shift+Alt+Left - Nudge region end boundary left by snap increment
+        regionNudgeEndRight = 0xB00D,  // Shift+Alt+Right - Nudge region end boundary right by snap increment
+        regionBatchRename = 0xB00E,  // Phase 3.4 - Batch rename multiple selected regions
+        regionMerge = 0xB00F,  // Cmd+J - Merge selected adjacent regions
+        regionSplit = 0xB010,  // Cmd+Shift+S - Split region at cursor position
+        regionCopy = 0xB011,  // Cmd+Shift+C - Copy region definitions to clipboard
+        regionPaste = 0xB012  // Cmd+Shift+V - Paste regions at cursor position
     };
 }
