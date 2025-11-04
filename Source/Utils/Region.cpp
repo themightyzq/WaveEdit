@@ -127,8 +127,8 @@ Region Region::fromJSON(const juce::var& json)
     if (auto* obj = json.getDynamicObject())
     {
         region.m_name = obj->getProperty("name").toString();
-        region.m_startSample = static_cast<int64_t>(obj->getProperty("startSample"));
-        region.m_endSample = static_cast<int64_t>(obj->getProperty("endSample"));
+        region.m_startSample = static_cast<int64_t>(static_cast<juce::int64>(obj->getProperty("startSample")));
+        region.m_endSample = static_cast<int64_t>(static_cast<juce::int64>(obj->getProperty("endSample")));
 
         juce::String colorString = obj->getProperty("color").toString();
         region.m_color = juce::Colour::fromString(colorString);
