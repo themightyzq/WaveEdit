@@ -14,21 +14,11 @@ env:
 
 jobs:
   # ============================================================================
-  # macOS Build Matrix
+  # macOS Build
   # ============================================================================
   build-macos:
-    name: macOS ${{ matrix.arch }}
+    name: macOS Universal
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [universal]
-        include:
-          - arch: universal
-            cmake_arch: "arm64;x86_64"
-            cmake_generator: "Xcode"
-            artifact_path: "build/WaveEdit_artefacts/Release/WaveEdit.app"
-            artifact_name: "WaveEdit-macOS-universal"
 
     steps:
       - name: Checkout code
@@ -37,8 +27,107 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.22.x'
+
+      - name: Configure CMake
+        run: cmake -B build -G "Xcode" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Verify build output
+        run: |
+          echo "Checking build artifacts..."
+          if [ -e "build/WaveEdit_artefacts/Release/WaveEdit.app" ]; then
+            echo "✅ Build artifact found"
+            ls -lh build/WaveEdit_artefacts/Release/WaveEdit.app
+          else
+            echo "❌ Build artifact not found"
+            find build -type f -name "WaveEdit*"
+            exit 1
+          fi
+
+      - name: Package macOS app
+        run: |
+          cd build/WaveEdit_artefacts/Release
+          zip -r ../../../WaveEdit-macOS-universal.zip WaveEdit.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveEdit-macOS-universal
+          path: WaveEdit-macOS-universal.zip
+          retention-days: 30
+
+  # ============================================================================
+  # Windows Build
+  # ============================================================================
+  build-windows:
+    name: Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.22.x'
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          echo "Checking build artifacts..."
+          if [ -e "build/WaveEdit_artefacts/Release/WaveEdit.exe" ]; then
+            echo "✅ Build artifact found"
+            ls -lh build/WaveEdit_artefacts/Release/WaveEdit.exe
+          else
+            echo "❌ Build artifact not found"
+            find build -type f -name "WaveEdit*"
+            exit 1
+          fi
+
+      - name: Package Windows executable
+        shell: bash
+        run: |
+          cd build/WaveEdit_artefacts/Release
+          7z a ../../../WaveEdit-Windows-x64.zip WaveEdit.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveEdit-Windows-x64
+          path: WaveEdit-Windows-x64.zip
+          retention-days: 30
+
+  # ============================================================================
+  # Linux Build
+  # ============================================================================
+  build-linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -49,7 +138,6 @@ jobs:
             libfreetype6-dev \
             libx11-dev \
             libxcomposite-dev \
-            libxcursor-dev \
             libxcursor-dev \
             libxext-dev \
             libxinerama-dev \
@@ -65,73 +153,42 @@ jobs:
           cmake-version: '3.22.x'
 
       - name: Configure CMake
-        run: |
-          cmake -B build -G "${{ matrix.cmake_generator }}" -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
       - name: Verify build output
-        shell: bash
         run: |
           echo "Checking build artifacts..."
-          if [ -e "${{ matrix.artifact_path }}" ]; then
-            echo "✅ Build artifact found: ${{ matrix.artifact_path }}"
-            ls -lh "${{ matrix.artifact_path }}"
+          if [ -e "build/WaveEdit_artefacts/Release/WaveEdit" ]; then
+            echo "✅ Build artifact found"
+            ls -lh build/WaveEdit_artefacts/Release/WaveEdit
           else
-            echo "❌ Build artifact not found: ${{ matrix.artifact_path }}"
-            echo "Contents of build directory:"
-            find build -type f -name "WaveEdit*" || true
+            echo "❌ Build artifact not found"
+            find build -type f -name "WaveEdit*"
             exit 1
           fi
 
-      - name: Package macOS app
-        if: runner.os == 'macOS'
-        run: |
-          cd build/WaveEdit_artefacts/Release
-          zip -r ../../../WaveEdit-macOS.zip WaveEdit.app
-
-      - name: Package Windows executable
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          cd build/WaveEdit_artefacts/Release
-          7z a ../../../WaveEdit-Windows.zip WaveEdit.exe
-
       - name: Package Linux binary
-        if: runner.os == 'Linux'
         run: |
           cd build/WaveEdit_artefacts/Release
-          tar -czf ../../../WaveEdit-Linux.tar.gz WaveEdit
+          tar -czf ../../../WaveEdit-Linux-x64.tar.gz WaveEdit
 
-      - name: Upload macOS artifact
-        if: runner.os == 'macOS'
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: WaveEdit-macOS.zip
+          name: WaveEdit-Linux-x64
+          path: WaveEdit-Linux-x64.tar.gz
           retention-days: 30
 
-      - name: Upload Windows artifact
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: WaveEdit-Windows.zip
-          retention-days: 30
-
-      - name: Upload Linux artifact
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: WaveEdit-Linux.tar.gz
-          retention-days: 30
-
+  # ============================================================================
+  # Build Summary
+  # ============================================================================
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: build-macos
+    needs: [build-macos, build-windows, build-linux]
     if: always()
 
     steps:
@@ -141,4 +198,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Platform | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| macOS | ${{ needs.build-macos.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS Universal | ${{ needs.build-macos.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows x64 | ${{ needs.build-windows.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux x64 | ${{ needs.build-linux.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
