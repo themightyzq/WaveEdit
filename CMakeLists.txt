@@ -343,8 +343,14 @@ if(WAVEEDIT_BUILD_TESTS)
         )
     endif()
 
-    # Create test console application using JUCE's console app macro
-    juce_add_console_app(WaveEditTests
+    # ==============================================================================
+    # OPTIONAL: Automated Tests (only if Tests/ directory exists)
+    # ==============================================================================
+    if(EXISTS "${CMAKE_SOURCE_DIR}/Tests/TestRunner.cpp")
+        message(STATUS "Building WaveEdit automated tests")
+
+        # Create test console application using JUCE's console app macro
+        juce_add_console_app(WaveEditTests
         COMPANY_NAME "ZQ SFX"
         PRODUCT_NAME "WaveEdit Tests"
         BUNDLE_ID "com.zqsfx.waveedittests"
@@ -391,8 +397,10 @@ if(WAVEEDIT_BUILD_TESTS)
             ${CMAKE_CURRENT_SOURCE_DIR}/Tests/TestUtils
     )
 
-    message(STATUS "WaveEdit automated tests configured successfully")
-    message(STATUS "Build tests with: cmake --build . --target WaveEditTests")
-    message(STATUS "Run tests with: ./WaveEdit_artefacts/Debug/WaveEditTests (or Release)")
-
-endif()
+        message(STATUS "WaveEdit automated tests configured successfully")
+        message(STATUS "Build tests with: cmake --build . --target WaveEditTests")
+        message(STATUS "Run tests with: ./WaveEdit_artefacts/Debug/WaveEditTests (or Release)")
+    else()
+        message(STATUS "Tests/ directory not found - skipping test build")
+        message(STATUS "Tests are excluded from repository per .gitignore")
+    endif()
