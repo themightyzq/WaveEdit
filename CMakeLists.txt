@@ -404,3 +404,5 @@ if(WAVEEDIT_BUILD_TESTS)
         message(STATUS "Tests/ directory not found - skipping test build")
         message(STATUS "Tests are excluded from repository per .gitignore")
     endif()
+
+endif() # WAVEEDIT_BUILD_TESTS
