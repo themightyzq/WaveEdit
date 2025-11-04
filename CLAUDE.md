@@ -1,277 +1,399 @@
-# CLAUDE.md - AI Agent Instructions for WaveEdit
+# CLAUDE.md - AI Agent Instructions for WaveEdit by ZQ SFX
 
 ## Company Information
-**Developer**: ZQ SFX  
-**Copyright**: © 2025 ZQ SFX  
-**License**: GPL v3  
+
+**Developer**: ZQ SFX
+**Copyright**: © 2025 ZQ SFX
+**License**: GPL v3
 **Project**: WaveEdit - Professional Audio Editor
+
+All code files, documentation, and branding materials must reflect ZQ SFX ownership.
 
 ---
 
-## Documentation Structure
+## 📄 Documentation Structure
 
-### CLAUDE.md (This File) - AI Operations Manual
-**Purpose**: Binding rules and architectural constraints for AI agents.
-**Contains**: Rules, patterns, requirements, architecture, case studies
-**NOT**: Status updates (→TODO.md), installation guides (→README.md)
+**Single Source of Truth Principle**:
+- **CLAUDE.md** (this file): AI instructions, architecture patterns, coding standards
+- **README.md**: User guide, build instructions, keyboard shortcuts
+- **TODO.md**: Current status, task tracking, roadmap
 
-### README.md - Public Landing Page
-**Purpose**: User-facing project overview and setup instructions
-
-### TODO.md - Developer Task Tracker
-**Purpose**: Current tasks, bugs, status, and roadmap
+**Never duplicate content across files.** Link to the appropriate file instead.
 
 ---
 
 ## Project Overview
 
-**WaveEdit**: Cross-platform professional audio editor (Sound Forge-inspired). JUCE-based C++ application for speed and keyboard-driven workflow.
+**WaveEdit** is a professional audio editor by ZQ SFX inspired by Sound Forge Pro. JUCE-based C++ application designed for speed, precision, and keyboard-driven workflow.
 
 ### Core Philosophy
-1. **Speed**: <1s startup, instant loading, 60fps rendering
-2. **Sample-accurate**: All operations maintain precision
-3. **Keyboard-first**: Every action has a shortcut (Sound Forge defaults)
-4. **Zero bloat**: No unnecessary features
-5. **Professional**: Built for engineers/podcasters/designers
 
-### UI Requirements
-- **Icons over text** (standard transport symbols)
-- **Minimal clutter** (dark theme default)
-- **Accessibility**: Keyboard-navigable, tooltips, screen reader support, 44x44px minimum targets
-- **Responsive**: 1024x768 to 4K, HiDPI support
-- **Professional**: Flat modern design, monospace for numbers
-- **Icons**: SVG only, 24x24px base, 2-3px stroke
+1. **Speed**: Sub-1 second startup, 60fps waveform rendering
+2. **Sample-accurate editing**: Maintain sample-level precision
+3. **Keyboard-first**: Every action has a shortcut
+4. **Zero fluff**: No social features, bloat, or unnecessary complexity
+5. **Professional tool**: For audio engineers, podcasters, sound designers
+6. **Streamlined UI**: Clean, minimal, accessible
+
+### Target Users
+
+Audio engineers, podcasters, sound designers, game developers - anyone who needs fast, accurate audio editing without DAW complexity.
 
 ---
 
 ## Tech Stack
 
-**Required**:
-- Framework: JUCE 7.x+
-- Language: C++17+ (modern standards, smart pointers)
-- Build: CMake (cross-platform)
-- License: GPL v3
+**Framework**: JUCE 7.x+
+**Language**: C++17+
+**Build System**: CMake
+**License**: GPL v3
 
-**Audio Specs**:
-- Sample rates: 44.1-192kHz
-- Bit depths: 16/24/32-bit float
-- Channels: Mono/stereo/multi (≤8)
-- Formats (MVP): WAV only (PCM, IEEE float)
-
----
-
-## Mandatory Architecture Patterns
-
-### Manager Pattern (REQUIRED)
-Every subsystem MUST use singleton managers:
-```cpp
-class AudioBufferManager : public juce::DeletedAtShutdown {
-    JUCE_DECLARE_SINGLETON(AudioBufferManager, true)
-    // Manages ALL audio buffer lifecycle operations
-};
-```
-
-**Required Managers**:
-- `AudioBufferManager` - Buffer lifecycle
-- `AudioEngine` - Playback/transport
-- `DocumentManager` - Multi-document state
-- `CommandManager` - Commands/shortcuts
-- `SelectionManager` - Selection state
-- `RegionManager` - Region handling
-- `PluginManager` - VST3/AU hosting
-- `UndoManager` - Undo/redo
-
-### Component Hierarchy
-```
-MainWindow
-├── MenuBarComponent
-├── TabBarComponent (DocumentTabs)
-├── EditorPanel
-│   ├── TransportBar
-│   ├── WaveformDisplay
-│   ├── TimeRuler
-│   └── StatusBar
-└── FloatingWindows
-```
-
-### State Management Rules
-1. **Single source of truth**: Each manager owns its domain
-2. **No direct component communication**: Use listeners/broadcasters
-3. **Document state isolation**: Per-document undo/selection/regions
-4. **Thread safety**: Audio thread never blocks, use FIFO/lock-free
+**Audio Support**:
+- Sample rates: 44.1kHz to 192kHz
+- Bit depths: 16-bit, 24-bit, 32-bit float
+- Channels: Mono, stereo, up to 8 channels
+- Formats: WAV (primary), FLAC, MP3, OGG (future)
 
 ---
 
 ## Coding Standards
 
+### File Organization
+
+See actual codebase structure in `Source/` directory.
+
 ### Naming Conventions
-- Classes: `PascalCase` (e.g., `AudioEngine`)
-- Methods: `camelCase` (e.g., `processBlock`)
-- Members: `m_camelCase` (e.g., `m_sampleRate`)
-- Constants: `UPPER_SNAKE` (e.g., `MAX_CHANNELS`)
 
-### Error Handling
-- Use `juce::Result` for operations that can fail
-- Never use exceptions in audio code
-- Always check return values
-- Provide meaningful error messages
+- **Classes**: PascalCase (`WaveformDisplay`)
+- **Methods**: camelCase (`loadAudioFile()`)
+- **Members**: camelCase with `m_` prefix (`m_formatManager`)
+- **Constants**: UPPER_SNAKE_CASE or kPascalCase
+- **Enums**: PascalCase name, UPPER_SNAKE_CASE values
 
-### Memory Management
-- Smart pointers everywhere (`std::unique_ptr`, `juce::ReferenceCountedObjectPtr`)
-- RAII for all resources
-- No naked `new`/`delete`
-- Preallocate audio buffers
+### Code Style
 
-### JUCE-Specific
-- Inherit from appropriate bases (`Component`, `AudioProcessor`)
-- Use JUCE containers over STL in UI code
-- Leverage built-in components (avoid reinventing)
-- Follow JUCE threading model
+**Indentation**: 4 spaces (no tabs)
+**Braces**: Allman style (opening brace on new line)
+**Comments**: Doxygen for public methods, explain *why* not *what*
 
 ---
 
-## Quality Control Process (MANDATORY)
+## Architecture Patterns
 
-**Before marking ANY feature complete, ALL must be YES**:
-
-1. ✅ Code review agent run and issues fixed?
-2. ✅ Automated tests written and passing?
-3. ✅ Application builds without warnings?
-4. ✅ Manual testing as user would?
-5. ✅ Keyboard shortcuts verified?
-6. ✅ Menu items present and functional?
-7. ✅ Console checked for errors?
-8. ✅ End-to-end workflow verified?
-9. ✅ Documentation matches implementation?
-
-**If ANY answer is NO, feature is NOT complete.**
-
----
-
-## Integration Rules
-
-### New Features MUST
-1. Register in appropriate manager
-2. Add to command system with shortcuts
-3. Create menu item (if user-facing)
-4. Implement undo/redo
-5. Update status bar
-6. Add automated tests
-7. Update documentation
-
-### Audio Processing Requirements
-- Never allocate in audio callback
-- Use lock-free structures for thread communication
-- Process in blocks (512-2048 samples)
-- Support variable buffer sizes
-- Handle discontinuities gracefully
-
----
-
-## Testing Requirements
-
-**Minimum Coverage**:
-- Unit tests for each manager
-- Integration tests for workflows
-- End-to-end tests for user scenarios
-- Performance benchmarks for audio code
-
-**Test Execution**: Must pass before marking complete
-
----
-
-## Common Anti-Patterns (AVOID)
-
-### Infrastructure ≠ Integration
-**Wrong**: "Created class, feature done"
-**Right**: Class + manager registration + UI + shortcuts + tests
-
-### False Completion
-**Wrong**: Mark complete without QC process
-**Right**: Follow ALL 9 QC steps first
-
-### Documentation Drift
-**Wrong**: Update code, ignore docs
-**Right**: Code and docs updated together
-
----
-
-## Case Studies
-
-### Phase 3 Multi-File Bugs (Lesson: Test Integration)
-**Issue**: Infrastructure existed but wasn't connected
-**Impact**: 6 critical bugs, 6 hours debugging
-**Prevention**: Always verify end-to-end workflow
-
-### Phase 3 Tier 2 False Completion
-**Issue**: Marked complete without QC process
-**Found**: 5 bugs in 45min review (shortcuts conflicts, missing menus)
-**Prevention**: ENFORCE 9-step QC checklist
-
-### Testing Infrastructure Success ✅
-**Followed Process**: All 5 QC steps → 47 test groups → 100% pass
-**Result**: Zero post-release bugs, saved 6+ hours
-**Lesson**: Proper QC upfront prevents debugging later
-
----
-
-## Build Instructions
-
-```bash
-# Configure
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-# Build
-cmake --build build --config Release
-
-# Test
-./build/Tests/WaveEdit_Tests
-
-# Run
-./build/WaveEdit
-```
-
----
-
-## File Structure
+### Component Hierarchy
 
 ```
-WaveEdit/
-├── Source/
-│   ├── Audio/          # Audio processing
-│   ├── Components/     # UI components
-│   ├── Managers/       # Singleton managers
-│   ├── Utils/          # Utilities
-│   └── Main.cpp        # Application entry
-├── Tests/              # Automated tests
-├── Resources/          # Assets
-└── CMakeLists.txt     # Build config
+MainComponent
+├── WaveformDisplay
+├── TransportControls
+├── Meters
+└── SettingsPanel
 ```
+
+**Rules**:
+- UI components separate from audio logic
+- JUCE message thread for UI updates
+- Never block audio thread
+- Use `ChangeBroadcaster`/`ChangeListener` for component communication
+
+### Thread Safety
+
+**CRITICAL**: Never allocate memory, acquire locks, or do I/O on audio thread.
+
+**Audio thread** (real-time):
+- `getNextAudioBlock()` callback only
+- Sample processing
+- Pre-allocated buffers
+
+**Message thread** (UI):
+- File I/O
+- User interaction
+- UI updates
+- Memory allocation
+
+**Background threads**:
+- File loading
+- Waveform thumbnail generation
+- Non-real-time DSP
+
+### Real-Time Buffer Updates
+
+**Problem**: AudioTransportSource caches audio. Updating underlying buffer during playback doesn't flush the cache.
+
+**Solution**: Disconnect and reconnect transport to flush buffers:
+
+```cpp
+// Preserve playback state
+bool wasPlaying = isPlaying();
+double position = getCurrentPosition();
+
+// Flush internal buffers
+m_transportSource.setSource(nullptr);
+m_bufferSource->setBuffer(buffer, sampleRate, false);
+m_transportSource.setSource(m_bufferSource.get(), 0, nullptr, sampleRate, numChannels);
+
+// Restore state
+if (wasPlaying) {
+    m_transportSource.setPosition(position);
+    m_transportSource.start();
+}
+```
+
+See `AudioEngine::reloadBufferPreservingPlayback()` for full implementation.
+
+### Command System
+
+All user actions go through centralized command system in `CommandIDs.h`.
+
+**Benefits**: Single source of truth, keyboard binding, undo/redo integration, consistency.
+
+### Audio-Unit Navigation
+
+**CRITICAL**: Navigation uses audio-unit based positioning (samples, milliseconds), NOT pixel-based.
+
+**Why**: Sample-accurate at any zoom level. Pixel-based selection accuracy depends on zoom (unprofessional).
+
+**Components**:
+- `AudioUnits.h` - Conversion functions, snap modes
+- `NavigationPreferences` - User preferences
+- `WaveformDisplay` - Audio-unit aware navigation
+
+### Settings Management
+
+**Locations** (platform-specific):
+- macOS: `~/Library/Application Support/WaveEdit/`
+- Windows: `%APPDATA%/WaveEdit/`
+- Linux: `~/.config/WaveEdit/`
+
+**Files**: `settings.json`, `keybindings.json`, `autosave/`, `Keymaps/`
+
+### Keyboard Template System
+
+**Architecture**: Reaper-style template switching. Users select complete shortcut sets from dropdown.
+
+**Built-in Templates**:
+1. **Default**: Family-based organization (G=Gain, T=Time, R=Regions, M=Markers)
+2. **WaveEdit-Classic**: Original Phase 1-2 layout
+3. **Sound Forge**: Match Sound Forge Pro shortcuts
+4. **Pro Tools**: Match Pro Tools shortcuts
+
+**Template Locations**:
+- Built-in: `WaveEdit.app/Contents/Resources/Keymaps/` (read-only)
+- User: `~/Library/Application Support/WaveEdit/Keymaps/` (customizable)
+
+**API**: `KeymapManager.h` - Load/switch templates, import/export
+
+### Multi-File Architecture
+
+**Status**: ✅ Implemented (Phase 3)
+
+**Pattern**: Document/DocumentManager
+
+Each Document has:
+- Independent AudioEngine
+- Independent WaveformDisplay
+- Independent UndoManager
+- Independent RegionManager
+- Independent playback/selection state
+
+DocumentManager handles:
+- Tab navigation
+- Inter-file clipboard
+- Save prompts on close
+
+### Region System
+
+**Status**: ✅ Implemented (Phase 3)
+
+**Components**:
+- `Region.h` - Data structure (name, start/end samples, color)
+- `RegionManager.h` - Collection manager
+- `AutoRegionCreator.h` - Strip Silence algorithm
+
+**Persistence**: JSON sidecar files (`.wav.regions.json`)
+
+**UI**: RegionDisplay, RegionListPanel, StripSilenceDialog
 
 ---
 
 ## Performance Targets
 
-- Startup: <1 second
-- File load: <2 seconds for 1-hour stereo
-- Waveform render: 60fps minimum
-- Latency: <10ms roundtrip
-- Memory: <500MB for 1-hour file
+- **Startup**: <1 second
+- **File load**: <2 seconds (10-minute WAV)
+- **Rendering**: 60fps
+- **Playback latency**: <10ms
+- **Save**: <500ms
 
 ---
 
-## Current Implementation Status
+## Quality Assurance
 
-See TODO.md for current phase and task status.
+### Mandatory Process
+
+Before marking ANY task complete:
+
+1. **Code Review** - Run `code-reviewer` agent, fix all issues
+2. **Automated Testing** - Write tests, verify 100% pass rate
+3. **Functional Testing** - Test complete workflow (open → edit → save)
+4. **Manual Verification** - Build and test as user would
+5. **Assessment** - Only mark complete if all steps pass
+
+### Implementation Standards
+
+**Proper Architecture Over Quick Hacks**:
+- No global variables for state
+- No bandaid solutions
+- No TODOs for critical functionality
+
+**Thread Safety**:
+- Proper locking for shared data
+- Never block audio thread
+
+**Error Handling**:
+- Handle ALL failure cases gracefully
+- Log errors, show user-friendly messages
+
+**Memory Management**:
+- Use RAII (`std::unique_ptr`, JUCE reference counting)
+- No raw `new`/`delete`
+
+**Integration Over Isolation**:
+- A component isn't "done" until user can use it end-to-end
+- Verify: Open → Edit → Playback → Save
+
+### Pre-Completion Verification Checklist
+
+**For UI Features**:
+- [ ] UI element appears when triggered
+- [ ] Keyboard shortcut works
+- [ ] Menu item present and clickable
+- [ ] Buttons/controls wired to callbacks
+- [ ] Callbacks execute (check console)
+- [ ] No console errors
+
+**For Keyboard Shortcuts**:
+- [ ] Command ID in `getAllCommands()`
+- [ ] Command info in `getCommandInfo()` with keypress
+- [ ] Handler in `perform()` switch statement
+- [ ] Actually triggers action in app
+
+**For Data Features**:
+- [ ] Data persists to disk
+- [ ] Data loads correctly
+- [ ] Changes visible in UI
+- [ ] Undo/redo works
+- [ ] No crashes or errors
+
+**Never claim "ready to test" without personally verifying it works.**
 
 ---
 
-## Critical Reminders
+## What to Avoid
 
-1. **NEVER** mark features complete without QC process
-2. **ALWAYS** test integration, not just infrastructure
-3. **ENFORCE** manager pattern for all subsystems
-4. **MAINTAIN** documentation accuracy with code
-5. **VERIFY** keyboard shortcuts have no conflicts
+### Anti-Patterns
+- Project files (this is file-based, not a DAW)
+- Social features (no sharing, cloud sync)
+- UI bloat
+- Blocking UI thread
 
-**Remember**: Features aren't done until they work for users end-to-end.
+### Features to Reject
+- Multi-track editing (that's a DAW)
+- MIDI support (audio-only)
+- Video support (audio-only)
+- Cloud storage
+- Telemetry
+
+### Performance Pitfalls
+- Loading entire file into memory
+- Re-rendering entire waveform on zoom
+- Allocations in audio callback
+- Synchronous I/O on message thread
+
+---
+
+## Build Instructions
+
+**Use the build script** (SOURCE OF TRUTH):
+
+```bash
+./build-and-run.command          # Build and run
+./build-and-run.command clean    # Clean build
+./build-and-run.command debug    # Debug build
+```
+
+For manual CMake commands, see README.md build section.
+
+---
+
+## Case Studies
+
+### Phase 3 Multi-File Integration Bugs (2025-10-14)
+
+**Lesson**: Components implemented but not integrated end-to-end.
+
+**Impact**: 6 critical bugs, 6 hours to fix.
+
+**Root Cause**: Marked "complete" without testing complete workflow.
+
+**Fix**: AudioBufferManager integration, command system null-safety.
+
+**Takeaway**: NEVER mark complete without end-to-end testing.
+
+### Phase 3 Tier 2 False Completion Claims (2025-10-16)
+
+**Lesson**: Quality control process defined but not enforced.
+
+**Impact**: 5 critical bugs, 100% completion claim was false.
+
+**Root Cause**: Skipped all 5 QC steps (code review, testing, verification).
+
+**Takeaway**: Process is useless if not followed. Enforce pre-completion checklist.
+
+### Automated Testing Infrastructure Success (2025-10-15)
+
+**Lesson**: Following QC process prevents bugs and saves time.
+
+**Implementation**: Full 5-step process → 0 bugs, accurate documentation.
+
+**Impact**: 8 hours to implement, saved 6+ hours debugging.
+
+**Takeaway**: Proper QC upfront is faster than debugging later.
+
+---
+
+## Resources
+
+**When Stuck**:
+- JUCE docs: https://docs.juce.com/
+- JUCE forum: https://forum.juce.com/
+- Review existing code patterns
+- Ask user for clarification
+
+**Documentation**:
+- Current status: See TODO.md
+- User guide: See README.md
+- Build instructions: See README.md
+
+---
+
+## Final Notes
+
+This is a **professional audio tool**. Users expect reliability, speed, and precision.
+
+Every decision should prioritize:
+1. **Speed**: Fast startup, operations, workflow
+2. **Accuracy**: Sample-perfect editing
+3. **Usability**: Keyboard-driven, discoverable
+4. **Simplicity**: No bloat, just editing
+
+**When in doubt**: "Would Sound Forge Pro do this?" If yes, implement it. If no, skip it.
+
+---
+
+**Last Updated**: 2025-11-02 (Streamlined from 2440 → 1100 lines)
+**Project Start**: 2025-10-06
+
+> **Cross-References**:
+> - **Status & Roadmap**: TODO.md
+> - **User Guide**: README.md
+> - **Architecture**: This file

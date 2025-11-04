@@ -1,0 +1,563 @@
+{
+  "name": "Sound Forge",
+  "description": "Complete authentic Sound Forge Pro keyboard shortcuts - comprehensive mapping for all WaveEdit commands",
+  "version": "1.1",
+  "shortcuts": {
+    "_comment_file": "=== FILE OPERATIONS ===",
+    "fileNew": {
+      "key": "N",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "fileOpen": {
+      "key": "O",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "fileSave": {
+      "key": "S",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "fileSaveAs": {
+      "key": "S",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "fileProperties": {
+      "key": "Enter",
+      "modifiers": [
+        "alt"
+      ]
+    },
+    "fileExit": {
+      "key": "Q",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "filePreferences": {
+      "key": ",",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "_comment_edit": "=== EDIT OPERATIONS ===",
+    "editUndo": {
+      "key": "Z",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "editRedo": {
+      "key": "Z",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "editCut": {
+      "key": "X",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "editCopy": {
+      "key": "C",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "editPaste": {
+      "key": "V",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "editDelete": {
+      "key": "Delete",
+      "modifiers": []
+    },
+    "editSelectAll": {
+      "key": "A",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "editSilence": {
+      "key": "L",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "editTrim": {
+      "key": "T",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "_comment_playback": "=== PLAYBACK OPERATIONS ===",
+    "playbackPlay": {
+      "key": "Space",
+      "modifiers": []
+    },
+    "playbackPause": {
+      "key": "Enter",
+      "modifiers": []
+    },
+    "playbackStop": {
+      "key": "Escape",
+      "modifiers": []
+    },
+    "playbackLoop": {
+      "key": "Q",
+      "modifiers": []
+    },
+    "playbackRecord": {
+      "key": "R",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "_comment_view": "=== VIEW/ZOOM OPERATIONS ===",
+    "viewZoomIn": {
+      "key": "Up",
+      "modifiers": []
+    },
+    "viewZoomOut": {
+      "key": "Down",
+      "modifiers": []
+    },
+    "viewZoomFit": {
+      "key": "Down",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "viewZoomSelection": {
+      "key": "Up",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "viewZoomOneToOne": {
+      "key": "0",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "viewCycleTimeFormat": {
+      "key": "D",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "viewAutoScroll": {
+      "key": "F",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "viewZoomToRegion": {
+      "key": "E",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "viewAutoPreviewRegions": {
+      "key": "P",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "_comment_process": "=== PROCESSING OPERATIONS ===",
+    "processGain": {
+      "key": "G",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "processIncreaseGain": {
+      "key": "Up",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "processDecreaseGain": {
+      "key": "Down",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "processNormalize": {
+      "key": "N",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "processFadeIn": {
+      "key": "I",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
+    "processFadeOut": {
+      "key": "O",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "processDCOffset": {
+      "key": "D",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "_comment_navigation": "=== NAVIGATION OPERATIONS ===",
+    "navigateLeft": {
+      "key": "Left",
+      "modifiers": []
+    },
+    "navigateRight": {
+      "key": "Right",
+      "modifiers": []
+    },
+    "navigateStart": {
+      "key": "Left",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "navigateEnd": {
+      "key": "Right",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "navigatePageLeft": {
+      "key": "PageUp",
+      "modifiers": []
+    },
+    "navigatePageRight": {
+      "key": "PageDown",
+      "modifiers": []
+    },
+    "navigateHomeVisible": {
+      "key": "Home",
+      "modifiers": []
+    },
+    "navigateEndVisible": {
+      "key": "End",
+      "modifiers": []
+    },
+    "navigateCenterView": {
+      "key": ".",
+      "modifiers": []
+    },
+    "navigateGoToPosition": {
+      "key": "G",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "_comment_selection": "=== SELECTION OPERATIONS ===",
+    "selectExtendLeft": {
+      "key": "Left",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "selectExtendRight": {
+      "key": "Right",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "selectExtendStart": {
+      "key": "Home",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "selectExtendEnd": {
+      "key": "End",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "selectExtendPageLeft": {
+      "key": "PageUp",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "selectExtendPageRight": {
+      "key": "PageDown",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "_comment_snap": "=== SNAP OPERATIONS ===",
+    "snapCycleMode": {
+      "key": "T",
+      "modifiers": []
+    },
+    "snapToggleZeroCrossing": {
+      "key": "Z",
+      "modifiers": []
+    },
+    "_comment_tabs": "=== TAB OPERATIONS (Multi-file support) ===",
+    "tabClose": {
+      "key": "W",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabCloseAll": {
+      "key": "W",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "tabNext": {
+      "key": "Tab",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabPrevious": {
+      "key": "Tab",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "tabSelect1": {
+      "key": "1",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabSelect2": {
+      "key": "2",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabSelect3": {
+      "key": "3",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabSelect4": {
+      "key": "4",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabSelect5": {
+      "key": "5",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabSelect6": {
+      "key": "6",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabSelect7": {
+      "key": "7",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabSelect8": {
+      "key": "8",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "tabSelect9": {
+      "key": "9",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "_comment_regions": "=== REGION OPERATIONS ===",
+    "regionAdd": {
+      "key": "R",
+      "modifiers": []
+    },
+    "regionDelete": {
+      "key": "Delete",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "regionNext": {
+      "key": "]",
+      "modifiers": []
+    },
+    "regionPrevious": {
+      "key": "[",
+      "modifiers": []
+    },
+    "regionSelectInverse": {
+      "key": "I",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "regionSelectAll": {
+      "key": "A",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "regionStripSilence": {
+      "key": "U",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "regionExportAll": {
+      "key": "E",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "regionShowList": {
+      "key": "R",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
+    "regionSnapToZeroCrossing": {
+      "key": "Z",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "regionNudgeStartLeft": {
+      "key": "Left",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "regionNudgeStartRight": {
+      "key": "Right",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "regionNudgeEndLeft": {
+      "key": "Left",
+      "modifiers": [
+        "shift",
+        "alt"
+      ]
+    },
+    "regionNudgeEndRight": {
+      "key": "Right",
+      "modifiers": [
+        "shift",
+        "alt"
+      ]
+    },
+    "regionBatchRename": {
+      "key": "N",
+      "modifiers": [
+        "cmd",
+        "alt",
+        "shift"
+      ]
+    },
+    "regionMerge": {
+      "key": "J",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "regionSplit": {
+      "key": "K",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "regionCopy": {
+      "key": "C",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "regionPaste": {
+      "key": "V",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "_comment_markers": "=== MARKER OPERATIONS ===",
+    "markerAdd": {
+      "key": "M",
+      "modifiers": []
+    },
+    "markerDelete": {
+      "key": "Delete",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "markerNext": {
+      "key": "]",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "markerPrevious": {
+      "key": "[",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "markerShowList": {
+      "key": "M",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
+    "_comment_help": "=== HELP OPERATIONS ===",
+    "helpShortcuts": {
+      "key": "/",
+      "modifiers": [
+        "cmd"
+      ]
+    }
+  }
+}

@@ -54,12 +54,6 @@ void RegionDisplay::setVisibleRange(double startTime, double endTime)
 {
     m_visibleStart = startTime;
     m_visibleEnd = endTime;
-
-    // DEBUG: Log visible range updates to diagnose alignment issues
-    juce::Logger::writeToLog(juce::String::formatted(
-        "RegionDisplay::setVisibleRange(%.2f, %.2f) - width=%d",
-        startTime, endTime, getWidth()));
-
     repaint();
 }
 
@@ -217,8 +211,17 @@ void RegionDisplay::mouseDown(const juce::MouseEvent& event)
                 }
                 else
                 {
-                    // Regular click: Select single region (clear others) and prepare for move drag
-                    m_regionManager.selectRegion(regionIndex, false);
+                    // Regular click (no modifiers)
+                    // Phase 3.5 UX Fix: If clicking on an already-selected region, preserve the multi-selection
+                    // and prepare for drag. Only clear selection if clicking on an unselected region.
+                    bool clickedRegionIsSelected = m_regionManager.isRegionSelected(regionIndex);
+
+                    if (!clickedRegionIsSelected)
+                    {
+                        // Click on unselected region: select it (clear others)
+                        m_regionManager.selectRegion(regionIndex, false);
+                    }
+                    // else: Click on selected region: preserve selection for multi-region drag
 
                     // Prepare for potential move operation (Phase 3 / 3.5)
                     m_resizeMode = ResizeMode::MovingRegion;
@@ -338,37 +341,36 @@ void RegionDisplay::mouseDrag(const juce::MouseEvent& event)
             if (numSelected > 1)
             {
                 // Phase 3.5: Move ALL selected regions together
-                // Calculate clamping based on the entire group bounds
+                // CRITICAL FIX (2025-10-31): Use ORIGINAL positions from m_originalMultiRegionBounds
+                // to prevent offset accumulation during drag (was using current positions)
+
+                // Calculate clamping based on the entire group ORIGINAL bounds
                 int64_t groupMinStart = std::numeric_limits<int64_t>::max();
                 int64_t groupMaxEnd = 0;
 
-                // Find group boundaries
-                auto selectedIndices = m_regionManager.getSelectedRegionIndices();
-                for (int idx : selectedIndices)
+                // Find group boundaries from ORIGINAL positions (stored at mouseDown)
+                for (const auto& origBounds : m_originalMultiRegionBounds)
                 {
-                    const Region* r = m_regionManager.getRegion(idx);
-                    if (r != nullptr)
-                    {
-                        groupMinStart = std::min(groupMinStart, r->getStartSample());
-                        groupMaxEnd = std::max(groupMaxEnd, r->getEndSample());
-                    }
+                    groupMinStart = std::min(groupMinStart, origBounds.startSample);
+                    groupMaxEnd = std::max(groupMaxEnd, origBounds.endSample);
                 }
 
-                // Calculate group offset with clamping
+                // Calculate group offset with clamping (using original group bounds)
                 int64_t clampedOffset = dragDeltaSamples;
                 if (groupMinStart + dragDeltaSamples < 0)
                     clampedOffset = -groupMinStart;  // Clamp to start of file
                 else if (groupMaxEnd + dragDeltaSamples > maxSample)
                     clampedOffset = maxSample - groupMaxEnd;  // Clamp to end of file
 
-                // Move all selected regions by the clamped offset
-                for (int idx : selectedIndices)
+                // Move all selected regions by the clamped offset FROM ORIGINAL POSITIONS
+                for (const auto& origBounds : m_originalMultiRegionBounds)
                 {
-                    Region* r = m_regionManager.getRegion(idx);
+                    Region* r = m_regionManager.getRegion(origBounds.regionIndex);
                     if (r != nullptr)
                     {
-                        int64_t newStart = r->getStartSample() + clampedOffset;
-                        int64_t newEnd = r->getEndSample() + clampedOffset;
+                        // Apply offset to ORIGINAL position (not current - prevents accumulation)
+                        int64_t newStart = origBounds.startSample + clampedOffset;
+                        int64_t newEnd = origBounds.endSample + clampedOffset;
                         r->setStartSample(newStart);
                         r->setEndSample(newEnd);
                     }
@@ -625,14 +627,6 @@ void RegionDisplay::drawRegion(juce::Graphics& g, const Region& region, int regi
 
     int x1 = timeToX(startTime);
     int x2 = timeToX(endTime);
-
-    // DEBUG: Log coordinate conversions for first region
-    if (regionIndex == 0)
-    {
-        juce::Logger::writeToLog(juce::String::formatted(
-            "RegionDisplay: Region[0] %.2fs-%.2fs -> pixels %d-%d (width=%d, view=%.2f-%.2f)",
-            startTime, endTime, x1, x2, getWidth(), m_visibleStart, m_visibleEnd));
-    }
 
     // Only draw if region is visible
     if (x2 < 0 || x1 > getWidth())

@@ -37,6 +37,10 @@ target_sources(WaveEdit
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h
+        Source/Utils/BWFMetadata.cpp
+        Source/Utils/BWFMetadata.h
+        Source/Utils/iXMLMetadata.cpp
+        Source/Utils/iXMLMetadata.h
         Source/Utils/AudioClipboard.cpp
         Source/Utils/AudioClipboard.h
         Source/Utils/AudioBufferInputSource.cpp
@@ -57,14 +61,22 @@ target_sources(WaveEdit
         Source/UI/SettingsPanel.h
         Source/UI/FilePropertiesDialog.cpp
         Source/UI/FilePropertiesDialog.h
+        Source/UI/BWFEditorDialog.cpp
+        Source/UI/BWFEditorDialog.h
+        Source/UI/iXMLEditorDialog.cpp
+        Source/UI/iXMLEditorDialog.h
         Source/UI/GoToPositionDialog.cpp
         Source/UI/GoToPositionDialog.h
+        Source/UI/KeyboardCheatSheetDialog.cpp
+        Source/UI/KeyboardCheatSheetDialog.h
         Source/UI/EditRegionBoundariesDialog.cpp
         Source/UI/EditRegionBoundariesDialog.h
         Source/UI/StripSilenceDialog.cpp
         Source/UI/StripSilenceDialog.h
         Source/UI/BatchExportDialog.cpp
         Source/UI/BatchExportDialog.h
+        Source/UI/ShortcutEditorPanel.cpp
+        Source/UI/ShortcutEditorPanel.h
         Source/Utils/Document.cpp
         Source/Utils/Document.h
         Source/Utils/DocumentManager.cpp
@@ -75,10 +87,20 @@ target_sources(WaveEdit
         Source/Utils/RegionManager.h
         Source/Utils/RegionExporter.cpp
         Source/Utils/RegionExporter.h
+        Source/Utils/Marker.cpp
+        Source/Utils/Marker.h
+        Source/Utils/MarkerManager.cpp
+        Source/Utils/MarkerManager.h
+        Source/Utils/KeymapManager.cpp
+        Source/Utils/KeymapManager.h
+        Source/Utils/UCSCategorySuggester.cpp
+        Source/Utils/UCSCategorySuggester.h
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
         Source/UI/RegionListPanel.cpp
         Source/UI/RegionListPanel.h
+        Source/UI/MarkerDisplay.cpp
+        Source/UI/MarkerDisplay.h
 )
 
 # JUCE modules required for audio editing application
@@ -147,6 +169,39 @@ elseif(UNIX)
     )
 endif()
 
+# Copy keyboard template resources to app bundle
+if(APPLE)
+    # On macOS, copy templates to app bundle Resources directory
+    add_custom_command(TARGET WaveEdit POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Resources/Keymaps"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/Templates/Keymaps"
+            "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Resources/Keymaps"
+        COMMENT "Copying keyboard templates to app bundle"
+    )
+elseif(WIN32)
+    # On Windows, copy templates next to executable
+    add_custom_command(TARGET WaveEdit POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:WaveEdit>/Keymaps"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/Templates/Keymaps"
+            "$<TARGET_FILE_DIR:WaveEdit>/Keymaps"
+        COMMENT "Copying keyboard templates to executable directory"
+    )
+else()
+    # On Linux, copy templates next to executable
+    add_custom_command(TARGET WaveEdit POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:WaveEdit>/Keymaps"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/Templates/Keymaps"
+            "$<TARGET_FILE_DIR:WaveEdit>/Keymaps"
+        COMMENT "Copying keyboard templates to executable directory"
+    )
+endif()
+
 # Copy resources (for future phases - icons, fonts, etc.)
 # file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets
 #      DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
@@ -181,6 +236,10 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h
+        Source/Utils/BWFMetadata.cpp
+        Source/Utils/BWFMetadata.h
+        Source/Utils/iXMLMetadata.cpp
+        Source/Utils/iXMLMetadata.h
         Source/Utils/AudioClipboard.cpp
         Source/Utils/AudioClipboard.h
         Source/Utils/AudioBufferInputSource.cpp
@@ -201,8 +260,14 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/SettingsPanel.h
         Source/UI/FilePropertiesDialog.cpp
         Source/UI/FilePropertiesDialog.h
+        Source/UI/BWFEditorDialog.cpp
+        Source/UI/BWFEditorDialog.h
+        Source/UI/iXMLEditorDialog.cpp
+        Source/UI/iXMLEditorDialog.h
         Source/UI/GoToPositionDialog.cpp
         Source/UI/GoToPositionDialog.h
+        Source/UI/KeyboardCheatSheetDialog.cpp
+        Source/UI/KeyboardCheatSheetDialog.h
         Source/UI/EditRegionBoundariesDialog.cpp
         Source/UI/EditRegionBoundariesDialog.h
         Source/UI/StripSilenceDialog.cpp
@@ -217,6 +282,14 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/RegionManager.h
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
+        Source/Utils/Marker.cpp
+        Source/Utils/Marker.h
+        Source/Utils/MarkerManager.cpp
+        Source/Utils/MarkerManager.h
+        Source/Utils/UCSCategorySuggester.cpp
+        Source/Utils/UCSCategorySuggester.h
+        Source/UI/MarkerDisplay.cpp
+        Source/UI/MarkerDisplay.h
     )
 
     # Link WaveEditCore to JUCE modules
@@ -287,6 +360,8 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/AudioEngineTests.cpp                     # Week 2 ✅
             Tests/Unit/AudioBufferManagerTests.cpp              # Week 2 ✅
             Tests/Unit/AudioProcessorTests.cpp                  # Week 2 ✅
+            Tests/Unit/BWFMetadataTests.cpp                     # Phase 4 ✅ (BWF Metadata System)
+            Tests/Unit/BWFEditorDialogTests.cpp                 # Phase 4 ✅ (BWF Editor Dialog)
             Tests/Integration/FileIOTests.cpp                   # Week 3 ✅ (File I/O Integration)
             Tests/Unit/UndoRedoTests.cpp                        # Week 3 ✅ (Undo/Redo Data Integrity)
             Tests/Integration/MultiDocumentTests.cpp            # Week 4 ✅ (Multi-file architecture)

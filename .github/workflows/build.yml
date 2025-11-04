@@ -1,38 +1,33 @@
-name: Build WaveEdit
+name: Build and Test
 
 on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
   workflow_dispatch:
 
-jobs:
-  build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+env:
+  CMAKE_VERSION: '3.27'
+  NINJA_VERSION: '1.11.1'
+  CCACHE_VERSION: '4.8'
 
+jobs:
+  # ============================================================================
+  # macOS Build Matrix
+  # ============================================================================
+  build-macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
+        arch: [universal]  # Can be expanded to [arm64, x86_64, universal]
         include:
-          - name: macOS
-            os: macos-latest
-            cmake_generator: "Xcode"
-            artifact_name: WaveEdit-macOS
-            artifact_path: build/WaveEdit_artefacts/Release/WaveEdit.app
+          - arch: universal
+            cmake_arch: "arm64;x86_64"
 
-          - name: Windows
-            os: windows-latest
-            cmake_generator: "Visual Studio 17 2022"
-            artifact_name: WaveEdit-Windows
-            artifact_path: build/WaveEdit_artefacts/Release/WaveEdit.exe
-
-          - name: Linux
-            os: ubuntu-latest
-            cmake_generator: "Unix Makefiles"
-            artifact_name: WaveEdit-Linux
-            artifact_path: build/WaveEdit_artefacts/Release/WaveEdit
+    steps:
 
     steps:
       - name: Checkout code

@@ -19,6 +19,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_utils/juce_audio_utils.h>
+#include "ShortcutEditorPanel.h"
 
 /**
  * Settings/Preferences panel for WaveEdit.
@@ -32,15 +33,20 @@
  * Accessed via Cmd+, (macOS) or Ctrl+, (Windows/Linux)
  */
 class SettingsPanel : public juce::Component,
-                      public juce::Button::Listener
+                      public juce::Button::Listener,
+                      public juce::ComboBox::Listener
 {
 public:
     /**
      * Constructor.
      *
      * @param deviceManager Reference to the application's AudioDeviceManager
+     * @param commandManager Reference to the application's ApplicationCommandManager
+     * @param keymapManager Reference to the application's KeymapManager (Phase 3)
      */
-    explicit SettingsPanel(juce::AudioDeviceManager& deviceManager);
+    explicit SettingsPanel(juce::AudioDeviceManager& deviceManager,
+                          juce::ApplicationCommandManager& commandManager,
+                          class KeymapManager& keymapManager);
     ~SettingsPanel() override;
 
     //==============================================================================
@@ -53,6 +59,11 @@ public:
     // Button::Listener overrides
 
     void buttonClicked(juce::Button* button) override;
+
+    //==============================================================================
+    // ComboBox::Listener overrides
+
+    void comboBoxChanged(juce::ComboBox* comboBox) override;
 
     //==============================================================================
     // Settings management
@@ -71,20 +82,37 @@ public:
      * Shows the settings dialog as a modal window.
      *
      * @param parentComponent Parent component to center the dialog over
+     * @param deviceManager Reference to the application's AudioDeviceManager
+     * @param commandManager Reference to the application's ApplicationCommandManager
+     * @param keymapManager Reference to the application's KeymapManager (Phase 3)
      */
-    static void showDialog(juce::Component* parentComponent, juce::AudioDeviceManager& deviceManager);
+    static void showDialog(juce::Component* parentComponent,
+                          juce::AudioDeviceManager& deviceManager,
+                          juce::ApplicationCommandManager& commandManager,
+                          KeymapManager& keymapManager);
 
 private:
     //==============================================================================
     // Private members
 
     juce::AudioDeviceManager& m_deviceManager;
+    juce::ApplicationCommandManager& m_commandManager;
+    KeymapManager& m_keymapManager;
 
     // Tab component for organizing settings
     juce::TabbedComponent m_tabbedComponent {juce::TabbedButtonBar::TabsAtTop};
 
     // Audio settings panel
     std::unique_ptr<juce::AudioDeviceSelectorComponent> m_audioSettings;
+
+    // Keyboard shortcuts editor
+    std::unique_ptr<ShortcutEditorPanel> m_shortcutEditor;
+
+    // Keyboard template selection (Phase 3)
+    juce::Label m_templateLabel;
+    juce::ComboBox m_templateSelector;
+    juce::TextButton m_importTemplateButton;
+    juce::TextButton m_exportTemplateButton;
 
     // Display settings
     juce::Label m_waveformColorLabel;
@@ -122,6 +150,11 @@ private:
      * Creates the auto-save settings tab.
      */
     juce::Component* createAutoSaveSettingsTab();
+
+    /**
+     * Creates the keyboard shortcuts tab.
+     */
+    juce::Component* createKeyboardShortcutsTab();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsPanel)
 };

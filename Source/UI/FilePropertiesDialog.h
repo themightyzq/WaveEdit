@@ -36,9 +36,9 @@ public:
     /**
      * Constructor.
      *
-     * @param document Reference to the document whose properties to display
+     * @param document Reference to the document whose properties to display (non-const to enable editing)
      */
-    explicit FilePropertiesDialog(const Document& document);
+    explicit FilePropertiesDialog(Document& document);
     ~FilePropertiesDialog() override;
 
     //==============================================================================
@@ -59,9 +59,9 @@ public:
      * Shows the file properties dialog as a modal window.
      *
      * @param parentComponent Parent component to center the dialog over
-     * @param document Reference to the document whose properties to display
+     * @param document Reference to the document whose properties to display (non-const to enable editing)
      */
-    static void showDialog(juce::Component* parentComponent, const Document& document);
+    static void showDialog(juce::Component* parentComponent, Document& document);
 
 private:
     //==============================================================================
@@ -70,7 +70,7 @@ private:
     /**
      * Populates all property labels from the document.
      */
-    void loadProperties(const Document& document);
+    void loadProperties();
 
     /**
      * Formats a duration in seconds as HH:MM:SS.mmm.
@@ -121,6 +121,21 @@ private:
     juce::Label m_durationLabel;
     juce::Label m_codecLabel;
 
+    juce::Label m_bwfDescriptionLabel;
+    juce::Label m_bwfOriginatorLabel;
+    juce::Label m_bwfOriginationDateLabel;
+
+    juce::Label m_ixmlCategoryLabel;
+    juce::Label m_ixmlSubcategoryLabel;
+    juce::Label m_ixmlCategoryFullLabel;
+    juce::Label m_ixmlFXNameLabel;
+    juce::Label m_ixmlTrackTitleLabel;
+    juce::Label m_ixmlDescriptionLabel;
+    juce::Label m_ixmlKeywordsLabel;
+    juce::Label m_ixmlDesignerLabel;
+    juce::Label m_ixmlProjectLabel;
+    juce::Label m_ixmlTapeLabel;
+
     // Value labels (right column - property values)
     juce::Label m_filenameValue;
     juce::Label m_filePathValue;
@@ -134,8 +149,32 @@ private:
     juce::Label m_durationValue;
     juce::Label m_codecValue;
 
-    // Close button
+    juce::Label m_bwfDescriptionValue;
+    juce::Label m_bwfOriginatorValue;
+    juce::Label m_bwfOriginationDateValue;
+
+    juce::Label m_ixmlCategoryValue;
+    juce::Label m_ixmlSubcategoryValue;
+    juce::Label m_ixmlCategoryFullValue;
+    juce::Label m_ixmlFXNameValue;
+    juce::Label m_ixmlTrackTitleValue;
+    juce::Label m_ixmlDescriptionValue;
+    juce::Label m_ixmlKeywordsValue;
+    juce::Label m_ixmlDesignerValue;
+    juce::Label m_ixmlProjectValue;
+    juce::Label m_ixmlTapeValue;
+
+    // Viewport for scrolling
+    juce::Viewport m_viewport;
+    juce::Component m_contentComponent;
+
+    // Buttons
+    juce::TextButton m_editBWFButton;
+    juce::TextButton m_editiXMLButton;
     juce::TextButton m_closeButton;
+
+    // Document reference (non-const for editing)
+    Document& m_document;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FilePropertiesDialog)
 };

@@ -57,10 +57,8 @@ int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
             }
         }
 
-        // Generate filename
-        juce::String filename = generateFilename(sourceFile, *region, i,
-                                                  settings.includeRegionName,
-                                                  settings.includeIndex);
+        // Generate filename using full settings (supports templates)
+        juce::String filename = generateFilename(sourceFile, *region, i, settings);
 
         juce::File outputFile = settings.outputDirectory.getChildFile(filename);
 
@@ -90,32 +88,75 @@ int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
 juce::String RegionExporter::generateFilename(const juce::File& sourceFile,
                                                const Region& region,
                                                int regionIndex,
-                                               bool includeRegionName,
-                                               bool includeIndex)
+                                               const ExportSettings& settings)
 {
     // Base filename (without extension)
     juce::String baseName = sourceFile.getFileNameWithoutExtension();
 
-    juce::String filename = baseName;
+    // Sanitize region name for filename (replace invalid characters)
+    juce::String regionName = region.getName();
+    regionName = regionName.replaceCharacters("/\\:*?\"<>|", "_________");
 
-    if (includeRegionName)
+    // Prepare index strings (1-based for user-friendliness)
+    int index1Based = regionIndex + 1;
+    juce::String indexStr = juce::String(index1Based);
+    juce::String paddedIndexStr = juce::String(index1Based).paddedLeft('0', 3);
+
+    juce::String filename;
+
+    // Check if custom template is provided
+    juce::String customTemplate = settings.customTemplate.trim();
+
+    if (customTemplate.isNotEmpty())
     {
-        // Sanitize region name for filename (replace invalid characters)
-        juce::String regionName = region.getName();
-        regionName = regionName.replaceCharacters("/\\:*?\"<>|", "_________");
+        // Use template system with placeholder replacement
+        filename = customTemplate;
+        filename = filename.replace("{basename}", baseName);
+        filename = filename.replace("{region}", regionName);
+        filename = filename.replace("{index}", indexStr);
+        filename = filename.replace("{N}", paddedIndexStr);
+    }
+    else
+    {
+        // Legacy naming for backward compatibility
+        filename = baseName;
 
-        if (regionName.isNotEmpty())
+        if (settings.includeRegionName && regionName.isNotEmpty())
         {
             filename += "_" + regionName;
         }
+
+        // Handle suffix placement relative to index
+        juce::String suffix = settings.suffix.trim();
+
+        if (settings.suffixBeforeIndex && suffix.isNotEmpty())
+        {
+            // Add suffix BEFORE index
+            filename += "_" + suffix;
+        }
+
+        if (settings.includeIndex)
+        {
+            // Use padded or non-padded index based on settings
+            filename += settings.usePaddedIndex ? "_" + paddedIndexStr : "_" + indexStr;
+        }
+
+        if (!settings.suffixBeforeIndex && suffix.isNotEmpty())
+        {
+            // Add suffix AFTER index (default behavior)
+            filename += "_" + suffix;
+        }
     }
 
-    if (includeIndex)
+    // Apply prefix (applies to both template and legacy modes)
+    juce::String prefix = settings.prefix.trim();
+
+    if (prefix.isNotEmpty())
     {
-        // Add region index (1-based for user-friendliness)
-        filename += "_" + juce::String(regionIndex + 1);
+        filename = prefix + "_" + filename;
     }
 
+    // Add .wav extension
     filename += ".wav";
 
     return filename;

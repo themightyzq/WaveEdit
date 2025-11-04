@@ -32,6 +32,7 @@ struct AudioFileInfo
     juce::int64 lengthInSamples;
     double lengthInSeconds;
     juce::String formatName;
+    juce::StringPairArray metadata;  // BWF and other metadata
 
     AudioFileInfo()
         : sampleRate(0.0),
@@ -120,12 +121,14 @@ public:
      * @param buffer The audio data to save
      * @param sampleRate Sample rate of the audio
      * @param bitDepth Bit depth (16, 24, or 32)
+     * @param metadata Optional BWF metadata to embed in file
      * @return true if save succeeded, false otherwise
      */
     bool saveAsWav(const juce::File& file,
                    const juce::AudioBuffer<float>& buffer,
                    double sampleRate,
-                   int bitDepth = 16);
+                   int bitDepth = 16,
+                   const juce::StringPairArray& metadata = {});
 
     /**
      * Overwrites an existing file with new audio data.
@@ -135,12 +138,34 @@ public:
      * @param buffer The audio data to save
      * @param sampleRate Sample rate of the audio
      * @param bitDepth Bit depth (16, 24, or 32)
+     * @param metadata Optional BWF metadata to embed in file
      * @return true if save succeeded, false otherwise
      */
     bool overwriteFile(const juce::File& file,
                        const juce::AudioBuffer<float>& buffer,
                        double sampleRate,
-                       int bitDepth);
+                       int bitDepth,
+                       const juce::StringPairArray& metadata = {});
+
+    /**
+     * Appends an iXML chunk to an existing WAV file.
+     * Must be called AFTER the file has been written with JUCE's writer.
+     *
+     * @param file The WAV file to append the chunk to
+     * @param ixmlData The iXML metadata as XML string
+     * @return true if chunk was successfully appended, false otherwise
+     */
+    bool appendiXMLChunk(const juce::File& file, const juce::String& ixmlData);
+
+    /**
+     * Reads an iXML chunk from a WAV file.
+     * JUCE doesn't read custom chunks, so we must read them manually.
+     *
+     * @param file The WAV file to read from
+     * @param outData String to fill with iXML data
+     * @return true if iXML chunk was found and read, false otherwise
+     */
+    bool readiXMLChunk(const juce::File& file, juce::String& outData);
 
     //==============================================================================
     // Error Handling
@@ -179,6 +204,7 @@ private:
                                   double sampleRate,
                                   int bitDepth);
 
+private:
     /**
      * Gets the appropriate audio format for a file extension.
      */

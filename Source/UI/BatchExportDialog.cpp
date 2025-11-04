@@ -14,6 +14,7 @@
 */
 
 #include "BatchExportDialog.h"
+#include "../Utils/Settings.h"
 #include <optional>
 
 BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionManager& regionManager)
@@ -23,6 +24,11 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
       m_namingOptionsLabel("namingOptionsLabel", "Naming Options:"),
       m_includeRegionNameToggle("Include region name"),
       m_includeIndexToggle("Include region index"),
+      m_templateLabel("templateLabel", "Custom Template:"),
+      m_templateHelpLabel("templateHelpLabel", "Placeholders: {basename} {region} {index} {N}"),
+      m_prefixLabel("prefixLabel", "Prefix:"),
+      m_suffixLabel("suffixLabel", "Suffix:"),
+      m_paddedIndexToggle("Use padded index (001, 002...)"),
       m_previewLabel("previewLabel", "Preview:"),
       m_exportButton("Export"),
       m_cancelButton("Cancel"),
@@ -41,12 +47,21 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
     m_outputDirLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(m_outputDirLabel);
 
-    // Output directory editor (read-only)
-    m_outputDirEditor.setReadOnly(true);
+    // Output directory editor (now editable)
+    m_outputDirEditor.setReadOnly(false);  // Allow user to type/paste paths
     m_outputDirEditor.setJustification(juce::Justification::centredLeft);
+    m_outputDirEditor.onTextChange = [this]() { onOutputDirTextChanged(); };
 
-    // Default to same directory as source file
-    m_outputDirectory = sourceFile.getParentDirectory();
+    // Load last used directory from Settings, or default to same directory as source file
+    juce::String lastDir = Settings::getInstance().getSetting("export.lastDirectory", "").toString();
+    if (lastDir.isNotEmpty() && juce::File(lastDir).isDirectory())
+    {
+        m_outputDirectory = juce::File(lastDir);
+    }
+    else
+    {
+        m_outputDirectory = sourceFile.getParentDirectory();
+    }
     m_outputDirEditor.setText(m_outputDirectory.getFullPathName());
     addAndMakeVisible(m_outputDirEditor);
 
@@ -70,6 +85,56 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
     m_includeIndexToggle.setToggleState(true, juce::dontSendNotification);
     m_includeIndexToggle.onClick = [this]() { onNamingOptionChanged(); };
     addAndMakeVisible(m_includeIndexToggle);
+
+    // Template label
+    m_templateLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(m_templateLabel);
+
+    // Template editor
+    m_templateEditor.setJustification(juce::Justification::centredLeft);
+    m_templateEditor.onTextChange = [this]() { onTemplateTextChanged(); };
+    m_templateEditor.setTooltip("Use placeholders: {basename}, {region}, {index}, {N} for padded index");
+    addAndMakeVisible(m_templateEditor);
+
+    // Template help label (smaller font, grey color)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    m_templateHelpLabel.setFont(juce::Font(10.0f, juce::Font::italic));
+    #pragma GCC diagnostic pop
+    m_templateHelpLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    addAndMakeVisible(m_templateHelpLabel);
+
+    // Prefix label
+    m_prefixLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(m_prefixLabel);
+
+    // Prefix editor
+    m_prefixEditor.setJustification(juce::Justification::centredLeft);
+    m_prefixEditor.onTextChange = [this]() { onNamingOptionChanged(); };
+    m_prefixEditor.setTooltip("Text added before filename");
+    addAndMakeVisible(m_prefixEditor);
+
+    // Suffix label
+    m_suffixLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(m_suffixLabel);
+
+    // Suffix editor
+    m_suffixEditor.setJustification(juce::Justification::centredLeft);
+    m_suffixEditor.onTextChange = [this]() { onNamingOptionChanged(); };
+    m_suffixEditor.setTooltip("Text added before file extension");
+    addAndMakeVisible(m_suffixEditor);
+
+    // Padded index toggle
+    m_paddedIndexToggle.setToggleState(false, juce::dontSendNotification);
+    m_paddedIndexToggle.onClick = [this]() { onNamingOptionChanged(); };
+    addAndMakeVisible(m_paddedIndexToggle);
+
+    // Suffix before index toggle
+    m_suffixBeforeIndexToggle.setButtonText("Suffix before index");
+    m_suffixBeforeIndexToggle.setTooltip("Place suffix before index (checked) or after index (unchecked)");
+    m_suffixBeforeIndexToggle.setToggleState(false, juce::dontSendNotification);
+    m_suffixBeforeIndexToggle.onStateChange = [this]() { onNamingOptionChanged(); };
+    addAndMakeVisible(m_suffixBeforeIndexToggle);
 
     // Preview label
     #pragma GCC diagnostic push
@@ -99,7 +164,8 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
     // Initial preview update
     updatePreviewList();
 
-    setSize(500, 450);
+    // Increased height to accommodate new UI components (was 450, now 650)
+    setSize(500, 650);
 }
 
 std::optional<BatchExportDialog::ExportSettings> BatchExportDialog::showDialog(
@@ -129,7 +195,7 @@ std::optional<BatchExportDialog::ExportSettings> BatchExportDialog::showDialog(
     // Create the dialog window
     juce::DialogWindow dlg("Batch Export Regions", juce::Colours::darkgrey, true, false);
     dlg.setContentOwned(dialog.release(), true);
-    dlg.centreWithSize(500, 450);
+    dlg.centreWithSize(500, 650);  // Increased height for new UI components
     dlg.setResizable(false, false);
     dlg.setUsingNativeTitleBar(false);
 
@@ -208,9 +274,46 @@ void BatchExportDialog::resized()
 
     area.removeFromTop(15); // Spacing
 
-    // Preview
+    // Template row
+    auto templateRow = area.removeFromTop(30);
+    m_templateLabel.setBounds(templateRow.removeFromLeft(120));
+    templateRow.removeFromLeft(10); // Spacing
+    m_templateEditor.setBounds(templateRow);
+
+    // Template help text
+    m_templateHelpLabel.setBounds(area.removeFromTop(15).withTrimmedLeft(130));
+
+    area.removeFromTop(10); // Spacing
+
+    // Prefix row
+    auto prefixRow = area.removeFromTop(30);
+    m_prefixLabel.setBounds(prefixRow.removeFromLeft(120));
+    prefixRow.removeFromLeft(10); // Spacing
+    m_prefixEditor.setBounds(prefixRow);
+
+    area.removeFromTop(10); // Spacing
+
+    // Suffix row
+    auto suffixRow = area.removeFromTop(30);
+    m_suffixLabel.setBounds(suffixRow.removeFromLeft(120));
+    suffixRow.removeFromLeft(10); // Spacing
+    m_suffixEditor.setBounds(suffixRow);
+
+    area.removeFromTop(10); // Spacing
+
+    // Padded index toggle
+    m_paddedIndexToggle.setBounds(area.removeFromTop(25).reduced(10, 0));
+
+    area.removeFromTop(10); // Spacing
+
+    // Suffix before index toggle
+    m_suffixBeforeIndexToggle.setBounds(area.removeFromTop(25).reduced(10, 0));
+
+    area.removeFromTop(15); // Spacing
+
+    // Preview (reduced height to make room for new components)
     m_previewLabel.setBounds(area.removeFromTop(25));
-    m_previewList.setBounds(area.removeFromTop(150));
+    m_previewList.setBounds(area.removeFromTop(120));
 
     area.removeFromTop(15); // Spacing
 
@@ -226,29 +329,79 @@ void BatchExportDialog::resized()
 
 juce::String BatchExportDialog::generatePreviewFilename(int regionIndex, const Region& region) const
 {
-    // Base filename (without extension)
+    // Get base filename (without extension)
     juce::String baseName = m_sourceFile.getFileNameWithoutExtension();
 
-    juce::String filename = baseName;
+    // Sanitize region name for filename (replace invalid characters)
+    juce::String regionName = region.getName();
+    regionName = regionName.replaceCharacters("/\\:*?\"<>|", "_________");
 
-    if (m_includeRegionNameToggle.getToggleState())
+    // Calculate index values
+    int index1Based = regionIndex + 1;
+    juce::String indexStr = juce::String(index1Based);
+    juce::String paddedIndexStr = juce::String(index1Based).paddedLeft('0', 3);
+
+    juce::String filename;
+
+    // Check if custom template is provided
+    juce::String customTemplate = m_templateEditor.getText().trim();
+
+    if (customTemplate.isNotEmpty())
     {
-        // Sanitize region name for filename (replace invalid characters)
-        juce::String regionName = region.getName();
-        regionName = regionName.replaceCharacters("/\\:*?\"<>|", "_________");
+        // Use custom template with placeholder replacement
+        filename = customTemplate;
+        filename = filename.replace("{basename}", baseName);
+        filename = filename.replace("{region}", regionName);
+        filename = filename.replace("{index}", indexStr);
+        filename = filename.replace("{N}", paddedIndexStr);
+    }
+    else
+    {
+        // Use legacy naming system (for backward compatibility)
+        filename = baseName;
 
-        if (regionName.isNotEmpty())
+        if (m_includeRegionNameToggle.getToggleState() && regionName.isNotEmpty())
         {
             filename += "_" + regionName;
         }
+
+        // Handle suffix placement relative to index
+        juce::String suffix = m_suffixEditor.getText().trim();
+        bool suffixBeforeIndex = m_suffixBeforeIndexToggle.getToggleState();
+
+        // Apply suffix BEFORE index if toggle is checked and suffix exists
+        if (suffixBeforeIndex && suffix.isNotEmpty())
+        {
+            filename += "_" + suffix;
+        }
+
+        if (m_includeIndexToggle.getToggleState())
+        {
+            if (m_paddedIndexToggle.getToggleState())
+            {
+                filename += "_" + paddedIndexStr;
+            }
+            else
+            {
+                filename += "_" + indexStr;
+            }
+        }
+
+        // Apply suffix AFTER index if toggle is unchecked (default) and suffix exists
+        if (!suffixBeforeIndex && suffix.isNotEmpty())
+        {
+            filename += "_" + suffix;
+        }
     }
 
-    if (m_includeIndexToggle.getToggleState())
+    // Apply prefix
+    juce::String prefix = m_prefixEditor.getText().trim();
+    if (prefix.isNotEmpty())
     {
-        // Add region index (1-based for user-friendliness)
-        filename += "_" + juce::String(regionIndex + 1);
+        filename = prefix + filename;
     }
 
+    // Add file extension
     filename += ".wav";
 
     return filename;
@@ -309,6 +462,22 @@ void BatchExportDialog::onNamingOptionChanged()
     updatePreviewList();
 }
 
+void BatchExportDialog::onOutputDirTextChanged()
+{
+    // Update output directory from text editor
+    juce::String dirPath = m_outputDirEditor.getText().trim();
+    if (dirPath.isNotEmpty())
+    {
+        m_outputDirectory = juce::File(dirPath);
+    }
+}
+
+void BatchExportDialog::onTemplateTextChanged()
+{
+    // Update preview when template changes
+    updatePreviewList();
+}
+
 void BatchExportDialog::onExportClicked()
 {
     if (!validateExport())
@@ -316,11 +485,19 @@ void BatchExportDialog::onExportClicked()
         return;
     }
 
-    // Populate result
+    // Save last used directory to Settings for next time
+    Settings::getInstance().setSetting("export.lastDirectory", m_outputDirectory.getFullPathName());
+
+    // Populate result with all settings
     ExportSettings settings;
     settings.outputDirectory = m_outputDirectory;
     settings.includeRegionName = m_includeRegionNameToggle.getToggleState();
     settings.includeIndex = m_includeIndexToggle.getToggleState();
+    settings.customTemplate = m_templateEditor.getText().trim();
+    settings.prefix = m_prefixEditor.getText().trim();
+    settings.suffix = m_suffixEditor.getText().trim();
+    settings.usePaddedIndex = m_paddedIndexToggle.getToggleState();
+    settings.suffixBeforeIndex = m_suffixBeforeIndexToggle.getToggleState();
 
     m_result = settings;
 

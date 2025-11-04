@@ -14,21 +14,27 @@
 */
 
 #include "FilePropertiesDialog.h"
+#include "BWFEditorDialog.h"
+#include "iXMLEditorDialog.h"
 
 // Dialog dimensions
 namespace
 {
-    constexpr int DIALOG_WIDTH = 600;
-    constexpr int DIALOG_HEIGHT = 400;
+    constexpr int DIALOG_WIDTH = 700;   // Increased width for better readability
+    constexpr int DIALOG_HEIGHT = 700;  // Fixed height with scrolling viewport
     constexpr int ROW_HEIGHT = 30;
-    constexpr int LABEL_WIDTH = 150;
+    constexpr int ROW_HEIGHT_MULTILINE = 60;  // For multi-line fields
+    constexpr int LABEL_WIDTH = 180;    // Increased for longer labels
     constexpr int SPACING = 10;
     constexpr int BUTTON_HEIGHT = 30;
     constexpr int BUTTON_WIDTH = 100;
+    constexpr int EDIT_BUTTON_WIDTH = 80;
+    constexpr int EDIT_BUTTON_HEIGHT = 25;
 }
 
 //==============================================================================
-FilePropertiesDialog::FilePropertiesDialog(const Document& document)
+FilePropertiesDialog::FilePropertiesDialog(Document& document)
+    : m_document(document)
 {
     // Setup property name labels (left column)
     auto setupLabel = [this](juce::Label& label, const juce::String& text)
@@ -49,6 +55,19 @@ FilePropertiesDialog::FilePropertiesDialog(const Document& document)
     setupLabel(m_channelsLabel, "Channels:");
     setupLabel(m_durationLabel, "Duration:");
     setupLabel(m_codecLabel, "Format:");
+    setupLabel(m_bwfDescriptionLabel, "BWF Description:");
+    setupLabel(m_bwfOriginatorLabel, "BWF Originator:");
+    setupLabel(m_bwfOriginationDateLabel, "BWF Date:");
+    setupLabel(m_ixmlCategoryLabel, "Category:");
+    setupLabel(m_ixmlSubcategoryLabel, "Subcategory:");
+    setupLabel(m_ixmlCategoryFullLabel, "CategoryFull:");
+    setupLabel(m_ixmlFXNameLabel, "FX Name:");
+    setupLabel(m_ixmlTrackTitleLabel, "Track Title:");
+    setupLabel(m_ixmlDescriptionLabel, "Description:");
+    setupLabel(m_ixmlKeywordsLabel, "Keywords:");
+    setupLabel(m_ixmlDesignerLabel, "Designer:");
+    setupLabel(m_ixmlProjectLabel, "Project:");
+    setupLabel(m_ixmlTapeLabel, "Library:");
 
     // Setup value labels (right column)
     auto setupValueLabel = [this](juce::Label& label)
@@ -68,17 +87,80 @@ FilePropertiesDialog::FilePropertiesDialog(const Document& document)
     setupValueLabel(m_channelsValue);
     setupValueLabel(m_durationValue);
     setupValueLabel(m_codecValue);
+    setupValueLabel(m_bwfDescriptionValue);
+    setupValueLabel(m_bwfOriginatorValue);
+    setupValueLabel(m_bwfOriginationDateValue);
+    setupValueLabel(m_ixmlCategoryValue);
+    setupValueLabel(m_ixmlSubcategoryValue);
+    setupValueLabel(m_ixmlCategoryFullValue);
+    setupValueLabel(m_ixmlFXNameValue);
+    setupValueLabel(m_ixmlTrackTitleValue);
+    setupValueLabel(m_ixmlDescriptionValue);
+    setupValueLabel(m_ixmlKeywordsValue);
+    setupValueLabel(m_ixmlDesignerValue);
+    setupValueLabel(m_ixmlProjectValue);
+    setupValueLabel(m_ixmlTapeValue);
 
     // Make file path value label support text selection for copying
     m_filePathValue.setEditable(false, false, true);
 
-    // Setup Close button
+    // Enable multi-line display for long fields
+    m_ixmlFXNameValue.setMinimumHorizontalScale(1.0f);  // Allow word wrap
+    m_ixmlDescriptionValue.setMinimumHorizontalScale(1.0f);
+    m_ixmlKeywordsValue.setMinimumHorizontalScale(1.0f);
+
+    // Setup viewport for scrolling
+    m_viewport.setViewedComponent(&m_contentComponent, false);
+    m_viewport.setScrollBarsShown(true, false);  // Vertical scrollbar only
+    addAndMakeVisible(m_viewport);
+
+    // Add all labels to content component (not directly to dialog)
+    // This allows scrolling while keeping Close button fixed
+    auto addToContent = [this](juce::Component& comp) {
+        m_contentComponent.addAndMakeVisible(&comp);
+    };
+
+    // Add all labels to scrollable content
+    addToContent(m_filenameLabel); addToContent(m_filenameValue);
+    addToContent(m_filePathLabel); addToContent(m_filePathValue);
+    addToContent(m_fileSizeLabel); addToContent(m_fileSizeValue);
+    addToContent(m_dateCreatedLabel); addToContent(m_dateCreatedValue);
+    addToContent(m_dateModifiedLabel); addToContent(m_dateModifiedValue);
+    addToContent(m_sampleRateLabel); addToContent(m_sampleRateValue);
+    addToContent(m_bitDepthLabel); addToContent(m_bitDepthValue);
+    addToContent(m_channelsLabel); addToContent(m_channelsValue);
+    addToContent(m_durationLabel); addToContent(m_durationValue);
+    addToContent(m_codecLabel); addToContent(m_codecValue);
+    addToContent(m_bwfDescriptionLabel); addToContent(m_bwfDescriptionValue);
+    addToContent(m_bwfOriginatorLabel); addToContent(m_bwfOriginatorValue);
+    addToContent(m_bwfOriginationDateLabel); addToContent(m_bwfOriginationDateValue);
+    addToContent(m_ixmlCategoryLabel); addToContent(m_ixmlCategoryValue);
+    addToContent(m_ixmlSubcategoryLabel); addToContent(m_ixmlSubcategoryValue);
+    addToContent(m_ixmlCategoryFullLabel); addToContent(m_ixmlCategoryFullValue);
+    addToContent(m_ixmlFXNameLabel); addToContent(m_ixmlFXNameValue);
+    addToContent(m_ixmlTrackTitleLabel); addToContent(m_ixmlTrackTitleValue);
+    addToContent(m_ixmlDescriptionLabel); addToContent(m_ixmlDescriptionValue);
+    addToContent(m_ixmlKeywordsLabel); addToContent(m_ixmlKeywordsValue);
+    addToContent(m_ixmlDesignerLabel); addToContent(m_ixmlDesignerValue);
+    addToContent(m_ixmlProjectLabel); addToContent(m_ixmlProjectValue);
+    addToContent(m_ixmlTapeLabel); addToContent(m_ixmlTapeValue);
+
+    // Setup Edit buttons (fixed at section headers, not in viewport)
+    m_editBWFButton.setButtonText("Edit...");
+    m_editBWFButton.addListener(this);
+    m_contentComponent.addAndMakeVisible(&m_editBWFButton);
+
+    m_editiXMLButton.setButtonText("Edit...");
+    m_editiXMLButton.addListener(this);
+    m_contentComponent.addAndMakeVisible(&m_editiXMLButton);
+
+    // Setup Close button (fixed at bottom, not in viewport)
     m_closeButton.setButtonText("Close");
     m_closeButton.addListener(this);
     addAndMakeVisible(m_closeButton);
 
     // Load properties from document
-    loadProperties(document);
+    loadProperties();
 
     setSize(DIALOG_WIDTH, DIALOG_HEIGHT);
 }
@@ -91,67 +173,110 @@ FilePropertiesDialog::~FilePropertiesDialog()
 void FilePropertiesDialog::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff2a2a2a));
-
-    // Draw section headers
-    g.setColour(juce::Colours::white);
-    g.setFont(14.0f);
-    g.drawText("File Information", SPACING, SPACING, DIALOG_WIDTH - 2 * SPACING, 20,
-               juce::Justification::centred, false);
-
-    g.drawText("Audio Information", SPACING, 6 * ROW_HEIGHT + SPACING,
-               DIALOG_WIDTH - 2 * SPACING, 20, juce::Justification::centred, false);
-
-    // Draw separator lines
-    g.setColour(juce::Colours::grey);
-    g.drawLine(SPACING, 2 * ROW_HEIGHT + SPACING,
-               DIALOG_WIDTH - SPACING, 2 * ROW_HEIGHT + SPACING, 1.0f);
-    g.drawLine(SPACING, 7 * ROW_HEIGHT + SPACING,
-               DIALOG_WIDTH - SPACING, 7 * ROW_HEIGHT + SPACING, 1.0f);
+    // Note: Section headers and separators are now drawn on m_contentComponent
 }
 
 void FilePropertiesDialog::resized()
 {
     auto bounds = getLocalBounds().reduced(SPACING);
 
-    // Skip section header
-    bounds.removeFromTop(ROW_HEIGHT);
-    bounds.removeFromTop(SPACING);
+    // Reserve space for Close button at bottom (outside viewport)
+    auto buttonArea = bounds.removeFromBottom(BUTTON_HEIGHT + SPACING);
+    m_closeButton.setBounds(buttonArea.withSizeKeepingCentre(BUTTON_WIDTH, BUTTON_HEIGHT));
 
-    // File information section
-    auto layoutRow = [&](juce::Label& nameLabel, juce::Label& valueLabel)
+    // Viewport takes remaining space
+    m_viewport.setBounds(bounds);
+
+    // Layout content component with all fields
+    int contentWidth = bounds.getWidth() - m_viewport.getScrollBarThickness();
+    int yPos = 0;
+
+    auto layoutRow = [&](juce::Label& nameLabel, juce::Label& valueLabel, int rowHeight = ROW_HEIGHT)
     {
-        auto row = bounds.removeFromTop(ROW_HEIGHT);
-        nameLabel.setBounds(row.removeFromLeft(LABEL_WIDTH));
-        row.removeFromLeft(SPACING);
-        valueLabel.setBounds(row);
+        nameLabel.setBounds(SPACING, yPos, LABEL_WIDTH, rowHeight);
+        valueLabel.setBounds(LABEL_WIDTH + 2 * SPACING, yPos,
+                            contentWidth - LABEL_WIDTH - 3 * SPACING, rowHeight);
+        yPos += rowHeight;
     };
 
+    // File Information section
+    yPos += ROW_HEIGHT + SPACING;  // Section header space
     layoutRow(m_filenameLabel, m_filenameValue);
     layoutRow(m_filePathLabel, m_filePathValue);
     layoutRow(m_fileSizeLabel, m_fileSizeValue);
     layoutRow(m_dateCreatedLabel, m_dateCreatedValue);
     layoutRow(m_dateModifiedLabel, m_dateModifiedValue);
+    yPos += SPACING;  // Section separator
 
-    // Skip section header for audio info
-    bounds.removeFromTop(ROW_HEIGHT);
-    bounds.removeFromTop(SPACING);
-
-    // Audio information section
+    // Audio Information section
+    yPos += ROW_HEIGHT + SPACING;  // Section header space
     layoutRow(m_sampleRateLabel, m_sampleRateValue);
     layoutRow(m_bitDepthLabel, m_bitDepthValue);
     layoutRow(m_channelsLabel, m_channelsValue);
     layoutRow(m_durationLabel, m_durationValue);
     layoutRow(m_codecLabel, m_codecValue);
+    yPos += SPACING;  // Section separator
 
-    // Close button at bottom center
-    auto buttonArea = getLocalBounds().removeFromBottom(BUTTON_HEIGHT + SPACING);
-    m_closeButton.setBounds(buttonArea.withSizeKeepingCentre(BUTTON_WIDTH, BUTTON_HEIGHT));
+    // BWF Metadata section
+    yPos += ROW_HEIGHT + SPACING;  // Section header space
+    // Position Edit button for BWF section
+    m_editBWFButton.setBounds(contentWidth - EDIT_BUTTON_WIDTH - SPACING, yPos - ROW_HEIGHT - SPACING / 2,
+                              EDIT_BUTTON_WIDTH, EDIT_BUTTON_HEIGHT);
+    layoutRow(m_bwfDescriptionLabel, m_bwfDescriptionValue);
+    layoutRow(m_bwfOriginatorLabel, m_bwfOriginatorValue);
+    layoutRow(m_bwfOriginationDateLabel, m_bwfOriginationDateValue);
+    yPos += SPACING;  // Section separator
+
+    // SoundMiner / iXML Metadata section
+    yPos += ROW_HEIGHT + SPACING;  // Section header space
+    // Position Edit button for iXML section
+    m_editiXMLButton.setBounds(contentWidth - EDIT_BUTTON_WIDTH - SPACING, yPos - ROW_HEIGHT - SPACING / 2,
+                               EDIT_BUTTON_WIDTH, EDIT_BUTTON_HEIGHT);
+    layoutRow(m_ixmlCategoryLabel, m_ixmlCategoryValue);
+    layoutRow(m_ixmlSubcategoryLabel, m_ixmlSubcategoryValue);
+    layoutRow(m_ixmlCategoryFullLabel, m_ixmlCategoryFullValue);
+    layoutRow(m_ixmlFXNameLabel, m_ixmlFXNameValue, ROW_HEIGHT_MULTILINE);  // Multi-line
+    layoutRow(m_ixmlTrackTitleLabel, m_ixmlTrackTitleValue);
+    layoutRow(m_ixmlDescriptionLabel, m_ixmlDescriptionValue, ROW_HEIGHT_MULTILINE);  // Multi-line
+    layoutRow(m_ixmlKeywordsLabel, m_ixmlKeywordsValue, ROW_HEIGHT_MULTILINE);  // Multi-line
+    layoutRow(m_ixmlDesignerLabel, m_ixmlDesignerValue);
+    layoutRow(m_ixmlProjectLabel, m_ixmlProjectValue);
+    layoutRow(m_ixmlTapeLabel, m_ixmlTapeValue);
+    yPos += SPACING;
+
+    // Set content component size to total height needed
+    m_contentComponent.setSize(contentWidth, yPos);
 }
 
 //==============================================================================
 void FilePropertiesDialog::buttonClicked(juce::Button* button)
 {
-    if (button == &m_closeButton)
+    if (button == &m_editBWFButton)
+    {
+        // Open BWF Editor Dialog
+        BWFEditorDialog::showDialog(this, m_document.getBWFMetadata(), [this]()
+        {
+            // Mark document as modified when BWF metadata changes
+            m_document.setModified(true);
+            // Reload properties to show updated values
+            loadProperties();
+            juce::Logger::writeToLog("BWF metadata updated from File Properties dialog");
+        });
+    }
+    else if (button == &m_editiXMLButton)
+    {
+        // Open iXML Editor Dialog with filename for UCS automation
+        iXMLEditorDialog::showDialog(this, m_document.getiXMLMetadata(),
+                                     m_document.getFilename(), [this]()
+        {
+            // Mark document as modified when iXML metadata changes
+            m_document.setModified(true);
+            // Reload properties to show updated values
+            loadProperties();
+            juce::Logger::writeToLog("iXML metadata updated from File Properties dialog");
+        });
+    }
+    else if (button == &m_closeButton)
     {
         // Close dialog
         if (auto* dialogWindow = findParentComponentOfClass<juce::DialogWindow>())
@@ -162,14 +287,14 @@ void FilePropertiesDialog::buttonClicked(juce::Button* button)
 }
 
 //==============================================================================
-void FilePropertiesDialog::loadProperties(const Document& document)
+void FilePropertiesDialog::loadProperties()
 {
     jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
 
-    const juce::File& file = document.getFile();
+    const juce::File& file = m_document.getFile();
 
     // Check if audio engine has a file loaded
-    if (!document.getAudioEngine().isFileLoaded())
+    if (!m_document.getAudioEngine().isFileLoaded())
     {
         m_filenameValue.setText("(No file loaded)", juce::dontSendNotification);
         m_filePathValue.setText("", juce::dontSendNotification);
@@ -181,11 +306,24 @@ void FilePropertiesDialog::loadProperties(const Document& document)
         m_channelsValue.setText("N/A", juce::dontSendNotification);
         m_durationValue.setText("N/A", juce::dontSendNotification);
         m_codecValue.setText("N/A", juce::dontSendNotification);
+        m_bwfDescriptionValue.setText("N/A", juce::dontSendNotification);
+        m_bwfOriginatorValue.setText("N/A", juce::dontSendNotification);
+        m_bwfOriginationDateValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlCategoryValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlSubcategoryValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlCategoryFullValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlFXNameValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlTrackTitleValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlDescriptionValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlKeywordsValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlDesignerValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlProjectValue.setText("N/A", juce::dontSendNotification);
+        m_ixmlTapeValue.setText("N/A", juce::dontSendNotification);
         return;
     }
 
     // File information
-    m_filenameValue.setText(document.getFilename(), juce::dontSendNotification);
+    m_filenameValue.setText(m_document.getFilename(), juce::dontSendNotification);
     m_filePathValue.setText(file.getFullPathName(), juce::dontSendNotification);
 
     // Check if file exists before accessing file properties
@@ -203,8 +341,8 @@ void FilePropertiesDialog::loadProperties(const Document& document)
     }
 
     // Audio information
-    const AudioEngine& audioEngine = document.getAudioEngine();
-    const AudioBufferManager& bufferManager = document.getBufferManager();
+    const AudioEngine& audioEngine = m_document.getAudioEngine();
+    const AudioBufferManager& bufferManager = m_document.getBufferManager();
 
     double sampleRate = audioEngine.getSampleRate();
     int bitDepth = audioEngine.getBitDepth();
@@ -228,6 +366,80 @@ void FilePropertiesDialog::loadProperties(const Document& document)
 
     // Determine codec
     m_codecValue.setText(determineCodec(file, bitDepth), juce::dontSendNotification);
+
+    // BWF Metadata
+    const BWFMetadata& bwf = m_document.getBWFMetadata();
+    if (bwf.hasMetadata())
+    {
+        m_bwfDescriptionValue.setText(bwf.getDescription(), juce::dontSendNotification);
+        m_bwfOriginatorValue.setText(bwf.getOriginator(), juce::dontSendNotification);
+
+        // Format BWF origination date/time
+        juce::String dateTimeStr = bwf.getOriginationDate() + " " + bwf.getOriginationTime();
+        if (dateTimeStr.trim().isEmpty())
+            dateTimeStr = "(Not set)";
+        m_bwfOriginationDateValue.setText(dateTimeStr, juce::dontSendNotification);
+    }
+    else
+    {
+        m_bwfDescriptionValue.setText("(No BWF metadata)", juce::dontSendNotification);
+        m_bwfOriginatorValue.setText("(Not set)", juce::dontSendNotification);
+        m_bwfOriginationDateValue.setText("(Not set)", juce::dontSendNotification);
+    }
+
+    // SoundMiner / iXML Metadata
+    const iXMLMetadata& ixml = m_document.getiXMLMetadata();
+    if (ixml.hasMetadata())
+    {
+        // Display all SoundMiner fields with "(Not set)" for empty values
+        juce::String category = ixml.getCategory();
+        m_ixmlCategoryValue.setText(category.isEmpty() ? "(Not set)" : category, juce::dontSendNotification);
+
+        juce::String subcategory = ixml.getSubcategory();
+        m_ixmlSubcategoryValue.setText(subcategory.isEmpty() ? "(Not set)" : subcategory, juce::dontSendNotification);
+
+        // CategoryFull (computed)
+        juce::String categoryFull = ixml.getCategoryFull();
+        m_ixmlCategoryFullValue.setText(categoryFull.isEmpty() ? "(Not set)" : categoryFull, juce::dontSendNotification);
+
+        // FXName (can be long, multi-line)
+        juce::String fxName = ixml.getFXName();
+        m_ixmlFXNameValue.setText(fxName.isEmpty() ? "(Not set)" : fxName, juce::dontSendNotification);
+
+        juce::String trackTitle = ixml.getTrackTitle();
+        m_ixmlTrackTitleValue.setText(trackTitle.isEmpty() ? "(Not set)" : trackTitle, juce::dontSendNotification);
+
+        // Description (long multi-line text)
+        juce::String description = ixml.getDescription();
+        m_ixmlDescriptionValue.setText(description.isEmpty() ? "(Not set)" : description, juce::dontSendNotification);
+
+        // Keywords (comma-separated, multi-line)
+        juce::String keywords = ixml.getKeywords();
+        m_ixmlKeywordsValue.setText(keywords.isEmpty() ? "(Not set)" : keywords, juce::dontSendNotification);
+
+        // Designer (short text)
+        juce::String designer = ixml.getDesigner();
+        m_ixmlDesignerValue.setText(designer.isEmpty() ? "(Not set)" : designer, juce::dontSendNotification);
+
+        juce::String project = ixml.getProject();
+        m_ixmlProjectValue.setText(project.isEmpty() ? "(Not set)" : project, juce::dontSendNotification);
+
+        juce::String tape = ixml.getTape();
+        m_ixmlTapeValue.setText(tape.isEmpty() ? "(Not set)" : tape, juce::dontSendNotification);
+    }
+    else
+    {
+        m_ixmlCategoryValue.setText("(No iXML metadata)", juce::dontSendNotification);
+        m_ixmlSubcategoryValue.setText("(Not set)", juce::dontSendNotification);
+        m_ixmlCategoryFullValue.setText("(Not set)", juce::dontSendNotification);
+        m_ixmlFXNameValue.setText("(Not set)", juce::dontSendNotification);
+        m_ixmlTrackTitleValue.setText("(Not set)", juce::dontSendNotification);
+        m_ixmlDescriptionValue.setText("(Not set)", juce::dontSendNotification);
+        m_ixmlKeywordsValue.setText("(Not set)", juce::dontSendNotification);
+        m_ixmlDesignerValue.setText("(Not set)", juce::dontSendNotification);
+        m_ixmlProjectValue.setText("(Not set)", juce::dontSendNotification);
+        m_ixmlTapeValue.setText("(Not set)", juce::dontSendNotification);
+    }
 }
 
 juce::String FilePropertiesDialog::formatDuration(double durationSeconds)
@@ -296,7 +508,7 @@ juce::String FilePropertiesDialog::determineCodec(const juce::File& file, int bi
 }
 
 //==============================================================================
-void FilePropertiesDialog::showDialog(juce::Component* parentComponent, const Document& document)
+void FilePropertiesDialog::showDialog(juce::Component* parentComponent, Document& document)
 {
     auto* propertiesDialog = new FilePropertiesDialog(document);
 

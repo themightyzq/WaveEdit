@@ -21,6 +21,7 @@
 */
 
 #include "Document.h"
+#include "../Audio/AudioFileManager.h"
 
 Document::Document(const juce::File& file)
     : m_file(file),
@@ -28,6 +29,7 @@ Document::Document(const juce::File& file)
       m_waveformDisplay(m_audioEngine.getFormatManager()),
       m_transportControls(m_audioEngine, m_waveformDisplay),
       m_regionDisplay(m_regionManager),  // Phase 3 Tier 2 - Region system
+      m_markerDisplay(m_markerManager),  // Phase 3.4 - Marker system
       m_savedPlaybackPosition(0.0)
 {
     // Configure undo manager with transaction limits (100 undo levels)
@@ -43,6 +45,10 @@ Document::Document(const juce::File& file)
     {
         m_regionDisplay.setVisibleRange(startTime, endTime);
         m_regionDisplay.repaint();
+
+        // Also update MarkerDisplay (Phase 3.4)
+        m_markerDisplay.setVisibleRange(startTime, endTime);
+        m_markerDisplay.repaint();
     };
 
     // Initialize audio engine
@@ -134,6 +140,45 @@ bool Document::loadFile(const juce::File& file)
     // Connect WaveformDisplay to RegionManager for region overlay rendering
     m_waveformDisplay.setRegionManager(&m_regionManager);
 
+    // Initialize marker display (Phase 3.4)
+    m_markerDisplay.setSampleRate(m_audioEngine.getSampleRate());
+    m_markerDisplay.setTotalDuration(m_bufferManager.getLengthInSeconds());
+    m_markerDisplay.setVisibleRange(0.0, m_bufferManager.getLengthInSeconds());
+
+    // Load markers from sidecar JSON file (if exists)
+    m_markerManager.loadFromFile(file);
+
+    // Load BWF metadata (Phase 4 Tier 1)
+    if (m_bwfMetadata.loadFromFile(file))
+    {
+        juce::Logger::writeToLog("Loaded BWF metadata for: " + file.getFullPathName());
+    }
+    else
+    {
+        juce::Logger::writeToLog("No BWF metadata found in: " + file.getFullPathName());
+        // Not an error - create default metadata for WaveEdit files
+        m_bwfMetadata = BWFMetadata::createDefault(file.getFileNameWithoutExtension());
+    }
+
+    // Load iXML metadata (Phase 4 Tier 1 - UCS/SoundMiner compatibility)
+    if (m_ixmlMetadata.loadFromFile(file))
+    {
+        juce::Logger::writeToLog("Loaded iXML metadata for: " + file.getFullPathName());
+    }
+    else
+    {
+        // Try parsing from UCS filename if no embedded iXML
+        m_ixmlMetadata = iXMLMetadata::fromUCSFilename(file.getFileName());
+        if (m_ixmlMetadata.hasMetadata())
+        {
+            juce::Logger::writeToLog("Parsed UCS metadata from filename: " + file.getFileName());
+        }
+        else
+        {
+            juce::Logger::writeToLog("No iXML or UCS metadata found in: " + file.getFullPathName());
+        }
+    }
+
     // Reset playback position
     m_savedPlaybackPosition = 0.0;
 
@@ -157,4 +202,99 @@ void Document::closeFile()
     m_savedPlaybackPosition = 0.0;
 
     juce::Logger::writeToLog("Document closed");
+}
+
+bool Document::saveFile(const juce::File& file, int bitDepth)
+{
+    // Validate parameters
+    if (!file.getParentDirectory().exists())
+    {
+        juce::Logger::writeToLog("Error: Directory does not exist: " + file.getParentDirectory().getFullPathName());
+        return false;
+    }
+
+    if (bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
+    {
+        juce::Logger::writeToLog("Error: Invalid bit depth: " + juce::String(bitDepth) + " (must be 16, 24, or 32)");
+        return false;
+    }
+
+    // Get audio buffer and sample rate from buffer manager
+    const juce::AudioBuffer<float>& buffer = m_bufferManager.getBuffer();
+    double sampleRate = m_audioEngine.getSampleRate();
+
+    if (buffer.getNumSamples() == 0)
+    {
+        juce::Logger::writeToLog("Error: No audio data to save");
+        return false;
+    }
+
+    // Update BWF metadata with current timestamp if not set
+    if (!m_bwfMetadata.hasMetadata())
+    {
+        m_bwfMetadata = BWFMetadata::createDefault(file.getFileNameWithoutExtension());
+    }
+
+    // Update origination date/time to now
+    m_bwfMetadata.setOriginationDateTime(juce::Time::getCurrentTime());
+
+    // Convert BWF metadata to JUCE format
+    juce::StringPairArray metadata = m_bwfMetadata.toJUCEMetadata();
+
+    // Add iXML metadata (Phase 4 Tier 1 - UCS/SoundMiner compatibility)
+    if (m_ixmlMetadata.hasMetadata())
+    {
+        metadata.set("iXML", m_ixmlMetadata.toXMLString());
+        juce::Logger::writeToLog("Embedding iXML metadata in file");
+    }
+
+    // Save using AudioFileManager
+    AudioFileManager fileManager;
+    bool success = false;
+
+    if (file.existsAsFile())
+    {
+        // Overwrite existing file
+        success = fileManager.overwriteFile(file, buffer, sampleRate, bitDepth, metadata);
+    }
+    else
+    {
+        // Save as new file
+        success = fileManager.saveAsWav(file, buffer, sampleRate, bitDepth, metadata);
+    }
+
+    if (success)
+    {
+        // Append iXML chunk if we have iXML metadata
+        if (m_ixmlMetadata.hasMetadata())
+        {
+            juce::String ixmlString = m_ixmlMetadata.toXMLString();
+            bool ixmlSuccess = fileManager.appendiXMLChunk(file, ixmlString);
+
+            if (!ixmlSuccess)
+            {
+                juce::Logger::writeToLog("Warning: Failed to write iXML chunk: " + fileManager.getLastError());
+                // Continue anyway - BWF metadata was written successfully
+            }
+        }
+
+        // Update document state
+        m_file = file;
+        m_isModified = false;
+
+        // Save region data as sidecar JSON
+        m_regionManager.saveToFile(file);
+
+        // Save marker data as sidecar JSON
+        m_markerManager.saveToFile(file);
+
+        juce::Logger::writeToLog("Document saved: " + file.getFullPathName());
+        return true;
+    }
+    else
+    {
+        juce::String errorMsg = fileManager.getLastError();
+        juce::Logger::writeToLog("Error saving file: " + errorMsg);
+        return false;
+    }
 }

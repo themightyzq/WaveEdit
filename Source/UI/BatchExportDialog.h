@@ -57,10 +57,17 @@ public:
         juce::File outputDirectory;      // Where to save files
         bool includeRegionName;          // Include region name in filename
         bool includeIndex;               // Include region index in filename
+        juce::String customTemplate;     // Custom filename template (e.g., "{basename}_{region}_{index}")
+        juce::String prefix;             // Prefix to add to filenames
+        juce::String suffix;             // Suffix to add before extension
+        bool usePaddedIndex;             // Use padded index (001 vs 1)
+        bool suffixBeforeIndex;          // Place suffix before index (true) or after (false)
 
         ExportSettings()
             : includeRegionName(true),
-              includeIndex(true)
+              includeIndex(true),
+              usePaddedIndex(false),
+              suffixBeforeIndex(false)
         {
         }
     };
@@ -115,6 +122,16 @@ private:
     void onNamingOptionChanged();
 
     /**
+     * Called when output directory text changes.
+     */
+    void onOutputDirTextChanged();
+
+    /**
+     * Called when template text changes.
+     */
+    void onTemplateTextChanged();
+
+    /**
      * Called when Export button is clicked.
      */
     void onExportClicked();
@@ -140,6 +157,19 @@ private:
     juce::Label m_namingOptionsLabel;
     juce::ToggleButton m_includeRegionNameToggle;
     juce::ToggleButton m_includeIndexToggle;
+
+    juce::Label m_templateLabel;
+    juce::TextEditor m_templateEditor;
+    juce::Label m_templateHelpLabel;
+
+    juce::Label m_prefixLabel;
+    juce::TextEditor m_prefixEditor;
+
+    juce::Label m_suffixLabel;
+    juce::TextEditor m_suffixEditor;
+
+    juce::ToggleButton m_paddedIndexToggle;
+    juce::ToggleButton m_suffixBeforeIndexToggle;
 
     juce::Label m_previewLabel;
     juce::TextEditor m_previewList;  // Multi-line read-only preview

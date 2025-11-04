@@ -2073,14 +2073,6 @@ void WaveformDisplay::drawRegionOverlays(juce::Graphics& g, juce::Rectangle<int>
         int startX = timeToX(startTime);
         int endX = timeToX(endTime);
 
-        // DEBUG: Log coordinate conversions for first region
-        if (i == 0)
-        {
-            juce::Logger::writeToLog(juce::String::formatted(
-                "WaveformDisplay: Region[0] %.2fs-%.2fs -> pixels %d-%d (width=%d, view=%.2f-%.2f)",
-                startTime, endTime, startX, endX, getWidth(), m_visibleStart, m_visibleEnd));
-        }
-
         // Skip if region is completely outside visible range
         if (endX < 0 || startX > bounds.getWidth())
             continue;

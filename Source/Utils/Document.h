@@ -30,6 +30,10 @@
 #include "../UI/TransportControls.h"
 #include "RegionManager.h"
 #include "../UI/RegionDisplay.h"
+#include "MarkerManager.h"
+#include "../UI/MarkerDisplay.h"
+#include "BWFMetadata.h"
+#include "iXMLMetadata.h"
 
 /**
  * Document class represents a single audio file with all associated state.
@@ -175,6 +179,45 @@ public:
     RegionDisplay& getRegionDisplay() { return m_regionDisplay; }
     const RegionDisplay& getRegionDisplay() const { return m_regionDisplay; }
 
+    /**
+     * Gets the marker manager for this document.
+     * The marker manager tracks single-point markers in the audio.
+     *
+     * @return Reference to the document's MarkerManager
+     */
+    MarkerManager& getMarkerManager() { return m_markerManager; }
+    const MarkerManager& getMarkerManager() const { return m_markerManager; }
+
+    /**
+     * Gets the marker display component for this document.
+     * The marker display shows vertical lines with labels on the waveform.
+     *
+     * @return Reference to the document's MarkerDisplay
+     */
+    MarkerDisplay& getMarkerDisplay() { return m_markerDisplay; }
+    const MarkerDisplay& getMarkerDisplay() const { return m_markerDisplay; }
+
+    /**
+     * Gets the BWF metadata for this document.
+     * BWF (Broadcast Wave Format) metadata includes description, originator,
+     * timestamps, and coding history for professional broadcast use.
+     *
+     * @return Reference to the document's BWFMetadata
+     */
+    BWFMetadata& getBWFMetadata() { return m_bwfMetadata; }
+    const BWFMetadata& getBWFMetadata() const { return m_bwfMetadata; }
+
+    /**
+     * Gets the iXML metadata for this document.
+     * iXML metadata includes UCS (Universal Category System) fields:
+     * Category, Subcategory, Track Title, Project, Tape/Library.
+     * Used by SoundMiner, Steinberg, and other professional sound apps.
+     *
+     * @return Reference to the document's iXMLMetadata
+     */
+    iXMLMetadata& getiXMLMetadata() { return m_ixmlMetadata; }
+    const iXMLMetadata& getiXMLMetadata() const { return m_ixmlMetadata; }
+
     //==============================================================================
     // State Management
 
@@ -202,6 +245,15 @@ public:
     bool loadFile(const juce::File& file);
 
     /**
+     * Saves the current audio buffer to a file with BWF metadata.
+     *
+     * @param file The file to save to
+     * @param bitDepth Bit depth (16, 24, or 32)
+     * @return true if save successful, false on error
+     */
+    bool saveFile(const juce::File& file, int bitDepth = 16);
+
+    /**
      * Closes the current file and clears all state.
      */
     void closeFile();
@@ -223,6 +275,16 @@ private:
     // Region system (Phase 3 Tier 2)
     RegionManager m_regionManager;
     RegionDisplay m_regionDisplay;
+
+    // Marker system (Phase 3.4)
+    MarkerManager m_markerManager;
+    MarkerDisplay m_markerDisplay;
+
+    // BWF metadata (Phase 4 Tier 1)
+    BWFMetadata m_bwfMetadata;
+
+    // iXML metadata (Phase 4 Tier 1 - UCS/SoundMiner compatibility)
+    iXMLMetadata m_ixmlMetadata;
 
     // Saved state (for tab switching)
     double m_savedPlaybackPosition;
