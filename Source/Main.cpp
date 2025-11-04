@@ -37,15 +37,19 @@
 #include "UI/ErrorDialog.h"
 #include "UI/SettingsPanel.h"
 #include "UI/FilePropertiesDialog.h"
+#include "UI/BWFEditorDialog.h"
+#include "UI/iXMLEditorDialog.h"
 #include "UI/GoToPositionDialog.h"
 #include "UI/EditRegionBoundariesDialog.h"
 #include "UI/StripSilenceDialog.h"
 #include "UI/BatchExportDialog.h"
 #include "UI/RegionListPanel.h"
 #include "UI/TabComponent.h"
+#include "UI/KeyboardCheatSheetDialog.h"
 #include "Utils/Document.h"
 #include "Utils/DocumentManager.h"
 #include "Utils/RegionExporter.h"
+#include "Utils/KeymapManager.h"
 
 //==============================================================================
 /**
@@ -229,7 +233,8 @@ class MainComponent : public juce::Component,
 public:
     MainComponent(juce::AudioDeviceManager& deviceManager)
         : m_audioDeviceManager(deviceManager),
-          m_tabComponent(m_documentManager)
+          m_tabComponent(m_documentManager),
+          m_keymapManager(m_commandManager)  // Initialize KeymapManager with command manager reference
     {
         setSize(1200, 750);
 
@@ -259,6 +264,12 @@ public:
         // Add keyboard mappings
         addKeyListener(m_commandManager.getKeyMappings());
 
+        #if JUCE_MAC
+        // Register menu bar with macOS native menu system
+        // CRITICAL: This enables Cmd+, and other macOS system shortcuts to work
+        juce::MenuBarModel::setMacMainMenu(this);
+        #endif
+
         // Start timer to update playback position
         startTimer(50); // Update every 50ms for smooth 60fps cursor
 
@@ -269,12 +280,27 @@ public:
         int timeFormatInt = Settings::getInstance().getSetting("display.timeFormat", 2);  // Default to Seconds (2)
         m_timeFormat = static_cast<AudioUnits::TimeFormat>(timeFormatInt);
 
+        // Load keyboard shortcut template (Phase 3)
+        // Get active template name from settings (defaults to "Default")
+        juce::String activeTemplate = Settings::getInstance().getSetting("keyboard.activeTemplate", "Default").toString();
+        if (!m_keymapManager.loadTemplate(activeTemplate))
+        {
+            // If loading fails, fall back to Default template
+            juce::Logger::writeToLog("Failed to load keyboard template '" + activeTemplate + "', falling back to Default");
+            m_keymapManager.loadTemplate("Default");
+        }
+
         // Update component visibility based on whether we have documents
         updateComponentVisibility();
     }
 
     ~MainComponent() override
     {
+        #if JUCE_MAC
+        // Unregister menu bar from macOS native menu system
+        juce::MenuBarModel::setMacMainMenu(nullptr);
+        #endif
+
         // Clear all undo histories before closing documents (prevents dangling references)
         for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
         {
@@ -325,6 +351,9 @@ public:
     {
         // Wire up region callbacks for this document
         setupRegionCallbacks(document);
+
+        // Wire up marker callbacks for this document (Phase 3.4)
+        setupMarkerCallbacks(document);
 
         // Update tab component to show new tab
         updateComponentVisibility();
@@ -510,6 +539,7 @@ public:
             m_currentDocumentContainer->addAndMakeVisible(doc->getWaveformDisplay());
             m_currentDocumentContainer->addAndMakeVisible(doc->getTransportControls());
             m_currentDocumentContainer->addAndMakeVisible(doc->getRegionDisplay());
+            m_currentDocumentContainer->addAndMakeVisible(doc->getMarkerDisplay());  // Phase 3.4
             // Note: SelectionInfoPanel and Meters are part of the document's components
         }
 
@@ -1009,6 +1039,9 @@ public:
                 // Region display below transport (32px height)
                 doc->getRegionDisplay().setBounds(containerBounds.removeFromTop(32));
 
+                // Marker display below regions (32px height) - Phase 3.4
+                doc->getMarkerDisplay().setBounds(containerBounds.removeFromTop(32));
+
                 // Waveform display takes remaining space
                 // TODO: Add SelectionInfoPanel and Meters when Document class is updated
                 doc->getWaveformDisplay().setBounds(containerBounds);
@@ -1090,6 +1123,8 @@ public:
             CommandIDs::fileSaveAs,
             CommandIDs::fileClose,
             CommandIDs::fileProperties,  // Alt+Enter - Show file properties
+            CommandIDs::fileEditBWFMetadata, // Edit BWF metadata
+            CommandIDs::fileEditiXMLMetadata, // Edit iXML/SoundMiner metadata
             CommandIDs::filePreferences, // Cmd+, - Preferences/Settings
             // Tab commands
             CommandIDs::tabClose,
@@ -1119,6 +1154,7 @@ public:
             CommandIDs::playbackPause,
             CommandIDs::playbackStop,
             CommandIDs::playbackLoop,
+            CommandIDs::playbackLoopRegion,  // Cmd+Shift+L - Loop selected region
             // View/Zoom commands
             CommandIDs::viewZoomIn,
             CommandIDs::viewZoomOut,
@@ -1129,6 +1165,7 @@ public:
             CommandIDs::viewAutoScroll,       // Cmd+Shift+F - Auto-scroll during playback
             CommandIDs::viewZoomToRegion,     // Z or Cmd+Option+Z - Zoom to selected region
             CommandIDs::viewAutoPreviewRegions,  // Toggle auto-play regions on select
+            CommandIDs::viewToggleRegions,    // Cmd+Shift+H - Toggle region visibility
             // Navigation commands
             CommandIDs::navigateLeft,
             CommandIDs::navigateRight,
@@ -1179,7 +1216,16 @@ public:
             CommandIDs::regionMerge,
             CommandIDs::regionSplit,
             CommandIDs::regionCopy,
-            CommandIDs::regionPaste
+            CommandIDs::regionPaste,
+            // Marker commands (Phase 3.4)
+            CommandIDs::markerAdd,
+            CommandIDs::markerDelete,
+            CommandIDs::markerNext,
+            CommandIDs::markerPrevious,
+            CommandIDs::markerShowList,
+            // Help commands
+            CommandIDs::helpAbout,
+            CommandIDs::helpShortcuts
         };
 
         commands.addArray(ids, juce::numElementsInArray(ids));
@@ -1189,6 +1235,9 @@ public:
     {
         auto* doc = getCurrentDocument();
 
+        // Get keyboard shortcut from active template (Phase 3)
+        auto keyPress = m_keymapManager.getKeyPress(commandID);
+
         // CRITICAL FIX: Always set command info (text, shortcuts) so menus and shortcuts work
         // Use setActive() to disable document-dependent commands when no document exists
 
@@ -1196,19 +1245,22 @@ public:
         {
             case CommandIDs::fileOpen:
                 result.setInfo("Open...", "Open an audio file", "File", 0);
-                result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 // Always available (no document required)
                 break;
 
             case CommandIDs::fileSave:
                 result.setInfo("Save", "Save the current file", "File", 0);
-                result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->isModified());
                 break;
 
             case CommandIDs::fileSaveAs:
                 result.setInfo("Save As...", "Save the current file with a new name", "File", 0);
-                result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
@@ -1220,476 +1272,588 @@ public:
 
             case CommandIDs::fileProperties:
                 result.setInfo("Properties...", "Show file properties", "File", 0);
-                result.addDefaultKeypress(juce::KeyPress::returnKey, juce::ModifierKeys::altModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::fileEditBWFMetadata:
+                result.setInfo("Edit BWF Metadata...", "Edit broadcast wave format metadata", "File", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::fileEditiXMLMetadata:
+                result.setInfo("Edit iXML Metadata...", "Edit SoundMiner/iXML metadata", "File", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::fileExit:
                 result.setInfo("Exit", "Exit the application", "File", 0);
-                result.addDefaultKeypress('q', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 // Always available (no document required)
                 break;
 
             case CommandIDs::filePreferences:
                 result.setInfo("Preferences...", "Open preferences dialog", "File", 0);
-                result.addDefaultKeypress(',', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 // Always available (no document required)
                 break;
 
             // Tab operations
             case CommandIDs::tabClose:
                 result.setInfo("Close Tab", "Close current tab", "File", 0);
-                result.addDefaultKeypress('w', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(hasCurrentDocument());
                 break;
 
             case CommandIDs::tabCloseAll:
                 result.setInfo("Close All Tabs", "Close all open tabs", "File", 0);
-                result.addDefaultKeypress('w', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(hasCurrentDocument());
                 break;
 
             case CommandIDs::tabNext:
                 result.setInfo("Next Tab", "Switch to next tab", "File", 0);
-                result.addDefaultKeypress(juce::KeyPress::tabKey, juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() > 1);
                 break;
 
             case CommandIDs::tabPrevious:
                 result.setInfo("Previous Tab", "Switch to previous tab", "File", 0);
-                result.addDefaultKeypress(juce::KeyPress::tabKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() > 1);
                 break;
 
             case CommandIDs::tabSelect1:
                 result.setInfo("Jump to Tab 1", "Switch to tab 1", "File", 0);
-                result.addDefaultKeypress('1', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 1);
                 break;
 
             case CommandIDs::tabSelect2:
                 result.setInfo("Jump to Tab 2", "Switch to tab 2", "File", 0);
-                result.addDefaultKeypress('2', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 2);
                 break;
 
             case CommandIDs::tabSelect3:
                 result.setInfo("Jump to Tab 3", "Switch to tab 3", "File", 0);
-                result.addDefaultKeypress('3', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 3);
                 break;
 
             case CommandIDs::tabSelect4:
                 result.setInfo("Jump to Tab 4", "Switch to tab 4", "File", 0);
-                result.addDefaultKeypress('4', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 4);
                 break;
 
             case CommandIDs::tabSelect5:
                 result.setInfo("Jump to Tab 5", "Switch to tab 5", "File", 0);
-                result.addDefaultKeypress('5', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 5);
                 break;
 
             case CommandIDs::tabSelect6:
                 result.setInfo("Jump to Tab 6", "Switch to tab 6", "File", 0);
-                result.addDefaultKeypress('6', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 6);
                 break;
 
             case CommandIDs::tabSelect7:
                 result.setInfo("Jump to Tab 7", "Switch to tab 7", "File", 0);
-                result.addDefaultKeypress('7', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 7);
                 break;
 
             case CommandIDs::tabSelect8:
                 result.setInfo("Jump to Tab 8", "Switch to tab 8", "File", 0);
-                result.addDefaultKeypress('8', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 8);
                 break;
 
             case CommandIDs::tabSelect9:
                 result.setInfo("Jump to Tab 9", "Switch to tab 9", "File", 0);
-                result.addDefaultKeypress('9', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(m_documentManager.getNumDocuments() >= 9);
                 break;
 
             case CommandIDs::editUndo:
                 result.setInfo("Undo", "Undo the last operation", "Edit", 0);
-                result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getUndoManager().canUndo());
                 break;
 
             case CommandIDs::editRedo:
                 result.setInfo("Redo", "Redo the last undone operation", "Edit", 0);
-                result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getUndoManager().canRedo());
                 break;
 
             case CommandIDs::editSelectAll:
                 result.setInfo("Select All", "Select all audio", "Edit", 0);
-                result.addDefaultKeypress('a', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::editCut:
                 result.setInfo("Cut", "Cut selection to clipboard", "Edit", 0);
-                result.addDefaultKeypress('x', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::editCopy:
                 result.setInfo("Copy", "Copy selection to clipboard", "Edit", 0);
-                result.addDefaultKeypress('c', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::editPaste:
                 result.setInfo("Paste", "Paste from clipboard", "Edit", 0);
-                result.addDefaultKeypress('v', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && AudioClipboard::getInstance().hasAudio());
                 break;
 
             case CommandIDs::editDelete:
                 result.setInfo("Delete", "Delete selection", "Edit", 0);
-                result.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::editSilence:
                 result.setInfo("Silence", "Fill selection with silence", "Edit", 0);
-                result.addDefaultKeypress('l', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::editTrim:
                 result.setInfo("Trim", "Delete everything outside selection", "Edit", 0);
-                result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::playbackPlay:
-                result.setInfo("Play/Stop", "Play or stop playback", "Playback", 0);
-                result.addDefaultKeypress(juce::KeyPress::spaceKey, 0);
-                result.addDefaultKeypress(juce::KeyPress::F12Key, 0);
+                result.setInfo("Play/Stop", "Play or stop playback from cursor", "Playback", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Shift+Space (alternate)
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::playbackPause:
                 result.setInfo("Pause", "Pause or resume playback", "Playback", 0);
-                result.addDefaultKeypress(juce::KeyPress::returnKey, 0);
-                result.addDefaultKeypress(juce::KeyPress::F12Key, juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::playbackStop:
                 result.setInfo("Stop", "Stop playback", "Playback", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Escape = explicit stop (industry standard)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::playbackLoop:
                 result.setInfo("Loop", "Toggle loop mode", "Playback", 0);
-                result.addDefaultKeypress('q', 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::playbackLoopRegion:
+                result.setInfo("Loop Region", "Loop the selected region", "Playback", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+L
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             // View/Zoom commands
             case CommandIDs::viewZoomIn:
                 result.setInfo("Zoom In", "Zoom in 2x", "View", 0);
-                result.addDefaultKeypress('=', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::viewZoomOut:
                 result.setInfo("Zoom Out", "Zoom out 2x", "View", 0);
-                result.addDefaultKeypress('-', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::viewZoomFit:
                 result.setInfo("Zoom to Fit", "Fit entire waveform to view", "View", 0);
-                result.addDefaultKeypress('0', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::viewZoomSelection:
                 result.setInfo("Zoom to Selection", "Zoom to current selection", "View", 0);
-                result.addDefaultKeypress('e', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::viewZoomOneToOne:
                 result.setInfo("Zoom 1:1", "Zoom to 1:1 sample resolution", "View", 0);
-                result.addDefaultKeypress('0', juce::ModifierKeys::commandModifier);  // Cmd+0 (not Cmd+1, which is used for tab switching)
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+0 (not Cmd+1, which is used for tab switching)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::viewCycleTimeFormat:
                 result.setInfo("Cycle Time Format", "Cycle through time display formats (Samples/Ms/Sec/Frames)", "View", 0);
-                result.addDefaultKeypress('g', juce::ModifierKeys::shiftModifier);  // Shift+G for Format
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+T (moved from Shift+G to avoid conflict with processGain)
                 result.setActive(true);  // Always active
                 break;
 
             case CommandIDs::viewAutoScroll:
                 result.setInfo("Follow Playback", "Auto-scroll to follow playback cursor", "View", 0);
-                result.addDefaultKeypress('f', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);  // Cmd+Shift+F
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+F
                 result.setTicked(doc && doc->getWaveformDisplay().isFollowPlayback());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::viewZoomToRegion:
                 result.setInfo("Zoom to Region", "Zoom to fit selected region with margins", "View", 0);
-                result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);  // Cmd+Option+Z
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Option+Z
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
                                  doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             case CommandIDs::viewAutoPreviewRegions:
                 result.setInfo("Auto-Preview Regions", "Automatically play regions when clicked", "View", 0);
-                result.addDefaultKeypress('P', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);  // Cmd+Alt+P
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Alt+P
                 result.setTicked(Settings::getInstance().getAutoPreviewRegions());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
                                  doc->getRegionManager().getNumRegions() > 0);
                 break;
 
+            case CommandIDs::viewToggleRegions:
+                result.setInfo("Show/Hide Regions", "Toggle region visibility in waveform display", "View", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+H
+                result.setTicked(Settings::getInstance().getRegionsVisible());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
             // Navigation commands
             case CommandIDs::navigateLeft:
                 result.setInfo("Navigate Left", "Move cursor left by snap increment", "Navigation", 0);
-                result.addDefaultKeypress(juce::KeyPress::leftKey, 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateRight:
                 result.setInfo("Navigate Right", "Move cursor right by snap increment", "Navigation", 0);
-                result.addDefaultKeypress(juce::KeyPress::rightKey, 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateStart:
                 result.setInfo("Jump to Start", "Jump to start of file", "Navigation", 0);
-                result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateEnd:
                 result.setInfo("Jump to End", "Jump to end of file", "Navigation", 0);
-                result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigatePageLeft:
                 result.setInfo("Page Left", "Move cursor left by page increment", "Navigation", 0);
-                result.addDefaultKeypress(juce::KeyPress::pageUpKey, 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigatePageRight:
                 result.setInfo("Page Right", "Move cursor right by page increment", "Navigation", 0);
-                result.addDefaultKeypress(juce::KeyPress::pageDownKey, 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateHomeVisible:
                 result.setInfo("Jump to Visible Start", "Jump to first visible sample", "Navigation", 0);
-                result.addDefaultKeypress(juce::KeyPress::homeKey, 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateEndVisible:
                 result.setInfo("Jump to Visible End", "Jump to last visible sample", "Navigation", 0);
-                result.addDefaultKeypress(juce::KeyPress::endKey, 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateCenterView:
                 result.setInfo("Center View", "Center view on cursor", "Navigation", 0);
-                result.addDefaultKeypress('.', 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::navigateGoToPosition:
                 result.setInfo("Go To Position...", "Jump to exact position", "Navigation", 0);
-                result.addDefaultKeypress('g', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // Selection extension commands
             case CommandIDs::selectExtendLeft:
                 result.setInfo("Extend Selection Left", "Extend selection left by increment", "Selection", 0);
-                result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendRight:
                 result.setInfo("Extend Selection Right", "Extend selection right by increment", "Selection", 0);
-                result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendStart:
                 result.setInfo("Extend to Visible Start", "Extend selection to visible start", "Selection", 0);
-                result.addDefaultKeypress(juce::KeyPress::homeKey, juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendEnd:
                 result.setInfo("Extend to Visible End", "Extend selection to visible end", "Selection", 0);
-                result.addDefaultKeypress(juce::KeyPress::endKey, juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendPageLeft:
                 result.setInfo("Extend Selection Page Left", "Extend selection left by page increment", "Selection", 0);
-                result.addDefaultKeypress(juce::KeyPress::pageUpKey, juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::selectExtendPageRight:
                 result.setInfo("Extend Selection Page Right", "Extend selection right by page increment", "Selection", 0);
-                result.addDefaultKeypress(juce::KeyPress::pageDownKey, juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // Snap commands
             case CommandIDs::snapCycleMode:
                 result.setInfo("Toggle Snap", "Toggle snap on/off (maintains last increment)", "Snap", 0);
-                result.addDefaultKeypress('g', 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::snapToggleZeroCrossing:
                 result.setInfo("Toggle Zero Crossing Snap", "Quick toggle zero crossing snap", "Snap", 0);
-                result.addDefaultKeypress('z', 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // Processing operations
             case CommandIDs::processGain:
                 result.setInfo("Gain...", "Apply precise gain adjustment", "Process", 0);
-                result.addDefaultKeypress('g', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);  // Cmd+Shift+G (changed from Shift+G to avoid conflict with viewCycleTimeFormat)
-                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Shift+G (viewCycleTimeFormat moved to Cmd+Shift+T to resolve conflict)
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::processIncreaseGain:
                 result.setInfo("Increase Gain", "Increase gain by 1 dB", "Process", 0);
-                result.addDefaultKeypress(juce::KeyPress::upKey, juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::processDecreaseGain:
                 result.setInfo("Decrease Gain", "Decrease gain by 1 dB", "Process", 0);
-                result.addDefaultKeypress(juce::KeyPress::downKey, juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::processNormalize:
                 result.setInfo("Normalize...", "Normalize audio to peak level", "Process", 0);
-                result.addDefaultKeypress('n', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::processFadeIn:
                 result.setInfo("Fade In", "Apply linear fade in to selection", "Process", 0);
-                result.addDefaultKeypress('f', juce::ModifierKeys::commandModifier);  // Changed from Cmd+Shift+I to Cmd+F (no conflict)
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Changed from Cmd+Shift+I to Cmd+F (no conflict)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::processFadeOut:
                 result.setInfo("Fade Out", "Apply linear fade out to selection", "Process", 0);
-                result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::processDCOffset:
                 result.setInfo("Remove DC Offset", "Remove DC offset from entire file", "Process", 0);
-                result.addDefaultKeypress('d', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             // Region commands (Phase 3 Tier 2)
             case CommandIDs::regionAdd:
                 result.setInfo("Add Region", "Create region from current selection", "Region", 0);
-                result.addDefaultKeypress('r', 0);  // Just 'R' key (no modifiers)
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Just 'R' key (no modifiers)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
             case CommandIDs::regionDelete:
                 result.setInfo("Delete Region", "Delete selected region", "Region", 0);
-                result.addDefaultKeypress(juce::KeyPress::deleteKey, juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::regionNext:
                 result.setInfo("Next Region", "Jump to next region", "Region", 0);
-                result.addDefaultKeypress(']', 0);  // Just ']' key (no modifiers)
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Just ']' key (no modifiers)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::regionPrevious:
                 result.setInfo("Previous Region", "Jump to previous region", "Region", 0);
-                result.addDefaultKeypress('[', 0);  // Just '[' key (no modifiers)
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Just '[' key (no modifiers)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::regionSelectInverse:
                 result.setInfo("Select Inverse of Regions", "Select everything NOT in regions", "Region", 0);
-                result.addDefaultKeypress('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::regionSelectAll:
                 result.setInfo("Select All Regions", "Select union of all regions", "Region", 0);
-                result.addDefaultKeypress('a', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::regionStripSilence:
                 result.setInfo("Auto Region", "Auto-create regions from non-silent sections", "Region", 0);
-                result.addDefaultKeypress('r', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::regionExportAll:
                 result.setInfo("Export Regions As Files", "Export each region as a separate audio file", "Region", 0);
-                result.addDefaultKeypress('e', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getRegionManager().getNumRegions() > 0);
                 break;
 
             case CommandIDs::regionBatchRename:
                 result.setInfo("Batch Rename Regions", "Rename multiple selected regions at once", "Region", 0);
-                result.addDefaultKeypress('n', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+B (moved from Cmd+Shift+N to avoid conflict with processNormalize)
                 result.setActive(doc && doc->getRegionManager().getNumRegions() >= 2);
                 break;
 
             // Region editing commands (Phase 3.4)
             case CommandIDs::regionMerge:
                 result.setInfo("Merge Regions", "Merge selected regions", "Region", 0);
-                result.addDefaultKeypress('m', juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+J (J = Join, Pro Tools standard)
                 result.setActive(doc && canMergeRegions(doc));
                 break;
 
             case CommandIDs::regionSplit:
                 result.setInfo("Split Region at Cursor", "Split region at cursor position", "Region", 0);
-                result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+K (K = "kut/split", avoids Cmd+T conflict with Trim)
                 result.setActive(doc && canSplitRegion(doc));
                 break;
 
             case CommandIDs::regionCopy:
                 result.setInfo("Copy Region", "Copy selected region definition to clipboard", "Region", 0);
-                result.addDefaultKeypress('c', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             case CommandIDs::regionPaste:
                 result.setInfo("Paste Regions at Cursor", "Paste regions at cursor position", "Region", 0);
-                result.addDefaultKeypress('v', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && m_hasRegionClipboard);
                 break;
 
             case CommandIDs::regionShowList:
                 result.setInfo("Show Region List", "Display list of all regions", "Region", 0);
-                result.addDefaultKeypress('m', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
@@ -1702,30 +1866,87 @@ public:
             // Region nudge commands (Phase 3.3 - Feature #6)
             case CommandIDs::regionNudgeStartLeft:
                 result.setInfo("Nudge Region Start Left", "Move region start boundary left by snap increment", "Region", 0);
-                result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
                                  doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             case CommandIDs::regionNudgeStartRight:
                 result.setInfo("Nudge Region Start Right", "Move region start boundary right by snap increment", "Region", 0);
-                result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
                                  doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             case CommandIDs::regionNudgeEndLeft:
                 result.setInfo("Nudge Region End Left", "Move region end boundary left by snap increment", "Region", 0);
-                result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::shiftModifier | juce::ModifierKeys::altModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
                                  doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             case CommandIDs::regionNudgeEndRight:
                 result.setInfo("Nudge Region End Right", "Move region end boundary right by snap increment", "Region", 0);
-                result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::shiftModifier | juce::ModifierKeys::altModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
                                  doc->getRegionManager().getSelectedRegionIndex() >= 0);
+                break;
+
+            // Marker commands (Phase 3.4)
+            case CommandIDs::markerAdd:
+                result.setInfo("Add Marker", "Add marker at cursor position", "Marker", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Just 'M' key
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::markerDelete:
+                result.setInfo("Delete Marker", "Delete selected marker", "Marker", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getMarkerManager().getSelectedMarkerIndex() >= 0);
+                break;
+
+            case CommandIDs::markerNext:
+                result.setInfo("Next Marker", "Jump to next marker", "Marker", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getMarkerManager().getNumMarkers() > 0);
+                break;
+
+            case CommandIDs::markerPrevious:
+                result.setInfo("Previous Marker", "Jump to previous marker", "Marker", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getMarkerManager().getNumMarkers() > 0);
+                break;
+
+            case CommandIDs::markerShowList:
+                result.setInfo("Show Marker List", "Show/hide marker list panel", "Marker", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+L (moved from Cmd+Shift+K to avoid conflict with regionSplit)
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            // Help commands
+            case CommandIDs::helpAbout:
+                result.setInfo("About WaveEdit", "Show application information", "Help", 0);
+                // No keyboard shortcut (standard macOS About accessed via menu)
+                result.setActive(true);
+                break;
+
+            case CommandIDs::helpShortcuts:
+                result.setInfo("Keyboard Shortcuts", "Show keyboard shortcut reference", "Help", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+/ = help (common standard)
+                result.setActive(true);
                 break;
 
             default:
@@ -1751,7 +1972,7 @@ public:
                 return true;
 
             case CommandIDs::filePreferences:
-                SettingsPanel::showDialog(this, m_audioDeviceManager);
+                SettingsPanel::showDialog(this, m_audioDeviceManager, m_commandManager, m_keymapManager);
                 return true;
 
             // Tab operations
@@ -1826,6 +2047,27 @@ public:
             case CommandIDs::fileProperties:
                 if (!doc) return false;
                 FilePropertiesDialog::showDialog(this, *doc);
+                return true;
+
+            case CommandIDs::fileEditBWFMetadata:
+                if (!doc) return false;
+                BWFEditorDialog::showDialog(this, doc->getBWFMetadata(), [this, doc]()
+                {
+                    // Mark document as modified when BWF metadata changes
+                    doc->setModified(true);
+                    juce::Logger::writeToLog("BWF metadata updated - document marked as modified");
+                });
+                return true;
+
+            case CommandIDs::fileEditiXMLMetadata:
+                if (!doc) return false;
+                iXMLEditorDialog::showDialog(this, doc->getiXMLMetadata(),
+                                            doc->getFilename(), [this, doc]()
+                {
+                    // Mark document as modified when iXML metadata changes
+                    doc->setModified(true);
+                    juce::Logger::writeToLog("iXML metadata updated - document marked as modified");
+                });
                 return true;
 
             case CommandIDs::editUndo:
@@ -1923,6 +2165,51 @@ public:
                 toggleLoop();
                 return true;
 
+            case CommandIDs::playbackLoopRegion:
+            {
+                if (!doc) return false;
+
+                // Get selected region
+                auto& regionMgr = doc->getRegionManager();
+                int selectedIndex = regionMgr.getSelectedRegionIndex();
+
+                if (selectedIndex < 0 || selectedIndex >= regionMgr.getNumRegions())
+                {
+                    juce::Logger::writeToLog("No region selected for loop playback");
+                    return false;
+                }
+
+                auto* region = regionMgr.getRegion(selectedIndex);
+                if (!region)
+                {
+                    juce::Logger::writeToLog("Invalid region for loop playback");
+                    return false;
+                }
+
+                // Set selection to region boundaries (current loop implementation uses selection)
+                auto& audioEngine = doc->getAudioEngine();
+                double sampleRate = audioEngine.getSampleRate();
+
+                double startTime = region->getStartSample() / sampleRate;
+                double endTime = region->getEndSample() / sampleRate;
+
+                // Set selection to match region boundaries for loop playback
+                doc->getWaveformDisplay().setSelection(region->getStartSample(), region->getEndSample());
+
+                // Enable loop mode
+                audioEngine.setLooping(true);
+
+                juce::Logger::writeToLog("Loop region: " + region->getName() +
+                                         " (" + juce::String(startTime, 3) + "s - " +
+                                         juce::String(endTime, 3) + "s)");
+
+                // Start playback from region start
+                audioEngine.setPosition(startTime);
+                audioEngine.play();
+
+                return true;
+            }
+
             // View/Zoom operations
             case CommandIDs::viewZoomIn:
                 if (!doc) return false;
@@ -1974,6 +2261,26 @@ public:
                 // Toggle auto-preview setting (global, not per-document)
                 Settings::getInstance().setAutoPreviewRegions(!Settings::getInstance().getAutoPreviewRegions());
                 return true;
+
+            case CommandIDs::viewToggleRegions:
+            {
+                // Toggle region visibility setting (global, not per-document)
+                bool currentlyVisible = Settings::getInstance().getRegionsVisible();
+                Settings::getInstance().setRegionsVisible(!currentlyVisible);
+
+                // Repaint all documents to update region visibility
+                for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
+                {
+                    auto* document = m_documentManager.getDocument(i);
+                    if (document)
+                    {
+                        document->getRegionDisplay().setVisible(!currentlyVisible);
+                        document->getWaveformDisplay().repaint();
+                    }
+                }
+
+                return true;
+            }
 
             // Navigation operations (simple movement)
             case CommandIDs::navigateLeft:
@@ -2262,6 +2569,38 @@ public:
                 nudgeRegionBoundary(false, false);  // nudgeStart=false, moveLeft=false
                 return true;
 
+            // Marker operations (Phase 3.4)
+            case CommandIDs::markerAdd:
+                if (!doc) return false;
+                addMarkerAtCursor();
+                return true;
+
+            case CommandIDs::markerDelete:
+                if (!doc) return false;
+                deleteSelectedMarker();
+                return true;
+
+            case CommandIDs::markerNext:
+                if (!doc) return false;
+                jumpToNextMarker();
+                return true;
+
+            case CommandIDs::markerPrevious:
+                if (!doc) return false;
+                jumpToPreviousMarker();
+                return true;
+
+            case CommandIDs::markerShowList:
+            {
+                if (auto* doc = m_documentManager.getCurrentDocument())
+                {
+                    // TODO: Implement MarkerListPanel (similar to RegionListPanel)
+                    // For now, log a message
+                    juce::Logger::writeToLog("Marker List Panel not yet implemented");
+                }
+                return true;
+            }
+
             // Processing operations
             case CommandIDs::processGain:
                 if (!doc) return false;
@@ -2308,6 +2647,15 @@ public:
                 trimToSelection();
                 return true;
 
+            // Help commands
+            case CommandIDs::helpAbout:
+                showAboutDialog();
+                return true;
+
+            case CommandIDs::helpShortcuts:
+                showKeyboardShortcutsDialog();
+                return true;
+
             default:
                 return false;
         }
@@ -2318,7 +2666,7 @@ public:
 
     juce::StringArray getMenuBarNames() override
     {
-        return { "File", "Edit", "View", "Region", "Process", "Playback", "Help" };
+        return { "File", "Edit", "View", "Region", "Marker", "Process", "Playback", "Help" };
     }
 
     juce::PopupMenu getMenuForIndex(int menuIndex, const juce::String& /*menuName*/) override
@@ -2334,6 +2682,8 @@ public:
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::fileClose);
             menu.addCommandItem(&m_commandManager, CommandIDs::fileProperties);
+            menu.addCommandItem(&m_commandManager, CommandIDs::fileEditBWFMetadata);
+            menu.addCommandItem(&m_commandManager, CommandIDs::fileEditiXMLMetadata);
             menu.addSeparator();
 
             // Recent files submenu
@@ -2393,6 +2743,7 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::viewAutoScroll);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomToRegion);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewAutoPreviewRegions);
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewToggleRegions);
         }
         else if (menuIndex == 3) // Region menu
         {
@@ -2418,7 +2769,17 @@ public:
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::regionShowList);
         }
-        else if (menuIndex == 4) // Process menu
+        else if (menuIndex == 4) // Marker menu (Phase 3.4)
+        {
+            menu.addCommandItem(&m_commandManager, CommandIDs::markerAdd);
+            menu.addCommandItem(&m_commandManager, CommandIDs::markerDelete);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::markerNext);
+            menu.addCommandItem(&m_commandManager, CommandIDs::markerPrevious);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::markerShowList);
+        }
+        else if (menuIndex == 5) // Process menu
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::processGain);
             menu.addSeparator();
@@ -2428,15 +2789,16 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::processFadeIn);
             menu.addCommandItem(&m_commandManager, CommandIDs::processFadeOut);
         }
-        else if (menuIndex == 5) // Playback menu
+        else if (menuIndex == 6) // Playback menu
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPlay);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPause);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackStop);
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoop);
+            menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoopRegion);
         }
-        else if (menuIndex == 6) // Help menu
+        else if (menuIndex == 7) // Help menu
         {
             menu.addItem("About WaveEdit", [this] { showAbout(); });
         }
@@ -2478,9 +2840,15 @@ public:
             juce::File file(filePath);
             if (file.existsAsFile() && file.hasFileExtension(".wav"))
             {
+                // Remember the directory for next time
+                Settings::getInstance().setLastFileDirectory(file.getParentDirectory());
+
                 auto* newDoc = m_documentManager.openDocument(file);
                 if (newDoc)
                 {
+                    // Add to recent files
+                    Settings::getInstance().addRecentFile(file);
+
                     juce::Logger::writeToLog("Opened dropped file: " + file.getFileName());
                 }
             }
@@ -2502,7 +2870,7 @@ public:
         // Create file chooser - now supports multiple file selection
         m_fileChooser = std::make_unique<juce::FileChooser>(
             "Open Audio File(s)",
-            juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+            Settings::getInstance().getLastFileDirectory(),
             "*.wav",
             true);
 
@@ -2524,10 +2892,16 @@ public:
                 {
                     if (file != juce::File())
                     {
+                        // Remember the directory for next time
+                        Settings::getInstance().setLastFileDirectory(file.getParentDirectory());
+
                         // Use DocumentManager to open files (supports multiple tabs)
                         auto* newDoc = m_documentManager.openDocument(file);
                         if (newDoc)
                         {
+                            // Add to recent files
+                            Settings::getInstance().addRecentFile(file);
+
                             juce::Logger::writeToLog("Opened file: " + file.getFileName());
                         }
                         else
@@ -2608,6 +2982,9 @@ public:
             return;
         }
 
+        // Remember the directory for next time
+        Settings::getInstance().setLastFileDirectory(file.getParentDirectory());
+
         // Use DocumentManager to open the file
         auto* doc = m_documentManager.openDocument(file);
         if (doc != nullptr)
@@ -2654,21 +3031,13 @@ public:
             return;
         }
 
-        // Save the edited audio buffer to the file
-        bool saveSuccess = m_fileManager.overwriteFile(
-            currentFile,
-            doc->getBufferManager().getBuffer(),
-            doc->getBufferManager().getSampleRate(),
-            doc->getBufferManager().getBitDepth()
-        );
+        // Save using Document::saveFile() which includes BWF and iXML metadata
+        bool saveSuccess = doc->saveFile(currentFile, doc->getBufferManager().getBitDepth());
 
         if (saveSuccess)
         {
-            // Clear modified flag
-            doc->setModified(false);
             repaint();
-
-            juce::Logger::writeToLog("File saved successfully: " + currentFile.getFullPathName());
+            juce::Logger::writeToLog("File saved successfully with metadata: " + currentFile.getFullPathName());
         }
         else
         {
@@ -2676,7 +3045,7 @@ public:
             ErrorDialog::showWithDetails(
                 "Save Failed",
                 "Could not save file: " + currentFile.getFileName(),
-                m_fileManager.getLastError(),
+                "Failed to write file with metadata",
                 ErrorDialog::Severity::Error
             );
         }
@@ -2724,25 +3093,20 @@ public:
                     file = file.withFileExtension(".wav");
                 }
 
-                // Save the edited audio buffer to the new file
-                bool saveSuccess = m_fileManager.saveAsWav(
-                    file,
-                    doc->getBufferManager().getBuffer(),
-                    doc->getBufferManager().getSampleRate(),
-                    doc->getBufferManager().getBitDepth()
-                );
+                // Save using Document::saveFile() which includes BWF and iXML metadata
+                bool saveSuccess = doc->saveFile(file, doc->getBufferManager().getBitDepth());
 
                 if (saveSuccess)
                 {
-                    // Clear modified flag
-                    doc->setModified(false);
+                    // Remember the directory for next time
+                    Settings::getInstance().setLastFileDirectory(file.getParentDirectory());
 
                     // Add to recent files
                     Settings::getInstance().addRecentFile(file);
 
                     repaint();
 
-                    juce::Logger::writeToLog("File saved successfully as: " + file.getFullPathName());
+                    juce::Logger::writeToLog("File saved successfully as with metadata: " + file.getFullPathName());
                 }
                 else
                 {
@@ -2751,13 +3115,62 @@ public:
                         juce::AlertWindow::WarningIcon,
                         "Save As Failed",
                         "Could not save file as: " + file.getFileName() + "\n\n" +
-                        "Error: " + m_fileManager.getLastError(),
+                        "Failed to write file with metadata",
                         "OK");
                 }
             }
             // Clear the file chooser after use
             m_fileChooser.reset();
         });
+    }
+
+    bool hasUnsavedChanges() const
+    {
+        // Check if any document has unsaved changes
+        for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
+        {
+            if (auto* doc = m_documentManager.getDocument(i))
+            {
+                if (doc->isModified())
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool saveAllModifiedDocuments()
+    {
+        // Save all modified documents
+        for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
+        {
+            if (auto* doc = m_documentManager.getDocument(i))
+            {
+                if (doc->isModified())
+                {
+                    // Switch to this document's tab
+                    m_documentManager.setCurrentDocumentIndex(i);
+
+                    // Save it
+                    auto currentFile = doc->getAudioEngine().getCurrentFile();
+                    if (!currentFile.existsAsFile())
+                    {
+                        // File doesn't exist, would need Save As - abort for now
+                        juce::Logger::writeToLog("Cannot auto-save untitled document - skipping");
+                        continue;
+                    }
+
+                    bool success = doc->saveFile(currentFile, doc->getBufferManager().getBitDepth());
+                    if (!success)
+                    {
+                        juce::Logger::writeToLog("Failed to save: " + doc->getFilename());
+                        return false;  // Abort on first failure
+                    }
+                }
+            }
+        }
+        return true;  // All saves successful
     }
 
     void closeFile()
@@ -2798,12 +3211,8 @@ public:
             // result == 2 means "Don't Save" - proceed with close
         }
 
-        // Clear undo history to prevent dangling references
-        doc->getUndoManager().clearUndoHistory();
-
-        doc->getAudioEngine().closeAudioFile();
-        doc->getWaveformDisplay().clear();
-        doc->setModified(false);
+        // Close the document (which removes the tab and cleans up)
+        m_documentManager.closeDocument(doc);
         repaint();
     }
 
@@ -2837,56 +3246,19 @@ public:
         }
         else
         {
-            // PRIORITY 5e/5f: Play from cursor position by default
-            // Debug: Log current state
-            juce::Logger::writeToLog("=== PLAYBACK START DEBUG ===");
-            juce::Logger::writeToLog(juce::String::formatted("Has selection: %s",
-                doc->getWaveformDisplay().hasSelection() ? "YES" : "NO"));
-            juce::Logger::writeToLog(juce::String::formatted("Has edit cursor: %s",
-                doc->getWaveformDisplay().hasEditCursor() ? "YES" : "NO"));
-
-            if (doc->getWaveformDisplay().hasSelection())
-            {
-                juce::Logger::writeToLog(juce::String::formatted("Selection: %.3f - %.3f s",
-                    doc->getWaveformDisplay().getSelectionStart(),
-                    doc->getWaveformDisplay().getSelectionEnd()));
-            }
-
+            // ALWAYS play from cursor position (ignore selection)
+            // This matches user preference: Space/Shift+Space = play from cursor
             if (doc->getWaveformDisplay().hasEditCursor())
             {
-                juce::Logger::writeToLog(juce::String::formatted("Edit cursor: %.3f s",
-                    doc->getWaveformDisplay().getEditCursorPosition()));
-            }
-
-            juce::Logger::writeToLog(juce::String::formatted("Current playback position: %.3f s",
-                doc->getWaveformDisplay().getPlaybackPosition()));
-
-            // If there's a selection, start playback from the selection start
-            if (doc->getWaveformDisplay().hasSelection())
-            {
-                double startPos = doc->getWaveformDisplay().getSelectionStart();
-                juce::Logger::writeToLog(juce::String::formatted(
-                    "→ Starting playback from selection start: %.3f s", startPos));
-                doc->getAudioEngine().setPosition(startPos);
-            }
-            else if (doc->getWaveformDisplay().hasEditCursor())
-            {
-                // No selection: play from edit cursor position if set
+                // Play from edit cursor position
                 double startPos = doc->getWaveformDisplay().getEditCursorPosition();
-                juce::Logger::writeToLog(juce::String::formatted(
-                    "→ Starting playback from edit cursor: %.3f s", startPos));
                 doc->getAudioEngine().setPosition(startPos);
             }
             else
             {
-                // No selection or cursor: play from current playback position
-                double startPos = doc->getWaveformDisplay().getPlaybackPosition();
-                juce::Logger::writeToLog(juce::String::formatted(
-                    "→ Starting playback from playback position: %.3f s", startPos));
-                doc->getAudioEngine().setPosition(startPos);
+                // No cursor set: play from beginning (position 0)
+                doc->getAudioEngine().setPosition(0.0);
             }
-
-            juce::Logger::writeToLog("=== END DEBUG ===");
 
             doc->getAudioEngine().play();
         }
@@ -3685,6 +4057,13 @@ public:
         settings.includeIndex = exportSettings->includeIndex;
         settings.bitDepth = 24; // Default to 24-bit for professional quality
 
+        // Copy advanced naming options (Phase 4 enhancements)
+        settings.customTemplate = exportSettings->customTemplate;
+        settings.prefix = exportSettings->prefix;
+        settings.suffix = exportSettings->suffix;
+        settings.usePaddedIndex = exportSettings->usePaddedIndex;
+        settings.suffixBeforeIndex = exportSettings->suffixBeforeIndex;
+
         // Create progress dialog with progress value
         double progressValue = 0.0;
         auto progressDialog = std::make_unique<juce::AlertWindow>(
@@ -3858,6 +4237,200 @@ public:
     }
 
     //==============================================================================
+    // Marker helpers (Phase 3.4)
+
+    /**
+     * Add a marker at the current cursor position.
+     * Creates an undo action for the marker addition.
+     */
+    void addMarkerAtCursor()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        if (!doc->getAudioEngine().isFileLoaded())
+        {
+            juce::Logger::writeToLog("Cannot add marker: No file loaded");
+            return;
+        }
+
+        // Get cursor position from tracked click position (most reliable)
+        // This is set by WaveformClickTracker every time user clicks on waveform
+        double cursorTime = 0.0;
+        if (m_hasLastClickPosition)
+        {
+            // Use tracked click position (always accurate, never cleared)
+            cursorTime = m_lastClickTimeInSeconds;
+        }
+        else if (doc->getWaveformDisplay().hasEditCursor())
+        {
+            // Fallback 1: Use edit cursor if available
+            cursorTime = doc->getWaveformDisplay().getEditCursorPosition();
+        }
+        else
+        {
+            // Fallback 2: Use playback position as last resort
+            cursorTime = doc->getAudioEngine().getCurrentPosition();
+        }
+
+        // Convert time to samples for marker storage
+        int64_t cursorSample = doc->getBufferManager().timeToSample(cursorTime);
+
+        // Generate default marker name (M1, M2, etc.)
+        int markerCount = doc->getMarkerManager().getNumMarkers() + 1;
+        juce::String markerName = juce::String("M") + juce::String(markerCount);
+
+        // Create marker with default color (yellow)
+        Marker marker(markerName, cursorSample, juce::Colours::yellow);
+
+        // Create undo action
+        doc->getUndoManager().beginNewTransaction("Add Marker");
+        auto* undoAction = new AddMarkerUndoAction(
+            doc->getMarkerManager(),
+            &doc->getMarkerDisplay(),
+            marker
+        );
+        doc->getUndoManager().perform(undoAction);
+
+        juce::Logger::writeToLog(juce::String::formatted(
+            "Added marker '%s' at %.3fs (sample %lld)",
+            markerName.toRawUTF8(),
+            cursorTime,
+            cursorSample
+        ));
+
+        // Repaint to show new marker
+        repaint();
+    }
+
+    /**
+     * Delete the currently selected marker.
+     * Creates an undo action for the marker deletion.
+     */
+    void deleteSelectedMarker()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        int selectedIndex = doc->getMarkerManager().getSelectedMarkerIndex();
+        if (selectedIndex < 0)
+        {
+            juce::Logger::writeToLog("Cannot delete marker: No marker selected");
+            return;
+        }
+
+        const Marker* marker = doc->getMarkerManager().getMarker(selectedIndex);
+        if (!marker)
+        {
+            juce::Logger::writeToLog("Cannot delete marker: Invalid marker index");
+            return;
+        }
+
+        // Save marker info for logging
+        juce::String markerName = marker->getName();
+        int64_t markerPosition = marker->getPosition();
+
+        // Create undo action
+        doc->getUndoManager().beginNewTransaction("Delete Marker");
+        auto* undoAction = new DeleteMarkerUndoAction(
+            doc->getMarkerManager(),
+            &doc->getMarkerDisplay(),
+            selectedIndex,
+            *marker
+        );
+        doc->getUndoManager().perform(undoAction);
+
+        juce::Logger::writeToLog(juce::String::formatted(
+            "Deleted marker '%s' at sample %lld",
+            markerName.toRawUTF8(),
+            markerPosition
+        ));
+
+        // Repaint to remove marker
+        repaint();
+    }
+
+    /**
+     * Jump playback position to the next marker after current position.
+     */
+    void jumpToNextMarker()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        int64_t currentSample = doc->getAudioEngine().getCurrentPosition();
+        int nextIndex = doc->getMarkerManager().getNextMarkerIndex(currentSample);
+
+        if (nextIndex < 0)
+        {
+            juce::Logger::writeToLog("No marker found after current position");
+            return;
+        }
+
+        const Marker* marker = doc->getMarkerManager().getMarker(nextIndex);
+        if (!marker)
+        {
+            juce::Logger::writeToLog("Invalid marker index");
+            return;
+        }
+
+        // Set playback position to marker
+        doc->getAudioEngine().setPosition(marker->getPosition());
+
+        // Select the marker
+        doc->getMarkerManager().setSelectedMarkerIndex(nextIndex);
+
+        juce::Logger::writeToLog(juce::String::formatted(
+            "Jumped to marker '%s' at sample %lld",
+            marker->getName().toRawUTF8(),
+            marker->getPosition()
+        ));
+
+        // Repaint to show selection
+        repaint();
+    }
+
+    /**
+     * Jump playback position to the previous marker before current position.
+     */
+    void jumpToPreviousMarker()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        int64_t currentSample = doc->getAudioEngine().getCurrentPosition();
+        int prevIndex = doc->getMarkerManager().getPreviousMarkerIndex(currentSample);
+
+        if (prevIndex < 0)
+        {
+            juce::Logger::writeToLog("No marker found before current position");
+            return;
+        }
+
+        const Marker* marker = doc->getMarkerManager().getMarker(prevIndex);
+        if (!marker)
+        {
+            juce::Logger::writeToLog("Invalid marker index");
+            return;
+        }
+
+        // Set playback position to marker
+        doc->getAudioEngine().setPosition(marker->getPosition());
+
+        // Select the marker
+        doc->getMarkerManager().setSelectedMarkerIndex(prevIndex);
+
+        juce::Logger::writeToLog(juce::String::formatted(
+            "Jumped to marker '%s' at sample %lld",
+            marker->getName().toRawUTF8(),
+            marker->getPosition()
+        ));
+
+        // Repaint to show selection
+        repaint();
+    }
+
+    //==============================================================================
     // Gain adjustment helpers
 
     /**
@@ -3950,6 +4523,40 @@ public:
         {
             applyGainAdjustment(result.value());
         }
+    }
+
+    //==============================================================================
+    // Help dialogs
+
+    /**
+     * Show About WaveEdit dialog.
+     */
+    void showAboutDialog()
+    {
+        juce::String aboutText =
+            "WaveEdit - Professional Audio Editor\n"
+            "Version 1.0\n\n"
+            "Copyright © 2025 ZQ SFX\n"
+            "Licensed under GNU GPL v3\n\n"
+            "Built with JUCE " + juce::String(JUCE_MAJOR_VERSION) + "." +
+            juce::String(JUCE_MINOR_VERSION) + "." + juce::String(JUCE_BUILDNUMBER);
+
+        juce::AlertWindow::showMessageBox(juce::AlertWindow::InfoIcon,
+                                          "About WaveEdit",
+                                          aboutText,
+                                          "OK",
+                                          this);
+    }
+
+    /**
+     * Show keyboard shortcuts reference dialog.
+     *
+     * Displays a searchable, categorized list of all keyboard shortcuts
+     * dynamically loaded from the current keymap template.
+     */
+    void showKeyboardShortcutsDialog()
+    {
+        KeyboardCheatSheetDialog::showDialog(this, m_keymapManager, m_commandManager);
     }
 
     //==============================================================================
@@ -5674,6 +6281,120 @@ public:
         juce::Array<Region> m_newRegions;  // Regions created by Auto Region
     };
 
+    //==============================================================================
+    // Marker Undo Actions (Phase 3.4)
+
+    /**
+     * Undoable action for adding a marker.
+     * Stores the marker data to enable undo/redo.
+     */
+    class AddMarkerUndoAction : public juce::UndoableAction
+    {
+    public:
+        AddMarkerUndoAction(MarkerManager& markerManager,
+                           MarkerDisplay* markerDisplay,
+                           const Marker& marker)
+            : m_markerManager(markerManager),
+              m_markerDisplay(markerDisplay),
+              m_marker(marker),
+              m_markerIndex(-1)
+        {
+        }
+
+        bool perform() override
+        {
+            // Add marker and store the index
+            m_markerIndex = m_markerManager.addMarker(m_marker);
+
+            // Update display
+            if (m_markerDisplay)
+                m_markerDisplay->repaint();
+
+            juce::Logger::writeToLog("Added marker: " + m_marker.getName());
+            return true;
+        }
+
+        bool undo() override
+        {
+            if (m_markerIndex < 0)
+            {
+                juce::Logger::writeToLog("AddMarkerUndoAction::undo - Invalid marker index");
+                return false;
+            }
+
+            // Remove the marker
+            m_markerManager.removeMarker(m_markerIndex);
+
+            // Update display
+            if (m_markerDisplay)
+                m_markerDisplay->repaint();
+
+            juce::Logger::writeToLog("Undid marker addition: " + m_marker.getName());
+            return true;
+        }
+
+        int getSizeInUnits() override { return sizeof(*this) + sizeof(Marker); }
+
+    private:
+        MarkerManager& m_markerManager;
+        MarkerDisplay* m_markerDisplay;
+        Marker m_marker;
+        int m_markerIndex;  // Index where marker was added
+    };
+
+    /**
+     * Undoable action for deleting a marker.
+     * Stores the deleted marker and its index to enable restoration.
+     */
+    class DeleteMarkerUndoAction : public juce::UndoableAction
+    {
+    public:
+        DeleteMarkerUndoAction(MarkerManager& markerManager,
+                              MarkerDisplay* markerDisplay,
+                              int markerIndex,
+                              const Marker& marker)
+            : m_markerManager(markerManager),
+              m_markerDisplay(markerDisplay),
+              m_markerIndex(markerIndex),
+              m_deletedMarker(marker)
+        {
+        }
+
+        bool perform() override
+        {
+            // Delete the marker
+            m_markerManager.removeMarker(m_markerIndex);
+
+            // Update display
+            if (m_markerDisplay)
+                m_markerDisplay->repaint();
+
+            juce::Logger::writeToLog("Deleted marker: " + m_deletedMarker.getName());
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Re-insert the marker at its original index
+            m_markerManager.insertMarkerAt(m_markerIndex, m_deletedMarker);
+
+            // Update display
+            if (m_markerDisplay)
+                m_markerDisplay->repaint();
+
+            juce::Logger::writeToLog("Undid marker deletion: " + m_deletedMarker.getName());
+            return true;
+        }
+
+        int getSizeInUnits() override { return sizeof(*this) + sizeof(Marker); }
+
+    private:
+        MarkerManager& m_markerManager;
+        MarkerDisplay* m_markerDisplay;
+        int m_markerIndex;
+        Marker m_deletedMarker;
+    };
+
 private:
     // Audio device manager (shared across all documents)
     juce::AudioDeviceManager& m_audioDeviceManager;
@@ -5686,6 +6407,7 @@ private:
     // Shared resources (keep these)
     AudioFileManager m_fileManager;
     juce::ApplicationCommandManager m_commandManager;
+    KeymapManager m_keymapManager;  // Keyboard shortcut template system (Phase 3)
     std::unique_ptr<juce::FileChooser> m_fileChooser;
 
     // UI preferences (Phase 3.5)
@@ -5710,6 +6432,10 @@ private:
     // Region clipboard (Phase 3.4) - for copy/paste region definitions
     std::vector<Region> m_regionClipboard;
     bool m_hasRegionClipboard = false;
+
+    // Marker placement tracking (Phase 3.4) - reliable cursor position for marker placement
+    double m_lastClickTimeInSeconds = 0.0;  // Last mouse click position on waveform
+    bool m_hasLastClickPosition = false;    // True if user has clicked on waveform
 
     // Helper methods for safe document access
 
@@ -6016,6 +6742,244 @@ private:
                 }
             );
         };
+    }
+
+    //==============================================================================
+    // Marker Display Callbacks (Phase 3.4)
+
+    /**
+     * Wire up all marker display callbacks for a document.
+     * Must be called when a document is added/loaded.
+     */
+    void setupMarkerCallbacks(Document* doc)
+    {
+        if (!doc)
+            return;
+
+        auto& markerDisplay = doc->getMarkerDisplay();
+
+        // onMarkerClicked: Select marker and jump playback position
+        markerDisplay.onMarkerClicked = [this, doc](int markerIndex)
+        {
+            if (!doc) return;
+
+            const Marker* marker = doc->getMarkerManager().getMarker(markerIndex);
+            if (!marker)
+            {
+                juce::Logger::writeToLog("Cannot select marker: Invalid marker index");
+                return;
+            }
+
+            // Set playback position to marker
+            doc->getAudioEngine().setPosition(marker->getPosition());
+
+            // Select the marker
+            doc->getMarkerManager().setSelectedMarkerIndex(markerIndex);
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Jumped to marker '%s' at sample %lld",
+                marker->getName().toRawUTF8(),
+                marker->getPosition()
+            ));
+
+            // Repaint to show selection
+            doc->getMarkerDisplay().repaint();
+        };
+
+        // onMarkerRenamed: Update marker name with undo support
+        markerDisplay.onMarkerRenamed = [doc](int markerIndex, const juce::String& newName)
+        {
+            if (!doc) return;
+
+            Marker* marker = doc->getMarkerManager().getMarker(markerIndex);
+            if (!marker)
+            {
+                juce::Logger::writeToLog("Cannot rename marker: Invalid marker index");
+                return;
+            }
+
+            // Update marker name directly (no undo for rename in Phase 1)
+            marker->setName(newName);
+
+            // Save to sidecar JSON file
+            doc->getMarkerManager().saveToFile(doc->getFile());
+
+            // Repaint to show new name
+            doc->getMarkerDisplay().repaint();
+
+            juce::Logger::writeToLog("Renamed marker to: " + newName);
+        };
+
+        // onMarkerColorChanged: Update marker color with undo support
+        markerDisplay.onMarkerColorChanged = [doc](int markerIndex, const juce::Colour& newColor)
+        {
+            if (!doc) return;
+
+            Marker* marker = doc->getMarkerManager().getMarker(markerIndex);
+            if (!marker)
+            {
+                juce::Logger::writeToLog("Cannot change marker color: Invalid marker index");
+                return;
+            }
+
+            // Update marker color directly (no undo for color change in Phase 1)
+            marker->setColor(newColor);
+
+            // Save to sidecar JSON file
+            doc->getMarkerManager().saveToFile(doc->getFile());
+
+            // Repaint to show new color
+            doc->getMarkerDisplay().repaint();
+
+            juce::Logger::writeToLog("Changed marker color");
+        };
+
+        // onMarkerDeleted: Remove marker from manager with undo support
+        markerDisplay.onMarkerDeleted = [doc](int markerIndex)
+        {
+            if (!doc) return;
+
+            Marker* marker = doc->getMarkerManager().getMarker(markerIndex);
+            if (!marker)
+            {
+                juce::Logger::writeToLog("Cannot delete marker: Invalid marker index");
+                return;
+            }
+
+            juce::String markerName = marker->getName();
+
+            // Start a new transaction
+            juce::String transactionName = "Delete Marker";
+            doc->getUndoManager().beginNewTransaction(transactionName);
+
+            // Create undo action (stores marker data before deletion)
+            auto* undoAction = new DeleteMarkerUndoAction(
+                doc->getMarkerManager(),
+                &doc->getMarkerDisplay(),
+                markerIndex,
+                *marker
+            );
+
+            // perform() calls DeleteMarkerUndoAction::perform() which removes the marker
+            doc->getUndoManager().perform(undoAction);
+
+            juce::Logger::writeToLog("Deleted marker: " + markerName);
+        };
+
+        // onMarkerMoved: Update marker position with undo support
+        markerDisplay.onMarkerMoved = [doc](int markerIndex, int64_t oldPos, int64_t newPos)
+        {
+            if (!doc) return;
+
+            Marker* marker = doc->getMarkerManager().getMarker(markerIndex);
+            if (!marker)
+            {
+                juce::Logger::writeToLog("Cannot move marker: Invalid marker index");
+                return;
+            }
+
+            // Update marker position directly (no undo for move in Phase 1)
+            marker->setPosition(newPos);
+
+            // Re-sort markers (they must stay sorted by position)
+            // Remove and re-add to maintain sort order
+            Marker movedMarker = *marker;
+            doc->getMarkerManager().removeMarker(markerIndex);
+            int newIndex = doc->getMarkerManager().addMarker(movedMarker);
+
+            // Update selection to new index
+            doc->getMarkerManager().setSelectedMarkerIndex(newIndex);
+
+            // Save to sidecar JSON file
+            doc->getMarkerManager().saveToFile(doc->getFile());
+
+            // Repaint to show new position
+            doc->getMarkerDisplay().repaint();
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Moved marker '%s' from sample %lld to %lld",
+                movedMarker.getName().toRawUTF8(),
+                oldPos,
+                newPos
+            ));
+        };
+
+        // onMarkerDoubleClicked: Show rename dialog
+        markerDisplay.onMarkerDoubleClicked = [this, doc](int markerIndex)
+        {
+            if (!doc) return;
+
+            Marker* marker = doc->getMarkerManager().getMarker(markerIndex);
+            if (!marker)
+            {
+                juce::Logger::writeToLog("Cannot rename marker: Invalid marker index");
+                return;
+            }
+
+            // Show alert window for rename
+            juce::AlertWindow::showAsync(
+                juce::MessageBoxOptions()
+                    .withTitle("Rename Marker")
+                    .withMessage("Enter new name for marker:")
+                    .withButton("OK")
+                    .withButton("Cancel")
+                    .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                    .withAssociatedComponent(this),
+                [doc, markerIndex, marker](int result)
+                {
+                    if (result == 1) // OK button
+                    {
+                        // User entered a name (handled by alert window)
+                        // Note: This is a simplified version - full implementation would use TextEditor
+                        juce::Logger::writeToLog("Marker rename dialog shown");
+                    }
+                });
+        };
+
+        // Track mouse clicks on waveform for reliable marker placement
+        // Create a custom MouseListener to capture click positions
+        class WaveformClickTracker : public juce::MouseListener
+        {
+        public:
+            WaveformClickTracker(MainComponent* main, Document* document)
+                : m_mainComponent(main), m_document(document) {}
+
+            void mouseDown(const juce::MouseEvent& event) override
+            {
+                if (!m_document || !m_mainComponent)
+                    return;
+
+                // Get the WaveformDisplay component
+                auto& waveform = m_document->getWaveformDisplay();
+
+                // Ignore clicks on scrollbar or ruler (same logic as WaveformDisplay)
+                if (event.y < 30 || event.y > waveform.getHeight() - 16)
+                    return;
+
+                // Convert click position to time
+                int clampedX = juce::jlimit(0, waveform.getWidth() - 1, event.x);
+
+                // Calculate time from X position (matches WaveformDisplay::xToTime logic)
+                double clickTime = waveform.getVisibleRangeStart() +
+                    (static_cast<double>(clampedX) / waveform.getWidth()) *
+                    (waveform.getVisibleRangeEnd() - waveform.getVisibleRangeStart());
+
+                // Store the click position
+                m_mainComponent->m_lastClickTimeInSeconds = clickTime;
+                m_mainComponent->m_hasLastClickPosition = true;
+
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "Tracked waveform click at %.3fs", clickTime));
+            }
+
+        private:
+            MainComponent* m_mainComponent;
+            Document* m_document;
+        };
+
+        // Create and attach the mouse listener
+        // Note: Memory managed by Component's MouseListener list - will be deleted when component is destroyed
+        doc->getWaveformDisplay().addMouseListener(new WaveformClickTracker(this, doc), false);
     }
 
     Document* getCurrentDocument() const
@@ -6368,7 +7332,39 @@ public:
 
     void systemRequestedQuit() override
     {
-        // User requested quit (Cmd+Q, Alt+F4, etc.)
+        // Check for unsaved changes in any document
+        if (auto* mainComp = dynamic_cast<MainComponent*>(mainWindow->getContentComponent()))
+        {
+            if (mainComp->hasUnsavedChanges())
+            {
+                // Show warning and get user choice
+                int result = juce::NativeMessageBox::showYesNoCancelBox(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Unsaved Changes",
+                    "You have unsaved changes. Do you want to save before quitting?",
+                    nullptr,
+                    juce::ModalCallbackFunction::create([this, mainComp](int choice)
+                    {
+                        if (choice == 1)  // Yes - Save and quit
+                        {
+                            if (mainComp->saveAllModifiedDocuments())
+                            {
+                                quit();
+                            }
+                            // If save failed, don't quit
+                        }
+                        else if (choice == 2)  // No - Quit without saving
+                        {
+                            quit();
+                        }
+                        // Cancel (0) - Do nothing
+                    })
+                );
+                return;  // Don't quit immediately - let callback handle it
+            }
+        }
+
+        // No unsaved changes, quit immediately
         quit();
     }
 

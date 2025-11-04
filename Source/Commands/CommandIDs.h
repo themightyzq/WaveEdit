@@ -33,6 +33,8 @@ namespace CommandIDs
         fileProperties  = 0x1005,
         fileExit        = 0x1006,
         filePreferences = 0x1007,  // Cmd+, - Preferences/Settings dialog
+        fileEditBWFMetadata = 0x1008,  // Edit BWF metadata dialog
+        fileEditiXMLMetadata = 0x1009,  // Edit iXML/SoundMiner metadata dialog
 
         // Edit Operations (0x2000 - 0x20FF)
         editUndo        = 0x2000,
@@ -51,6 +53,7 @@ namespace CommandIDs
         playbackStop    = 0x3002,
         playbackLoop    = 0x3003,
         playbackRecord  = 0x3004, // Phase 2+
+        playbackLoopRegion = 0x3005,  // Phase 4 - Loop selected region (Cmd+Shift+L)
 
         // View Operations (0x4000 - 0x40FF)
         viewZoomIn      = 0x4000,
@@ -62,6 +65,7 @@ namespace CommandIDs
         viewAutoScroll    = 0x4006,  // Phase 3 Tier 2 - Auto-scroll during playback (Cmd+Shift+F)
         viewZoomToRegion  = 0x4007,  // Phase 3.3 - Zoom to fit selected region with margins
         viewAutoPreviewRegions = 0x4008,  // Phase 3.4 - Auto-play regions when selected
+        viewToggleRegions = 0x4009,  // Phase 4 - Toggle region visibility (Cmd+Shift+H)
 
         // Processing Operations (0x5000 - 0x50FF)
         processFadeIn   = 0x5000,
@@ -135,6 +139,13 @@ namespace CommandIDs
         regionMerge = 0xB00F,  // Cmd+J - Merge selected adjacent regions
         regionSplit = 0xB010,  // Cmd+Shift+S - Split region at cursor position
         regionCopy = 0xB011,  // Cmd+Shift+C - Copy region definitions to clipboard
-        regionPaste = 0xB012  // Cmd+Shift+V - Paste regions at cursor position
+        regionPaste = 0xB012,  // Cmd+Shift+V - Paste regions at cursor position
+
+        // Marker Operations (0xC000 - 0xC0FF) - Phase 3.4
+        markerAdd       = 0xC000,  // M - Add marker at cursor position
+        markerDelete    = 0xC001,  // Cmd+Shift+Delete (when marker selected) - Delete selected marker
+        markerNext      = 0xC002,  // Shift+] - Jump to next marker
+        markerPrevious  = 0xC003,  // Shift+[ - Jump to previous marker
+        markerShowList  = 0xC004   // Cmd+Shift+K - Show/hide Marker List Panel (future feature)
     };
 }

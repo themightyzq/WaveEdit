@@ -191,8 +191,11 @@ bool Settings::save()
 
 void Settings::addRecentFile(const juce::File& file)
 {
+    juce::Logger::writeToLog("DEBUG: addRecentFile() called for: " + file.getFullPathName());
+
     if (!file.existsAsFile())
     {
+        juce::Logger::writeToLog("DEBUG: File does not exist, returning early");
         return;
     }
 
@@ -304,6 +307,35 @@ int Settings::cleanupRecentFiles()
     return removedCount;
 }
 
+void Settings::setLastFileDirectory(const juce::File& directory)
+{
+    if (!directory.isDirectory())
+    {
+        juce::Logger::writeToLog("Warning: Attempt to set non-directory as last file directory");
+        return;
+    }
+
+    m_settingsTree.setProperty("lastFileDirectory", directory.getFullPathName(), nullptr);
+    save();
+}
+
+juce::File Settings::getLastFileDirectory() const
+{
+    juce::String lastDir = m_settingsTree.getProperty("lastFileDirectory").toString();
+
+    if (lastDir.isNotEmpty())
+    {
+        juce::File dir(lastDir);
+        if (dir.isDirectory())
+        {
+            return dir;
+        }
+    }
+
+    // Default to home directory if no last directory set or invalid
+    return juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+}
+
 //==============================================================================
 // General Settings
 
@@ -359,6 +391,18 @@ void Settings::setAutoPreviewRegions(bool enabled)
 {
     setSetting("region.autoPreview", enabled);
     juce::Logger::writeToLog("Region auto-preview: " + juce::String(enabled ? "enabled" : "disabled"));
+}
+
+bool Settings::getRegionsVisible() const
+{
+    // Default: true (regions visible by default)
+    return getSetting("view.showRegions", true);
+}
+
+void Settings::setRegionsVisible(bool visible)
+{
+    setSetting("view.showRegions", visible);
+    juce::Logger::writeToLog("Regions visibility: " + juce::String(visible ? "visible" : "hidden"));
 }
 
 //==============================================================================

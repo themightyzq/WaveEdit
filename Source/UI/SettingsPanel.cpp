@@ -22,10 +22,15 @@ constexpr int BUTTON_SPACING = 10;
 
 #include "SettingsPanel.h"
 #include "Utils/Settings.h"
+#include "Utils/KeymapManager.h"
 
 //==============================================================================
-SettingsPanel::SettingsPanel(juce::AudioDeviceManager& deviceManager)
+SettingsPanel::SettingsPanel(juce::AudioDeviceManager& deviceManager,
+                              juce::ApplicationCommandManager& commandManager,
+                              KeymapManager& keymapManager)
     : m_deviceManager(deviceManager),
+      m_commandManager(commandManager),
+      m_keymapManager(keymapManager),
       m_waveformColorSelector(juce::ColourSelector::showColourAtTop |
                                juce::ColourSelector::showSliders |
                                juce::ColourSelector::showColourspace),
@@ -44,6 +49,10 @@ SettingsPanel::SettingsPanel(juce::AudioDeviceManager& deviceManager)
     // Create auto-save settings tab
     auto* autoSaveTab = createAutoSaveSettingsTab();
     m_tabbedComponent.addTab("Auto-Save", juce::Colour(0xff3a3a3a), autoSaveTab, true);
+
+    // Create keyboard shortcuts tab
+    auto* shortcutsTab = createKeyboardShortcutsTab();
+    m_tabbedComponent.addTab("Keyboard Shortcuts", juce::Colour(0xff3a3a3a), shortcutsTab, true);
 
     addAndMakeVisible(m_tabbedComponent);
 
@@ -101,6 +110,10 @@ void SettingsPanel::buttonClicked(juce::Button* button)
     {
         saveSettings();
 
+        // Apply keyboard shortcut changes
+        if (m_shortcutEditor)
+            m_shortcutEditor->applyChanges();
+
         // Close dialog
         if (auto* dialogWindow = findParentComponentOfClass<juce::DialogWindow>())
         {
@@ -109,6 +122,10 @@ void SettingsPanel::buttonClicked(juce::Button* button)
     }
     else if (button == &m_cancelButton)
     {
+        // Revert keyboard shortcut changes
+        if (m_shortcutEditor)
+            m_shortcutEditor->revertChanges();
+
         // Close dialog without saving
         if (auto* dialogWindow = findParentComponentOfClass<juce::DialogWindow>())
         {
@@ -118,7 +135,141 @@ void SettingsPanel::buttonClicked(juce::Button* button)
     else if (button == &m_applyButton)
     {
         saveSettings();
+
+        // Apply keyboard shortcut changes
+        if (m_shortcutEditor)
+            m_shortcutEditor->applyChanges();
+
         // Dialog stays open
+    }
+    else if (button == &m_importTemplateButton)
+    {
+        // Show file chooser for importing a template
+        auto chooser = std::make_shared<juce::FileChooser>("Import Keyboard Template",
+                                                             juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+                                                             "*.json");
+
+        auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+        chooser->launchAsync(flags, [this, chooser](const juce::FileChooser& fc)
+        {
+            auto file = fc.getResult();
+            if (file.existsAsFile())
+            {
+                if (m_keymapManager.importTemplate(file))
+                {
+                    // Reload template selector
+                    m_templateSelector.clear();
+                    auto availableTemplates = m_keymapManager.getAvailableTemplates();
+                    int itemId = 1;
+                    for (const auto& templateName : availableTemplates)
+                    {
+                        m_templateSelector.addItem(templateName, itemId++);
+                    }
+
+                    // Select the newly imported template
+                    juce::String importedName = file.getFileNameWithoutExtension();
+                    for (int i = 0; i < m_templateSelector.getNumItems(); ++i)
+                    {
+                        if (m_templateSelector.getItemText(i) == importedName)
+                        {
+                            m_templateSelector.setSelectedId(i + 1, juce::sendNotification);
+                            break;
+                        }
+                    }
+
+                    juce::Logger::writeToLog("Imported keyboard template: " + importedName);
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Import Failed",
+                        "Failed to import keyboard template. Check that the file is a valid template JSON.",
+                        "OK");
+                }
+            }
+        });
+    }
+    else if (button == &m_exportTemplateButton)
+    {
+        // Show file chooser for exporting current template
+        juce::String currentTemplate = m_keymapManager.getCurrentTemplateName();
+        auto defaultName = currentTemplate + ".json";
+
+        auto chooser = std::make_shared<juce::FileChooser>("Export Keyboard Template",
+                                                             juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(defaultName),
+                                                             "*.json");
+
+        auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting;
+
+        chooser->launchAsync(flags, [this, chooser](const juce::FileChooser& fc)
+        {
+            auto file = fc.getResult();
+            if (file != juce::File())
+            {
+                if (m_keymapManager.exportCurrentTemplate(file))
+                {
+                    juce::Logger::writeToLog("Exported keyboard template: " + file.getFullPathName());
+
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::InfoIcon,
+                        "Export Successful",
+                        "Keyboard template exported successfully to:\n" + file.getFullPathName(),
+                        "OK");
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Export Failed",
+                        "Failed to export keyboard template. Check disk space and permissions.",
+                        "OK");
+                }
+            }
+        });
+    }
+}
+
+//==============================================================================
+void SettingsPanel::comboBoxChanged(juce::ComboBox* comboBox)
+{
+    if (comboBox == &m_templateSelector)
+    {
+        // Switch to selected template
+        juce::String selectedTemplate = m_templateSelector.getText();
+
+        if (m_keymapManager.loadTemplate(selectedTemplate))
+        {
+            juce::Logger::writeToLog("Switched to keyboard template: " + selectedTemplate);
+
+            // Update the shortcut editor to reflect the new template
+            if (m_shortcutEditor)
+            {
+                m_shortcutEditor->refreshCommandList(); // Reload and refresh UI
+            }
+        }
+        else
+        {
+            juce::Logger::writeToLog("ERROR: Failed to load keyboard template: " + selectedTemplate);
+
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Template Load Failed",
+                "Failed to load keyboard template '" + selectedTemplate + "'. Reverting to previous template.",
+                "OK");
+
+            // Revert to current template
+            juce::String currentTemplate = m_keymapManager.getCurrentTemplateName();
+            for (int i = 0; i < m_templateSelector.getNumItems(); ++i)
+            {
+                if (m_templateSelector.getItemText(i) == currentTemplate)
+                {
+                    m_templateSelector.setSelectedId(i + 1, juce::dontSendNotification);
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -362,10 +513,152 @@ juce::Component* SettingsPanel::createAutoSaveSettingsTab()
     return container;
 }
 
-//==============================================================================
-void SettingsPanel::showDialog(juce::Component* parentComponent, juce::AudioDeviceManager& deviceManager)
+/**
+ * Keyboard shortcuts tab container.
+ * Manages layout of template selector, Import/Export buttons, and ShortcutEditorPanel.
+ */
+class KeyboardShortcutsTab : public juce::Component
 {
-    auto* settingsPanel = new SettingsPanel(deviceManager);
+public:
+    KeyboardShortcutsTab(juce::Label& templateLabel, juce::ComboBox& templateSelector,
+                         juce::TextButton& importButton, juce::TextButton& exportButton,
+                         ShortcutEditorPanel& shortcutEditor)
+        : m_templateLabel(templateLabel),
+          m_templateSelector(templateSelector),
+          m_importButton(importButton),
+          m_exportButton(exportButton),
+          m_shortcutEditor(shortcutEditor)
+    {
+        addAndMakeVisible(m_templateLabel);
+        addAndMakeVisible(m_templateSelector);
+        addAndMakeVisible(m_importButton);
+        addAndMakeVisible(m_exportButton);
+        addAndMakeVisible(m_shortcutEditor);
+    }
+
+    void resized() override
+    {
+        auto bounds = getLocalBounds().reduced(10);
+
+        // Template selector row at top
+        auto templateRow = bounds.removeFromTop(30);
+        m_templateLabel.setBounds(templateRow.removeFromLeft(140));
+        templateRow.removeFromLeft(10); // Spacing
+        m_templateSelector.setBounds(templateRow.removeFromLeft(250));
+        templateRow.removeFromLeft(20); // Spacing
+        m_importButton.setBounds(templateRow.removeFromLeft(80));
+        templateRow.removeFromLeft(10); // Spacing
+        m_exportButton.setBounds(templateRow.removeFromLeft(80));
+
+        bounds.removeFromTop(15); // Spacing between template row and editor
+
+        // Shortcut editor takes remaining space
+        m_shortcutEditor.setBounds(bounds);
+    }
+
+private:
+    juce::Label& m_templateLabel;
+    juce::ComboBox& m_templateSelector;
+    juce::TextButton& m_importButton;
+    juce::TextButton& m_exportButton;
+    ShortcutEditorPanel& m_shortcutEditor;
+};
+
+juce::Component* SettingsPanel::createKeyboardShortcutsTab()
+{
+    try
+    {
+        // Template selector label
+        m_templateLabel.setText("Keyboard Template:", juce::dontSendNotification);
+        m_templateLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+
+        // Template selector combo box
+        auto availableTemplates = m_keymapManager.getAvailableTemplates();
+
+        juce::Logger::writeToLog("SettingsPanel: Populating template selector dropdown");
+        juce::Logger::writeToLog("SettingsPanel: KeymapManager returned " +
+                                juce::String(availableTemplates.size()) + " templates");
+
+        if (availableTemplates.isEmpty())
+        {
+            juce::Logger::writeToLog("WARNING: No templates found - adding fallback entry");
+            m_templateSelector.addItem("Default", 1);
+        }
+        else
+        {
+            int itemId = 1;
+            for (const auto& templateName : availableTemplates)
+            {
+                juce::Logger::writeToLog("  Adding template to dropdown: " + templateName);
+                m_templateSelector.addItem(templateName, itemId++);
+            }
+        }
+
+        juce::Logger::writeToLog("SettingsPanel: Template selector now has " +
+                                juce::String(m_templateSelector.getNumItems()) + " items");
+
+        // Set current template
+        juce::String currentTemplate = m_keymapManager.getCurrentTemplateName();
+        for (int i = 0; i < m_templateSelector.getNumItems(); ++i)
+        {
+            if (m_templateSelector.getItemText(i) == currentTemplate)
+            {
+                m_templateSelector.setSelectedId(i + 1, juce::dontSendNotification);
+                break;
+            }
+        }
+
+        m_templateSelector.addListener(this);
+
+        // Import/Export buttons
+        m_importTemplateButton.setButtonText("Import...");
+        m_importTemplateButton.addListener(this);
+
+        m_exportTemplateButton.setButtonText("Export...");
+        m_exportTemplateButton.addListener(this);
+
+        // Create shortcut editor panel
+        juce::Logger::writeToLog("Creating ShortcutEditorPanel...");
+        m_shortcutEditor = std::make_unique<ShortcutEditorPanel>(m_commandManager);
+        juce::Logger::writeToLog("ShortcutEditorPanel created successfully");
+
+        auto* container = new KeyboardShortcutsTab(m_templateLabel, m_templateSelector,
+                                                   m_importTemplateButton, m_exportTemplateButton,
+                                                   *m_shortcutEditor);
+        container->setSize(650, 400);
+        return container;
+    }
+    catch (const std::exception& e)
+    {
+        juce::Logger::writeToLog("EXCEPTION in createKeyboardShortcutsTab(): " + juce::String(e.what()));
+
+        // Return a simple error message component
+        auto* errorLabel = new juce::Label();
+        errorLabel->setText("Error loading keyboard shortcuts tab: " + juce::String(e.what()), juce::dontSendNotification);
+        errorLabel->setColour(juce::Label::textColourId, juce::Colours::red);
+        errorLabel->setSize(650, 400);
+        return errorLabel;
+    }
+    catch (...)
+    {
+        juce::Logger::writeToLog("UNKNOWN EXCEPTION in createKeyboardShortcutsTab()");
+
+        // Return a simple error message component
+        auto* errorLabel = new juce::Label();
+        errorLabel->setText("Unknown error loading keyboard shortcuts tab", juce::dontSendNotification);
+        errorLabel->setColour(juce::Label::textColourId, juce::Colours::red);
+        errorLabel->setSize(650, 400);
+        return errorLabel;
+    }
+}
+
+//==============================================================================
+void SettingsPanel::showDialog(juce::Component* parentComponent,
+                                juce::AudioDeviceManager& deviceManager,
+                                juce::ApplicationCommandManager& commandManager,
+                                KeymapManager& keymapManager)
+{
+    auto* settingsPanel = new SettingsPanel(deviceManager, commandManager, keymapManager);
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(settingsPanel);

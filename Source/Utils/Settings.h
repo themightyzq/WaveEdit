@@ -103,6 +103,20 @@ public:
      */
     int cleanupRecentFiles();
 
+    /**
+     * Sets the last directory used for file operations.
+     *
+     * @param directory The directory to remember
+     */
+    void setLastFileDirectory(const juce::File& directory);
+
+    /**
+     * Gets the last directory used for file operations.
+     *
+     * @return The last directory, or home directory if none set
+     */
+    juce::File getLastFileDirectory() const;
+
     //==============================================================================
     // General Settings
 
@@ -153,6 +167,20 @@ public:
      * @param enabled true to enable auto-preview, false to disable
      */
     void setAutoPreviewRegions(bool enabled);
+
+    /**
+     * Gets whether regions should be visible in the display.
+     *
+     * @return true if visible, false if hidden (default: true)
+     */
+    bool getRegionsVisible() const;
+
+    /**
+     * Sets whether regions should be visible in the display.
+     *
+     * @param visible true to show regions, false to hide
+     */
+    void setRegionsVisible(bool visible);
 
 private:
     //==============================================================================

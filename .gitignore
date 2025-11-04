@@ -83,13 +83,18 @@ $RECYCLE.BIN/
 *.temp
 *.log
 
-# Audio test files (exclude large test audio files)
+# Audio test files (exclude large test audio files and generated metadata)
 *.wav
 *.flac
 *.mp3
 *.ogg
 *.aiff
+*.wav.regions.json
+*.wav.markers.json
 !test_fixtures/*.wav
+# UCS data files
+*.xlsx
+*.csv
 
 # Claude Code / AI development files
 .claude/
@@ -122,6 +127,28 @@ scripts/
 Source/Test*.cpp
 Source/Test*.h
 
+# User application support directories (platform-specific)
+# macOS
+~/Library/Application Support/WaveEdit/
+Library/Application Support/WaveEdit/
+# Windows
+%APPDATA%/WaveEdit/
+AppData/Roaming/WaveEdit/
+# Linux
+~/.config/WaveEdit/
+.config/WaveEdit/
+
 # Other development tools
 .diversion/
 .dvignore
+
+# IDE/Editor config files (local only)
+.clang-format
+.clang-tidy
+CMakePresets.json
+
+# Backup files
+*.bak
+
+# Test/debug files
+inspect_metadata.cpp

@@ -42,11 +42,18 @@ public:
         bool includeRegionName;          // Include region name in filename
         bool includeIndex;               // Include region index in filename
         int bitDepth;                    // Bit depth (16, 24, 32)
+        juce::String customTemplate;     // Custom filename template (e.g., "{basename}_{region}_{index}")
+        juce::String prefix;             // Prefix to add to filenames
+        juce::String suffix;             // Suffix to add before extension
+        bool usePaddedIndex;             // Use padded index (001 vs 1)
+        bool suffixBeforeIndex;          // Place suffix before index (true) or after (false)
 
         ExportSettings()
             : includeRegionName(true),
               includeIndex(true),
-              bitDepth(24)
+              bitDepth(24),
+              usePaddedIndex(false),
+              suffixBeforeIndex(false)
         {
         }
     };
@@ -79,18 +86,24 @@ public:
     /**
      * Generates filename for a region based on naming template.
      *
+     * Supports template placeholders:
+     * - {basename}: Original filename without extension
+     * - {region}: Region name (sanitized)
+     * - {index}: Region index (1-based, non-padded)
+     * - {N}: Region index (1-based, zero-padded to 3 digits)
+     *
+     * Also applies prefix, suffix, and padded index settings.
+     *
      * @param sourceFile Original source file
      * @param region The region
      * @param regionIndex Region index (0-based)
-     * @param includeRegionName Include region name in filename
-     * @param includeIndex Include region index in filename
+     * @param settings Export settings including template, prefix, suffix options
      * @return Generated filename (without directory path)
      */
     static juce::String generateFilename(const juce::File& sourceFile,
                                           const Region& region,
                                           int regionIndex,
-                                          bool includeRegionName,
-                                          bool includeIndex);
+                                          const ExportSettings& settings);
 
     /**
      * Exports a single region to a file.
