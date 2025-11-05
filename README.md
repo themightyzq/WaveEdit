@@ -4,6 +4,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Built with JUCE](https://img.shields.io/badge/Built%20with-JUCE-00d4aa)](https://juce.com/)
+[![Build Status](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml/badge.svg)](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml)
 
 **Developer**: ZQ SFX
 **Copyright**: © 2025 ZQ SFX
@@ -127,6 +128,10 @@ See [TODO.md](TODO.md) for detailed roadmap. Highlights include:
 ---
 
 ## Installation
+
+### Pre-Built Binaries
+
+Automated builds are available for macOS, Windows, and Linux. Download the latest release from the [Actions](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml) page (artifacts available for 30 days).
 
 ### Build from Source
 
