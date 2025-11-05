@@ -63,7 +63,7 @@ Marker Marker::fromJSON(const juce::var& json)
         return Marker();
 
     juce::String name = obj->getProperty("name").toString();
-    int64_t position = static_cast<int64_t>(obj->getProperty("position"));
+    int64_t position = static_cast<int64_t>(static_cast<juce::int64>(obj->getProperty("position")));
     juce::String colorStr = obj->getProperty("color").toString();
     juce::Colour color = juce::Colour::fromString(colorStr);
 
