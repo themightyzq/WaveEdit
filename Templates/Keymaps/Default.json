@@ -165,6 +165,13 @@
         "alt"
       ]
     },
+    "viewSpectrumAnalyzer": {
+      "key": "S",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
     "navigateLeft": {
       "key": "Left",
       "modifiers": []
