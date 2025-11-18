@@ -66,6 +66,16 @@ namespace CommandIDs
         viewZoomToRegion  = 0x4007,  // Phase 3.3 - Zoom to fit selected region with margins
         viewAutoPreviewRegions = 0x4008,  // Phase 3.4 - Auto-play regions when selected
         viewToggleRegions = 0x4009,  // Phase 4 - Toggle region visibility (Cmd+Shift+H)
+        viewSpectrumAnalyzer = 0x400A,  // Cmd+Alt+S - Show/hide Spectrum Analyzer
+        viewSpectrumFFTSize512 = 0x400B,  // Set FFT size to 512
+        viewSpectrumFFTSize1024 = 0x400C,  // Set FFT size to 1024
+        viewSpectrumFFTSize2048 = 0x400D,  // Set FFT size to 2048 (default)
+        viewSpectrumFFTSize4096 = 0x400E,  // Set FFT size to 4096
+        viewSpectrumFFTSize8192 = 0x400F,  // Set FFT size to 8192
+        viewSpectrumWindowHann = 0x4010,  // Set window function to Hann (default)
+        viewSpectrumWindowHamming = 0x4011,  // Set window function to Hamming
+        viewSpectrumWindowBlackman = 0x4012,  // Set window function to Blackman
+        viewSpectrumWindowRectangular = 0x4013,  // Set window function to Rectangular
 
         // Processing Operations (0x5000 - 0x50FF)
         processFadeIn   = 0x5000,

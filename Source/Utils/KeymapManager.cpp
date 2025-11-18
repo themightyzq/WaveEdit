@@ -633,6 +633,7 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::viewAutoScroll] = "viewAutoScroll";
         commandNameMap[CommandIDs::viewZoomToRegion] = "viewZoomToRegion";
         commandNameMap[CommandIDs::viewAutoPreviewRegions] = "viewAutoPreviewRegions";
+        commandNameMap[CommandIDs::viewSpectrumAnalyzer] = "viewSpectrumAnalyzer";
 
         // Processing operations
         commandNameMap[CommandIDs::processFadeIn] = "processFadeIn";
@@ -753,6 +754,7 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::viewZoomSelection, CommandIDs::viewZoomOneToOne,
             CommandIDs::viewCycleTimeFormat, CommandIDs::viewAutoScroll,
             CommandIDs::viewZoomToRegion, CommandIDs::viewAutoPreviewRegions,
+            CommandIDs::viewSpectrumAnalyzer,
 
             // Processing operations (0x5000-0x50FF)
             CommandIDs::processFadeIn, CommandIDs::processFadeOut,

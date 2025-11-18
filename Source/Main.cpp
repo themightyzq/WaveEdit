@@ -2,7 +2,7 @@
   ==============================================================================
 
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -43,7 +43,10 @@
 #include "UI/EditRegionBoundariesDialog.h"
 #include "UI/StripSilenceDialog.h"
 #include "UI/BatchExportDialog.h"
+#include "UI/SaveAsOptionsPanel.h"
 #include "UI/RegionListPanel.h"
+#include "UI/MarkerListPanel.h"
+#include "UI/SpectrumAnalyzer.h"
 #include "UI/TabComponent.h"
 #include "UI/KeyboardCheatSheetDialog.h"
 #include "Utils/Document.h"
@@ -219,6 +222,49 @@ private:
 
 //==============================================================================
 /**
+ * Custom DocumentWindow that supports a close button callback.
+ * Used for spectrum analyzer and other floating windows that need to
+ * synchronize their visibility state with menu checkmarks.
+ *
+ * Thread Safety: The close callback is executed asynchronously on the
+ * message thread using MessageManager::callAsync() to ensure safe
+ * interaction with audio engine and UI state.
+ *
+ * @param name Window title
+ * @param backgroundColour Window background color
+ * @param requiredButtons Button configuration (DocumentWindow::allButtons, etc.)
+ * @param onCloseCallback Optional callback invoked when close button pressed (moved for efficiency)
+ */
+class CallbackDocumentWindow : public juce::DocumentWindow
+{
+public:
+    CallbackDocumentWindow(const juce::String& name,
+                          juce::Colour backgroundColour,
+                          int requiredButtons,
+                          std::function<void()> onCloseCallback = nullptr)
+        : juce::DocumentWindow(name, backgroundColour, requiredButtons),
+          m_onCloseCallback(std::move(onCloseCallback))  // Move instead of copy
+    {
+    }
+
+    void closeButtonPressed() override
+    {
+        // Hide the window instead of deleting it
+        setVisible(false);
+
+        // Invoke the callback if provided (already on message thread, but ensure safety)
+        if (m_onCloseCallback)
+        {
+            juce::MessageManager::callAsync(m_onCloseCallback);
+        }
+    }
+
+private:
+    std::function<void()> m_onCloseCallback;
+};
+
+//==============================================================================
+/**
  * Main application window component.
  * Handles UI, file operations, playback control, and keyboard shortcuts.
  */
@@ -228,7 +274,8 @@ class MainComponent : public juce::Component,
                       public juce::MenuBarModel,
                       public juce::Timer,
                       public DocumentManager::Listener,
-                      public RegionListPanel::Listener
+                      public RegionListPanel::Listener,
+                      public MarkerListPanel::Listener
 {
 public:
     MainComponent(juce::AudioDeviceManager& deviceManager)
@@ -301,6 +348,23 @@ public:
         juce::MenuBarModel::setMacMainMenu(nullptr);
         #endif
 
+        // Clean up spectrum analyzer window if open
+        if (m_spectrumAnalyzerWindow)
+        {
+            // Disconnect from any audio engine
+            for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
+            {
+                if (auto* doc = m_documentManager.getDocument(i))
+                {
+                    doc->getAudioEngine().setSpectrumAnalyzer(nullptr);
+                }
+            }
+
+            delete m_spectrumAnalyzerWindow;  // Window owns the analyzer, will delete it too
+            m_spectrumAnalyzerWindow = nullptr;
+            m_spectrumAnalyzer = nullptr;  // Window deleted the analyzer, just null our pointer
+        }
+
         // Clear all undo histories before closing documents (prevents dangling references)
         for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
         {
@@ -332,6 +396,22 @@ public:
             delete m_regionListWindow;  // Window owns the panel, will delete it too
             m_regionListWindow = nullptr;
             m_regionListPanel = nullptr;  // Window deleted the panel, just null our pointer
+        }
+
+        // Update spectrum analyzer connection if it's open
+        if (m_spectrumAnalyzer && m_spectrumAnalyzerWindow && m_spectrumAnalyzerWindow->isVisible())
+        {
+            // Disconnect from old document
+            if (m_previousDocument && m_previousDocument != newDocument)
+            {
+                m_previousDocument->getAudioEngine().setSpectrumAnalyzer(nullptr);
+            }
+
+            // Connect to new document
+            if (newDocument)
+            {
+                newDocument->getAudioEngine().setSpectrumAnalyzer(m_spectrumAnalyzer);
+            }
         }
 
         // Update tracking
@@ -511,6 +591,58 @@ public:
         if (m_regionListPanel)
         {
             m_regionListPanel->refresh();
+        }
+    }
+
+    //==============================================================================
+    // MarkerListPanel::Listener methods
+
+    void markerListPanelJumpToMarker(int markerIndex) override
+    {
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            const auto* marker = doc->getMarkerManager().getMarker(markerIndex);
+            if (marker)
+            {
+                // Set playback position to marker
+                doc->getAudioEngine().setPosition(marker->getPosition());
+
+                // Select the marker
+                doc->getMarkerManager().setSelectedMarkerIndex(markerIndex);
+
+                // Repaint to show visual feedback
+                doc->getMarkerDisplay().repaint();
+                repaint();
+            }
+        }
+    }
+
+    void markerListPanelMarkerDeleted(int markerIndex) override
+    {
+        // Marker was deleted from panel - refresh main display
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            doc->getMarkerDisplay().repaint();
+        }
+    }
+
+    void markerListPanelMarkerRenamed(int markerIndex, const juce::String& newName) override
+    {
+        // Marker was renamed - update display
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            doc->setModified(true);
+            doc->getMarkerDisplay().repaint();
+        }
+    }
+
+    void markerListPanelMarkerSelected(int markerIndex) override
+    {
+        // Marker was selected in panel - sync with marker display
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            doc->getMarkerManager().setSelectedMarkerIndex(markerIndex);
+            doc->getMarkerDisplay().repaint();
         }
     }
 
@@ -1043,7 +1175,7 @@ public:
                 doc->getMarkerDisplay().setBounds(containerBounds.removeFromTop(32));
 
                 // Waveform display takes remaining space
-                // TODO: Add SelectionInfoPanel and Meters when Document class is updated
+                // Future: Add SelectionInfoPanel and Meters components
                 doc->getWaveformDisplay().setBounds(containerBounds);
             }
         }
@@ -1082,19 +1214,11 @@ public:
             doc->getWaveformDisplay().setPlaybackPosition(doc->getAudioEngine().getCurrentPosition());
             repaint(); // Update status bar
 
-            // TODO: Update level meters when Document class includes Meters
-            // meters.setPeakLevel(0, doc->getAudioEngine().getPeakLevel(0));
-            // meters.setPeakLevel(1, doc->getAudioEngine().getPeakLevel(1));
-            // meters.setRMSLevel(0, doc->getAudioEngine().getRMSLevel(0));
-            // meters.setRMSLevel(1, doc->getAudioEngine().getRMSLevel(1));
+            // Future: Update level meters when integrated into Document class
         }
         else
         {
-            // TODO: Reset meters when Document class includes Meters
-            // meters.setPeakLevel(0, 0.0f);
-            // meters.setPeakLevel(1, 0.0f);
-            // meters.setRMSLevel(0, 0.0f);
-            // meters.setRMSLevel(1, 0.0f);
+            // Future: Reset meters when integrated into Document class
         }
 
         // Auto-save check (Phase 3.5 - Priority #6)
@@ -1166,6 +1290,7 @@ public:
             CommandIDs::viewZoomToRegion,     // Z or Cmd+Option+Z - Zoom to selected region
             CommandIDs::viewAutoPreviewRegions,  // Toggle auto-play regions on select
             CommandIDs::viewToggleRegions,    // Cmd+Shift+H - Toggle region visibility
+            CommandIDs::viewSpectrumAnalyzer, // Cmd+Alt+S - Show/hide Spectrum Analyzer
             // Navigation commands
             CommandIDs::navigateLeft,
             CommandIDs::navigateRight,
@@ -1576,6 +1701,14 @@ public:
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+H
                 result.setTicked(Settings::getInstance().getRegionsVisible());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::viewSpectrumAnalyzer:
+                result.setInfo("Spectrum Analyzer", "Show/hide real-time spectrum analyzer", "View", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Alt+S
+                result.setTicked(m_spectrumAnalyzerWindow && m_spectrumAnalyzerWindow->isVisible());
+                result.setActive(true);  // Always available
                 break;
 
             // Navigation commands
@@ -2091,6 +2224,10 @@ public:
                     if (m_regionListPanel)
                         m_regionListPanel->refresh();
 
+                    // Refresh MarkerListPanel if open
+                    if (m_markerListPanel)
+                        m_markerListPanel->refresh();
+
                     repaint();
                 }
                 return true;
@@ -2115,6 +2252,10 @@ public:
                     // Refresh RegionListPanel if open
                     if (m_regionListPanel)
                         m_regionListPanel->refresh();
+
+                    // Refresh MarkerListPanel if open
+                    if (m_markerListPanel)
+                        m_markerListPanel->refresh();
 
                     repaint();
                 }
@@ -2282,6 +2423,74 @@ public:
                 return true;
             }
 
+            case CommandIDs::viewSpectrumAnalyzer:
+            {
+                // Create the spectrum analyzer if it doesn't exist
+                if (!m_spectrumAnalyzer)
+                {
+                    auto* analyzer = new SpectrumAnalyzer();
+                    m_spectrumAnalyzer = analyzer;  // Track pointer for later use
+
+                    // Create window for the spectrum analyzer with close button callback
+                    m_spectrumAnalyzerWindow = new CallbackDocumentWindow("Spectrum Analyzer",
+                                                                          juce::Colour(0xff2a2a2a),
+                                                                          juce::DocumentWindow::allButtons,
+                                                                          [this]()
+                    {
+                        // Callback when close button is clicked - hide window and disconnect from audio engine
+                        if (m_spectrumAnalyzer)
+                        {
+                            if (auto* doc = getCurrentDocument())
+                            {
+                                doc->getAudioEngine().setSpectrumAnalyzer(nullptr);
+                            }
+                        }
+                        // Trigger menu state update
+                        m_commandManager.commandStatusChanged();
+                    });
+
+                    // Window now owns the analyzer - will delete it when window is deleted
+                    m_spectrumAnalyzerWindow->setContentOwned(analyzer, false);
+                    m_spectrumAnalyzerWindow->setResizable(true, true);
+                    m_spectrumAnalyzerWindow->setSize(600, 400);
+                    m_spectrumAnalyzerWindow->setAlwaysOnTop(true);
+                    m_spectrumAnalyzerWindow->centreWithSize(600, 400);
+                    m_spectrumAnalyzerWindow->setUsingNativeTitleBar(true);
+
+                    // Connect to current document's audio engine if available
+                    if (auto* doc = getCurrentDocument())
+                    {
+                        doc->getAudioEngine().setSpectrumAnalyzer(m_spectrumAnalyzer);
+                    }
+                }
+
+                // Toggle window visibility
+                if (m_spectrumAnalyzerWindow)
+                {
+                    bool isVisible = m_spectrumAnalyzerWindow->isVisible();
+                    m_spectrumAnalyzerWindow->setVisible(!isVisible);
+
+                    if (!isVisible && m_spectrumAnalyzer)
+                    {
+                        // Connect to current document when showing
+                        if (auto* doc = getCurrentDocument())
+                        {
+                            doc->getAudioEngine().setSpectrumAnalyzer(m_spectrumAnalyzer);
+                        }
+                    }
+                    else if (isVisible && m_spectrumAnalyzer)
+                    {
+                        // Disconnect when hiding
+                        if (auto* doc = getCurrentDocument())
+                        {
+                            doc->getAudioEngine().setSpectrumAnalyzer(nullptr);
+                        }
+                    }
+                }
+
+                return true;
+            }
+
             // Navigation operations (simple movement)
             case CommandIDs::navigateLeft:
                 if (!doc) return false;
@@ -2337,7 +2546,7 @@ public:
                     this,
                     m_timeFormat,
                     engine.getSampleRate(),
-                    30.0,  // Default FPS (TODO: make this user-configurable in settings)
+                    30.0,  // Default FPS (future: user-configurable via settings)
                     static_cast<int64_t>(engine.getTotalLength() * engine.getSampleRate()),
                     [this](int64_t positionInSamples)
                     {
@@ -2594,9 +2803,34 @@ public:
             {
                 if (auto* doc = m_documentManager.getCurrentDocument())
                 {
-                    // TODO: Implement MarkerListPanel (similar to RegionListPanel)
-                    // For now, log a message
-                    juce::Logger::writeToLog("Marker List Panel not yet implemented");
+                    // Create the panel if it doesn't exist
+                    if (!m_markerListPanel)
+                    {
+                        m_markerListPanel = new MarkerListPanel(
+                            &doc->getMarkerManager(),
+                            doc->getBufferManager().getSampleRate()
+                        );
+                        m_markerListPanel->setListener(this);
+                        m_markerListPanel->setCommandManager(&m_commandManager);
+
+                        // Show in window
+                        m_markerListWindow = m_markerListPanel->showInWindow(false);
+                    }
+                    else
+                    {
+                        // Toggle window visibility
+                        if (m_markerListWindow)
+                        {
+                            bool isVisible = m_markerListWindow->isVisible();
+                            m_markerListWindow->setVisible(!isVisible);
+
+                            if (!isVisible)
+                            {
+                                // Refresh panel when showing
+                                m_markerListPanel->refresh();
+                            }
+                        }
+                    }
                 }
                 return true;
             }
@@ -2744,6 +2978,11 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomToRegion);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewAutoPreviewRegions);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewToggleRegions);
+
+            menu.addSeparator();
+
+            // Spectrum Analyzer
+            menu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumAnalyzer);
         }
         else if (menuIndex == 3) // Region menu
         {
@@ -2868,10 +3107,11 @@ public:
         }
 
         // Create file chooser - now supports multiple file selection
+        // Support WAV, FLAC, MP3, and OGG formats
         m_fileChooser = std::make_unique<juce::FileChooser>(
             "Open Audio File(s)",
             Settings::getInstance().getLastFileDirectory(),
-            "*.wav",
+            "*.wav;*.flac;*.mp3;*.ogg",
             true);
 
         auto folderChooserFlags = juce::FileBrowserComponent::openMode |
@@ -3056,72 +3296,57 @@ public:
         auto* doc = getCurrentDocument();
         if (!doc) return;
 
-        if (!doc->getAudioEngine().isFileLoaded())
+        // Get current file, or provide default for unsaved documents
+        juce::File currentFile = doc->getAudioEngine().getCurrentFile();
+        if (!currentFile.existsAsFile())
         {
-            return;
+            // Provide sensible default: Documents/Untitled.wav
+            currentFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                               .getChildFile("Untitled.wav");
         }
 
-        // Don't create new file chooser if one is already active
-        if (m_fileChooser != nullptr)
-        {
-            juce::Logger::writeToLog("File chooser already active");
+        // Show Save As dialog to get format and encoding settings
+        double sourceSampleRate = doc->getAudioEngine().getSampleRate();
+        int sourceChannels = doc->getBufferManager().getBuffer().getNumChannels();
+
+        auto result = SaveAsOptionsPanel::showDialog(sourceSampleRate, sourceChannels, currentFile);
+
+        // If user cancelled, exit
+        if (!result.has_value())
             return;
-        }
 
-        // Create file chooser
-        m_fileChooser = std::make_unique<juce::FileChooser>(
-            "Save Audio File As",
-            doc->getAudioEngine().getCurrentFile().getParentDirectory(),
-            "*.wav",
-            true);
+        auto settings = result.value();
 
-        auto folderChooserFlags = juce::FileBrowserComponent::saveMode |
-                                  juce::FileBrowserComponent::canSelectFiles |
-                                  juce::FileBrowserComponent::warnAboutOverwriting;
+        juce::Logger::writeToLog("Saving as " + settings.format.toUpperCase() +
+                                 " - Bit depth: " + juce::String(settings.bitDepth) +
+                                 ", Quality: " + juce::String(settings.quality) +
+                                 ", Sample rate: " + juce::String(settings.targetSampleRate > 0.0 ? settings.targetSampleRate : sourceSampleRate, 0) + " Hz");
 
-        m_fileChooser->launchAsync(folderChooserFlags, [this](const juce::FileChooser& chooser)
+        // Save using Document::saveFile() with all settings
+        bool saveSuccess = doc->saveFile(settings.targetFile, settings.bitDepth, settings.quality, settings.targetSampleRate);
+
+        if (saveSuccess)
         {
-            auto* doc = getCurrentDocument();
-            if (!doc) return;
+            // Remember the directory for next time
+            Settings::getInstance().setLastFileDirectory(settings.targetFile.getParentDirectory());
 
-            auto file = chooser.getResult();
-            if (file != juce::File())
-            {
-                // Ensure .wav extension
-                if (!file.hasFileExtension(".wav"))
-                {
-                    file = file.withFileExtension(".wav");
-                }
+            // Add to recent files
+            Settings::getInstance().addRecentFile(settings.targetFile);
 
-                // Save using Document::saveFile() which includes BWF and iXML metadata
-                bool saveSuccess = doc->saveFile(file, doc->getBufferManager().getBitDepth());
+            repaint();
 
-                if (saveSuccess)
-                {
-                    // Remember the directory for next time
-                    Settings::getInstance().setLastFileDirectory(file.getParentDirectory());
-
-                    // Add to recent files
-                    Settings::getInstance().addRecentFile(file);
-
-                    repaint();
-
-                    juce::Logger::writeToLog("File saved successfully as with metadata: " + file.getFullPathName());
-                }
-                else
-                {
-                    // Show error dialog
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::WarningIcon,
-                        "Save As Failed",
-                        "Could not save file as: " + file.getFileName() + "\n\n" +
-                        "Failed to write file with metadata",
-                        "OK");
-                }
-            }
-            // Clear the file chooser after use
-            m_fileChooser.reset();
-        });
+            juce::Logger::writeToLog("File saved successfully with metadata: " + settings.targetFile.getFullPathName());
+        }
+        else
+        {
+            // Show error dialog
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Save As Failed",
+                "Could not save file as: " + settings.targetFile.getFileName() + "\n\n" +
+                "Failed to write file. Check console for details.",
+                "OK");
+        }
     }
 
     bool hasUnsavedChanges() const
@@ -3647,7 +3872,7 @@ public:
         }
 
         // For MVP: Select the first inverse range
-        // TODO Phase 4: Support multi-range selection
+        // Future: Support multi-range selection for advanced editing workflows
         auto firstRange = inverseRanges[0];
         double startTime = doc->getBufferManager().sampleToTime(firstRange.first);
         double endTime = doc->getBufferManager().sampleToTime(firstRange.second);
@@ -6429,6 +6654,14 @@ private:
     RegionListPanel* m_regionListPanel = nullptr;  // Window owns this, we just track it
     juce::DocumentWindow* m_regionListWindow = nullptr;
 
+    // Marker List Panel (Phase 3.5)
+    MarkerListPanel* m_markerListPanel = nullptr;  // Window owns this, we just track it
+    juce::DocumentWindow* m_markerListWindow = nullptr;
+
+    // Spectrum Analyzer (Phase 4)
+    SpectrumAnalyzer* m_spectrumAnalyzer = nullptr;  // Window owns this, we just track it
+    CallbackDocumentWindow* m_spectrumAnalyzerWindow = nullptr;
+
     // Region clipboard (Phase 3.4) - for copy/paste region definitions
     std::vector<Region> m_regionClipboard;
     bool m_hasRegionClipboard = false;
@@ -6680,7 +6913,7 @@ private:
 
             // Get audio context
             double sampleRate = doc->getBufferManager().getSampleRate();
-            double fps = 30.0;  // Default FPS (TODO: make this user-configurable in settings)
+            double fps = 30.0;  // Default FPS (future: user-configurable via settings)
             int64_t totalSamples = doc->getBufferManager().getNumSamples();
             AudioUnits::TimeFormat currentFormat = m_timeFormat;
 
