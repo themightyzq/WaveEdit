@@ -1,0 +1,123 @@
+# ============================================================================
+# WaveEdit Git Attributes - Cross-Platform Line Ending Normalization
+# ============================================================================
+# Ensures consistent line endings across macOS, Windows, and Linux development
+# All text files use LF endings in the repository, converted to native on checkout
+
+# ============================================================================
+# Source Code Files - ALWAYS use LF line endings
+# ============================================================================
+*.cpp text eol=lf
+*.h text eol=lf
+*.c text eol=lf
+*.hpp text eol=lf
+*.cc text eol=lf
+*.cxx text eol=lf
+
+# ============================================================================
+# Build System Files - ALWAYS use LF line endings
+# ============================================================================
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.command text eol=lf
+
+# ============================================================================
+# Configuration and Data Files - ALWAYS use LF line endings
+# ============================================================================
+*.json text eol=lf
+*.xml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+
+# ============================================================================
+# Documentation Files - ALWAYS use LF line endings
+# ============================================================================
+*.md text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+
+# ============================================================================
+# Platform-Specific Script Files - Use native line endings
+# ============================================================================
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# ============================================================================
+# Binary Audio Files - Never modify, treat as binary
+# ============================================================================
+*.wav binary
+*.flac binary
+*.mp3 binary
+*.ogg binary
+*.aiff binary
+*.aif binary
+*.au binary
+*.m4a binary
+
+# ============================================================================
+# Binary Media Files - Never modify, treat as binary
+# ============================================================================
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.icns binary
+*.svg binary
+
+# ============================================================================
+# Binary Library Files - Never modify, treat as binary
+# ============================================================================
+*.dylib binary
+*.dll binary
+*.so binary
+*.a binary
+*.lib binary
+*.pdb binary
+*.exe binary
+*.app binary
+*.framework binary
+
+# ============================================================================
+# Archive Files - Never modify, treat as binary
+# ============================================================================
+*.zip binary
+*.tar binary
+*.gz binary
+*.bz2 binary
+*.7z binary
+*.rar binary
+
+# ============================================================================
+# Font Files - Never modify, treat as binary
+# ============================================================================
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+
+# ============================================================================
+# Document Files - Never modify, treat as binary
+# ============================================================================
+*.pdf binary
+*.doc binary
+*.docx binary
+*.xls binary
+*.xlsx binary
+*.ppt binary
+*.pptx binary
+
+# ============================================================================
+# Git and GitHub Files
+# ============================================================================
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.gitmodules text eol=lf

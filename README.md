@@ -74,11 +74,13 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Play, pause, stop, loop
 - ✅ Selection-bounded playback
 - ✅ Real-time level meters (peak, RMS, clipping detection)
+- ✅ Real-time spectrum analyzer (FFT-based frequency visualization)
 
 **DSP Operations**:
 - ✅ Gain adjustment (±1dB with `Shift+Up/Down`)
+- ✅ 3-band Parametric EQ (Low/Mid/High shelves)
 - ✅ Normalize (0dB peak)
-- ✅ Fade in/out (linear curves)
+- ✅ Fade in/out with 4 curve types (Linear, Exponential, Logarithmic, S-Curve) and visual preview
 - ✅ DC offset removal
 - ✅ Silence selection
 - ✅ Trim (delete outside selection)
@@ -117,28 +119,42 @@ No project files, no import wizards. Just open → edit → save.
 
 > **Status**: Production-quality for core editing workflows. See [TODO.md](TODO.md) for current development priorities.
 
+**Spectrum Analyzer** 🆕:
+- ✅ Real-time FFT visualization during playback
+- ✅ Configurable FFT size (512, 1024, 2048, 4096, 8192 samples)
+- ✅ Multiple windowing functions (Hann, Hamming, Blackman, Rectangular)
+- ✅ Logarithmic frequency scale (20Hz-20kHz) with peak hold
+- ✅ Color gradient visualization (blue → green → yellow → red for magnitude)
+- ✅ Toggle with `Cmd+Alt+S` or View → Spectrum Analyzer
+- ✅ Configure FFT size and window function from View menu submenus
+
 ### What's Next
 
 See [TODO.md](TODO.md) for detailed roadmap. Highlights include:
-- Multi-format support (FLAC, MP3, OGG)
-- Spectrum analyzer
-- Recording from input
-- Additional DSP operations
+- ✅ Recording from input (COMPLETE - Cmd+R or Playback → Record)
+- Additional DSP operations (reverb, EQ, compressor)
+- Batch processing
 
 ---
 
 ## Installation
 
-### Pre-Built Binaries
+### Pre-Built Binaries (Recommended for End Users)
 
 Automated builds are available for macOS, Windows, and Linux. Download the latest release from the [Actions](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml) page (artifacts available for 30 days).
 
-### Build from Source
+**Pre-built binaries include**:
+- ✅ All audio codecs (WAV, FLAC, OGG, MP3)
+- ✅ LAME MP3 encoder bundled (no installation required)
+- ✅ Ready to run - just extract and launch
+
+### Build from Source (For Developers)
 
 **Prerequisites**:
 - CMake 3.15+
 - C++17 compiler
 - JUCE 7.x (included as submodule)
+- **LAME library** (for MP3 encoding support)
 
 **Quick build** (recommended):
 ```bash
@@ -172,21 +188,33 @@ open ./WaveEdit_artefacts/Release/WaveEdit.app  # macOS
 .\WaveEdit_artefacts\Release\WaveEdit.exe       # Windows
 ```
 
-**Platform-specific dependencies**:
+**Developer dependencies**:
 
 macOS:
 ```bash
+# Xcode command line tools
 xcode-select --install
+
+# LAME MP3 encoder (required for MP3 support)
+brew install lame
 ```
 
 Linux (Ubuntu/Debian):
 ```bash
+# Build tools and audio dependencies
 sudo apt-get install build-essential cmake libasound2-dev \
     libjack-jackd2-dev libfreetype6-dev libx11-dev libxrandr-dev \
     libxinerama-dev libxcursor-dev libgl1-mesa-dev
+
+# LAME MP3 encoder (required for MP3 support)
+sudo apt-get install libmp3lame-dev
 ```
 
-Windows: Use Visual Studio 2017+ and open the generated `.sln` file.
+Windows:
+- Visual Studio 2017+ (open generated `.sln` file)
+- LAME MP3 encoder: Download from https://lame.sourceforge.io/
+
+**Note for developers**: LAME is only required for building from source. Release builds automatically bundle LAME, so end users don't need to install it separately.
 
 ---
 
@@ -266,10 +294,12 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 | Play/Stop | `Space` |
 | Play/Pause | `Enter` |
 | Toggle Loop | `Q` |
+| Record | `Cmd+R` |
 
 ### Processing
 | Action | Shortcut |
 |--------|----------|
+| Parametric EQ | `Shift+E` |
 | Gain Dialog | `Cmd+Shift+G` |
 | Increase Gain | `Shift+Up` |
 | Decrease Gain | `Shift+Down` |

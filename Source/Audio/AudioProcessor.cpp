@@ -175,7 +175,7 @@ float AudioProcessor::getPeakLevelDB(const juce::AudioBuffer<float>& buffer)
 //==============================================================================
 // Fade Operations
 
-bool AudioProcessor::fadeIn(juce::AudioBuffer<float>& buffer, int numSamples)
+bool AudioProcessor::fadeIn(juce::AudioBuffer<float>& buffer, int numSamples, FadeCurveType curve)
 {
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
@@ -191,26 +191,54 @@ bool AudioProcessor::fadeIn(juce::AudioBuffer<float>& buffer, int numSamples)
         fadeSamples = buffer.getNumSamples();
     }
 
-    // Apply linear fade in to all channels
+    // Apply fade in with selected curve to all channels
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
         float* channelData = buffer.getWritePointer(ch);
 
         for (int i = 0; i < fadeSamples; ++i)
         {
-            float gain = static_cast<float>(i) / static_cast<float>(fadeSamples);
+            // Calculate normalized position (0.0 to 1.0)
+            float normalizedPosition = static_cast<float>(i) / static_cast<float>(fadeSamples);
+            float gain = 0.0f;
+
+            // Apply curve calculation based on type
+            switch (curve)
+            {
+                case FadeCurveType::LINEAR:
+                    // Linear: straight line from 0 to 1
+                    gain = normalizedPosition;
+                    break;
+
+                case FadeCurveType::EXPONENTIAL:
+                    // Exponential: slow start, fast end (x²)
+                    gain = normalizedPosition * normalizedPosition;
+                    break;
+
+                case FadeCurveType::LOGARITHMIC:
+                    // Logarithmic: fast start, slow end (1 - (1-x)²)
+                    gain = 1.0f - (1.0f - normalizedPosition) * (1.0f - normalizedPosition);
+                    break;
+
+                case FadeCurveType::S_CURVE:
+                    // S-Curve: smooth start and end (smoothstep: 3x² - 2x³)
+                    gain = normalizedPosition * normalizedPosition * (3.0f - 2.0f * normalizedPosition);
+                    break;
+            }
+
             channelData[i] *= gain;
         }
     }
 
+    const char* curveNames[] = { "LINEAR", "EXPONENTIAL", "LOGARITHMIC", "S_CURVE" };
     juce::Logger::writeToLog(juce::String::formatted(
-        "AudioProcessor::fadeIn - Applied %d sample fade to %d channels",
-        fadeSamples, buffer.getNumChannels()));
+        "AudioProcessor::fadeIn - Applied %d sample %s fade to %d channels",
+        fadeSamples, curveNames[static_cast<int>(curve)], buffer.getNumChannels()));
 
     return true;
 }
 
-bool AudioProcessor::fadeOut(juce::AudioBuffer<float>& buffer, int numSamples)
+bool AudioProcessor::fadeOut(juce::AudioBuffer<float>& buffer, int numSamples, FadeCurveType curve)
 {
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
@@ -229,21 +257,53 @@ bool AudioProcessor::fadeOut(juce::AudioBuffer<float>& buffer, int numSamples)
     // Calculate start position (fade from end backwards)
     int startSample = buffer.getNumSamples() - fadeSamples;
 
-    // Apply linear fade out to all channels
+    // Apply fade out with selected curve to all channels
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
         float* channelData = buffer.getWritePointer(ch);
 
         for (int i = 0; i < fadeSamples; ++i)
         {
-            float gain = 1.0f - (static_cast<float>(i) / static_cast<float>(fadeSamples));
+            // Calculate normalized position (0.0 to 1.0) for fade out
+            float normalizedPosition = static_cast<float>(i) / static_cast<float>(fadeSamples);
+            float gain = 0.0f;
+
+            // Apply curve calculation based on type
+            // Note: For fade out, we need to invert the gain (1.0 - calculated_gain)
+            switch (curve)
+            {
+                case FadeCurveType::LINEAR:
+                    // Linear: straight line from 1 to 0
+                    gain = 1.0f - normalizedPosition;
+                    break;
+
+                case FadeCurveType::EXPONENTIAL:
+                    // Exponential: fast start, slow end for fade out
+                    // Use logarithmic curve shape inverted (was slow start for fade in)
+                    gain = (1.0f - normalizedPosition) * (1.0f - normalizedPosition);
+                    break;
+
+                case FadeCurveType::LOGARITHMIC:
+                    // Logarithmic: slow start, fast end for fade out
+                    // Use exponential curve shape inverted (was fast start for fade in)
+                    gain = 1.0f - normalizedPosition * normalizedPosition;
+                    break;
+
+                case FadeCurveType::S_CURVE:
+                    // S-Curve: smooth start and end (smoothstep inverted)
+                    float invPos = 1.0f - normalizedPosition;
+                    gain = invPos * invPos * (3.0f - 2.0f * invPos);
+                    break;
+            }
+
             channelData[startSample + i] *= gain;
         }
     }
 
+    const char* curveNames[] = { "LINEAR", "EXPONENTIAL", "LOGARITHMIC", "S_CURVE" };
     juce::Logger::writeToLog(juce::String::formatted(
-        "AudioProcessor::fadeOut - Applied %d sample fade to %d channels",
-        fadeSamples, buffer.getNumChannels()));
+        "AudioProcessor::fadeOut - Applied %d sample %s fade to %d channels",
+        fadeSamples, curveNames[static_cast<int>(curve)], buffer.getNumChannels()));
 
     return true;
 }

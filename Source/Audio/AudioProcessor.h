@@ -23,6 +23,18 @@
 #include <algorithm>
 
 /**
+ * Fade curve types for fade in/out operations.
+ * Provides different sonic characteristics for crossfades and automation.
+ */
+enum class FadeCurveType
+{
+    LINEAR,         // Constant rate of change (default, existing behavior)
+    EXPONENTIAL,    // Slow start, fast end (x²)
+    LOGARITHMIC,    // Fast start, slow end (1 - (1-x)²)
+    S_CURVE         // Smooth start and end (smoothstep: 3x² - 2x³)
+};
+
+/**
  * Audio processing utilities for WaveEdit.
  *
  * This class provides static methods for common DSP operations:
@@ -100,30 +112,34 @@ public:
     // Fade Operations
 
     /**
-     * Applies a linear fade-in to an audio buffer.
+     * Applies a fade-in to an audio buffer with selectable curve type.
      * Gradually increases volume from 0 to 1 over the buffer duration.
      *
      * @param buffer Audio buffer to process (modified in place)
      * @param numSamples Number of samples to fade (0 = entire buffer)
+     * @param curve Fade curve type (default: LINEAR for backward compatibility)
      * @return true if successful, false if buffer is invalid
      *
      * Thread Safety: Safe to call from any thread
-     * Performance: O(n)
+     * Performance: O(n) - efficient per-sample calculation, no allocations
      */
-    static bool fadeIn(juce::AudioBuffer<float>& buffer, int numSamples = 0);
+    static bool fadeIn(juce::AudioBuffer<float>& buffer, int numSamples = 0,
+                      FadeCurveType curve = FadeCurveType::LINEAR);
 
     /**
-     * Applies a linear fade-out to an audio buffer.
+     * Applies a fade-out to an audio buffer with selectable curve type.
      * Gradually decreases volume from 1 to 0 over the buffer duration.
      *
      * @param buffer Audio buffer to process (modified in place)
      * @param numSamples Number of samples to fade (0 = entire buffer)
+     * @param curve Fade curve type (default: LINEAR for backward compatibility)
      * @return true if successful, false if buffer is invalid
      *
      * Thread Safety: Safe to call from any thread
-     * Performance: O(n)
+     * Performance: O(n) - efficient per-sample calculation, no allocations
      */
-    static bool fadeOut(juce::AudioBuffer<float>& buffer, int numSamples = 0);
+    static bool fadeOut(juce::AudioBuffer<float>& buffer, int numSamples = 0,
+                       FadeCurveType curve = FadeCurveType::LINEAR);
 
     //==============================================================================
     // DC Offset Operations
