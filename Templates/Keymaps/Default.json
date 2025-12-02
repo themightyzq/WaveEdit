@@ -107,6 +107,12 @@
       "key": "L",
       "modifiers": []
     },
+    "playbackRecord": {
+      "key": "R",
+      "modifiers": [
+        "cmd"
+      ]
+    },
     "viewZoomIn": {
       "key": "=",
       "modifiers": [
@@ -279,6 +285,19 @@
         "shift"
       ]
     },
+    "processParametricEQ": {
+      "key": "E",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    "processGraphicalEQ": {
+      "key": "E",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
     "processNormalize": {
       "key": "G",
       "modifiers": [
@@ -364,7 +383,7 @@
       ]
     },
     "regionSplit": {
-      "key": "R",
+      "key": "K",
       "modifiers": [
         "cmd"
       ]
@@ -442,9 +461,10 @@
       ]
     },
     "markerShowList": {
-      "key": "M",
+      "key": "K",
       "modifiers": [
-        "cmd"
+        "cmd",
+        "shift"
       ]
     },
     "helpShortcuts": {
@@ -469,13 +489,13 @@
     "tabNext": {
       "key": "Tab",
       "modifiers": [
-        "cmd"
+        "ctrl"
       ]
     },
     "tabPrevious": {
       "key": "Tab",
       "modifiers": [
-        "cmd",
+        "ctrl",
         "shift"
       ]
     },

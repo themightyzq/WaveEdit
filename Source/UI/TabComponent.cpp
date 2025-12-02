@@ -310,9 +310,30 @@ void TabComponent::tabCloseClicked(TabButton* tab)
 
         if (result == 1) // Save
         {
-            // TODO: Implement save functionality
-            // For now, just close without saving
-            m_documentManager.closeDocumentAt(tab->getIndex());
+            // Save the document
+            Document* saveDoc = m_documentManager.getDocument(tab->getIndex());
+            if (saveDoc && saveDoc->getFile().existsAsFile())
+            {
+                if (saveDoc->saveFile(saveDoc->getFile()))
+                {
+                    saveDoc->setModified(false);
+                    m_documentManager.closeDocument(saveDoc);
+                }
+                else
+                {
+                    // Save failed - don't close
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon,
+                        "Save Failed",
+                        "Could not save file: " + saveDoc->getFile().getFullPathName());
+                }
+            }
+            else
+            {
+                // No file path - this shouldn't happen since we checked isModified(),
+                // but handle it gracefully
+                m_documentManager.closeDocument(saveDoc);
+            }
         }
         else if (result == 2) // Don't Save
         {

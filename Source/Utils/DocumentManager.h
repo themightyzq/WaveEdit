@@ -201,6 +201,20 @@ public:
      */
     int getDocumentIndex(const Document* document) const;
 
+    /**
+     * Mutes all documents except the specified one.
+     * Used during preview to prevent audio mixing.
+     *
+     * @param exceptDocument The document to keep unmuted (or nullptr to mute all)
+     */
+    void muteAllDocumentsExcept(const Document* exceptDocument);
+
+    /**
+     * Unmutes all documents.
+     * Called when preview ends.
+     */
+    void unmuteAllDocuments();
+
     //==============================================================================
     // Tab Navigation
 

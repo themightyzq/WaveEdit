@@ -3,7 +3,7 @@
 
     AudioEngine.h
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_dsp/juce_dsp.h>
 
 /**
  * Playback state enumeration for the audio engine.
@@ -28,6 +29,24 @@ enum class PlaybackState
     STOPPED,
     PLAYING,
     PAUSED
+};
+
+/**
+ * Preview mode enumeration for real-time DSP effects.
+ *
+ * This enables a universal preview system for all audio processing operations
+ * (EQ, Gain, Normalize, Fade, etc.) without modifying the main audio buffer.
+ *
+ * Architecture:
+ * - DISABLED: Normal playback from main or preview buffer (no DSP)
+ * - REALTIME_DSP: Real-time effects via ProcessorChain (EQ, Gain, Fade)
+ * - OFFLINE_BUFFER: Pre-rendered preview buffer (Normalize, Time Stretch)
+ */
+enum class PreviewMode
+{
+    DISABLED,        // No preview, play main buffer
+    REALTIME_DSP,    // Preview via ProcessorChain (instant, no latency)
+    OFFLINE_BUFFER   // Preview via pre-rendered buffer (for heavy effects)
 };
 
 /**
@@ -79,8 +98,8 @@ public:
 
     /**
      * Loads an audio file for playback.
-     * Supports WAV files (16-bit, 24-bit, 32-bit float).
-     * Sample rates: 44.1kHz, 48kHz, 88.2kHz, 96kHz, 192kHz.
+     * Supports WAV files (8-bit, 16-bit, 24-bit, 32-bit float).
+     * Sample rates: 8kHz, 11.025kHz, 16kHz, 22.05kHz, 32kHz, 44.1kHz, 48kHz, 88.2kHz, 96kHz, 176.4kHz, 192kHz.
      *
      * @param file The audio file to load
      * @return true if load succeeded, false otherwise
@@ -210,6 +229,21 @@ public:
      */
     bool isLooping() const;
 
+    /**
+     * Sets loop points for selection-based looping.
+     * When looping is enabled and loop points are set, playback will loop
+     * between loopStart and loopEnd instead of looping the entire file.
+     *
+     * @param loopStart Start position in seconds (use -1 to disable loop points)
+     * @param loopEnd End position in seconds
+     */
+    void setLoopPoints(double loopStart, double loopEnd);
+
+    /**
+     * Clears loop points, returning to full-file looping behavior.
+     */
+    void clearLoopPoints();
+
     //==============================================================================
     // Level Monitoring
 
@@ -238,6 +272,103 @@ public:
      * @return RMS level in range [0.0, 1.0+]
      */
     float getRMSLevel(int channel) const;
+
+    //==============================================================================
+    // Spectrum Analyzer Support
+
+    /**
+     * Sets the spectrum analyzer to receive audio data during playback.
+     * Pass nullptr to disconnect spectrum analyzer.
+     *
+     * @param spectrumAnalyzer Pointer to spectrum analyzer component, or nullptr
+     */
+    void setSpectrumAnalyzer(class SpectrumAnalyzer* spectrumAnalyzer);
+
+    //==============================================================================
+    // Preview System (Universal DSP Preview)
+
+    /**
+     * Sets the preview mode for real-time audio processing.
+     *
+     * DISABLED: Normal playback (no DSP)
+     * REALTIME_DSP: Apply ProcessorChain effects in real-time (EQ, Gain, Fade)
+     * OFFLINE_BUFFER: Play pre-rendered preview buffer (Normalize, Time Stretch)
+     *
+     * IMPORTANT: Only one AudioEngine can be in preview mode at a time across
+     * all open documents. When an engine enters preview mode, all other engines
+     * automatically mute their output to prevent audio mixing. This ensures users
+     * hear only the preview audio, not a mix with other documents.
+     *
+     * Thread Safety: This method must be called from the message thread only.
+     * The preview state is communicated to audio callbacks via atomic operations.
+     *
+     * @param mode The preview mode to enable
+     */
+    void setPreviewMode(PreviewMode mode);
+
+    /**
+     * Gets the current preview mode.
+     *
+     * @return Current preview mode
+     */
+    PreviewMode getPreviewMode() const;
+
+    /**
+     * Loads a pre-rendered preview buffer for offline effects.
+     * Used for heavy DSP operations that cannot run in real-time.
+     *
+     * @param previewBuffer The pre-processed audio buffer
+     * @param sampleRate Sample rate of the preview audio
+     * @param numChannels Number of channels in preview audio
+     * @return true if preview buffer loaded successfully
+     */
+    bool loadPreviewBuffer(const juce::AudioBuffer<float>& previewBuffer, double sampleRate, int numChannels);
+
+    /**
+     * Enables or disables a specific real-time gain processor.
+     * Thread-safe, can be called from UI thread.
+     *
+     * @param gainDB Gain adjustment in decibels (-60 to +40)
+     * @param enabled true to enable gain processing, false to bypass
+     */
+    void setGainPreview(float gainDB, bool enabled);
+
+    /**
+     * Mutes/unmutes this audio engine's output.
+     * Used to prevent audio mixing when another document is previewing.
+     * Thread-safe, can be called from UI thread.
+     *
+     * @param muted true to mute output, false to unmute
+     */
+    void setMuted(bool muted) { m_isMuted.store(muted); }
+
+    /**
+     * Gets the current mute state.
+     *
+     * @return true if muted, false if unmuted
+     */
+    bool isMuted() const { return m_isMuted.load(); }
+
+    /**
+     * Sets the preview selection offset for accurate cursor positioning during preview mode.
+     * When previewing a selection, the audio plays from position 0 but should display
+     * as if playing from the selection start position.
+     *
+     * Thread-safe: Uses atomic operations.
+     *
+     * @param selectionStartSamples The selection start position in samples from the main buffer
+     */
+    void setPreviewSelectionOffset(int64_t selectionStartSamples);
+
+    /**
+     * Gets the preview selection offset in seconds.
+     * Used to adjust cursor position during preview mode playback.
+     *
+     * Thread-safe: Uses atomic operations.
+     *
+     * @return Offset in seconds (0.0 if no offset set)
+     */
+    double getPreviewSelectionOffsetSeconds() const;
 
     //==============================================================================
     // Audio Properties
@@ -345,6 +476,8 @@ private:
     std::atomic<PlaybackState> m_playbackState;
     std::atomic<bool> m_isPlayingFromBuffer;
     std::atomic<bool> m_isLooping;
+    std::atomic<double> m_loopStartTime;  // Loop start in seconds (-1 = disabled)
+    std::atomic<double> m_loopEndTime;    // Loop end in seconds
     juce::File m_currentFile;
 
     std::atomic<double> m_sampleRate;
@@ -356,6 +489,46 @@ private:
     static constexpr int MAX_CHANNELS = 2;  // Stereo support for MVP
     std::atomic<float> m_peakLevels[MAX_CHANNELS];
     std::atomic<float> m_rmsLevels[MAX_CHANNELS];
+
+    // Spectrum analyzer (not owned, just a pointer for data feeding)
+    class SpectrumAnalyzer* m_spectrumAnalyzer;
+
+    //==============================================================================
+    // Preview System Members
+
+    // Preview mode state
+    std::atomic<PreviewMode> m_previewMode;
+
+    // Preview buffer for offline effects (Normalize, Time Stretch, etc.)
+    std::unique_ptr<MemoryAudioSource> m_previewBufferSource;
+
+    // Real-time DSP chain for instant preview (EQ, Gain, Fade)
+    // Simple gain processor for Phase 1 (will expand to ProcessorChain in Phase 2)
+    struct GainProcessor
+    {
+        std::atomic<float> gainDB{0.0f};
+        std::atomic<bool> enabled{false};
+
+        void process(juce::AudioBuffer<float>& buffer)
+        {
+            if (enabled.load())
+            {
+                float gainLinear = juce::Decibels::decibelsToGain(gainDB.load());
+                buffer.applyGain(gainLinear);
+            }
+        }
+    };
+
+    GainProcessor m_gainProcessor;
+
+    // Mute flag to prevent audio output during other document's preview
+    std::atomic<bool> m_isMuted{false};
+
+    // Preview selection offset for accurate cursor positioning
+    std::atomic<int64_t> m_previewSelectionStartSamples{0};
+
+    // Static member to track which AudioEngine is in preview mode (if any)
+    static std::atomic<AudioEngine*> s_previewingEngine;
 
     //==============================================================================
     // Private Methods

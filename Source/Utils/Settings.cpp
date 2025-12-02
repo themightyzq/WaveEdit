@@ -191,11 +191,8 @@ bool Settings::save()
 
 void Settings::addRecentFile(const juce::File& file)
 {
-    juce::Logger::writeToLog("DEBUG: addRecentFile() called for: " + file.getFullPathName());
-
     if (!file.existsAsFile())
     {
-        juce::Logger::writeToLog("DEBUG: File does not exist, returning early");
         return;
     }
 

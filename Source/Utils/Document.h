@@ -248,10 +248,12 @@ public:
      * Saves the current audio buffer to a file with BWF metadata.
      *
      * @param file The file to save to
-     * @param bitDepth Bit depth (16, 24, or 32)
+     * @param bitDepth Bit depth (16, 24, or 32) - ignored for compressed formats
+     * @param quality Quality setting (0-10) for compressed formats (FLAC/OGG/MP3), ignored for WAV
+     * @param targetSampleRate Target sample rate (0 = preserve source, >0 = resample)
      * @return true if save successful, false on error
      */
-    bool saveFile(const juce::File& file, int bitDepth = 16);
+    bool saveFile(const juce::File& file, int bitDepth = 16, int quality = 10, double targetSampleRate = 0.0);
 
     /**
      * Closes the current file and clears all state.

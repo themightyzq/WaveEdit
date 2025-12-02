@@ -482,6 +482,8 @@ juce::String FilePropertiesDialog::determineCodec(const juce::File& file, int bi
             return "WAV (PCM 24-bit)";
         else if (bitDepth == 16)
             return "WAV (PCM 16-bit)";
+        else if (bitDepth == 8)
+            return "WAV (PCM 8-bit)";
         else
             return "WAV (PCM)";
     }

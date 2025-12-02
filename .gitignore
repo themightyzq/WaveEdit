@@ -152,3 +152,19 @@ CMakePresets.json
 
 # Test/debug files
 inspect_metadata.cpp
+test_*.cpp
+test_*.sh
+test_*.py
+debug_*.cpp
+debug_*.sh
+diagnose_*.sh
+verify_*
+analyze_*.py
+run_*_tests.sh
+
+# Temporary documentation (architectural docs, format docs, integration docs)
+AUDIO_FORMAT_*.md
+CODEBASE_ARCHITECTURE.md
+VISUALIZATION_PATTERNS.md
+*_Integration.md
+BUILD_GUIDE.md

@@ -444,6 +444,41 @@ double DocumentManager::getInterFileClipboardDuration() const
 }
 
 //==============================================================================
+// Preview Muting
+
+void DocumentManager::muteAllDocumentsExcept(const Document* exceptDocument)
+{
+    for (auto* doc : m_documents)
+    {
+        if (doc && doc != exceptDocument)
+        {
+            doc->getAudioEngine().setMuted(true);
+        }
+    }
+
+    // Keep the specified document unmuted
+    if (exceptDocument)
+    {
+        const_cast<Document*>(exceptDocument)->getAudioEngine().setMuted(false);
+    }
+
+    juce::Logger::writeToLog("Muted all documents except current for preview");
+}
+
+void DocumentManager::unmuteAllDocuments()
+{
+    for (auto* doc : m_documents)
+    {
+        if (doc)
+        {
+            doc->getAudioEngine().setMuted(false);
+        }
+    }
+
+    juce::Logger::writeToLog("Unmuted all documents after preview");
+}
+
+//==============================================================================
 // Listener Management
 
 void DocumentManager::addListener(Listener* listener)

@@ -85,6 +85,8 @@ namespace CommandIDs
         processGain     = 0x5004,  // Menu: Process → Gain... (precise gain entry)
         processIncreaseGain = 0x5005,  // Shift+Up (increase by +1 dB)
         processDecreaseGain = 0x5006,  // Shift+Down (decrease by -1 dB)
+        processParametricEQ = 0x5007,  // Shift+E - 3-band Parametric EQ dialog
+        processGraphicalEQ = 0x5008,  // Cmd+E - Graphical Parametric EQ editor
 
         // Navigation Operations (0x6000 - 0x60FF)
         navigateLeft         = 0x6000,  // Arrow left (uses current snap increment)
@@ -118,8 +120,8 @@ namespace CommandIDs
         // Tab Operations (0xA000 - 0xA0FF) - Phase 3 Multi-file support
         tabClose        = 0xA000,  // Cmd+W - Close current tab
         tabCloseAll     = 0xA001,  // Cmd+Shift+W - Close all tabs
-        tabNext         = 0xA002,  // Cmd+Tab or Cmd+Option+Right - Next tab
-        tabPrevious     = 0xA003,  // Cmd+Shift+Tab or Cmd+Option+Left - Previous tab
+        tabNext         = 0xA002,  // Ctrl+Tab - Next tab (moved from Cmd+Tab to avoid macOS App Switcher conflict)
+        tabPrevious     = 0xA003,  // Ctrl+Shift+Tab - Previous tab (moved from Cmd+Shift+Tab to avoid macOS App Switcher conflict)
         tabSelect1      = 0xA004,  // Cmd+1 - Jump to tab 1
         tabSelect2      = 0xA005,  // Cmd+2 - Jump to tab 2
         tabSelect3      = 0xA006,  // Cmd+3 - Jump to tab 3
@@ -147,7 +149,7 @@ namespace CommandIDs
         regionNudgeEndRight = 0xB00D,  // Shift+Alt+Right - Nudge region end boundary right by snap increment
         regionBatchRename = 0xB00E,  // Phase 3.4 - Batch rename multiple selected regions
         regionMerge = 0xB00F,  // Cmd+J - Merge selected adjacent regions
-        regionSplit = 0xB010,  // Cmd+Shift+S - Split region at cursor position
+        regionSplit = 0xB010,  // Cmd+K - Split region at cursor position (moved from Cmd+R to avoid conflict with playbackRecord)
         regionCopy = 0xB011,  // Cmd+Shift+C - Copy region definitions to clipboard
         regionPaste = 0xB012,  // Cmd+Shift+V - Paste regions at cursor position
 
@@ -156,6 +158,6 @@ namespace CommandIDs
         markerDelete    = 0xC001,  // Cmd+Shift+Delete (when marker selected) - Delete selected marker
         markerNext      = 0xC002,  // Shift+] - Jump to next marker
         markerPrevious  = 0xC003,  // Shift+[ - Jump to previous marker
-        markerShowList  = 0xC004   // Cmd+Shift+K - Show/hide Marker List Panel (future feature)
+        markerShowList  = 0xC004   // Cmd+Shift+K - Show/hide Marker List Panel (moved from Cmd+M to avoid macOS Minimize Window conflict)
     };
 }

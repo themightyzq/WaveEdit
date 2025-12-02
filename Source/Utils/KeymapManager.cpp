@@ -643,6 +643,8 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::processGain] = "processGain";
         commandNameMap[CommandIDs::processIncreaseGain] = "processIncreaseGain";
         commandNameMap[CommandIDs::processDecreaseGain] = "processDecreaseGain";
+        commandNameMap[CommandIDs::processParametricEQ] = "processParametricEQ";
+        commandNameMap[CommandIDs::processGraphicalEQ] = "processGraphicalEQ";
 
         // Navigation operations
         commandNameMap[CommandIDs::navigateLeft] = "navigateLeft";
@@ -760,7 +762,8 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::processFadeIn, CommandIDs::processFadeOut,
             CommandIDs::processNormalize, CommandIDs::processDCOffset,
             CommandIDs::processGain, CommandIDs::processIncreaseGain,
-            CommandIDs::processDecreaseGain,
+            CommandIDs::processDecreaseGain, CommandIDs::processParametricEQ,
+            CommandIDs::processGraphicalEQ,
 
             // Navigation operations (0x6000-0x60FF)
             CommandIDs::navigateLeft, CommandIDs::navigateRight,

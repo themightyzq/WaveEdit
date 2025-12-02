@@ -235,7 +235,7 @@ private:
         {
         }
 
-        void currentTabChanged(int newCurrentTabIndex, const juce::String& newCurrentTabName) override
+        void currentTabChanged(int newCurrentTabIndex, const juce::String& /*newCurrentTabName*/) override
         {
             m_owner.onTabChanged(newCurrentTabIndex);
         }
