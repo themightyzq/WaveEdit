@@ -1201,7 +1201,7 @@ void RegionListPanel::expandBatchRenameSection(bool expand)
 
 void RegionListPanel::updateBatchRenameMode()
 {
-    // TODO: Phase 2.4-2.6 - Update UI based on current rename mode
+    // Future: Update UI based on current rename mode (not currently called)
 }
 
 void RegionListPanel::updateBatchRenamePreview()

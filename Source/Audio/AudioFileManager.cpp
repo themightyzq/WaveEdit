@@ -3,7 +3,7 @@
 
     AudioFileManager.cpp
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,8 +18,11 @@
 //==============================================================================
 AudioFileManager::AudioFileManager()
 {
-    // Register basic audio formats (WAV for Phase 1)
+    // Register basic audio formats (WAV, AIFF, FLAC, OGG)
     m_formatManager.registerBasicFormats();
+
+    // MP3 is not included in registerBasicFormats(), so register it manually
+    m_formatManager.registerFormat(new juce::MP3AudioFormat(), true);
 }
 
 AudioFileManager::~AudioFileManager()
@@ -82,16 +85,10 @@ bool AudioFileManager::isValidAudioFile(const juce::File& file)
         return false;
     }
 
-    // Check that it's a WAV file (Phase 1 requirement)
-    if (reader->getFormatName() != "WAV file")
-    {
-        setError("Only WAV files are supported in Phase 1");
-        return false;
-    }
-
     // Check sample rate is supported
     double sampleRate = reader->sampleRate;
-    const double supportedRates[] = { 44100.0, 48000.0, 88200.0, 96000.0, 192000.0 };
+    const double supportedRates[] = { 8000.0, 11025.0, 16000.0, 22050.0, 32000.0,
+                                      44100.0, 48000.0, 88200.0, 96000.0, 176400.0, 192000.0 };
     bool sampleRateSupported = false;
 
     for (double rate : supportedRates)
@@ -119,9 +116,9 @@ bool AudioFileManager::isValidAudioFile(const juce::File& file)
 
     // Check bit depth
     int bitDepth = static_cast<int>(reader->bitsPerSample);
-    if (bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
+    if (bitDepth != 8 && bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
     {
-        setError("Unsupported bit depth: " + juce::String(bitDepth) + " bits (only 16/24/32-bit supported)");
+        setError("Unsupported bit depth: " + juce::String(bitDepth) + " bits (only 8/16/24/32-bit supported)");
         return false;
     }
 
@@ -130,8 +127,7 @@ bool AudioFileManager::isValidAudioFile(const juce::File& file)
 
 juce::String AudioFileManager::getSupportedExtensions() const
 {
-    // Phase 1: WAV only
-    return "*.wav";
+    return "*.wav;*.flac;*.ogg";
 }
 
 //==============================================================================
@@ -228,8 +224,8 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
         return false;
     }
 
-    // Create output stream
-    std::unique_ptr<juce::FileOutputStream> outputStream(file.createOutputStream());
+    // Create output stream - need OutputStream base type for new JUCE 8 API
+    std::unique_ptr<juce::OutputStream> outputStream(file.createOutputStream());
 
     if (outputStream == nullptr)
     {
@@ -237,24 +233,34 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
         return false;
     }
 
-    // Create writer with specified bit depth
-    std::unique_ptr<juce::AudioFormatWriter> writer;
+    // Create writer with specified bit depth using modern JUCE API (JUCE 8+)
+    // Convert StringPairArray metadata to unordered_map for AudioFormatWriterOptions
+    std::unordered_map<juce::String, juce::String> metadataMap;
+    for (int i = 0; i < metadata.size(); ++i)
+    {
+        metadataMap[metadata.getAllKeys()[i]] = metadata.getAllValues()[i];
+    }
 
-    writer.reset(wavFormat->createWriterFor(outputStream.get(),
-                                             sampleRate,
-                                             static_cast<unsigned int>(buffer.getNumChannels()),
-                                             bitDepth,
-                                             metadata,  // BWF metadata passed through
-                                             0));   // Quality option (not used for WAV)
+    // Build options using fluent API
+    auto options = juce::AudioFormatWriterOptions()
+        .withSampleRate(sampleRate)
+        .withNumChannels(buffer.getNumChannels())
+        .withBitsPerSample(bitDepth)
+        .withMetadataValues(metadataMap)
+        .withQualityOptionIndex(0)
+        .withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::integral);  // Force PCM for 8-bit
+
+    // New JUCE 8 API takes unique_ptr by non-const lvalue reference and transfers ownership
+    std::unique_ptr<juce::AudioFormatWriter> writer = wavFormat->createWriterFor(outputStream, options);
 
     if (writer == nullptr)
     {
-        setError("Could not create writer for file: " + file.getFullPathName());
+        setError("Could not create writer for file: " + file.getFullPathName() +
+                 "\nBit depth: " + juce::String(bitDepth) + " bits may not be supported");
         return false;
     }
 
-    // Release ownership of the output stream (writer takes ownership)
-    outputStream.release();
+    // Note: outputStream ownership transferred via reference above (unique_ptr now null)
 
     // Write the buffer to file
     bool writeSuccess = writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
@@ -266,6 +272,61 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
     {
         setError("Failed to write audio data to file: " + file.getFullPathName());
         return false;
+    }
+
+    // Verify 8-bit files are written correctly (unsigned PCM format validation)
+    if (bitDepth == 8)
+    {
+        juce::Logger::writeToLog("Verifying 8-bit PCM format...");
+
+        // Read back the file to verify format
+        std::unique_ptr<juce::AudioFormatReader> verifyReader(m_formatManager.createReaderFor(file));
+
+        if (verifyReader == nullptr)
+        {
+            setError("8-bit file verification failed: Cannot read back file: " + file.getFullPathName());
+            file.deleteFile();  // Clean up corrupted file
+            return false;
+        }
+
+        // Verify bit depth matches what we wrote
+        if (verifyReader->bitsPerSample != 8)
+        {
+            setError("8-bit file verification failed: Expected 8-bit but got " +
+                    juce::String(verifyReader->bitsPerSample) + "-bit");
+            file.deleteFile();
+            return false;
+        }
+
+        // Read first block to verify samples are in valid range
+        const int samplesToCheck = juce::jmin(1024, static_cast<int>(verifyReader->lengthInSamples));
+        juce::AudioBuffer<float> verifyBuffer(static_cast<int>(verifyReader->numChannels), samplesToCheck);
+
+        if (!verifyReader->read(&verifyBuffer, 0, samplesToCheck, 0, true, true))
+        {
+            setError("8-bit file verification failed: Cannot read sample data");
+            file.deleteFile();
+            return false;
+        }
+
+        // Check samples are within expected range for 8-bit audio (-1.0 to 1.0 when read as float)
+        for (int ch = 0; ch < verifyBuffer.getNumChannels(); ++ch)
+        {
+            const float* channelData = verifyBuffer.getReadPointer(ch);
+            for (int i = 0; i < samplesToCheck; ++i)
+            {
+                float sample = channelData[i];
+                if (sample < -1.0f || sample > 1.0f)
+                {
+                    setError("8-bit file verification failed: Sample out of range at channel " +
+                            juce::String(ch) + ", sample " + juce::String(i) + ": " + juce::String(sample));
+                    file.deleteFile();
+                    return false;
+                }
+            }
+        }
+
+        juce::Logger::writeToLog("8-bit PCM format verified successfully");
     }
 
     juce::Logger::writeToLog("Saved WAV file: " + file.getFullPathName());
@@ -328,7 +389,8 @@ bool AudioFileManager::validateBufferForSaving(const juce::AudioBuffer<float>& b
     }
 
     // Check sample rate
-    const double supportedRates[] = { 44100.0, 48000.0, 88200.0, 96000.0, 192000.0 };
+    const double supportedRates[] = { 8000.0, 11025.0, 16000.0, 22050.0, 32000.0,
+                                      44100.0, 48000.0, 88200.0, 96000.0, 176400.0, 192000.0 };
     bool sampleRateSupported = false;
 
     for (double rate : supportedRates)
@@ -347,7 +409,7 @@ bool AudioFileManager::validateBufferForSaving(const juce::AudioBuffer<float>& b
     }
 
     // Check bit depth
-    if (bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
+    if (bitDepth != 8 && bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
     {
         setError("Unsupported bit depth for saving: " + juce::String(bitDepth) + " bits");
         return false;
@@ -457,9 +519,6 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
     // This prevents file corruption from nested RIFF chunks or duplicate iXML chunks
     juce::MemoryOutputStream cleanFile;
 
-    // DEBUG: Log input file size
-    juce::Logger::writeToLog("DEBUG: Input file size = " + juce::String((int)fileData.getSize()) + " bytes");
-
     // Write RIFF header (we'll update size later)
     cleanFile.write("RIFF", 4);
     cleanFile.writeInt(0);  // Placeholder size
@@ -486,23 +545,12 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
         // Only copy fmt and data chunks (skip iXML, LIST, JUNK, RIFF, and other chunks)
         if (memcmp(chunkID, "fmt ", 4) == 0 || memcmp(chunkID, "data", 4) == 0)
         {
-            // DEBUG: Log chunk being copied
-            juce::Logger::writeToLog("DEBUG: Copying chunk '" + juce::String(chunkID, 4) +
-                                    "' size=" + juce::String((int)parsedChunkSize) +
-                                    " at offset=" + juce::String((int)offset));
-
             // Copy entire chunk (ID + size + data)
             cleanFile.write(data + offset, 8 + parsedChunkSize);
 
             // Add padding if chunk size is odd
             if (parsedChunkSize % 2 != 0)
                 cleanFile.writeByte(0);
-        }
-        else
-        {
-            // DEBUG: Log chunk being skipped
-            juce::Logger::writeToLog("DEBUG: Skipping chunk '" + juce::String(chunkID, 4) +
-                                    "' size=" + juce::String((int)parsedChunkSize));
         }
 
         // Move to next chunk
@@ -511,26 +559,13 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
             offset += 1;  // Skip padding
     }
 
-    // DEBUG: Log size before appending iXML
-    juce::Logger::writeToLog("DEBUG: Clean file size before iXML = " + juce::String((int)cleanFile.getDataSize()) + " bytes");
-
     // Append iXML chunk to clean file
     cleanFile.write(ixmlChunk.getData(), ixmlChunk.getDataSize());
-
-    // DEBUG: Log size after appending iXML
-    juce::Logger::writeToLog("DEBUG: Clean file size after iXML = " + juce::String((int)cleanFile.getDataSize()) + " bytes");
 
     // Update RIFF size (file size - 8 bytes for "RIFF" and size field)
     auto* cleanData = static_cast<char*>(const_cast<void*>(cleanFile.getData()));
     uint32_t riffSize = static_cast<uint32_t>(cleanFile.getDataSize()) - 8;
     memcpy(cleanData + 4, &riffSize, 4);
-
-    // DEBUG: Log RIFF size being written
-    juce::Logger::writeToLog("DEBUG: RIFF size field = " + juce::String((int)riffSize) + " bytes");
-
-    // DEBUG: Log what we're about to write
-    juce::Logger::writeToLog("DEBUG: Writing " + juce::String((int)cleanFile.getDataSize()) +
-                            " bytes to " + file.getFullPathName());
 
     // CRITICAL: We must delete the file first to avoid appending!
     // FileOutputStream doesn't truncate by default
@@ -551,10 +586,8 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
     outputStream.write(cleanFile.getData(), cleanFile.getDataSize());
     outputStream.flush();
 
-    // DEBUG: Verify file size on disk
+    // Verify file size on disk
     juce::int64 actualFileSize = file.getSize();
-    juce::Logger::writeToLog("DEBUG: Actual file size on disk = " + juce::String((int)actualFileSize) + " bytes");
-
     if (actualFileSize != cleanFile.getDataSize())
     {
         juce::Logger::writeToLog("ERROR: File size mismatch! Expected " +
@@ -653,4 +686,242 @@ bool AudioFileManager::readiXMLChunk(const juce::File& file, juce::String& outDa
     juce::Logger::writeToLog("No iXML chunk found after parsing all chunks");
     // No iXML chunk found
     return false;
+}
+
+//==============================================================================
+bool AudioFileManager::saveAudioFile(const juce::File& file,
+                                      const juce::AudioBuffer<float>& buffer,
+                                      double sampleRate,
+                                      int bitDepth,
+                                      int qualityOptionIndex,
+                                      const juce::StringPairArray& metadata)
+{
+    clearError();
+
+    // Validate parameters
+    if (!file.getParentDirectory().exists())
+    {
+        setError("Parent directory does not exist: " + file.getParentDirectory().getFullPathName());
+        return false;
+    }
+
+    if (buffer.getNumChannels() == 0 || buffer.getNumSamples() == 0)
+    {
+        setError("Cannot save empty audio buffer");
+        return false;
+    }
+
+    if (sampleRate <= 0.0)
+    {
+        setError("Invalid sample rate: " + juce::String(sampleRate));
+        return false;
+    }
+
+    // Detect format from file extension
+    juce::String extension = file.getFileExtension().toLowerCase();
+
+    juce::Logger::writeToLog("Saving audio file: " + file.getFullPathName());
+    juce::Logger::writeToLog("Format: " + extension + ", Sample rate: " + juce::String(sampleRate) +
+                            "Hz, Channels: " + juce::String(buffer.getNumChannels()) +
+                            ", Samples: " + juce::String(buffer.getNumSamples()));
+
+    // For WAV files, use the existing saveAsWav method (which handles BWF metadata and iXML)
+    if (extension == ".wav")
+    {
+        return saveAsWav(file, buffer, sampleRate, bitDepth, metadata);
+    }
+
+    // For other formats (FLAC, OGG, MP3), use JUCE's generic audio format writer
+    // Find appropriate format writer
+    juce::AudioFormat* format = nullptr;
+
+    if (extension == ".flac")
+    {
+        format = m_formatManager.findFormatForFileExtension("flac");
+        if (format == nullptr)
+        {
+            setError("FLAC encoder not available.\n\n"
+                    "JUCE's built-in FLAC encoder should be available, but was not found.\n"
+                    "Please check your JUCE installation.");
+            return false;
+        }
+    }
+    else if (extension == ".ogg")
+    {
+        format = m_formatManager.findFormatForFileExtension("ogg");
+        if (format == nullptr)
+        {
+            setError("OGG Vorbis encoder not available.\n\n"
+                    "JUCE's built-in OGG encoder should be available, but was not found.\n"
+                    "Please check your JUCE installation.");
+            return false;
+        }
+    }
+    else if (extension == ".mp3")
+    {
+        format = m_formatManager.findFormatForFileExtension("mp3");
+
+        if (format == nullptr)
+        {
+            setError("MP3 encoder not available.\n\n"
+                    "JUCE requires LAME to be installed for MP3 encoding.\n"
+                    "Install LAME via:\n"
+                    "  macOS: brew install lame\n"
+                    "  Linux: apt-get install libmp3lame-dev\n"
+                    "  Windows: Download from lame.sourceforge.io");
+            return false;
+        }
+    }
+    else
+    {
+        setError("Unsupported audio format: " + extension + "\nSupported formats: .wav, .flac, .ogg, .mp3");
+        return false;
+    }
+
+    if (format == nullptr)
+    {
+        setError("No encoder found for format: " + extension);
+        return false;
+    }
+
+    // Delete existing file if present (JUCE won't overwrite)
+    if (file.existsAsFile())
+    {
+        if (!file.deleteFile())
+        {
+            setError("Could not delete existing file: " + file.getFullPathName());
+            return false;
+        }
+    }
+
+    // Create output stream
+    std::unique_ptr<juce::FileOutputStream> outputStream(new juce::FileOutputStream(file));
+    if (!outputStream->openedOk())
+    {
+        setError("Could not create output stream for file: " + file.getFullPathName());
+        return false;
+    }
+
+    // Create audio format writer
+    // Note: For compressed formats, bitDepth is typically ignored, and qualityOptionIndex is used instead
+    std::unique_ptr<juce::AudioFormatWriter> writer;
+
+    // FLAC, OGG, and MP3 use quality settings (0-10)
+    // Clamp quality to valid range
+    int quality = juce::jlimit(0, 10, qualityOptionIndex);
+
+    juce::Logger::writeToLog("Using quality setting: " + juce::String(quality) + " for " + extension);
+
+    // For MP3, quality maps to bitrate (approximate):
+    // 0 = ~64kbps, 5 = ~128kbps (default), 10 = ~320kbps
+    if (extension == ".mp3")
+    {
+        juce::Logger::writeToLog("MP3 quality " + juce::String(quality) +
+                                " (approximate bitrate: " +
+                                juce::String(64 + quality * 25) + " kbps)");
+    }
+
+    writer.reset(format->createWriterFor(outputStream.get(),
+                                         sampleRate,
+                                         static_cast<unsigned int>(buffer.getNumChannels()),
+                                         24, // Use 24-bit for best quality with compressed formats
+                                         {},  // No metadata support for FLAC/OGG via JUCE writer
+                                         quality));
+
+    if (writer == nullptr)
+    {
+        setError("Could not create audio writer for format: " + extension);
+        return false;
+    }
+
+    // Release ownership of output stream (writer now owns it)
+    outputStream.release();
+
+    // Write audio data
+    bool writeSuccess = writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
+
+    // Close writer (flushes data)
+    writer.reset();
+
+    if (!writeSuccess)
+    {
+        setError("Failed to write audio data to file: " + file.getFullPathName());
+        return false;
+    }
+
+    juce::Logger::writeToLog("Successfully saved audio file: " + file.getFullPathName());
+    return true;
+}
+
+//==============================================================================
+// Sample Rate Conversion
+//==============================================================================
+
+juce::AudioBuffer<float> AudioFileManager::resampleBuffer(const juce::AudioBuffer<float>& sourceBuffer,
+                                                           double sourceSampleRate,
+                                                           double targetSampleRate)
+{
+    // If sample rates match, return copy of source
+    if (std::abs(sourceSampleRate - targetSampleRate) < 0.01)
+    {
+        juce::AudioBuffer<float> copy(sourceBuffer.getNumChannels(), sourceBuffer.getNumSamples());
+        for (int ch = 0; ch < sourceBuffer.getNumChannels(); ++ch)
+            copy.copyFrom(ch, 0, sourceBuffer, ch, 0, sourceBuffer.getNumSamples());
+        return copy;
+    }
+
+    // Calculate resampling ratio and target length
+    double ratio = targetSampleRate / sourceSampleRate;
+    int targetNumSamples = (int)(sourceBuffer.getNumSamples() * ratio);
+
+    // Create output buffer
+    juce::AudioBuffer<float> targetBuffer(sourceBuffer.getNumChannels(), targetNumSamples);
+    targetBuffer.clear();
+
+    // Use JUCE's LagrangeInterpolator for high-quality resampling
+    // Process each channel independently
+    for (int ch = 0; ch < sourceBuffer.getNumChannels(); ++ch)
+    {
+        juce::LagrangeInterpolator interpolator;
+        interpolator.reset();
+
+        const float* sourceData = sourceBuffer.getReadPointer(ch);
+        float* targetData = targetBuffer.getWritePointer(ch);
+
+        // Process in chunks to avoid excessive memory usage
+        int samplesProcessed = 0;
+        const int chunkSize = 4096;
+
+        while (samplesProcessed < targetNumSamples)
+        {
+            int samplesThisChunk = std::min(chunkSize, targetNumSamples - samplesProcessed);
+
+            // CRITICAL: LagrangeInterpolator speed ratio is SOURCE/TARGET (inverse of our ratio)
+            // For downsampling 96kHz→8kHz: speed = 96000/8000 = 12.0 (consume input faster)
+            // For upsampling 8kHz→96kHz: speed = 8000/96000 = 0.0833 (consume input slower)
+            double speedRatio = sourceSampleRate / targetSampleRate;
+
+            int samplesGenerated = interpolator.process(
+                speedRatio,                            // Speed ratio (source/target, NOT target/source!)
+                sourceData,                            // Input samples
+                targetData + samplesProcessed,         // Output buffer
+                samplesThisChunk,                      // Number of output samples needed
+                sourceBuffer.getNumSamples(),          // Max input samples available
+                0                                      // Wraparound (0 = no wraparound)
+            );
+
+            samplesProcessed += samplesGenerated;
+
+            // Break if we can't generate more samples
+            if (samplesGenerated < samplesThisChunk)
+                break;
+        }
+    }
+
+    juce::Logger::writeToLog("Resampled audio: " + juce::String(sourceSampleRate, 0) +
+                             " Hz → " + juce::String(targetSampleRate, 0) + " Hz (" +
+                             juce::String(sourceBuffer.getNumSamples()) + " → " +
+                             juce::String(targetNumSamples) + " samples)");
+
+    return targetBuffer;
 }

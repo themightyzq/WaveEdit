@@ -1410,11 +1410,18 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& event)
     // CRITICAL: Sample-accurate snapping (audio-unit based, not pixel-based)
     m_dragStartTime = snapTimeToUnit(approximateTime);
 
+    // Only clear selection if clicking OUTSIDE of it
+    // This allows user to set playback cursor without losing selection
+    if (!m_hasSelection ||
+        m_dragStartTime < m_selectionStart ||
+        m_dragStartTime > m_selectionEnd)
+    {
+        // Clicked outside selection - clear it and start new drag
+        clearSelection();
+    }
+
     // Set edit cursor on click (will be cleared if user drags)
     setEditCursor(m_dragStartTime);
-
-    // Initialize selection at click point
-    setSelection(m_dragStartTime, m_dragStartTime);
 }
 
 void WaveformDisplay::mouseDrag(const juce::MouseEvent& event)

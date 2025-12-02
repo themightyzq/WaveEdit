@@ -3,7 +3,7 @@
 
     AudioFileManager.h
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -53,8 +53,11 @@ struct AudioFileInfo
  * - File format detection and validation
  * - Error handling for corrupted or invalid files
  *
- * Phase 1: WAV files only (16-bit, 24-bit, 32-bit float)
- * Future phases: FLAC, MP3, OGG, AIFF support
+ * Supported Formats:
+ * - WAV (8-bit, 16-bit, 24-bit, 32-bit float)
+ * - FLAC (lossless compression)
+ * - OGG Vorbis (lossy compression)
+ * - MP3 (read-only - JUCE limitation)
  */
 class AudioFileManager
 {
@@ -167,6 +170,25 @@ public:
      */
     bool readiXMLChunk(const juce::File& file, juce::String& outData);
 
+    /**
+     * Saves an audio buffer to any supported format (WAV, FLAC, OGG, MP3).
+     * Format is auto-detected from file extension.
+     *
+     * @param file The destination file
+     * @param buffer The audio data to save
+     * @param sampleRate Sample rate of the audio
+     * @param bitDepth Bit depth (16, 24, or 32) - ignored for compressed formats
+     * @param qualityOptionIndex Quality setting (0-10) for compressed formats, ignored for WAV
+     * @param metadata Optional metadata to embed (WAV only)
+     * @return true if save succeeded, false otherwise
+     */
+    bool saveAudioFile(const juce::File& file,
+                       const juce::AudioBuffer<float>& buffer,
+                       double sampleRate,
+                       int bitDepth = 16,
+                       int qualityOptionIndex = 5,
+                       const juce::StringPairArray& metadata = {});
+
     //==============================================================================
     // Error Handling
 
@@ -181,6 +203,21 @@ public:
      * Clears the last error message.
      */
     void clearError();
+
+    //==============================================================================
+    // Sample Rate Conversion
+
+    /**
+     * Resamples an audio buffer to a different sample rate using high-quality interpolation.
+     *
+     * @param sourceBuffer The input audio buffer to resample
+     * @param sourceSampleRate The current sample rate of the audio
+     * @param targetSampleRate The desired output sample rate
+     * @return New buffer with resampled audio
+     */
+    static juce::AudioBuffer<float> resampleBuffer(const juce::AudioBuffer<float>& sourceBuffer,
+                                                    double sourceSampleRate,
+                                                    double targetSampleRate);
 
 private:
     //==============================================================================

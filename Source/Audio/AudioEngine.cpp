@@ -3,7 +3,7 @@
 
     AudioEngine.cpp
     WaveEdit - Professional Audio Editor
-    Copyright (C) 2025 WaveEdit
+    Copyright (C) 2025 ZQ SFX
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -14,6 +14,10 @@
 */
 
 #include "AudioEngine.h"
+#include "../UI/SpectrumAnalyzer.h"
+
+// Static member definition
+std::atomic<AudioEngine*> AudioEngine::s_previewingEngine{nullptr};
 
 //==============================================================================
 // MemoryAudioSource Implementation
@@ -56,11 +60,6 @@ void AudioEngine::MemoryAudioSource::setBuffer(const juce::AudioBuffer<float>& b
     {
         m_readPosition.store(0);
     }
-
-    juce::Logger::writeToLog("MemoryAudioSource: Set buffer with " +
-                             juce::String(m_buffer.getNumSamples()) + " samples, " +
-                             juce::String(m_buffer.getNumChannels()) + " channels" +
-                             (preservePosition ? " (position preserved at " + juce::String(savedPosition) + ")" : ""));
 }
 
 void AudioEngine::MemoryAudioSource::clear()
@@ -87,7 +86,9 @@ void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceCh
     bufferToFill.clearActiveBufferRegion();
 
     if (m_buffer.getNumSamples() == 0)
+    {
         return;
+    }
 
     juce::int64 startSample = m_readPosition.load();
     int numSamplesToRead = bufferToFill.numSamples;
@@ -155,7 +156,8 @@ void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceCh
 
 void AudioEngine::MemoryAudioSource::setNextReadPosition(juce::int64 newPosition)
 {
-    m_readPosition.store(juce::jlimit<juce::int64>(0, m_buffer.getNumSamples(), newPosition));
+    juce::int64 clampedPosition = juce::jlimit<juce::int64>(0, m_buffer.getNumSamples(), newPosition);
+    m_readPosition.store(clampedPosition);
 }
 
 juce::int64 AudioEngine::MemoryAudioSource::getNextReadPosition() const
@@ -185,12 +187,16 @@ AudioEngine::AudioEngine()
     : m_playbackState(PlaybackState::STOPPED),
       m_isPlayingFromBuffer(false),
       m_isLooping(false),
+      m_loopStartTime(-1.0),
+      m_loopEndTime(-1.0),
       m_sampleRate(0.0),
       m_numChannels(0),
       m_bitDepth(0),
-      m_levelMonitoringEnabled(false)
+      m_levelMonitoringEnabled(false),
+      m_spectrumAnalyzer(nullptr),
+      m_previewMode(PreviewMode::DISABLED)
 {
-    // Register basic audio formats (WAV for Phase 1)
+    // Register basic audio formats (WAV, FLAC, OGG, MP3)
     m_formatManager.registerBasicFormats();
 
     // Listen for transport source changes
@@ -200,8 +206,9 @@ AudioEngine::AudioEngine()
     m_backgroundThread = std::make_unique<juce::TimeSliceThread>("Audio Loading Thread");
     m_backgroundThread->startThread();
 
-    // Create buffer source (initially empty)
+    // Create buffer sources (initially empty)
     m_bufferSource = std::make_unique<MemoryAudioSource>();
+    m_previewBufferSource = std::make_unique<MemoryAudioSource>();
 
     // Initialize level monitoring state
     for (int ch = 0; ch < MAX_CHANNELS; ++ch)
@@ -213,6 +220,15 @@ AudioEngine::AudioEngine()
 
 AudioEngine::~AudioEngine()
 {
+    // CRITICAL: Clear global preview pointer if it points to us
+    // This prevents dangling pointer issues when an AudioEngine is destroyed
+    // while in preview mode
+    AudioEngine* current = s_previewingEngine.load();
+    if (current == this)
+    {
+        s_previewingEngine.store(nullptr);
+    }
+
     // Stop background thread
     if (m_backgroundThread)
     {
@@ -233,7 +249,7 @@ bool AudioEngine::initializeAudioDevice()
     // Set up audio device with default settings
     // This will use the system's default audio output device
     juce::String audioError = m_deviceManager.initialise(
-        0,      // Number of input channels (0 for playback only in Phase 1)
+        0,      // Number of input channels (0 for playback only - recording in future release)
         2,      // Number of output channels (stereo)
         nullptr, // No saved state to restore
         true,    // Select default device if possible
@@ -244,14 +260,12 @@ bool AudioEngine::initializeAudioDevice()
     if (audioError.isNotEmpty())
     {
         // Initialization failed
-        juce::Logger::writeToLog("Audio device initialization failed: " + audioError);
         return false;
     }
 
     // Add this audio engine as the audio callback
     m_deviceManager.addAudioCallback(this);
 
-    juce::Logger::writeToLog("Audio device initialized successfully");
     return true;
 }
 
@@ -273,7 +287,6 @@ bool AudioEngine::loadAudioFile(const juce::File& file)
     // Validate file exists
     if (!file.existsAsFile())
     {
-        juce::Logger::writeToLog("File does not exist: " + file.getFullPathName());
         return false;
     }
 
@@ -289,7 +302,6 @@ bool AudioEngine::loadAudioFile(const juce::File& file)
 
     if (reader == nullptr)
     {
-        juce::Logger::writeToLog("Failed to create reader for file: " + file.getFullPathName());
         return false;
     }
 
@@ -324,11 +336,6 @@ bool AudioEngine::loadAudioFile(const juce::File& file)
     // Switch to file playback mode
     m_isPlayingFromBuffer.store(false);
 
-    juce::Logger::writeToLog("Successfully loaded file: " + file.getFullPathName());
-    juce::Logger::writeToLog("Sample rate: " + juce::String(m_sampleRate) + " Hz");
-    juce::Logger::writeToLog("Channels: " + juce::String(m_numChannels));
-    juce::Logger::writeToLog("Bit depth: " + juce::String(m_bitDepth) + " bits");
-
     return true;
 }
 
@@ -341,23 +348,18 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
-        juce::Logger::writeToLog("AudioEngine::loadFromBuffer - Cannot load from empty buffer");
         return false;
     }
 
     // Validate channel count matches buffer
     if (numChannels != buffer.getNumChannels())
     {
-        juce::Logger::writeToLog("AudioEngine::loadFromBuffer - Channel count mismatch: expected " +
-                                 juce::String(numChannels) + ", got " + juce::String(buffer.getNumChannels()));
         return false;
     }
 
     // Validate sample rate is in reasonable range
     if (sampleRate <= 0.0 || sampleRate < 8000.0 || sampleRate > 192000.0)
     {
-        juce::Logger::writeToLog("AudioEngine::loadFromBuffer - Invalid sample rate: " +
-                                 juce::String(sampleRate) + " Hz (must be 8kHz-192kHz)");
         return false;
     }
 
@@ -369,7 +371,6 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
         {
             if (!std::isfinite(data[i]))
             {
-                juce::Logger::writeToLog("AudioEngine::loadFromBuffer - Buffer contains invalid samples (NaN/Inf)");
                 return false;
             }
         }
@@ -398,7 +399,6 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
     // Ensure buffer source exists
     if (m_bufferSource == nullptr)
     {
-        juce::Logger::writeToLog("AudioEngine::loadFromBuffer - Buffer source is null, cannot load");
         return false;
     }
 
@@ -409,7 +409,6 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
     // Verify the buffer source pointer is valid before using it
     if (m_bufferSource.get() == nullptr)
     {
-        juce::Logger::writeToLog("AudioEngine::loadFromBuffer - Failed to get valid buffer source pointer");
         return false;
     }
 
@@ -424,12 +423,6 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
     // Switch to buffer playback mode
     m_isPlayingFromBuffer.store(true);
 
-    juce::Logger::writeToLog("Successfully loaded buffer for playback");
-    juce::Logger::writeToLog("Sample rate: " + juce::String(sampleRate) + " Hz");
-    juce::Logger::writeToLog("Channels: " + juce::String(numChannels));
-    juce::Logger::writeToLog("Samples: " + juce::String(buffer.getNumSamples()));
-    juce::Logger::writeToLog("Duration: " + juce::String(buffer.getNumSamples() / sampleRate, 2) + " seconds");
-
     return true;
 }
 
@@ -441,20 +434,17 @@ bool AudioEngine::reloadBufferPreservingPlayback(const juce::AudioBuffer<float>&
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
-        juce::Logger::writeToLog("AudioEngine::reloadBufferPreservingPlayback - Cannot load from empty buffer");
         return false;
     }
 
     // Validate channel count and sample rate
     if (numChannels != buffer.getNumChannels())
     {
-        juce::Logger::writeToLog("AudioEngine::reloadBufferPreservingPlayback - Channel count mismatch");
         return false;
     }
 
     if (sampleRate <= 0.0 || sampleRate < 8000.0 || sampleRate > 192000.0)
     {
-        juce::Logger::writeToLog("AudioEngine::reloadBufferPreservingPlayback - Invalid sample rate");
         return false;
     }
 
@@ -465,7 +455,6 @@ bool AudioEngine::reloadBufferPreservingPlayback(const juce::AudioBuffer<float>&
     if (wasPlaying)
     {
         currentPosition = getCurrentPosition();
-        juce::Logger::writeToLog("Preserving playback at position: " + juce::String(currentPosition, 3) + " seconds");
     }
 
     // CRITICAL: Disconnect transport before updating buffer
@@ -482,7 +471,6 @@ bool AudioEngine::reloadBufferPreservingPlayback(const juce::AudioBuffer<float>&
     }
     else
     {
-        juce::Logger::writeToLog("AudioEngine::reloadBufferPreservingPlayback - Buffer source is null");
         return false;
     }
 
@@ -511,8 +499,6 @@ bool AudioEngine::reloadBufferPreservingPlayback(const juce::AudioBuffer<float>&
         // Set position and start playing
         m_transportSource.setPosition(currentPosition);
         m_transportSource.start();
-
-        juce::Logger::writeToLog("Playback restarted at position: " + juce::String(currentPosition, 3) + " seconds with updated audio");
     }
 
     return true;
@@ -535,12 +521,16 @@ void AudioEngine::closeAudioFile()
     m_bitDepth.store(0);
     m_isPlayingFromBuffer.store(false);
 
-    juce::Logger::writeToLog("Audio file closed");
+    // Clear preview selection offset
+    m_previewSelectionStartSamples.store(0);
 }
 
 bool AudioEngine::isFileLoaded() const
 {
-    return m_readerSource != nullptr || m_isPlayingFromBuffer.load();
+    // File is "loaded" if we have a reader source, or a buffer source, or a preview buffer
+    return m_readerSource != nullptr
+           || m_isPlayingFromBuffer.load()
+           || m_previewMode.load() != PreviewMode::DISABLED;
 }
 
 bool AudioEngine::isPlayingFromBuffer() const
@@ -560,7 +550,6 @@ void AudioEngine::play()
 {
     if (!isFileLoaded())
     {
-        juce::Logger::writeToLog("Cannot play: No file loaded");
         return;
     }
 
@@ -572,8 +561,6 @@ void AudioEngine::play()
 
     m_transportSource.start();
     updatePlaybackState(PlaybackState::PLAYING);
-
-    juce::Logger::writeToLog("Playback started");
 }
 
 void AudioEngine::pause()
@@ -585,8 +572,6 @@ void AudioEngine::pause()
 
     m_transportSource.stop();
     updatePlaybackState(PlaybackState::PAUSED);
-
-    juce::Logger::writeToLog("Playback paused");
 }
 
 void AudioEngine::stop()
@@ -603,7 +588,10 @@ void AudioEngine::stop()
     // Disable level monitoring and reset meters
     setLevelMonitoringEnabled(false);
 
-    juce::Logger::writeToLog("Playback stopped");
+    // CRITICAL: Clear loop points and looping state to prevent stale state
+    // from affecting next playback session. This ensures clean state after stop.
+    clearLoopPoints();
+    setLooping(false);
 }
 
 PlaybackState AudioEngine::getPlaybackState() const
@@ -631,13 +619,27 @@ void AudioEngine::setLooping(bool shouldLoop)
 
     // Note: AudioFormatReaderSource doesn't directly support looping,
     // so we'll handle file-based looping by restarting playback when it ends
-
-    juce::Logger::writeToLog(shouldLoop ? "Loop enabled" : "Loop disabled");
 }
 
 bool AudioEngine::isLooping() const
 {
     return m_isLooping.load();
+}
+
+void AudioEngine::setLoopPoints(double loopStart, double loopEnd)
+{
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+
+    m_loopStartTime.store(loopStart);
+    m_loopEndTime.store(loopEnd);
+}
+
+void AudioEngine::clearLoopPoints()
+{
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+
+    m_loopStartTime.store(-1.0);
+    m_loopEndTime.store(-1.0);
 }
 
 //==============================================================================
@@ -665,8 +667,6 @@ void AudioEngine::setPosition(double positionInSeconds)
     positionInSeconds = juce::jlimit(0.0, length, positionInSeconds);
 
     m_transportSource.setPosition(positionInSeconds);
-
-    juce::Logger::writeToLog("Position set to: " + juce::String(positionInSeconds) + " seconds");
 }
 
 double AudioEngine::getTotalLength() const
@@ -713,8 +713,6 @@ void AudioEngine::setLevelMonitoringEnabled(bool enabled)
             m_rmsLevels[ch].store(0.0f);
         }
     }
-
-    juce::Logger::writeToLog(enabled ? "Level monitoring enabled" : "Level monitoring disabled");
 }
 
 float AudioEngine::getPeakLevel(int channel) const
@@ -735,6 +733,11 @@ float AudioEngine::getRMSLevel(int channel) const
     return 0.0f;
 }
 
+void AudioEngine::setSpectrumAnalyzer(SpectrumAnalyzer* spectrumAnalyzer)
+{
+    m_spectrumAnalyzer = spectrumAnalyzer;
+}
+
 //==============================================================================
 // ChangeListener Implementation
 
@@ -746,7 +749,11 @@ void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* source)
         if (m_transportSource.hasStreamFinished())
         {
             updatePlaybackState(PlaybackState::STOPPED);
-            juce::Logger::writeToLog("Playback finished (end of file reached)");
+
+            // NOTE: We do NOT auto-disable preview mode here anymore!
+            // This was causing the preview to get disabled during loadPreviewBuffer()
+            // when releaseResources() triggers a stream finished notification.
+            // Preview mode should only be disabled explicitly by dialogs when they close.
         }
     }
 }
@@ -783,9 +790,58 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // Clear the buffer first
     buffer.clear();
 
+    // CRITICAL FIX: Auto-mute if another AudioEngine is in preview mode
+    // This prevents audio mixing when multiple documents are open
+    AudioEngine* previewingEngine = s_previewingEngine.load();
+    bool shouldMute = (previewingEngine != nullptr && previewingEngine != this)
+                      || m_isMuted.load();
+
+    if (shouldMute)
+    {
+        // Buffer is already cleared - return silence
+        // Either another engine is previewing, or we're manually muted
+        return;
+    }
+
     // Get audio from the transport source
     juce::AudioSourceChannelInfo channelInfo(buffer);
+
     m_transportSource.getNextAudioBlock(channelInfo);
+
+    //==============================================================================
+    // LOOP POINT HANDLING: Sample-accurate loop point checking
+    // If loop points are set and we've passed the loop end, either loop back or stop
+    // CRITICAL: Only process if BOTH loop points are valid to prevent stale state bugs
+    double loopStart = m_loopStartTime.load();
+    double loopEnd = m_loopEndTime.load();
+
+    // Safety check: Only process loop points if both are valid and properly ordered
+    if (loopStart >= 0.0 && loopEnd >= 0.0 && loopEnd > loopStart)
+    {
+        double currentPos = getCurrentPosition();
+
+        if (currentPos >= loopEnd)
+        {
+            if (m_isLooping.load())
+            {
+                // Continuous looping mode (preview with loop enabled)
+                // Note: This is called from audio thread but setPosition is thread-safe
+                m_transportSource.setPosition(loopStart);
+            }
+            else
+            {
+                // One-shot playback mode (selection playback)
+                // Stop at end of selection, then auto-clear loop points
+                m_transportSource.stop();
+                updatePlaybackState(PlaybackState::STOPPED);
+
+                // Auto-clear loop points after one-shot playback completes
+                // This prevents stale loop points from affecting next playback
+                m_loopStartTime.store(-1.0);
+                m_loopEndTime.store(-1.0);
+            }
+        }
+    }
 
     // CRITICAL: Handle mono-to-stereo conversion for file playback
     // If the source is mono (1 channel) but output is stereo (2 channels),
@@ -799,6 +855,19 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
     }
 
+    //==============================================================================
+    // PREVIEW SYSTEM: Apply real-time DSP processing (Phase 1)
+    // This processes audio AFTER transport but BEFORE monitoring/visualization
+    // Enables instant preview of effects without modifying main buffer
+
+    if (m_previewMode.load() == PreviewMode::REALTIME_DSP)
+    {
+        // Apply gain processor (Phase 1 - simple gain adjustment)
+        // Future phases will add: ParametricEQ, Fade, DC Offset, etc.
+        m_gainProcessor.process(buffer);
+    }
+
+    //==============================================================================
     // Calculate and store audio levels for meters (if monitoring is enabled AND playing)
     if (m_levelMonitoringEnabled.load() && m_transportSource.isPlaying())
     {
@@ -833,6 +902,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             m_rmsLevels[ch].store(0.0f);
         }
     }
+
+    // Feed spectrum analyzer with audio data (if connected AND playing)
+    if (m_spectrumAnalyzer != nullptr && m_transportSource.isPlaying() && buffer.getNumChannels() > 0)
+    {
+        // Mix down to mono for spectrum analysis (use left channel or mono mix)
+        const float* channelData = buffer.getReadPointer(0);
+        m_spectrumAnalyzer->pushAudioData(channelData, numSamples);
+    }
 }
 
 //==============================================================================
@@ -857,7 +934,8 @@ bool AudioEngine::validateAudioFormat(juce::AudioFormatReader* reader)
 
     // Check sample rate is supported
     double sampleRate = reader->sampleRate;
-    const double supportedRates[] = { 44100.0, 48000.0, 88200.0, 96000.0, 192000.0 };
+    const double supportedRates[] = { 8000.0, 11025.0, 16000.0, 22050.0, 32000.0,
+                                      44100.0, 48000.0, 88200.0, 96000.0, 176400.0, 192000.0 };
     bool sampleRateSupported = false;
 
     for (double rate : supportedRates)
@@ -871,8 +949,6 @@ bool AudioEngine::validateAudioFormat(juce::AudioFormatReader* reader)
 
     if (!sampleRateSupported)
     {
-        juce::Logger::writeToLog("Unsupported sample rate: " + juce::String(sampleRate) + " Hz");
-        juce::Logger::writeToLog("Supported rates: 44.1kHz, 48kHz, 88.2kHz, 96kHz, 192kHz");
         return false;
     }
 
@@ -880,20 +956,196 @@ bool AudioEngine::validateAudioFormat(juce::AudioFormatReader* reader)
     int numChannels = static_cast<int>(reader->numChannels);
     if (numChannels < 1 || numChannels > 8)
     {
-        juce::Logger::writeToLog("Unsupported channel count: " + juce::String(numChannels));
-        juce::Logger::writeToLog("Supported: 1-8 channels");
         return false;
     }
 
-    // Check bit depth (16, 24, or 32-bit for Phase 1)
+    // Check bit depth (8, 16, 24, or 32-bit)
     int bitDepth = static_cast<int>(reader->bitsPerSample);
-    if (bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
+    if (bitDepth != 8 && bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
     {
-        juce::Logger::writeToLog("Unsupported bit depth: " + juce::String(bitDepth) + " bits");
-        juce::Logger::writeToLog("Supported: 16-bit, 24-bit, or 32-bit");
         return false;
     }
 
     // Format is valid
     return true;
+}
+
+//==============================================================================
+// Preview System Implementation
+
+void AudioEngine::setPreviewMode(PreviewMode mode)
+{
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+
+    PreviewMode oldMode = m_previewMode.load();
+
+    m_previewMode.store(mode);
+
+    // CRITICAL FIX: Track which AudioEngine is in preview mode
+    // This allows other engines to auto-mute themselves during preview
+    if (mode != PreviewMode::DISABLED && oldMode == PreviewMode::DISABLED)
+    {
+        // Entering preview mode - register this engine as the previewing one
+        s_previewingEngine.store(this);
+    }
+    else if (mode == PreviewMode::DISABLED && oldMode != PreviewMode::DISABLED)
+    {
+        // Leaving preview mode - clear the previewing engine
+        // Unconditionally clear if we are the current previewing engine
+        AudioEngine* current = s_previewingEngine.load();
+        if (current == this)
+        {
+            s_previewingEngine.store(nullptr);
+        }
+    }
+
+    // If switching from OFFLINE_BUFFER to DISABLED, restore the original audio source
+    if (oldMode == PreviewMode::OFFLINE_BUFFER && mode == PreviewMode::DISABLED)
+    {
+
+        // Save current position before disconnecting transport (in case user wants to resume)
+        double savedPosition = getCurrentPosition();
+
+        // Stop playback to safely disconnect transport
+        if (isPlaying())
+        {
+            m_transportSource.stop();
+        }
+
+        // Disconnect preview buffer
+        m_transportSource.setSource(nullptr);
+
+        // Reconnect to the original audio source (file or buffer)
+        if (m_bufferSource && m_isPlayingFromBuffer.load())
+        {
+            // Playing from edited buffer
+            m_transportSource.setSource(m_bufferSource.get(), 0, nullptr,
+                                       m_sampleRate.load(), m_numChannels.load());
+        }
+        else if (m_readerSource)
+        {
+            // Playing from original file
+            m_transportSource.setSource(m_readerSource.get(), 0, nullptr,
+                                       m_sampleRate.load(), m_numChannels.load());
+        }
+
+        // CRITICAL: Clear preview-related state (defense in depth)
+        // GainDialog should have already cleared these, but ensure clean state
+        clearLoopPoints();
+        setLooping(false);
+        m_previewSelectionStartSamples.store(0);  // Clear preview selection offset
+
+        // Restore position (user may have been previewing in middle of file)
+        m_transportSource.setPosition(savedPosition);
+
+        // DO NOT auto-restart playback - user explicitly stopped preview
+        // by closing/canceling dialog. Respect user intent.
+    }
+}
+
+PreviewMode AudioEngine::getPreviewMode() const
+{
+    return m_previewMode.load();
+}
+
+bool AudioEngine::loadPreviewBuffer(const juce::AudioBuffer<float>& previewBuffer, double sampleRate, int numChannels)
+{
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+
+    if (previewBuffer.getNumSamples() == 0 || previewBuffer.getNumChannels() == 0)
+    {
+        return false;
+    }
+
+    // CRITICAL: Stop any playback FIRST to clear audio device buffers
+    // Without this, the audio device continues playing buffered samples from the old source
+    bool wasPlaying = m_transportSource.isPlaying();
+    if (wasPlaying)
+    {
+        m_transportSource.stop();
+    }
+
+    // CRITICAL: Release resources before switching sources
+    // This flushes any cached audio data from the old source
+    m_transportSource.releaseResources();
+
+    // Disconnect transport to flush internal buffers
+    m_transportSource.setSource(nullptr);
+
+    // Load preview buffer
+    m_previewBufferSource->setBuffer(previewBuffer, sampleRate, false);
+
+    // Connect preview buffer as transport source
+    m_transportSource.setSource(m_previewBufferSource.get(), 0, nullptr, sampleRate, numChannels);
+
+    // CRITICAL: Call prepareToPlay() after changing the source
+    // This is REQUIRED by JUCE's AudioTransportSource - without it, the transport
+    // continues reading from the old source despite the setSource() call!
+    auto* device = m_deviceManager.getCurrentAudioDevice();
+    if (device != nullptr)
+    {
+        m_transportSource.prepareToPlay(device->getCurrentBufferSizeSamples(),
+                                         device->getCurrentSampleRate());
+    }
+
+    // Apply current loop state to preview buffer source
+    m_previewBufferSource->setLooping(m_isLooping.load());
+
+    // Update audio properties (but NOT m_isPlayingFromBuffer!)
+    // CRITICAL: Do NOT set m_isPlayingFromBuffer here! That flag indicates whether
+    // the MAIN audio source is buffer-based or file-based. Preview is temporary.
+    // If we set it to true here, setPreviewMode(DISABLED) will try to restore
+    // m_bufferSource, which may be empty if the main file was loaded via loadAudioFile().
+    m_sampleRate.store(sampleRate);
+    m_numChannels.store(numChannels);
+
+    // NOTE: Don't restore position/playback state - let caller control this.
+    // Preview buffers are different content than main buffer, so restoring
+    // the old position (e.g., 5.0 seconds into main file) would skip past
+    // the intended preview audio. Caller will set position explicitly.
+
+    return true;
+}
+
+void AudioEngine::setGainPreview(float gainDB, bool enabled)
+{
+    // Thread-safe: Can be called from UI thread
+    // Atomic operations ensure safe updates from message thread while audio thread reads
+
+    m_gainProcessor.gainDB.store(gainDB);
+    m_gainProcessor.enabled.store(enabled);
+}
+
+void AudioEngine::setPreviewSelectionOffset(int64_t selectionStartSamples)
+{
+    // Validate offset is non-negative
+    if (selectionStartSamples < 0)
+    {
+        jassert(false);  // Debug assertion for negative offset
+        selectionStartSamples = 0;
+    }
+
+    // Thread-safe: Uses atomic store
+    m_previewSelectionStartSamples.store(selectionStartSamples);
+}
+
+double AudioEngine::getPreviewSelectionOffsetSeconds() const
+{
+    // Only return offset if in preview mode (prevents race conditions)
+    if (m_previewMode.load() == PreviewMode::DISABLED)
+    {
+        return 0.0;
+    }
+
+    // Thread-safe: Uses atomic load and current sample rate
+    int64_t offsetSamples = m_previewSelectionStartSamples.load();
+    double currentSampleRate = m_sampleRate.load();
+
+    // Guard against invalid sample rates
+    if (currentSampleRate <= 0.0)
+    {
+        return 0.0;
+    }
+
+    return static_cast<double>(offsetSamples) / currentSampleRate;
 }

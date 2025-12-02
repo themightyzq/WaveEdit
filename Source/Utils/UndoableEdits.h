@@ -23,6 +23,7 @@
 #include "../UI/RegionDisplay.h"
 #include "RegionManager.h"
 #include "Region.h"
+#include "../DSP/ParametricEQ.h"
 
 /**
  * Base class for undoable edit operations.
@@ -268,7 +269,8 @@ public:
     int getSizeInUnits() override
     {
         // Return approximate memory usage in bytes
-        return static_cast<int>(m_deletedAudio.getNumSamples() * m_deletedAudio.getNumChannels() * sizeof(float));
+        return static_cast<int>(static_cast<size_t>(m_deletedAudio.getNumSamples()) *
+                                static_cast<size_t>(m_deletedAudio.getNumChannels()) * sizeof(float));
     }
 
 private:
@@ -343,7 +345,8 @@ public:
     int getSizeInUnits() override
     {
         // Return approximate memory usage in bytes
-        return static_cast<int>(m_audioToInsert.getNumSamples() * m_audioToInsert.getNumChannels() * sizeof(float));
+        return static_cast<int>(static_cast<size_t>(m_audioToInsert.getNumSamples()) *
+                                static_cast<size_t>(m_audioToInsert.getNumChannels()) * sizeof(float));
     }
 
 private:
@@ -422,8 +425,10 @@ public:
     int getSizeInUnits() override
     {
         // Return approximate memory usage in bytes (both buffers)
-        int originalSize = m_originalAudio.getNumSamples() * m_originalAudio.getNumChannels() * sizeof(float);
-        int newSize = m_newAudio.getNumSamples() * m_newAudio.getNumChannels() * sizeof(float);
+        size_t originalSize = static_cast<size_t>(m_originalAudio.getNumSamples()) *
+                              static_cast<size_t>(m_originalAudio.getNumChannels()) * sizeof(float);
+        size_t newSize = static_cast<size_t>(m_newAudio.getNumSamples()) *
+                         static_cast<size_t>(m_newAudio.getNumChannels()) * sizeof(float);
         return static_cast<int>(originalSize + newSize);
     }
 
@@ -758,4 +763,85 @@ private:
     Region m_originalRegion;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SplitRegionUndoAction)
+};
+
+//==============================================================================
+/**
+ * Undoable action for applying 3-band parametric EQ to audio selection.
+ */
+class ApplyParametricEQAction : public UndoableEditBase
+{
+public:
+    ApplyParametricEQAction(AudioBufferManager& bufferManager,
+                           AudioEngine& audioEngine,
+                           WaveformDisplay& waveformDisplay,
+                           int64_t startSample,
+                           int64_t numSamples,
+                           const ParametricEQ::Parameters& eqParams)
+        : UndoableEditBase(bufferManager, audioEngine, waveformDisplay),
+          m_startSample(startSample),
+          m_numSamples(numSamples),
+          m_eqParams(eqParams)
+    {
+        // Validate parameters
+        jassert(m_bufferManager.hasAudioData());
+        jassert(startSample >= 0 && startSample < m_bufferManager.getNumSamples());
+        jassert(numSamples > 0 && (startSample + numSamples) <= m_bufferManager.getNumSamples());
+
+        // Store original audio for undo
+        m_originalAudio = m_bufferManager.getAudioRange(startSample, numSamples);
+
+        m_sampleRate = m_bufferManager.getSampleRate();
+    }
+
+    bool perform() override
+    {
+        // Get the audio range to process
+        auto audioToProcess = m_bufferManager.getAudioRange(m_startSample, m_numSamples);
+
+        // Apply EQ
+        ParametricEQ eq;
+        eq.prepare(m_sampleRate, audioToProcess.getNumSamples());
+        eq.applyEQ(audioToProcess, m_eqParams);
+
+        // Replace in buffer
+        bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, audioToProcess);
+
+        if (success)
+        {
+            updatePlaybackAndDisplay();
+        }
+
+        return success;
+    }
+
+    bool undo() override
+    {
+        // Restore original audio
+        bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, m_originalAudio);
+
+        if (success)
+        {
+            updatePlaybackAndDisplay();
+        }
+
+        return success;
+    }
+
+    int getSizeInUnits() override
+    {
+        // Return approximate memory usage in bytes
+        size_t size = static_cast<size_t>(m_originalAudio.getNumSamples()) *
+                      static_cast<size_t>(m_originalAudio.getNumChannels()) * sizeof(float);
+        return static_cast<int>(size);
+    }
+
+private:
+    int64_t m_startSample;
+    int64_t m_numSamples;
+    ParametricEQ::Parameters m_eqParams;
+    juce::AudioBuffer<float> m_originalAudio;
+    double m_sampleRate;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ApplyParametricEQAction)
 };

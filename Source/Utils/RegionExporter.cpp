@@ -242,8 +242,8 @@ std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWavWriter(
         outputFile.deleteFile();
     }
 
-    // Create output stream
-    auto outputStream = outputFile.createOutputStream();
+    // Create output stream - need OutputStream base type for JUCE 8 API
+    std::unique_ptr<juce::OutputStream> outputStream(outputFile.createOutputStream());
     if (outputStream == nullptr)
     {
         juce::Logger::writeToLog("RegionExporter: Failed to create output stream for " +
@@ -251,35 +251,24 @@ std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWavWriter(
         return nullptr;
     }
 
-    // Determine bits per sample
+    // Determine bits per sample (8, 16, 24, or 32-bit)
     int bitsPerSample = bitDepth;
-    if (bitsPerSample != 16 && bitsPerSample != 24 && bitsPerSample != 32)
+    if (bitsPerSample != 8 && bitsPerSample != 16 && bitsPerSample != 24 && bitsPerSample != 32)
     {
         juce::Logger::writeToLog("RegionExporter: Invalid bit depth " +
                                  juce::String(bitDepth) + ", using 24-bit");
         bitsPerSample = 24;
     }
 
-    // Create writer with options
-    // Note: JUCE 7+ deprecates the old createWriterFor() in favor of using AudioFormatWriterOptions
-    // For now we suppress the warning until we can properly test the new API
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    // Build writer options using JUCE 8 AudioFormatWriterOptions API
+    auto options = juce::AudioFormatWriterOptions()
+        .withSampleRate(sampleRate)
+        .withNumChannels(numChannels)
+        .withBitsPerSample(bitsPerSample)
+        .withQualityOptionIndex(0)
+        .withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::integral);  // Force PCM for 8-bit
 
-    juce::StringPairArray metadata;
-    auto writer = wavFormat.createWriterFor(outputStream.get(),
-                                            sampleRate,
-                                            static_cast<unsigned int>(numChannels),
-                                            bitsPerSample,
-                                            metadata,
-                                            0); // quality hint (unused for WAV)
-
-    #pragma GCC diagnostic pop
-
-    if (writer != nullptr)
-    {
-        outputStream.release(); // Writer now owns the stream
-    }
-
-    return std::unique_ptr<juce::AudioFormatWriter>(writer);
+    // Create writer using JUCE 8 API
+    // Note: outputStream ownership is transferred via non-const lvalue reference
+    return wavFormat.createWriterFor(outputStream, options);
 }

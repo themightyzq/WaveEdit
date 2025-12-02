@@ -204,7 +204,7 @@ void Document::closeFile()
     juce::Logger::writeToLog("Document closed");
 }
 
-bool Document::saveFile(const juce::File& file, int bitDepth)
+bool Document::saveFile(const juce::File& file, int bitDepth, int quality, double targetSampleRate)
 {
     // Validate parameters
     if (!file.getParentDirectory().exists())
@@ -213,20 +213,45 @@ bool Document::saveFile(const juce::File& file, int bitDepth)
         return false;
     }
 
-    if (bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
+    if (bitDepth != 8 && bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
     {
-        juce::Logger::writeToLog("Error: Invalid bit depth: " + juce::String(bitDepth) + " (must be 16, 24, or 32)");
+        juce::Logger::writeToLog("Error: Invalid bit depth: " + juce::String(bitDepth) + " (must be 8, 16, 24, or 32)");
+        return false;
+    }
+
+    if (quality < 0 || quality > 10)
+    {
+        juce::Logger::writeToLog("Error: Invalid quality: " + juce::String(quality) + " (must be 0-10)");
         return false;
     }
 
     // Get audio buffer and sample rate from buffer manager
     const juce::AudioBuffer<float>& buffer = m_bufferManager.getBuffer();
-    double sampleRate = m_audioEngine.getSampleRate();
+    double sourceSampleRate = m_audioEngine.getSampleRate();
 
     if (buffer.getNumSamples() == 0)
     {
         juce::Logger::writeToLog("Error: No audio data to save");
         return false;
+    }
+
+    // Determine final sample rate
+    double finalSampleRate = (targetSampleRate > 0.0) ? targetSampleRate : sourceSampleRate;
+
+    // Resample if necessary
+    juce::AudioBuffer<float> bufferToSave;
+    if (targetSampleRate > 0.0 && std::abs(targetSampleRate - sourceSampleRate) > 0.01)
+    {
+        juce::Logger::writeToLog("Resampling from " + juce::String(sourceSampleRate, 0) +
+                                 " Hz to " + juce::String(targetSampleRate, 0) + " Hz");
+        bufferToSave = AudioFileManager::resampleBuffer(buffer, sourceSampleRate, targetSampleRate);
+    }
+    else
+    {
+        // No resampling needed - create copy of buffer
+        bufferToSave.setSize(buffer.getNumChannels(), buffer.getNumSamples());
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            bufferToSave.copyFrom(ch, 0, buffer, ch, 0, buffer.getNumSamples());
     }
 
     // Update BWF metadata with current timestamp if not set
@@ -250,23 +275,16 @@ bool Document::saveFile(const juce::File& file, int bitDepth)
 
     // Save using AudioFileManager
     AudioFileManager fileManager;
-    bool success = false;
 
-    if (file.existsAsFile())
-    {
-        // Overwrite existing file
-        success = fileManager.overwriteFile(file, buffer, sampleRate, bitDepth, metadata);
-    }
-    else
-    {
-        // Save as new file
-        success = fileManager.saveAsWav(file, buffer, sampleRate, bitDepth, metadata);
-    }
+    // Use the universal saveAudioFile method which auto-detects format
+    // For WAV files, this will use saveAsWav/overwriteFile internally
+    bool success = fileManager.saveAudioFile(file, bufferToSave, finalSampleRate, bitDepth, quality, metadata);
 
     if (success)
     {
-        // Append iXML chunk if we have iXML metadata
-        if (m_ixmlMetadata.hasMetadata())
+        // Append iXML chunk if we have iXML metadata (WAV files only)
+        // Note: FLAC/OGG don't support iXML chunks
+        if (m_ixmlMetadata.hasMetadata() && file.hasFileExtension(".wav"))
         {
             juce::String ixmlString = m_ixmlMetadata.toXMLString();
             bool ixmlSuccess = fileManager.appendiXMLChunk(file, ixmlString);
@@ -276,6 +294,11 @@ bool Document::saveFile(const juce::File& file, int bitDepth)
                 juce::Logger::writeToLog("Warning: Failed to write iXML chunk: " + fileManager.getLastError());
                 // Continue anyway - BWF metadata was written successfully
             }
+        }
+        else if (m_ixmlMetadata.hasMetadata() && !file.hasFileExtension(".wav"))
+        {
+            juce::Logger::writeToLog("Note: iXML metadata not saved (not supported for " +
+                                    file.getFileExtension() + " format)");
         }
 
         // Update document state

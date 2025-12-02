@@ -121,11 +121,21 @@ juce::AudioBuffer<float> AudioBufferManager::getAudioRange(int64_t startSample, 
 {
     juce::ScopedLock sl(m_lock);
 
+    // DEBUG: Log the extraction request
+    juce::Logger::writeToLog("AudioBufferManager::getAudioRange called:");
+    juce::Logger::writeToLog("  Start sample: " + juce::String(startSample));
+    juce::Logger::writeToLog("  Num samples requested: " + juce::String(numSamples));
+    juce::Logger::writeToLog("  Total buffer samples: " + juce::String(m_buffer.getNumSamples()));
+    juce::Logger::writeToLog("  Buffer channels: " + juce::String(m_buffer.getNumChannels()));
+
     // Validate range
     if (startSample < 0 || numSamples <= 0 ||
         startSample + numSamples > m_buffer.getNumSamples())
     {
         juce::Logger::writeToLog("AudioBufferManager: Invalid range in getAudioRange");
+        juce::Logger::writeToLog("  Range check failed: startSample=" + juce::String(startSample) +
+                                " numSamples=" + juce::String(numSamples) +
+                                " totalSamples=" + juce::String(m_buffer.getNumSamples()));
         return juce::AudioBuffer<float>();
     }
 
@@ -136,6 +146,9 @@ juce::AudioBuffer<float> AudioBufferManager::getAudioRange(int64_t startSample, 
     {
         rangeBuff.copyFrom(ch, 0, m_buffer, ch, static_cast<int>(startSample), static_cast<int>(numSamples));
     }
+
+    juce::Logger::writeToLog("  Successfully extracted " + juce::String(rangeBuff.getNumSamples()) +
+                            " samples from position " + juce::String(startSample));
 
     return rangeBuff;
 }

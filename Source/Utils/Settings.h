@@ -26,8 +26,11 @@
  * - Windows: %APPDATA%/WaveEdit/
  * - Linux: ~/.config/WaveEdit/
  *
- * Phase 1: Recent files list
- * Phase 2+: Auto-save settings, keyboard bindings, UI preferences
+ * Manages:
+ * - Recent files list
+ * - Auto-save settings
+ * - Keyboard bindings
+ * - UI preferences
  */
 class Settings
 {
