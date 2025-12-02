@@ -34,6 +34,10 @@ target_sources(WaveEdit
         Source/Audio/AudioFileManager.h
         Source/Audio/AudioProcessor.cpp
         Source/Audio/AudioProcessor.h
+        Source/Audio/RecordingEngine.cpp
+        Source/Audio/RecordingEngine.h
+        Source/DSP/ParametricEQ.cpp
+        Source/DSP/ParametricEQ.h
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h
@@ -53,6 +57,22 @@ target_sources(WaveEdit
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
+        Source/UI/NormalizeDialog.cpp
+        Source/UI/NormalizeDialog.h
+        Source/UI/FadeInDialog.cpp
+        Source/UI/FadeInDialog.h
+        Source/UI/FadeOutDialog.cpp
+        Source/UI/FadeOutDialog.h
+        Source/UI/FadeCurvePreview.cpp
+        Source/UI/FadeCurvePreview.h
+        Source/UI/DCOffsetDialog.cpp
+        Source/UI/DCOffsetDialog.h
+        Source/UI/RecordingDialog.cpp
+        Source/UI/RecordingDialog.h
+        Source/UI/ParametricEQDialog.cpp
+        Source/UI/ParametricEQDialog.h
+        Source/UI/GraphicalEQEditor.cpp
+        Source/UI/GraphicalEQEditor.h
         Source/UI/TabComponent.cpp
         Source/UI/TabComponent.h
         Source/UI/ErrorDialog.cpp
@@ -75,6 +95,8 @@ target_sources(WaveEdit
         Source/UI/StripSilenceDialog.h
         Source/UI/BatchExportDialog.cpp
         Source/UI/BatchExportDialog.h
+        Source/UI/SaveAsOptionsPanel.cpp
+        Source/UI/SaveAsOptionsPanel.h
         Source/UI/ShortcutEditorPanel.cpp
         Source/UI/ShortcutEditorPanel.h
         Source/Utils/Document.cpp
@@ -99,8 +121,12 @@ target_sources(WaveEdit
         Source/UI/RegionDisplay.h
         Source/UI/RegionListPanel.cpp
         Source/UI/RegionListPanel.h
+        Source/UI/MarkerListPanel.cpp
+        Source/UI/MarkerListPanel.h
         Source/UI/MarkerDisplay.cpp
         Source/UI/MarkerDisplay.h
+        Source/UI/SpectrumAnalyzer.cpp
+        Source/UI/SpectrumAnalyzer.h
 )
 
 # JUCE modules required for audio editing application
@@ -113,6 +139,7 @@ target_link_libraries(WaveEdit
         juce::juce_audio_utils
         juce::juce_core
         juce::juce_data_structures
+        juce::juce_dsp
         juce::juce_events
         juce::juce_graphics
         juce::juce_gui_basics
@@ -129,6 +156,7 @@ target_compile_definitions(WaveEdit
         # JUCE settings
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_USE_MP3AUDIOFORMAT=1  # Enable MP3 encoding with LAME
         JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:WaveEdit,JUCE_PRODUCT_NAME>"
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:WaveEdit,JUCE_VERSION>"
 
@@ -169,7 +197,121 @@ elseif(UNIX)
     )
 endif()
 
+# ============================================================================
+# Bundle LAME MP3 Encoder Library
+# ============================================================================
+# For end-user releases, bundle LAME library in app bundle/installation
+# This provides zero-friction MP3 encoding support without requiring users
+# to manually install LAME. LGPL compliance: dynamically linked, source
+# code available at https://lame.sourceforge.io/
+
+if(APPLE)
+    # Find LAME library - check both Homebrew locations
+    find_library(LAME_LIBRARY
+        NAMES mp3lame libmp3lame
+        PATHS
+            /opt/homebrew/lib          # Apple Silicon Homebrew
+            /usr/local/lib             # Intel Homebrew
+            /opt/local/lib             # MacPorts
+        NO_DEFAULT_PATH
+    )
+
+    if(LAME_LIBRARY)
+        message(STATUS "Found LAME library: ${LAME_LIBRARY}")
+
+        # For Release builds, bundle LAME into app Frameworks
+        if(CMAKE_BUILD_TYPE STREQUAL "Release")
+            add_custom_command(TARGET WaveEdit POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks"
+                COMMAND ${CMAKE_COMMAND} -E copy
+                    "${LAME_LIBRARY}"
+                    "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libmp3lame.dylib"
+                COMMAND install_name_tool -id
+                    "@rpath/libmp3lame.dylib"
+                    "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libmp3lame.dylib"
+                COMMENT "Bundling LAME MP3 encoder library"
+            )
+            message(STATUS "LAME will be bundled in Release builds")
+        else()
+            message(STATUS "Debug build - LAME not bundled (use system library)")
+        endif()
+    else()
+        message(WARNING "LAME library not found - MP3 encoding will require manual LAME installation")
+        message(WARNING "Install with: brew install lame")
+    endif()
+
+    # Set rpath to find bundled libraries
+    set_target_properties(WaveEdit PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "@executable_path/../Frameworks"
+    )
+
+elseif(WIN32)
+    # Windows: Look for LAME DLL
+    find_file(LAME_DLL
+        NAMES lame_enc.dll libmp3lame.dll
+        PATHS
+            "C:/Program Files/LAME"
+            "C:/Program Files (x86)/LAME"
+            "${CMAKE_SOURCE_DIR}/ThirdParty/lame/bin"
+    )
+
+    if(LAME_DLL)
+        message(STATUS "Found LAME DLL: ${LAME_DLL}")
+
+        if(CMAKE_BUILD_TYPE STREQUAL "Release")
+            add_custom_command(TARGET WaveEdit POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy
+                    "${LAME_DLL}"
+                    "$<TARGET_FILE_DIR:WaveEdit>"
+                COMMENT "Bundling LAME MP3 encoder DLL"
+            )
+            message(STATUS "LAME DLL will be bundled in Release builds")
+        endif()
+    else()
+        message(WARNING "LAME DLL not found - MP3 encoding will require manual LAME installation")
+        message(WARNING "Download from: https://lame.sourceforge.io/")
+    endif()
+
+elseif(UNIX)
+    # Linux: Look for LAME shared object
+    find_library(LAME_LIBRARY
+        NAMES mp3lame libmp3lame
+        PATHS
+            /usr/lib
+            /usr/local/lib
+            /usr/lib/x86_64-linux-gnu
+            /usr/lib/aarch64-linux-gnu
+    )
+
+    if(LAME_LIBRARY)
+        message(STATUS "Found LAME library: ${LAME_LIBRARY}")
+
+        if(CMAKE_BUILD_TYPE STREQUAL "Release")
+            add_custom_command(TARGET WaveEdit POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy
+                    "${LAME_LIBRARY}"
+                    "$<TARGET_FILE_DIR:WaveEdit>"
+                COMMENT "Bundling LAME MP3 encoder library"
+            )
+            message(STATUS "LAME will be bundled in Release builds")
+        endif()
+    else()
+        message(WARNING "LAME library not found - MP3 encoding will require manual LAME installation")
+        message(WARNING "Install with: sudo apt-get install libmp3lame0")
+    endif()
+
+    # Set rpath to find bundled libraries
+    set_target_properties(WaveEdit PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN"
+    )
+endif()
+
+# ============================================================================
 # Copy keyboard template resources to app bundle
+# ============================================================================
 if(APPLE)
     # On macOS, copy templates to app bundle Resources directory
     add_custom_command(TARGET WaveEdit POST_BUILD
@@ -233,6 +375,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Audio/AudioFileManager.h
         Source/Audio/AudioProcessor.cpp
         Source/Audio/AudioProcessor.h
+        Source/DSP/ParametricEQ.cpp
+        Source/DSP/ParametricEQ.h
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h
@@ -252,6 +396,22 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
+        Source/UI/NormalizeDialog.cpp
+        Source/UI/NormalizeDialog.h
+        Source/UI/FadeInDialog.cpp
+        Source/UI/FadeInDialog.h
+        Source/UI/FadeOutDialog.cpp
+        Source/UI/FadeOutDialog.h
+        Source/UI/FadeCurvePreview.cpp
+        Source/UI/FadeCurvePreview.h
+        Source/UI/DCOffsetDialog.cpp
+        Source/UI/DCOffsetDialog.h
+        Source/UI/RecordingDialog.cpp
+        Source/UI/RecordingDialog.h
+        Source/UI/ParametricEQDialog.cpp
+        Source/UI/ParametricEQDialog.h
+        Source/UI/GraphicalEQEditor.cpp
+        Source/UI/GraphicalEQEditor.h
         Source/UI/TabComponent.cpp
         Source/UI/TabComponent.h
         Source/UI/ErrorDialog.cpp
@@ -290,6 +450,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/UCSCategorySuggester.h
         Source/UI/MarkerDisplay.cpp
         Source/UI/MarkerDisplay.h
+        Source/UI/SpectrumAnalyzer.cpp
+        Source/UI/SpectrumAnalyzer.h
     )
 
     # Link WaveEditCore to JUCE modules
@@ -302,6 +464,7 @@ if(WAVEEDIT_BUILD_TESTS)
             juce::juce_audio_utils
             juce::juce_core
             juce::juce_data_structures
+            juce::juce_dsp
             juce::juce_events
             juce::juce_graphics
             juce::juce_gui_basics
@@ -322,6 +485,7 @@ if(WAVEEDIT_BUILD_TESTS)
         PUBLIC
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
+            JUCE_USE_MP3AUDIOFORMAT=1  # Enable MP3 encoding with LAME
             JUCE_APPLICATION_NAME_STRING="WaveEdit"
             JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
     )
@@ -366,6 +530,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/AudioEngineTests.cpp                     # Week 2 ✅
             Tests/Unit/AudioBufferManagerTests.cpp              # Week 2 ✅
             Tests/Unit/AudioProcessorTests.cpp                  # Week 2 ✅
+            Tests/Unit/FadeCurveTypesTests.cpp                  # Phase 4 ✅ (Fade Curve Types)
             Tests/Unit/BWFMetadataTests.cpp                     # Phase 4 ✅ (BWF Metadata System)
             Tests/Unit/BWFEditorDialogTests.cpp                 # Phase 4 ✅ (BWF Editor Dialog)
             Tests/Integration/FileIOTests.cpp                   # Week 3 ✅ (File I/O Integration)
@@ -377,6 +542,9 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Integration/EditingToolsTests.cpp             # Week 4 ✅ (Silence, Trim, DC Offset)
             Tests/Unit/GoToPositionDialogTests.cpp              # Week 4 ✅ (Go To Position parsing)
             Tests/Integration/RegionListBatchRenameTests.cpp    # Week 4 ✅ (Batch Rename regions)
+            Tests/Integration/SaveAsFormatsTests.cpp            # Phase 4 ✅ (Save As all formats)
+            Tests/Integration/SaveAs8BitTests.cpp               # Phase 4 ✅ (8-bit Save Tests)
+            # Tests/Integration/RegionListPanelTests.cpp        # Week 4 ⚠️ (Needs migration to Catch2)
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6

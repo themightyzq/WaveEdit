@@ -34,6 +34,13 @@
 #include "UI/TransportControls.h"
 #include "UI/Meters.h"
 #include "UI/GainDialog.h"
+#include "UI/NormalizeDialog.h"
+#include "UI/FadeInDialog.h"
+#include "UI/FadeOutDialog.h"
+#include "UI/DCOffsetDialog.h"
+#include "UI/ParametricEQDialog.h"
+#include "UI/GraphicalEQEditor.h"
+#include "UI/RecordingDialog.h"
 #include "UI/ErrorDialog.h"
 #include "UI/SettingsPanel.h"
 #include "UI/FilePropertiesDialog.h"
@@ -1211,7 +1218,17 @@ public:
         // Update waveform display with current playback position
         if (doc->getAudioEngine().isPlaying())
         {
-            doc->getWaveformDisplay().setPlaybackPosition(doc->getAudioEngine().getCurrentPosition());
+            double position = doc->getAudioEngine().getCurrentPosition();
+
+            // Add preview selection offset when in preview mode
+            // This allows the cursor to animate correctly through the selection
+            // during preview playback, tracking transients and tails in real-time
+            if (doc->getAudioEngine().getPreviewMode() != PreviewMode::DISABLED)
+            {
+                position += doc->getAudioEngine().getPreviewSelectionOffsetSeconds();
+            }
+
+            doc->getWaveformDisplay().setPlaybackPosition(position);
             repaint(); // Update status bar
 
             // Future: Update level meters when integrated into Document class
@@ -1279,6 +1296,7 @@ public:
             CommandIDs::playbackStop,
             CommandIDs::playbackLoop,
             CommandIDs::playbackLoopRegion,  // Cmd+Shift+L - Loop selected region
+            CommandIDs::playbackRecord,      // Cmd+R - Start recording
             // View/Zoom commands
             CommandIDs::viewZoomIn,
             CommandIDs::viewZoomOut,
@@ -1291,6 +1309,16 @@ public:
             CommandIDs::viewAutoPreviewRegions,  // Toggle auto-play regions on select
             CommandIDs::viewToggleRegions,    // Cmd+Shift+H - Toggle region visibility
             CommandIDs::viewSpectrumAnalyzer, // Cmd+Alt+S - Show/hide Spectrum Analyzer
+            // Spectrum Analyzer configuration commands
+            CommandIDs::viewSpectrumFFTSize512,
+            CommandIDs::viewSpectrumFFTSize1024,
+            CommandIDs::viewSpectrumFFTSize2048,
+            CommandIDs::viewSpectrumFFTSize4096,
+            CommandIDs::viewSpectrumFFTSize8192,
+            CommandIDs::viewSpectrumWindowHann,
+            CommandIDs::viewSpectrumWindowHamming,
+            CommandIDs::viewSpectrumWindowBlackman,
+            CommandIDs::viewSpectrumWindowRectangular,
             // Navigation commands
             CommandIDs::navigateLeft,
             CommandIDs::navigateRight,
@@ -1317,6 +1345,8 @@ public:
             CommandIDs::processIncreaseGain,
             CommandIDs::processDecreaseGain,
             CommandIDs::processNormalize,
+            CommandIDs::processParametricEQ,
+            CommandIDs::processGraphicalEQ,
             CommandIDs::processFadeIn,
             CommandIDs::processFadeOut,
             CommandIDs::processDCOffset,
@@ -1448,14 +1478,14 @@ public:
             case CommandIDs::tabNext:
                 result.setInfo("Next Tab", "Switch to next tab", "File", 0);
                 if (keyPress.isValid())
-                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Ctrl+Tab (moved from Cmd+Tab to avoid macOS App Switcher conflict)
                 result.setActive(m_documentManager.getNumDocuments() > 1);
                 break;
 
             case CommandIDs::tabPrevious:
                 result.setInfo("Previous Tab", "Switch to previous tab", "File", 0);
                 if (keyPress.isValid())
-                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Ctrl+Shift+Tab (moved from Cmd+Shift+Tab to avoid macOS App Switcher conflict)
                 result.setActive(m_documentManager.getNumDocuments() > 1);
                 break;
 
@@ -1623,8 +1653,14 @@ public:
                 result.setInfo("Loop Region", "Loop the selected region", "Playback", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+L
-                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
-                                 doc->getRegionManager().getSelectedRegionIndex() >= 0);
+                result.setActive(doc && doc->getWaveformDisplay().hasSelection());
+                break;
+
+            case CommandIDs::playbackRecord:
+                result.setInfo("Record", "Record audio from input device", "Playback", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+R
+                result.setActive(true);  // Recording is always available
                 break;
 
             // View/Zoom commands
@@ -1709,6 +1745,62 @@ public:
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Alt+S
                 result.setTicked(m_spectrumAnalyzerWindow && m_spectrumAnalyzerWindow->isVisible());
                 result.setActive(true);  // Always available
+                break;
+
+            // Spectrum Analyzer FFT Size Commands
+            case CommandIDs::viewSpectrumFFTSize512:
+                result.setInfo("FFT Size: 512", "Set FFT size to 512 samples (faster, lower resolution)", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getFFTSize() == SpectrumAnalyzer::FFTSize::SIZE_512);
+                result.setActive(m_spectrumAnalyzer != nullptr);
+                break;
+
+            case CommandIDs::viewSpectrumFFTSize1024:
+                result.setInfo("FFT Size: 1024", "Set FFT size to 1024 samples", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getFFTSize() == SpectrumAnalyzer::FFTSize::SIZE_1024);
+                result.setActive(m_spectrumAnalyzer != nullptr);
+                break;
+
+            case CommandIDs::viewSpectrumFFTSize2048:
+                result.setInfo("FFT Size: 2048", "Set FFT size to 2048 samples (default, balanced)", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getFFTSize() == SpectrumAnalyzer::FFTSize::SIZE_2048);
+                result.setActive(m_spectrumAnalyzer != nullptr);
+                break;
+
+            case CommandIDs::viewSpectrumFFTSize4096:
+                result.setInfo("FFT Size: 4096", "Set FFT size to 4096 samples (higher resolution)", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getFFTSize() == SpectrumAnalyzer::FFTSize::SIZE_4096);
+                result.setActive(m_spectrumAnalyzer != nullptr);
+                break;
+
+            case CommandIDs::viewSpectrumFFTSize8192:
+                result.setInfo("FFT Size: 8192", "Set FFT size to 8192 samples (highest resolution, slower)", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getFFTSize() == SpectrumAnalyzer::FFTSize::SIZE_8192);
+                result.setActive(m_spectrumAnalyzer != nullptr);
+                break;
+
+            // Spectrum Analyzer Window Function Commands
+            case CommandIDs::viewSpectrumWindowHann:
+                result.setInfo("Window: Hann", "Use Hann window function (default, good general purpose)", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getWindowFunction() == SpectrumAnalyzer::WindowFunction::HANN);
+                result.setActive(m_spectrumAnalyzer != nullptr);
+                break;
+
+            case CommandIDs::viewSpectrumWindowHamming:
+                result.setInfo("Window: Hamming", "Use Hamming window function (slightly narrower main lobe)", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getWindowFunction() == SpectrumAnalyzer::WindowFunction::HAMMING);
+                result.setActive(m_spectrumAnalyzer != nullptr);
+                break;
+
+            case CommandIDs::viewSpectrumWindowBlackman:
+                result.setInfo("Window: Blackman", "Use Blackman window function (better sidelobe suppression)", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getWindowFunction() == SpectrumAnalyzer::WindowFunction::BLACKMAN);
+                result.setActive(m_spectrumAnalyzer != nullptr);
+                break;
+
+            case CommandIDs::viewSpectrumWindowRectangular:
+                result.setInfo("Window: Rectangular", "Use rectangular window (no windowing, best frequency resolution)", "View", 0);
+                result.setTicked(m_spectrumAnalyzer && m_spectrumAnalyzer->getWindowFunction() == SpectrumAnalyzer::WindowFunction::RECTANGULAR);
+                result.setActive(m_spectrumAnalyzer != nullptr);
                 break;
 
             // Navigation commands
@@ -1845,7 +1937,7 @@ public:
                 result.setInfo("Gain...", "Apply precise gain adjustment", "Process", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Shift+G (viewCycleTimeFormat moved to Cmd+Shift+T to resolve conflict)
-                result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());  // Works with or without selection
                 break;
 
             case CommandIDs::processIncreaseGain:
@@ -1857,6 +1949,20 @@ public:
 
             case CommandIDs::processDecreaseGain:
                 result.setInfo("Decrease Gain", "Decrease gain by 1 dB", "Process", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::processParametricEQ:
+                result.setInfo("Parametric EQ...", "3-band parametric EQ", "Process", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::processGraphicalEQ:
+                result.setInfo("Graphical EQ...", "Graphical 3-band parametric EQ editor", "Process", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
@@ -1965,7 +2071,7 @@ public:
             case CommandIDs::regionSplit:
                 result.setInfo("Split Region at Cursor", "Split region at cursor position", "Region", 0);
                 if (keyPress.isValid())
-                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+K (K = "kut/split", avoids Cmd+T conflict with Trim)
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+K (K = "kut/split", moved from Cmd+R to avoid conflict with playbackRecord)
                 result.setActive(doc && canSplitRegion(doc));
                 break;
 
@@ -2064,7 +2170,7 @@ public:
             case CommandIDs::markerShowList:
                 result.setInfo("Show Marker List", "Show/hide marker list panel", "Marker", 0);
                 if (keyPress.isValid())
-                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+L (moved from Cmd+Shift+K to avoid conflict with regionSplit)
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+Shift+K (moved from Cmd+M to avoid macOS Minimize Window conflict)
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
@@ -2351,6 +2457,177 @@ public:
                 return true;
             }
 
+            case CommandIDs::playbackRecord:
+            {
+                // Check if a file is currently open - if so, ask user where to put the recording
+                auto* currentDoc = m_documentManager.getCurrentDocument();
+                bool appendToExisting = false;
+
+                if (currentDoc != nullptr)
+                {
+                    // Show choice dialog: Insert at cursor or create new file
+                    int choice = juce::AlertWindow::showYesNoCancelBox(
+                        juce::AlertWindow::QuestionIcon,
+                        "Recording Destination",
+                        "A file is currently open. Where would you like to place the recording?\n\n"
+                        "• YES: Insert at cursor position (punch-in)\n"
+                        "• NO: Create new file with recording\n"
+                        "• CANCEL: Don't record",
+                        "Insert at Cursor",
+                        "Create New File",
+                        "Cancel"
+                    );
+
+                    if (choice == 0)  // Cancel
+                    {
+                        return true;  // User canceled
+                    }
+
+                    appendToExisting = (choice == 1);  // 1 = Yes (insert at cursor), 2 = No (new file)
+                }
+
+                // Open recording dialog with proper RAII listener management
+                // NOTE: Listener is managed by dialog's LaunchOptions and will be deleted
+                // when the dialog window closes
+                class RecordingListener : public RecordingDialog::Listener
+                {
+                public:
+                    RecordingListener(DocumentManager* docMgr, Document* targetDoc, bool append)
+                        : m_documentManager(docMgr), m_targetDocument(targetDoc), m_appendMode(append) {}
+
+                    void recordingCompleted(const juce::AudioBuffer<float>& audioBuffer,
+                                           double sampleRate,
+                                           int numChannels) override
+                    {
+                        if (m_appendMode && m_targetDocument != nullptr)
+                        {
+                            // Append to existing document
+                            appendToDocument(m_targetDocument, audioBuffer, sampleRate, numChannels);
+                        }
+                        else
+                        {
+                            // Create new document with recorded audio
+                            createNewDocument(audioBuffer, sampleRate, numChannels);
+                        }
+                    }
+
+                private:
+                    void appendToDocument(Document* targetDoc, const juce::AudioBuffer<float>& audioBuffer,
+                                         double sampleRate, int numChannels)
+                    {
+                        // Get cursor position (playback head) - this is where we'll insert
+                        double cursorPositionSeconds = targetDoc->getWaveformDisplay().getPlaybackPosition();
+
+                        // Get current buffer
+                        auto& currentBuffer = targetDoc->getBufferManager().getMutableBuffer();
+                        double currentSampleRate = targetDoc->getAudioEngine().getSampleRate();
+                        int insertPositionSamples = static_cast<int>(cursorPositionSeconds * currentSampleRate);
+
+                        // Clamp insert position to valid range
+                        insertPositionSamples = juce::jlimit(0, currentBuffer.getNumSamples(), insertPositionSamples);
+
+                        int currentSamples = currentBuffer.getNumSamples();
+                        int newSamples = audioBuffer.getNumSamples();
+                        int totalSamples = currentSamples + newSamples;
+
+                        // Create combined buffer with inserted audio
+                        juce::AudioBuffer<float> combinedBuffer(
+                            juce::jmax(currentBuffer.getNumChannels(), audioBuffer.getNumChannels()),
+                            totalSamples
+                        );
+
+                        // Copy audio before insertion point
+                        for (int ch = 0; ch < currentBuffer.getNumChannels(); ++ch)
+                        {
+                            combinedBuffer.copyFrom(ch, 0, currentBuffer, ch, 0, insertPositionSamples);
+                        }
+
+                        // Insert new recording at cursor position
+                        for (int ch = 0; ch < audioBuffer.getNumChannels(); ++ch)
+                        {
+                            combinedBuffer.copyFrom(ch, insertPositionSamples, audioBuffer, ch, 0, newSamples);
+                        }
+
+                        // Copy audio after insertion point
+                        int remainingSamples = currentSamples - insertPositionSamples;
+                        if (remainingSamples > 0)
+                        {
+                            for (int ch = 0; ch < currentBuffer.getNumChannels(); ++ch)
+                            {
+                                combinedBuffer.copyFrom(ch, insertPositionSamples + newSamples,
+                                                       currentBuffer, ch, insertPositionSamples, remainingSamples);
+                            }
+                        }
+
+                        // Update document with combined buffer
+                        currentBuffer.makeCopyOf(combinedBuffer, true);
+                        targetDoc->getAudioEngine().loadFromBuffer(combinedBuffer, sampleRate,
+                                                                   combinedBuffer.getNumChannels());
+                        targetDoc->getWaveformDisplay().reloadFromBuffer(combinedBuffer, sampleRate, false, false);
+                        targetDoc->getRegionDisplay().setTotalDuration(totalSamples / sampleRate);
+                        targetDoc->getMarkerDisplay().setTotalDuration(totalSamples / sampleRate);
+                        targetDoc->setModified(true);
+
+                        juce::Logger::writeToLog("Recording inserted at cursor position (" +
+                                               juce::String(cursorPositionSeconds, 3) + "s): " +
+                                               juce::String(newSamples) + " samples added");
+                    }
+
+                    void createNewDocument(const juce::AudioBuffer<float>& audioBuffer,
+                                          double sampleRate, int numChannels)
+                    {
+                        auto* newDoc = m_documentManager->createDocument();
+                        if (newDoc != nullptr)
+                        {
+                            // Load the recorded audio into the document
+                            auto& buffer = newDoc->getBufferManager().getMutableBuffer();
+                            buffer.setSize(audioBuffer.getNumChannels(), audioBuffer.getNumSamples());
+                            buffer.makeCopyOf(audioBuffer, true);
+
+                            // Load into the audio engine
+                            newDoc->getAudioEngine().loadFromBuffer(audioBuffer, sampleRate, numChannels);
+
+                            // Load waveform display directly from buffer
+                            newDoc->getWaveformDisplay().reloadFromBuffer(audioBuffer, sampleRate, false, false);
+
+                            // Setup region display
+                            newDoc->getRegionDisplay().setSampleRate(sampleRate);
+                            newDoc->getRegionDisplay().setTotalDuration(audioBuffer.getNumSamples() / sampleRate);
+                            newDoc->getRegionDisplay().setVisibleRange(0.0, audioBuffer.getNumSamples() / sampleRate);
+                            newDoc->getRegionDisplay().setAudioBuffer(&buffer);
+
+                            // Setup marker display
+                            newDoc->getMarkerDisplay().setSampleRate(sampleRate);
+                            newDoc->getMarkerDisplay().setTotalDuration(audioBuffer.getNumSamples() / sampleRate);
+
+                            // Set document as modified (new recording needs to be saved)
+                            newDoc->setModified(true);
+
+                            juce::Logger::writeToLog("Recording completed: " +
+                                                   juce::String(audioBuffer.getNumSamples()) + " samples, " +
+                                                   juce::String(sampleRate) + " Hz, " +
+                                                   juce::String(numChannels) + " channels");
+                        }
+                        else
+                        {
+                            juce::Logger::writeToLog("ERROR: Failed to create new document for recording");
+                        }
+                    }
+
+                    DocumentManager* m_documentManager;
+                    Document* m_targetDocument;
+                    bool m_appendMode;
+
+                    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RecordingListener)
+                };
+
+                // Dialog content component takes ownership via LaunchOptions::content.setOwned()
+                // Dialog window is responsible for cleanup when closed
+                RecordingDialog::showDialog(this, m_audioDeviceManager,
+                                           new RecordingListener(&m_documentManager, currentDoc, appendToExisting));
+                return true;
+            }
+
             // View/Zoom operations
             case CommandIDs::viewZoomIn:
                 if (!doc) return false;
@@ -2490,6 +2767,80 @@ public:
 
                 return true;
             }
+
+            // Spectrum Analyzer FFT Size Commands
+            case CommandIDs::viewSpectrumFFTSize512:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_512);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
+
+            case CommandIDs::viewSpectrumFFTSize1024:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_1024);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
+
+            case CommandIDs::viewSpectrumFFTSize2048:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_2048);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
+
+            case CommandIDs::viewSpectrumFFTSize4096:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_4096);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
+
+            case CommandIDs::viewSpectrumFFTSize8192:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_8192);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
+
+            // Spectrum Analyzer Window Function Commands
+            case CommandIDs::viewSpectrumWindowHann:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setWindowFunction(SpectrumAnalyzer::WindowFunction::HANN);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
+
+            case CommandIDs::viewSpectrumWindowHamming:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setWindowFunction(SpectrumAnalyzer::WindowFunction::HAMMING);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
+
+            case CommandIDs::viewSpectrumWindowBlackman:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setWindowFunction(SpectrumAnalyzer::WindowFunction::BLACKMAN);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
+
+            case CommandIDs::viewSpectrumWindowRectangular:
+                if (m_spectrumAnalyzer)
+                {
+                    m_spectrumAnalyzer->setWindowFunction(SpectrumAnalyzer::WindowFunction::RECTANGULAR);
+                    m_commandManager.commandStatusChanged();
+                }
+                return true;
 
             // Navigation operations (simple movement)
             case CommandIDs::navigateLeft:
@@ -2851,24 +3202,34 @@ public:
                 applyGainAdjustment(-1.0f);
                 return true;
 
+            case CommandIDs::processParametricEQ:
+                if (!doc) return false;
+                showParametricEQDialog();
+                return true;
+
+            case CommandIDs::processGraphicalEQ:
+                if (!doc) return false;
+                showGraphicalEQDialog();
+                return true;
+
             case CommandIDs::processNormalize:
                 if (!doc) return false;
-                applyNormalize();
+                showNormalizeDialog();
                 return true;
 
             case CommandIDs::processFadeIn:
                 if (!doc) return false;
-                applyFadeIn();
+                showFadeInDialog();
                 return true;
 
             case CommandIDs::processFadeOut:
                 if (!doc) return false;
-                applyFadeOut();
+                showFadeOutDialog();
                 return true;
 
             case CommandIDs::processDCOffset:
                 if (!doc) return false;
-                applyDCOffsetRemoval();
+                showDCOffsetDialog();
                 return true;
 
             case CommandIDs::editSilence:
@@ -2983,6 +3344,22 @@ public:
 
             // Spectrum Analyzer
             menu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumAnalyzer);
+
+            // Spectrum Analyzer Configuration Submenus
+            juce::PopupMenu fftSizeMenu;
+            fftSizeMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumFFTSize512);
+            fftSizeMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumFFTSize1024);
+            fftSizeMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumFFTSize2048);
+            fftSizeMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumFFTSize4096);
+            fftSizeMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumFFTSize8192);
+            menu.addSubMenu("Spectrum FFT Size", fftSizeMenu, m_spectrumAnalyzer != nullptr);
+
+            juce::PopupMenu windowFunctionMenu;
+            windowFunctionMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumWindowHann);
+            windowFunctionMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumWindowHamming);
+            windowFunctionMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumWindowBlackman);
+            windowFunctionMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumWindowRectangular);
+            menu.addSubMenu("Spectrum Window Function", windowFunctionMenu, m_spectrumAnalyzer != nullptr);
         }
         else if (menuIndex == 3) // Region menu
         {
@@ -3021,6 +3398,8 @@ public:
         else if (menuIndex == 5) // Process menu
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::processGain);
+            menu.addCommandItem(&m_commandManager, CommandIDs::processParametricEQ);
+            menu.addCommandItem(&m_commandManager, CommandIDs::processGraphicalEQ);
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::processNormalize);
             menu.addCommandItem(&m_commandManager, CommandIDs::processDCOffset);
@@ -3033,6 +3412,8 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPlay);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPause);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackStop);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::playbackRecord);
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoop);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoopRegion);
@@ -3471,18 +3852,38 @@ public:
         }
         else
         {
-            // ALWAYS play from cursor position (ignore selection)
-            // This matches user preference: Space/Shift+Space = play from cursor
-            if (doc->getWaveformDisplay().hasEditCursor())
+            // CRITICAL: Always clear stale loop points before starting new playback
+            // This prevents loop points from previous sessions affecting current playback
+            doc->getAudioEngine().clearLoopPoints();
+            doc->getAudioEngine().setLooping(false);
+
+            // Prioritize selection playback (professional audio editor behavior)
+            // If selection exists, play selection once, then stop
+            if (doc->getWaveformDisplay().hasSelection())
             {
-                // Play from edit cursor position
+                double selStart = doc->getWaveformDisplay().getSelectionStart();
+                double selEnd = doc->getWaveformDisplay().getSelectionEnd();
+
+                // Set playback to start at selection start
+                doc->getAudioEngine().setPosition(selStart);
+
+                // Set loop points to constrain playback to selection
+                // looping=false means stop at selEnd (don't loop back)
+                doc->getAudioEngine().setLoopPoints(selStart, selEnd);
+                doc->getAudioEngine().setLooping(false);
+            }
+            else if (doc->getWaveformDisplay().hasEditCursor())
+            {
+                // No selection: play from edit cursor to end of file
                 double startPos = doc->getWaveformDisplay().getEditCursorPosition();
                 doc->getAudioEngine().setPosition(startPos);
+                // Loop points already cleared above
             }
             else
             {
-                // No cursor set: play from beginning (position 0)
+                // No selection or cursor: play from beginning
                 doc->getAudioEngine().setPosition(0.0);
+                // Loop points already cleared above
             }
 
             doc->getAudioEngine().play();
@@ -4663,8 +5064,10 @@ public:
      * Creates undo action for the gain adjustment.
      *
      * @param gainDB Gain adjustment in decibels (positive or negative)
+     * @param startSampleParam Optional start sample (for dialog-based apply with explicit bounds)
+     * @param endSampleParam Optional end sample (for dialog-based apply with explicit bounds)
      */
-    void applyGainAdjustment(float gainDB)
+    void applyGainAdjustment(float gainDB, int64_t startSampleParam = -1, int64_t endSampleParam = -1)
     {
         auto* doc = getCurrentDocument();
         if (!doc) return;
@@ -4691,9 +5094,18 @@ public:
         int numSamples = buffer.getNumSamples();
         bool isSelection = false;
 
-        if (doc->getWaveformDisplay().hasSelection())
+        // CRITICAL FIX: Use explicit bounds if provided (from dialog preview)
+        // This ensures we apply to the SAME region that was previewed
+        if (startSampleParam >= 0 && endSampleParam >= 0)
         {
-            // Apply to selection only
+            // Explicit bounds provided (from dialog) - use these
+            startSample = static_cast<int>(startSampleParam);
+            numSamples = static_cast<int>(endSampleParam - startSampleParam);
+            isSelection = (startSampleParam != 0 || endSampleParam != buffer.getNumSamples());
+        }
+        else if (doc->getWaveformDisplay().hasSelection())
+        {
+            // No explicit bounds - check current selection (for keyboard shortcuts)
             startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
             int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
             numSamples = endSample - startSample;
@@ -4739,14 +5151,539 @@ public:
 
     /**
      * Show gain dialog and apply user-entered gain value.
+     * NEW: Passes AudioEngine to enable real-time preview.
+     * Supports selection-based preview - if user has selection, only that region is previewed.
      */
     void showGainDialog()
     {
-        auto result = GainDialog::showDialog();
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+        {
+            // No document or file loaded - show dialog without preview
+            auto result = GainDialog::showDialog(nullptr, nullptr, 0, 0);
+
+            if (result.has_value())
+            {
+                applyGainAdjustment(result.value());
+            }
+            return;
+        }
+
+        // Get selection bounds (or entire file if no selection)
+        auto& waveform = doc->getWaveformDisplay();
+        auto& engine = doc->getAudioEngine();
+        bool hasSelection = waveform.hasSelection();
+
+        // Convert time-based selection (seconds) to sample-based (samples)
+        double sampleRate = engine.getSampleRate();
+        int64_t startSample = hasSelection ?
+            static_cast<int64_t>(waveform.getSelectionStart() * sampleRate) : 0;
+        int64_t endSample = hasSelection ?
+            static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate) :
+            static_cast<int64_t>(engine.getTotalLength() * sampleRate);
+
+        // Show dialog with preview support and selection bounds
+        auto result = GainDialog::showDialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
 
         if (result.has_value())
         {
-            applyGainAdjustment(result.value());
+            // CRITICAL: Pass the SAME bounds that were previewed to ensure apply matches preview
+            applyGainAdjustment(result.value(), startSample, endSample);
+        }
+    }
+
+    /**
+     * Show normalize dialog and apply normalization to selection (or entire file).
+     * Allows user to set target peak level and preview before applying.
+     */
+    void showNormalizeDialog()
+    {
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+            return;
+
+        // Get selection bounds (or entire file if no selection)
+        auto& waveform = doc->getWaveformDisplay();
+        auto& engine = doc->getAudioEngine();
+        bool hasSelection = waveform.hasSelection();
+
+        // Convert time-based selection (seconds) to sample-based (samples)
+        double sampleRate = engine.getSampleRate();
+        int64_t startSample = hasSelection ?
+            static_cast<int64_t>(waveform.getSelectionStart() * sampleRate) : 0;
+        int64_t endSample = hasSelection ?
+            static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate) :
+            static_cast<int64_t>(engine.getTotalLength() * sampleRate);
+
+        // DEBUG: Log the bounds being passed to the dialog
+        juce::Logger::writeToLog("showNormalizeDialog - Creating dialog with bounds:");
+        juce::Logger::writeToLog("  Has selection: " + juce::String(hasSelection ? "YES" : "NO"));
+        if (hasSelection) {
+            juce::Logger::writeToLog("  Selection start time: " + juce::String(waveform.getSelectionStart()) + " seconds");
+            juce::Logger::writeToLog("  Selection end time: " + juce::String(waveform.getSelectionEnd()) + " seconds");
+        }
+        juce::Logger::writeToLog("  Start sample: " + juce::String(startSample));
+        juce::Logger::writeToLog("  End sample: " + juce::String(endSample));
+        juce::Logger::writeToLog("  Sample rate: " + juce::String(sampleRate));
+
+        // Create and configure dialog
+        NormalizeDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
+
+        // Set up callbacks
+        dialog.onApply([this, doc, &dialog](float targetDB) {
+            // Get selection or entire file
+            int startSample = 0;
+            int numSamples = doc->getBufferManager().getBuffer().getNumSamples();
+            bool isSelection = false;
+
+            if (doc->getWaveformDisplay().hasSelection())
+            {
+                startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+                int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+                numSamples = endSample - startSample;
+                isSelection = true;
+            }
+
+            // Store before state for undo
+            auto& buffer = doc->getBufferManager().getMutableBuffer();
+            juce::AudioBuffer<float> beforeBuffer;
+            beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+            }
+
+            // Start a new transaction
+            juce::String transactionName = juce::String::formatted(
+                "Normalize to %.1f dB (%s)",
+                targetDB,
+                isSelection ? "selection" : "entire file"
+            );
+            doc->getUndoManager().beginNewTransaction(transactionName);
+
+            // Create undo action with target level
+            auto* undoAction = new NormalizeUndoAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                beforeBuffer,
+                startSample,
+                numSamples,
+                isSelection,
+                targetDB
+            );
+
+            // Apply the normalization
+            doc->getUndoManager().perform(undoAction);
+
+            // Mark as modified
+            doc->setModified(true);
+
+            // Close the dialog
+            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
+                window->exitModalState(1);
+        });
+
+        dialog.onCancel([&dialog]() {
+            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
+                window->exitModalState(0);
+        });
+
+        // Show dialog modally
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setNonOwned(&dialog);  // Use setNonOwned for stack-allocated dialog
+        options.componentToCentreAround = this;
+        options.dialogTitle = "Normalize";
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+
+        options.runModal();
+    }
+
+    /**
+     * Show fade in dialog and apply fade to selection.
+     * Requires selection (won't work on entire file).
+     */
+    void showFadeInDialog()
+    {
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+            return;
+
+        // Fade in requires a selection
+        if (!doc->getWaveformDisplay().hasSelection())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Fade In",
+                "Please select a region of audio to fade in.",
+                "OK");
+            return;
+        }
+
+        // Get selection bounds
+        auto& waveform = doc->getWaveformDisplay();
+        auto& engine = doc->getAudioEngine();
+        double sampleRate = engine.getSampleRate();
+        int64_t startSample = static_cast<int64_t>(waveform.getSelectionStart() * sampleRate);
+        int64_t endSample = static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate);
+
+        // Create and configure dialog
+        FadeInDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
+
+        // Set up callbacks
+        dialog.onApply([this, doc, &dialog]() {
+            // Get selection
+            int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+            int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+            int numSamples = endSample - startSample;
+
+            // Store before state for undo
+            auto& buffer = doc->getBufferManager().getMutableBuffer();
+            juce::AudioBuffer<float> beforeBuffer;
+            beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+            }
+
+            // Get selected curve type from dialog
+            FadeCurveType curveType = dialog.getSelectedCurveType();
+
+            // Start a new transaction
+            doc->getUndoManager().beginNewTransaction("Fade In");
+
+            // Create undo action
+            auto* undoAction = new FadeInUndoAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                beforeBuffer,
+                startSample,
+                numSamples,
+                curveType
+            );
+
+            // Apply the fade
+            doc->getUndoManager().perform(undoAction);
+
+            // Mark as modified
+            doc->setModified(true);
+
+            // Close the dialog
+            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
+                window->exitModalState(1);
+        });
+
+        dialog.onCancel([&dialog]() {
+            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
+                window->exitModalState(0);
+        });
+
+        // Show dialog modally
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setNonOwned(&dialog);  // Use setNonOwned for stack-allocated dialog
+        options.componentToCentreAround = this;
+        options.dialogTitle = "Fade In";
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+
+        options.runModal();
+    }
+
+    /**
+     * Show fade out dialog and apply fade to selection.
+     * Requires selection (won't work on entire file).
+     */
+    void showFadeOutDialog()
+    {
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+            return;
+
+        // Fade out requires a selection
+        if (!doc->getWaveformDisplay().hasSelection())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Fade Out",
+                "Please select a region of audio to fade out.",
+                "OK");
+            return;
+        }
+
+        // Get selection bounds
+        auto& waveform = doc->getWaveformDisplay();
+        auto& engine = doc->getAudioEngine();
+        double sampleRate = engine.getSampleRate();
+        int64_t startSample = static_cast<int64_t>(waveform.getSelectionStart() * sampleRate);
+        int64_t endSample = static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate);
+
+        // Create and configure dialog
+        FadeOutDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
+
+        // Set up callbacks
+        dialog.onApply([this, doc, &dialog]() {
+            // Get selection
+            int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+            int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+            int numSamples = endSample - startSample;
+
+            // Store before state for undo
+            auto& buffer = doc->getBufferManager().getMutableBuffer();
+            juce::AudioBuffer<float> beforeBuffer;
+            beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+            }
+
+            // Get selected curve type from dialog
+            FadeCurveType curveType = dialog.getSelectedCurveType();
+
+            // Start a new transaction
+            doc->getUndoManager().beginNewTransaction("Fade Out");
+
+            // Create undo action
+            auto* undoAction = new FadeOutUndoAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                beforeBuffer,
+                startSample,
+                numSamples,
+                curveType
+            );
+
+            // Apply the fade
+            doc->getUndoManager().perform(undoAction);
+
+            // Mark as modified
+            doc->setModified(true);
+
+            // Close the dialog
+            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
+                window->exitModalState(1);
+        });
+
+        dialog.onCancel([&dialog]() {
+            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
+                window->exitModalState(0);
+        });
+
+        // Show dialog modally
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setNonOwned(&dialog);  // Use setNonOwned for stack-allocated dialog
+        options.componentToCentreAround = this;
+        options.dialogTitle = "Fade Out";
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+
+        options.runModal();
+    }
+
+    /**
+     * Show DC offset dialog and remove DC offset from selection.
+     * Requires selection (won't work on entire file).
+     */
+    void showDCOffsetDialog()
+    {
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+            return;
+
+        // Check for selection (DC offset dialog requires selection)
+        auto& waveform = doc->getWaveformDisplay();
+        if (!waveform.hasSelection())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "No Selection",
+                "Please select a region before removing DC offset.",
+                "OK"
+            );
+            return;
+        }
+
+        // Convert selection to sample coordinates
+        auto& engine = doc->getAudioEngine();
+        double sampleRate = engine.getSampleRate();
+        int64_t startSample = static_cast<int64_t>(waveform.getSelectionStart() * sampleRate);
+        int64_t endSample = static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate);
+
+        // Create dialog
+        DCOffsetDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
+
+        // Set up apply callback
+        dialog.onApply([this, doc, &dialog]() {
+            // Get selection bounds
+            int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+            int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+            int numSamples = endSample - startSample;
+
+            // Store before state for undo
+            auto& buffer = doc->getBufferManager().getMutableBuffer();
+            juce::AudioBuffer<float> beforeBuffer;
+            beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+            }
+
+            // Start transaction
+            doc->getUndoManager().beginNewTransaction("Remove DC Offset (selection)");
+
+            // Create undo action
+            auto* undoAction = new DCOffsetRemovalUndoAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                beforeBuffer,
+                startSample,
+                numSamples
+            );
+
+            // Apply the operation
+            doc->getUndoManager().perform(undoAction);
+
+            // Mark as modified
+            doc->setModified(true);
+
+            // Close the dialog
+            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
+                window->exitModalState(1);
+        });
+
+        dialog.onCancel([&dialog]() {
+            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
+                window->exitModalState(0);
+        });
+
+        // Show dialog modally
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setNonOwned(&dialog);  // Use setNonOwned for stack-allocated dialog
+        options.componentToCentreAround = this;
+        options.dialogTitle = "Remove DC Offset";
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+
+        options.runModal();
+    }
+
+    /**
+     * Show parametric EQ dialog and apply EQ to selection (or entire file if no selection).
+     */
+    void showParametricEQDialog()
+    {
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+            return;
+
+        // Get selection bounds (or entire file if no selection)
+        auto& waveform = doc->getWaveformDisplay();
+        auto& engine = doc->getAudioEngine();
+        bool hasSelection = waveform.hasSelection();
+
+        // Convert time-based selection (seconds) to sample-based (samples)
+        double sampleRate = engine.getSampleRate();
+        int64_t startSample = hasSelection ?
+            static_cast<int64_t>(waveform.getSelectionStart() * sampleRate) : 0;
+        int64_t endSample = hasSelection ?
+            static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate) :
+            static_cast<int64_t>(engine.getTotalLength() * sampleRate);
+        int64_t numSamples = endSample - startSample;
+
+        // Show dialog (initialized with neutral EQ) with preview support
+        auto eqParams = ParametricEQ::Parameters::createNeutral();
+        auto result = ParametricEQDialog::showDialog(
+            &doc->getAudioEngine(),
+            &doc->getBufferManager(),
+            startSample,
+            endSample,
+            eqParams);
+
+        if (result.has_value())
+        {
+            // Apply EQ with undo support
+            doc->getUndoManager().beginNewTransaction("Parametric EQ");
+
+            auto* undoAction = new ApplyParametricEQAction(
+                doc->getBufferManager(),
+                doc->getAudioEngine(),
+                doc->getWaveformDisplay(),
+                startSample,
+                numSamples,
+                result.value()
+            );
+
+            doc->getUndoManager().perform(undoAction);
+            doc->setModified(true);
+        }
+    }
+
+    /**
+     * Show graphical parametric EQ editor and apply EQ to selection (or entire file if no selection).
+     */
+    void showGraphicalEQDialog()
+    {
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+            return;
+
+        // Get selection bounds (or entire file if no selection)
+        auto& waveform = doc->getWaveformDisplay();
+        auto& engine = doc->getAudioEngine();
+        bool hasSelection = waveform.hasSelection();
+
+        // Convert time-based selection (seconds) to sample-based (samples)
+        double sampleRate = engine.getSampleRate();
+        int64_t startSample = hasSelection ?
+            static_cast<int64_t>(waveform.getSelectionStart() * sampleRate) : 0;
+        int64_t endSample = hasSelection ?
+            static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate) :
+            static_cast<int64_t>(engine.getTotalLength() * sampleRate);
+        int64_t numSamples = endSample - startSample;
+
+        juce::Logger::writeToLog("showGraphicalEQDialog: startSample=" + juce::String(startSample) + ", numSamples=" + juce::String(numSamples));
+
+        // Show graphical editor (initialized with neutral EQ)
+        auto eqParams = ParametricEQ::Parameters::createNeutral();
+        auto result = GraphicalEQEditor::showDialog(eqParams);
+
+        if (result.has_value())
+        {
+            juce::Logger::writeToLog("GraphicalEQ dialog returned parameters:");
+            juce::Logger::writeToLog("  Low: " + juce::String(result->low.frequency) + " Hz, " +
+                juce::String(result->low.gain) + " dB, Q=" + juce::String(result->low.q));
+            juce::Logger::writeToLog("  Mid: " + juce::String(result->mid.frequency) + " Hz, " +
+                juce::String(result->mid.gain) + " dB, Q=" + juce::String(result->mid.q));
+            juce::Logger::writeToLog("  High: " + juce::String(result->high.frequency) + " Hz, " +
+                juce::String(result->high.gain) + " dB, Q=" + juce::String(result->high.q));
+
+            // Apply EQ with undo support
+            doc->getUndoManager().beginNewTransaction("Graphical EQ");
+
+            auto* undoAction = new ApplyParametricEQAction(
+                doc->getBufferManager(),
+                doc->getAudioEngine(),
+                doc->getWaveformDisplay(),
+                startSample,
+                numSamples,
+                result.value()
+            );
+
+            juce::Logger::writeToLog("Performing ApplyParametricEQAction...");
+            doc->getUndoManager().perform(undoAction);
+            doc->setModified(true);
+            juce::Logger::writeToLog("ApplyParametricEQAction completed");
+        }
+        else
+        {
+            juce::Logger::writeToLog("GraphicalEQ dialog cancelled");
         }
     }
 
@@ -5027,6 +5964,10 @@ public:
         juce::AudioBuffer<float> beforeBuffer;
         beforeBuffer.makeCopyOf(regionBuffer, true);
 
+        // Load last-used curve type from settings
+        int lastCurve = Settings::getInstance().getSetting("dsp.lastFadeInCurve", 0);
+        FadeCurveType curveType = static_cast<FadeCurveType>(lastCurve);
+
         // Start a new transaction
         juce::String transactionName = "Fade In (selection)";
         doc->getUndoManager().beginNewTransaction(transactionName);
@@ -5038,7 +5979,8 @@ public:
             doc->getAudioEngine(),
             beforeBuffer,
             startSample,
-            numSamples
+            numSamples,
+            curveType
         );
 
         // perform() calls FadeInUndoAction::perform() which applies fade and updates display
@@ -5109,6 +6051,10 @@ public:
         juce::AudioBuffer<float> beforeBuffer;
         beforeBuffer.makeCopyOf(regionBuffer, true);
 
+        // Load last-used curve type from settings
+        int lastCurve = Settings::getInstance().getSetting("dsp.lastFadeOutCurve", 0);
+        FadeCurveType curveType = static_cast<FadeCurveType>(lastCurve);
+
         // Start a new transaction
         juce::String transactionName = "Fade Out (selection)";
         doc->getUndoManager().beginNewTransaction(transactionName);
@@ -5120,7 +6066,8 @@ public:
             doc->getAudioEngine(),
             beforeBuffer,
             startSample,
-            numSamples
+            numSamples,
+            curveType  // Now respects user preference
         );
 
         // perform() calls FadeOutUndoAction::perform() which applies fade and updates display
@@ -5358,14 +6305,16 @@ public:
                            const juce::AudioBuffer<float>& beforeBuffer,
                            int startSample,
                            int numSamples,
-                           bool isSelection)
+                           bool isSelection,
+                           float targetDB = 0.0f)
             : m_bufferManager(bufferManager),
               m_waveformDisplay(waveform),
               m_audioEngine(audioEngine),
               m_beforeBuffer(),
               m_startSample(startSample),
               m_numSamples(numSamples),
-              m_isSelection(isSelection)
+              m_isSelection(isSelection),
+              m_targetDB(targetDB)
         {
             // Store only the affected region to save memory
             m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
@@ -5386,7 +6335,7 @@ public:
             }
 
             // Apply normalization to the region
-            AudioProcessor::normalize(regionBuffer, 0.0f); // 0dB target
+            AudioProcessor::normalize(regionBuffer, m_targetDB);
 
             // Copy normalized region back to main buffer
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -5441,6 +6390,7 @@ public:
         int m_startSample;
         int m_numSamples;
         bool m_isSelection;
+        float m_targetDB;
     };
 
     /**
@@ -5455,13 +6405,15 @@ public:
                         AudioEngine& audioEngine,
                         const juce::AudioBuffer<float>& beforeBuffer,
                         int startSample,
-                        int numSamples)
+                        int numSamples,
+                        FadeCurveType curveType = FadeCurveType::LINEAR)
             : m_bufferManager(bufferManager),
               m_waveformDisplay(waveform),
               m_audioEngine(audioEngine),
               m_beforeBuffer(),
               m_startSample(startSample),
-              m_numSamples(numSamples)
+              m_numSamples(numSamples),
+              m_curveType(curveType)
         {
             // Store only the affected region to save memory
             m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
@@ -5481,8 +6433,8 @@ public:
                 regionBuffer.copyFrom(ch, 0, buffer, ch, m_startSample, m_numSamples);
             }
 
-            // Apply fade in to the region
-            AudioProcessor::fadeIn(regionBuffer, m_numSamples);
+            // Apply fade in to the region with selected curve type
+            AudioProcessor::fadeIn(regionBuffer, m_numSamples, m_curveType);
 
             // Copy faded region back to main buffer
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -5534,6 +6486,7 @@ public:
         juce::AudioBuffer<float> m_beforeBuffer;
         int m_startSample;
         int m_numSamples;
+        FadeCurveType m_curveType;
     };
 
     /**
@@ -5548,13 +6501,15 @@ public:
                          AudioEngine& audioEngine,
                          const juce::AudioBuffer<float>& beforeBuffer,
                          int startSample,
-                         int numSamples)
+                         int numSamples,
+                         FadeCurveType curveType = FadeCurveType::LINEAR)
             : m_bufferManager(bufferManager),
               m_waveformDisplay(waveform),
               m_audioEngine(audioEngine),
               m_beforeBuffer(),
               m_startSample(startSample),
-              m_numSamples(numSamples)
+              m_numSamples(numSamples),
+              m_curveType(curveType)
         {
             // Store only the affected region to save memory
             m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
@@ -5574,8 +6529,8 @@ public:
                 regionBuffer.copyFrom(ch, 0, buffer, ch, m_startSample, m_numSamples);
             }
 
-            // Apply fade out to the region
-            AudioProcessor::fadeOut(regionBuffer, m_numSamples);
+            // Apply fade out to the region with selected curve type
+            AudioProcessor::fadeOut(regionBuffer, m_numSamples, m_curveType);
 
             // Copy faded region back to main buffer
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -5627,6 +6582,7 @@ public:
         juce::AudioBuffer<float> m_beforeBuffer;
         int m_startSample;
         int m_numSamples;
+        FadeCurveType m_curveType;
     };
 
     /**
@@ -5797,7 +6753,7 @@ public:
 
     /**
      * Undo action for DC offset removal.
-     * Stores the entire buffer before processing.
+     * Supports both selection-based and entire-file processing.
      */
     class DCOffsetRemovalUndoAction : public juce::UndoableAction
     {
@@ -5805,27 +6761,48 @@ public:
         DCOffsetRemovalUndoAction(AudioBufferManager& bufferManager,
                                  WaveformDisplay& waveform,
                                  AudioEngine& audioEngine,
-                                 const juce::AudioBuffer<float>& beforeBuffer)
+                                 const juce::AudioBuffer<float>& beforeBuffer,
+                                 int startSample = 0,
+                                 int numSamples = -1)
             : m_bufferManager(bufferManager),
               m_waveformDisplay(waveform),
               m_audioEngine(audioEngine),
-              m_beforeBuffer()
+              m_beforeBuffer(),
+              m_startSample(startSample),
+              m_numSamples(numSamples)
         {
-            // Store entire buffer before DC offset removal
+            // Store the affected region
             m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
             m_beforeBuffer.makeCopyOf(beforeBuffer, true);
         }
 
         bool perform() override
         {
-            // Apply DC offset removal to the entire buffer
             auto& buffer = m_bufferManager.getMutableBuffer();
-            bool success = AudioProcessor::removeDCOffset(buffer);
+
+            // Extract the region to process
+            juce::AudioBuffer<float> regionBuffer;
+            int actualNumSamples = (m_numSamples < 0) ? buffer.getNumSamples() : m_numSamples;
+            regionBuffer.setSize(buffer.getNumChannels(), actualNumSamples);
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                regionBuffer.copyFrom(ch, 0, buffer, ch, m_startSample, actualNumSamples);
+            }
+
+            // Apply DC offset removal to the region
+            bool success = AudioProcessor::removeDCOffset(regionBuffer);
 
             if (!success)
             {
                 juce::Logger::writeToLog("DCOffsetRemovalUndoAction::perform - Failed to remove DC offset");
                 return false;
+            }
+
+            // Copy the processed region back into the main buffer
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, regionBuffer, ch, 0, actualNumSamples);
             }
 
             // Reload buffer in AudioEngine - preserve playback if active
@@ -5837,16 +6814,22 @@ public:
                                               true, true); // preserveView=true, preserveEditCursor=true
 
             // Log the operation
-            juce::Logger::writeToLog("Removed DC offset from entire file");
+            juce::String message = (m_numSamples < 0) ? "Removed DC offset from entire file"
+                                                       : "Removed DC offset from selection";
+            juce::Logger::writeToLog(message);
 
             return true;
         }
 
         bool undo() override
         {
-            // Restore the entire buffer (before DC offset removal)
+            // Restore the affected region from before buffer
             auto& buffer = m_bufferManager.getMutableBuffer();
-            buffer.makeCopyOf(m_beforeBuffer, true);
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                buffer.copyFrom(ch, m_startSample, m_beforeBuffer, ch, 0, m_beforeBuffer.getNumSamples());
+            }
 
             // Reload buffer in AudioEngine - preserve playback if active
             m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
@@ -5864,6 +6847,8 @@ public:
         WaveformDisplay& m_waveformDisplay;
         AudioEngine& m_audioEngine;
         juce::AudioBuffer<float> m_beforeBuffer;
+        int m_startSample;
+        int m_numSamples;
     };
 
     //==============================================================================
