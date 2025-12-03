@@ -210,6 +210,9 @@ AudioEngine::AudioEngine()
     m_bufferSource = std::make_unique<MemoryAudioSource>();
     m_previewBufferSource = std::make_unique<MemoryAudioSource>();
 
+    // Initialize parametric EQ processor
+    m_parametricEQ = std::make_unique<ParametricEQ>();
+
     // Initialize level monitoring state
     for (int ch = 0; ch < MAX_CHANNELS; ++ch)
     {
@@ -652,7 +655,17 @@ double AudioEngine::getCurrentPosition() const
         return 0.0;
     }
 
-    return m_transportSource.getCurrentPosition();
+    double position = m_transportSource.getCurrentPosition();
+
+    // Add preview offset ONLY for OFFLINE_BUFFER mode
+    // OFFLINE_BUFFER: Playing extracted buffer starting at 0, need to add offset for FILE position
+    // REALTIME_DSP: Playing actual file, position is already in FILE coordinates
+    if (m_previewMode.load() == PreviewMode::OFFLINE_BUFFER)
+    {
+        position += getPreviewSelectionOffsetSeconds();
+    }
+
+    return position;
 }
 
 void AudioEngine::setPosition(double positionInSeconds)
@@ -768,6 +781,13 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
     {
         m_transportSource.prepareToPlay(device->getCurrentBufferSizeSamples(),
                                          device->getCurrentSampleRate());
+
+        // Prepare the ParametricEQ for real-time processing
+        if (m_parametricEQ)
+        {
+            m_parametricEQ->prepare(device->getCurrentSampleRate(),
+                                    device->getCurrentBufferSizeSamples());
+        }
     }
 }
 
@@ -818,15 +838,40 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // Safety check: Only process loop points if both are valid and properly ordered
     if (loopStart >= 0.0 && loopEnd >= 0.0 && loopEnd > loopStart)
     {
-        double currentPos = getCurrentPosition();
+        // CRITICAL FIX: Calculate position based on preview mode
+        // Loop points are always in FILE coordinates, but transport position varies:
+        // - OFFLINE_BUFFER: transport plays from 0, need to add offset for FILE position
+        // - REALTIME_DSP/DISABLED: transport position IS the FILE position
+        double currentPos;
+        PreviewMode mode = m_previewMode.load();
+
+        if (mode == PreviewMode::OFFLINE_BUFFER)
+        {
+            // Transport plays extracted buffer from 0, convert to FILE coordinates
+            currentPos = m_transportSource.getCurrentPosition() + getPreviewSelectionOffsetSeconds();
+        }
+        else
+        {
+            // Transport plays actual file, position is already in FILE coordinates
+            currentPos = m_transportSource.getCurrentPosition();
+        }
 
         if (currentPos >= loopEnd)
         {
             if (m_isLooping.load())
             {
                 // Continuous looping mode (preview with loop enabled)
-                // Note: This is called from audio thread but setPosition is thread-safe
-                m_transportSource.setPosition(loopStart);
+                // Set transport position based on mode
+                if (mode == PreviewMode::OFFLINE_BUFFER)
+                {
+                    // For extracted buffer, loop back to start of buffer (0)
+                    m_transportSource.setPosition(0.0);
+                }
+                else
+                {
+                    // For file playback, loop back to FILE position
+                    m_transportSource.setPosition(loopStart);
+                }
             }
             else
             {
@@ -862,9 +907,43 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
     if (m_previewMode.load() == PreviewMode::REALTIME_DSP)
     {
-        // Apply gain processor (Phase 1 - simple gain adjustment)
-        // Future phases will add: ParametricEQ, Fade, DC Offset, etc.
+        // Process chain - order matters for best results:
+        // 1. DC Offset removal (clean up signal first)
+        // 2. Gain/Normalize (amplitude adjustment)
+        // 3. EQ (frequency shaping)
+        // 4. Fade (final envelope)
+
+        // 1. Apply DC Offset removal if enabled
+        double sampleRate = m_sampleRate.load();
+        if (sampleRate > 0)
+        {
+            m_dcOffsetProcessor.process(buffer, sampleRate);
+        }
+
+        // 2. Apply gain processor (for Gain dialog)
         m_gainProcessor.process(buffer);
+
+        // 3. Apply normalize processor (for Normalize dialog)
+        m_normalizeProcessor.process(buffer);
+
+        // 4. Update ParametricEQ parameters if changed (thread-safe parameter exchange)
+        if (m_parametricEQParamsChanged.get())
+        {
+            m_parametricEQParams = m_pendingParametricEQParams;
+            m_parametricEQParamsChanged.set(false);
+        }
+
+        // 5. Apply parametric EQ if enabled
+        if (m_parametricEQEnabled.get() && m_parametricEQ)
+        {
+            m_parametricEQ->applyEQ(buffer, m_parametricEQParams);
+        }
+
+        // 6. Apply fade processor last (affects overall envelope)
+        if (sampleRate > 0)
+        {
+            m_fadeProcessor.process(buffer, sampleRate);
+        }
     }
 
     //==============================================================================
@@ -985,6 +1064,11 @@ void AudioEngine::setPreviewMode(PreviewMode mode)
     // This allows other engines to auto-mute themselves during preview
     if (mode != PreviewMode::DISABLED && oldMode == PreviewMode::DISABLED)
     {
+        // P2 FIX: Reset DSP processor state for clean preview
+        // Prevents filter state carryover between different selections
+        m_fadeProcessor.reset();
+        m_dcOffsetProcessor.reset();
+
         // Entering preview mode - register this engine as the previewing one
         s_previewingEngine.store(this);
     }
@@ -1114,6 +1198,73 @@ void AudioEngine::setGainPreview(float gainDB, bool enabled)
 
     m_gainProcessor.gainDB.store(gainDB);
     m_gainProcessor.enabled.store(enabled);
+}
+
+void AudioEngine::setParametricEQPreview(const ParametricEQ::Parameters& params, bool enabled)
+{
+    // Thread-safe: Can be called from UI thread
+    // Use atomic flag to safely exchange parameters between threads
+    m_pendingParametricEQParams = params;
+    m_parametricEQParamsChanged.set(true);
+    m_parametricEQEnabled.set(enabled);
+}
+
+void AudioEngine::setNormalizePreview(float gainDB, bool enabled)
+{
+    // Thread-safe: Can be called from UI thread
+    m_normalizeProcessor.gainDB.store(gainDB);
+    m_normalizeProcessor.enabled.store(enabled);
+}
+
+void AudioEngine::setFadePreview(bool fadeIn, int curveType, float durationMs, bool enabled)
+{
+    // Thread-safe: Can be called from UI thread
+
+    // Set fade type
+    m_fadeProcessor.fadeType.store(fadeIn ?
+        FadeProcessor::FadeType::FADE_IN :
+        FadeProcessor::FadeType::FADE_OUT);
+
+    // Set curve type (validate range)
+    FadeProcessor::CurveType curve = FadeProcessor::CurveType::LINEAR;
+    switch (curveType)
+    {
+        case 0: curve = FadeProcessor::CurveType::LINEAR; break;
+        case 1: curve = FadeProcessor::CurveType::LOGARITHMIC; break;
+        case 2: curve = FadeProcessor::CurveType::EXPONENTIAL; break;
+        case 3: curve = FadeProcessor::CurveType::S_CURVE; break;
+        default: curve = FadeProcessor::CurveType::LINEAR; break;
+    }
+    m_fadeProcessor.curveType.store(curve);
+
+    // Convert duration from ms to samples
+    double sampleRate = m_sampleRate.load();
+    if (sampleRate > 0)
+    {
+        float durationSamples = (durationMs / 1000.0f) * static_cast<float>(sampleRate);
+        m_fadeProcessor.fadeDurationSamples.store(durationSamples);
+    }
+
+    // Reset sample counter for fresh fade
+    if (!m_fadeProcessor.enabled.load() && enabled)
+    {
+        m_fadeProcessor.reset();
+    }
+
+    m_fadeProcessor.enabled.store(enabled);
+}
+
+void AudioEngine::setDCOffsetPreview(bool enabled)
+{
+    // Thread-safe: Can be called from UI thread
+
+    // Reset DC blockers when enabling to avoid clicks
+    if (!m_dcOffsetProcessor.enabled.load() && enabled)
+    {
+        m_dcOffsetProcessor.reset();
+    }
+
+    m_dcOffsetProcessor.enabled.store(enabled);
 }
 
 void AudioEngine::setPreviewSelectionOffset(int64_t selectionStartSamples)

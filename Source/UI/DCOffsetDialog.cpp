@@ -41,8 +41,8 @@ DCOffsetDialog::DCOffsetDialog(AudioEngine* audioEngine,
     addAndMakeVisible(m_instructionLabel);
 
     // Loop toggle
-    m_loopToggle.setButtonText("Loop Preview");
-    m_loopToggle.setToggleState(false, juce::dontSendNotification);
+    m_loopToggle.setButtonText("Loop");
+    m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON
     addAndMakeVisible(m_loopToggle);
 
     // Buttons
@@ -130,6 +130,7 @@ void DCOffsetDialog::onPreviewClicked()
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setDCOffsetPreview(false);  // Disable DC offset processor
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
@@ -151,33 +152,25 @@ void DCOffsetDialog::onPreviewClicked()
     bool shouldLoop = m_loopToggle.getToggleState();
     m_audioEngine->setLooping(shouldLoop);
 
-    // 3. Extract selection using bounds passed in constructor
-    int64_t numSamples = m_selectionEnd - m_selectionStart;
-    auto workBuffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
-    const double sampleRate = m_bufferManager->getSampleRate();
-    const int numChannels = workBuffer.getNumChannels();
+    // 3. Set preview mode to REALTIME_DSP for instant DC offset removal
+    m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
 
-    // 4. Remove DC offset from copy (ON MESSAGE THREAD)
-    AudioProcessor::removeDCOffset(workBuffer);
+    // 4. Enable DC offset removal processor
+    m_audioEngine->setDCOffsetPreview(true);
 
-    // 5. Load into preview system (THREAD-SAFE)
-    m_audioEngine->loadPreviewBuffer(workBuffer, sampleRate, numChannels);
-
-    // 6. Set preview mode and position
-    m_audioEngine->setPreviewMode(PreviewMode::OFFLINE_BUFFER);
-
-    // CRITICAL: Set preview selection offset for accurate cursor positioning
-    // This transforms preview buffer coordinates (0-based) to file coordinates
+    // 5. Set preview selection offset for accurate cursor positioning
     m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
 
-    m_audioEngine->setPosition(0.0);
+    // 6. Set position and loop points in FILE coordinates
+    const double sampleRate = m_bufferManager->getSampleRate();
+    double selectionStartSec = m_selectionStart / sampleRate;
+    double selectionEndSec = m_selectionEnd / sampleRate;
 
-    // CRITICAL: Set loop points in PREVIEW BUFFER coordinates (0-based)
-    // Preview buffer spans from 0.0s to selection length
-    double selectionLengthSec = numSamples / sampleRate;
+    m_audioEngine->setPosition(selectionStartSec);
+
     if (shouldLoop)
     {
-        m_audioEngine->setLoopPoints(0.0, selectionLengthSec);
+        m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
     }
 
     // 7. Start playback

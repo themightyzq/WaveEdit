@@ -16,6 +16,8 @@
 #include "NormalizeDialog.h"
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
+#include "../Audio/AudioProcessor.h"
+#include "../Utils/Settings.h"
 
 NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
                                  AudioBufferManager* bufferManager,
@@ -33,6 +35,20 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
+    // Mode selector - restore saved preference
+    int savedMode = static_cast<int>(Settings::getInstance().getSetting("dsp.normalizeMode", 0));  // 0 = Peak default
+    m_mode = (savedMode == 1) ? NormalizeMode::RMS : NormalizeMode::PEAK;
+
+    m_modeLabel.setText("Mode:", juce::dontSendNotification);
+    m_modeLabel.setJustificationType(juce::Justification::right);
+    addAndMakeVisible(m_modeLabel);
+
+    m_modeSelector.addItem("Peak Level", 1);
+    m_modeSelector.addItem("RMS Level", 2);
+    m_modeSelector.setSelectedId(m_mode == NormalizeMode::PEAK ? 1 : 2, juce::dontSendNotification);
+    m_modeSelector.onChange = [this]() { onModeChanged(); };
+    addAndMakeVisible(m_modeSelector);
+
     // Target level slider (-80 to 0 dB, default -0.1 dB for safety margin)
     m_targetLevelSlider.setRange(-80.0, 0.0, 0.1);
     m_targetLevelSlider.setValue(-0.1, juce::dontSendNotification);
@@ -42,7 +58,7 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_targetLevelSlider.onValueChange = [this]() { onTargetLevelChanged(); };
     addAndMakeVisible(m_targetLevelSlider);
 
-    m_targetLevelLabel.setText("Target Peak Level:", juce::dontSendNotification);
+    m_targetLevelLabel.setText("Target Level:", juce::dontSendNotification);  // Changed from "Target Peak Level:"
     m_targetLevelLabel.setJustificationType(juce::Justification::right);
     addAndMakeVisible(m_targetLevelLabel);
 
@@ -56,6 +72,16 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_currentPeakValue.setFont(juce::Font(14.0f, juce::Font::bold));
     addAndMakeVisible(m_currentPeakValue);
 
+    // Current RMS display
+    m_currentRMSLabel.setText("Current RMS:", juce::dontSendNotification);
+    m_currentRMSLabel.setJustificationType(juce::Justification::right);
+    addAndMakeVisible(m_currentRMSLabel);
+
+    m_currentRMSValue.setText("Analyzing...", juce::dontSendNotification);
+    m_currentRMSValue.setJustificationType(juce::Justification::left);
+    m_currentRMSValue.setFont(juce::Font(14.0f, juce::Font::bold));
+    addAndMakeVisible(m_currentRMSValue);
+
     // Required gain display
     m_requiredGainLabel.setText("Required Gain:", juce::dontSendNotification);
     m_requiredGainLabel.setJustificationType(juce::Justification::right);
@@ -67,8 +93,8 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     addAndMakeVisible(m_requiredGainValue);
 
     // Loop toggle
-    m_loopToggle.setButtonText("Loop Preview");
-    m_loopToggle.setToggleState(false, juce::dontSendNotification);
+    m_loopToggle.setButtonText("Loop");
+    m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON
     addAndMakeVisible(m_loopToggle);
 
     // Buttons
@@ -84,7 +110,7 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
     addAndMakeVisible(m_cancelButton);
 
-    setSize(400, 310);  // Increased height for loop toggle
+    setSize(400, 380);  // Increased height for mode selector and RMS display
 }
 
 NormalizeDialog::~NormalizeDialog()
@@ -110,6 +136,13 @@ void NormalizeDialog::resized()
     m_titleLabel.setBounds(bounds.removeFromTop(30));
     bounds.removeFromTop(10); // Spacing
 
+    // Mode selector row
+    auto modeRow = bounds.removeFromTop(30);
+    m_modeLabel.setBounds(modeRow.removeFromLeft(140));
+    modeRow.removeFromLeft(10); // Spacing
+    m_modeSelector.setBounds(modeRow.removeFromLeft(150));
+    bounds.removeFromTop(15); // Spacing
+
     // Target level
     auto targetRow = bounds.removeFromTop(30);
     m_targetLevelLabel.setBounds(targetRow.removeFromLeft(140));
@@ -118,10 +151,17 @@ void NormalizeDialog::resized()
     bounds.removeFromTop(15); // Spacing
 
     // Current peak
-    auto currentRow = bounds.removeFromTop(24);
-    m_currentPeakLabel.setBounds(currentRow.removeFromLeft(140));
-    currentRow.removeFromLeft(10); // Spacing
-    m_currentPeakValue.setBounds(currentRow);
+    auto peakRow = bounds.removeFromTop(24);
+    m_currentPeakLabel.setBounds(peakRow.removeFromLeft(140));
+    peakRow.removeFromLeft(10); // Spacing
+    m_currentPeakValue.setBounds(peakRow);
+    bounds.removeFromTop(10); // Spacing
+
+    // Current RMS
+    auto rmsRow = bounds.removeFromTop(24);
+    m_currentRMSLabel.setBounds(rmsRow.removeFromLeft(140));
+    rmsRow.removeFromLeft(10); // Spacing
+    m_currentRMSValue.setBounds(rmsRow);
     bounds.removeFromTop(10); // Spacing
 
     // Required gain
@@ -154,8 +194,8 @@ void NormalizeDialog::visibilityChanged()
 {
     if (isVisible())
     {
-        // Analyze peak level when dialog becomes visible
-        analyzePeakLevel();
+        // Analyze both peak and RMS levels when dialog becomes visible
+        updateCurrentLevels();
     }
     else
     {
@@ -202,10 +242,44 @@ void NormalizeDialog::analyzePeakLevel()
     updateRequiredGain();
 }
 
+void NormalizeDialog::updateCurrentLevels()
+{
+    if (!m_bufferManager)
+        return;
+
+    // Extract audio for analysis
+    int64_t numSamples = m_selectionEnd - m_selectionStart;
+    if (numSamples <= 0)
+        return;
+
+    auto buffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
+
+    // Calculate peak level
+    m_currentPeakDB = AudioProcessor::getPeakLevelDB(buffer);
+    m_currentPeakValue.setText(
+        juce::String(m_currentPeakDB, 2) + " dB",
+        juce::dontSendNotification
+    );
+
+    // Calculate RMS level
+    m_currentRMSDB = AudioProcessor::getRMSLevelDB(buffer);
+    m_currentRMSValue.setText(
+        juce::String(m_currentRMSDB, 2) + " dB",
+        juce::dontSendNotification
+    );
+
+    // Update required gain based on mode
+    updateRequiredGain();
+}
+
 void NormalizeDialog::updateRequiredGain()
 {
     const float targetDB = static_cast<float>(m_targetLevelSlider.getValue());
-    const float requiredGainDB = targetDB - m_currentPeakDB;
+
+    // Use current level based on selected mode
+    float currentLevel = (m_mode == NormalizeMode::RMS) ? m_currentRMSDB : m_currentPeakDB;
+
+    const float requiredGainDB = targetDB - currentLevel;
 
     juce::String gainText = juce::String(requiredGainDB, 2) + " dB";
     if (requiredGainDB > 0.0f)
@@ -216,18 +290,25 @@ void NormalizeDialog::updateRequiredGain()
     m_requiredGainValue.setText(gainText, juce::dontSendNotification);
 
     // Warn if gain is excessive
-    if (requiredGainDB > 12.0f)
-    {
-        m_requiredGainValue.setColour(juce::Label::textColourId, juce::Colours::orange);
-    }
-    else if (requiredGainDB > 24.0f)
+    if (requiredGainDB > 24.0f)
     {
         m_requiredGainValue.setColour(juce::Label::textColourId, juce::Colours::red);
+    }
+    else if (requiredGainDB > 12.0f)
+    {
+        m_requiredGainValue.setColour(juce::Label::textColourId, juce::Colours::orange);
     }
     else
     {
         m_requiredGainValue.setColour(juce::Label::textColourId,
             getLookAndFeel().findColour(juce::Label::textColourId));
+    }
+
+    // Update preview in real-time if currently playing
+    if (m_isPreviewPlaying && m_audioEngine)
+    {
+        // Update normalize parameters atomically - instant response!
+        m_audioEngine->setNormalizePreview(requiredGainDB, true);
     }
 }
 
@@ -241,6 +322,7 @@ void NormalizeDialog::onPreviewClicked()
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setNormalizePreview(0.0f, false);  // Disable normalize processor
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
@@ -262,44 +344,36 @@ void NormalizeDialog::onPreviewClicked()
     bool shouldLoop = m_loopToggle.getToggleState();
     m_audioEngine->setLooping(shouldLoop);
 
-    // 3. Extract selection using bounds passed in constructor
-    int64_t numSamples = m_selectionEnd - m_selectionStart;
-
-    auto workBuffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
-    const double sampleRate = m_bufferManager->getSampleRate();
-    const int numChannels = workBuffer.getNumChannels();
-
-    // 4. Apply normalize to copy (ON MESSAGE THREAD)
+    // 3. Calculate required gain for normalization
     const float targetDB = static_cast<float>(m_targetLevelSlider.getValue());
-    const float requiredGainDB = targetDB - m_currentPeakDB;
-    const float gainLinear = juce::Decibels::decibelsToGain(requiredGainDB);
+    float currentLevel = (m_mode == NormalizeMode::RMS) ? m_currentRMSDB : m_currentPeakDB;
+    const float requiredGainDB = targetDB - currentLevel;
 
-    workBuffer.applyGain(gainLinear);
+    // 4. Set preview mode to REALTIME_DSP for instant parameter changes
+    m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
 
-    // 5. Load into preview system (THREAD-SAFE)
-    m_audioEngine->loadPreviewBuffer(workBuffer, sampleRate, numChannels);
+    // 5. Set normalize parameters
+    m_audioEngine->setNormalizePreview(requiredGainDB, true);
 
-    // 6. Set preview mode and position
-    m_audioEngine->setPreviewMode(PreviewMode::OFFLINE_BUFFER);
-
-    // CRITICAL: Set preview selection offset for accurate cursor positioning
-    // This transforms preview buffer coordinates (0-based) to file coordinates
+    // 6. Set preview selection offset for accurate cursor positioning
     m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
 
-    m_audioEngine->setPosition(0.0);
+    // 7. Set position and loop points in FILE coordinates
+    const double sampleRate = m_bufferManager->getSampleRate();
+    double selectionStartSec = m_selectionStart / sampleRate;
+    double selectionEndSec = m_selectionEnd / sampleRate;
 
-    // CRITICAL: Set loop points in PREVIEW BUFFER coordinates (0-based)
-    // Preview buffer spans from 0.0s to selection length
-    double selectionLengthSec = numSamples / sampleRate;
+    m_audioEngine->setPosition(selectionStartSec);
+
     if (shouldLoop)
     {
-        m_audioEngine->setLoopPoints(0.0, selectionLengthSec);
+        m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
     }
 
-    // 7. Start playback
+    // 8. Start playback
     m_audioEngine->play();
 
-    // 8. Update button state for toggle
+    // 9. Update button state for toggle
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
     m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
@@ -308,6 +382,9 @@ void NormalizeDialog::onPreviewClicked()
 void NormalizeDialog::onApplyClicked()
 {
     const float targetDB = static_cast<float>(m_targetLevelSlider.getValue());
+
+    // Save the selected mode preference
+    Settings::getInstance().setSetting("dsp.normalizeMode", static_cast<int>(m_mode));
 
     // Stop any preview playback
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
@@ -318,6 +395,8 @@ void NormalizeDialog::onApplyClicked()
 
     if (m_applyCallback)
     {
+        // Note: The callback still receives targetDB, but the parent should
+        // calculate the required gain based on the mode
         m_applyCallback(targetDB);
     }
 }
@@ -340,4 +419,26 @@ void NormalizeDialog::onCancelClicked()
 void NormalizeDialog::onTargetLevelChanged()
 {
     updateRequiredGain();
+}
+
+void NormalizeDialog::onModeChanged()
+{
+    int selectedId = m_modeSelector.getSelectedId();
+    m_mode = (selectedId == 2) ? NormalizeMode::RMS : NormalizeMode::PEAK;
+
+    // Update target label to match mode
+    if (m_mode == NormalizeMode::RMS)
+    {
+        m_targetLevelLabel.setText("Target RMS Level:", juce::dontSendNotification);
+    }
+    else
+    {
+        m_targetLevelLabel.setText("Target Peak Level:", juce::dontSendNotification);
+    }
+
+    // Recalculate required gain based on new mode
+    updateRequiredGain();
+
+    // Force layout update
+    resized();
 }

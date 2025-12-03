@@ -328,44 +328,32 @@ void GainDialog::onPreviewClicked()
     m_audioEngine->setLooping(shouldLoop);
     m_isPreviewActive = true;
 
-    // If we have a selection, extract it and preview using OFFLINE_BUFFER mode
+    // Use REALTIME_DSP mode for instant parameter updates
+    m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
+    m_audioEngine->setGainPreview(gain.value(), true);
+
+    // If we have a selection, set up playback for that range
     if (m_bufferManager && m_selectionEnd > m_selectionStart)
     {
-        // Extract the selection as a separate buffer
-        int64_t numSamples = m_selectionEnd - m_selectionStart;
-        juce::AudioBuffer<float> selectionBuffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
-
-        // Apply gain to the selection buffer for preview
-        float gainLinear = juce::Decibels::decibelsToGain(gain.value());
-        selectionBuffer.applyGain(gainLinear);
-
         // Set preview selection offset for accurate cursor positioning
         m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
 
-        // Load the processed selection into the preview buffer
-        m_audioEngine->loadPreviewBuffer(selectionBuffer,
-                                        m_bufferManager->getSampleRate(),
-                                        m_bufferManager->getNumChannels());
+        // Set position and loop points in FILE coordinates
+        const double sampleRate = m_bufferManager->getSampleRate();
+        double selectionStartSec = m_selectionStart / sampleRate;
+        double selectionEndSec = m_selectionEnd / sampleRate;
 
-        // Switch to OFFLINE_BUFFER mode to play the preview buffer
-        m_audioEngine->setPreviewMode(PreviewMode::OFFLINE_BUFFER);
-        m_audioEngine->setPosition(0.0);  // Start from beginning of selection
+        m_audioEngine->setPosition(selectionStartSec);
 
-        // CRITICAL: Set loop points in PREVIEW BUFFER coordinates (0-based)
-        // Preview buffer spans from 0.0s to selection length
-        // This must match the coordinate system of the preview buffer, NOT the main buffer
-        double selectionLengthSec = numSamples / m_bufferManager->getSampleRate();
         if (shouldLoop)
         {
-            m_audioEngine->setLoopPoints(0.0, selectionLengthSec);
+            m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
         }
     }
     else
     {
-        // No selection - use real-time DSP mode for whole file preview
-        m_audioEngine->setPreviewSelectionOffset(0);  // Clear offset for whole file playback
-        m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
-        m_audioEngine->setGainPreview(gain.value(), true);
+        // No selection - play from beginning of file
+        m_audioEngine->setPreviewSelectionOffset(0);
         m_audioEngine->setPosition(0.0);
     }
 

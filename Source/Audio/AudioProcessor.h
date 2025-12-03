@@ -108,6 +108,20 @@ public:
      */
     static float getPeakLevelDB(const juce::AudioBuffer<float>& buffer);
 
+    /**
+     * Calculate RMS (Root Mean Square) level of an audio buffer.
+     *
+     * RMS provides a measure of perceived loudness, unlike peak which measures
+     * absolute maximum amplitude. RMS is calculated as sqrt(mean(x²)).
+     *
+     * @param buffer Audio buffer to analyze
+     * @return RMS level in decibels (dBFS), or -INFINITY if buffer is silent
+     *
+     * Thread Safety: Safe to call from any thread
+     * Performance: O(n) where n = total samples
+     */
+    static float getRMSLevelDB(const juce::AudioBuffer<float>& buffer);
+
     //==============================================================================
     // Fade Operations
 
