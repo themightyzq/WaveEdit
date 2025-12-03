@@ -162,6 +162,9 @@ verify_*
 analyze_*.py
 run_*_tests.sh
 
+# QA test artifacts
+QA_TEST_PLAN_SUMMARY.txt
+
 # Temporary documentation (architectural docs, format docs, integration docs)
 AUDIO_FORMAT_*.md
 CODEBASE_ARCHITECTURE.md
