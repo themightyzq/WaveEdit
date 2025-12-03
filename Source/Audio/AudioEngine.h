@@ -20,6 +20,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
+#include "../DSP/ParametricEQ.h"
 
 /**
  * Playback state enumeration for the audio engine.
@@ -334,6 +335,50 @@ public:
     void setGainPreview(float gainDB, bool enabled);
 
     /**
+     * Enables normalize preview with real-time gain adjustment.
+     * Thread-safe: Can be called from message thread.
+     *
+     * @param gainDB Required gain in decibels to reach target level
+     * @param enabled true to enable normalize processing, false to bypass
+     */
+    void setNormalizePreview(float gainDB, bool enabled);
+
+    /**
+     * Enables fade in/out preview with real-time processing.
+     * Thread-safe: Can be called from message thread.
+     *
+     * @param fadeIn true for fade in, false for fade out
+     * @param curveType 0=Linear, 1=Logarithmic, 2=Exponential, 3=S-Curve
+     * @param durationMs Fade duration in milliseconds
+     * @param enabled true to enable fade processing, false to bypass
+     */
+    void setFadePreview(bool fadeIn, int curveType, float durationMs, bool enabled);
+
+    /**
+     * Enables DC offset removal preview with real-time processing.
+     * Thread-safe: Can be called from message thread.
+     *
+     * @param enabled true to enable DC offset removal, false to bypass
+     */
+    void setDCOffsetPreview(bool enabled);
+
+    /**
+     * Set parametric EQ parameters for real-time preview.
+     * Thread-safe: Can be called from message thread.
+     *
+     * @param params EQ parameters to apply
+     * @param enabled true to enable EQ processing, false to bypass
+     */
+    void setParametricEQPreview(const ParametricEQ::Parameters& params, bool enabled);
+
+    /**
+     * Get current parametric EQ enabled state.
+     *
+     * @return true if EQ is enabled, false otherwise
+     */
+    bool isParametricEQEnabled() const { return m_parametricEQEnabled.get(); }
+
+    /**
      * Mutes/unmutes this audio engine's output.
      * Used to prevent audio mixing when another document is previewing.
      * Thread-safe, can be called from UI thread.
@@ -520,6 +565,169 @@ private:
     };
 
     GainProcessor m_gainProcessor;
+
+    // Normalize processor for real-time preview (applies fixed gain)
+    struct NormalizeProcessor
+    {
+        std::atomic<float> gainDB{0.0f};
+        std::atomic<bool> enabled{false};
+
+        void process(juce::AudioBuffer<float>& buffer)
+        {
+            if (!enabled.load()) return;
+            float gain = juce::Decibels::decibelsToGain(gainDB.load());
+            buffer.applyGain(gain);
+        }
+    };
+    NormalizeProcessor m_normalizeProcessor;
+
+    // Fade processor for real-time fade in/out preview
+    struct FadeProcessor
+    {
+        enum class FadeType { FADE_IN, FADE_OUT };
+        enum class CurveType { LINEAR, LOGARITHMIC, EXPONENTIAL, S_CURVE };
+
+        std::atomic<FadeType> fadeType{FadeType::FADE_IN};
+        std::atomic<CurveType> curveType{CurveType::LINEAR};
+        std::atomic<float> fadeDurationSamples{44100.0f};  // 1 second at 44.1kHz
+        std::atomic<bool> enabled{false};
+        std::atomic<int64_t> samplesProcessed{0};
+
+        void reset() { samplesProcessed.store(0); }
+
+        void process(juce::AudioBuffer<float>& buffer, double /*sampleRate*/)
+        {
+            if (!enabled.load()) return;
+
+            const int numSamples = buffer.getNumSamples();
+            const int numChannels = buffer.getNumChannels();
+            const float duration = fadeDurationSamples.load();
+            const FadeType type = fadeType.load();
+            const CurveType curve = curveType.load();
+            int64_t currentSample = samplesProcessed.load();
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                // P2 FIX: Wrap sample index for looping support
+                // When looping preview, fade should restart at 0 for each iteration
+                int64_t sampleIndex = currentSample + i;
+                if (duration > 0.0f && sampleIndex >= static_cast<int64_t>(duration))
+                    sampleIndex = sampleIndex % static_cast<int64_t>(duration);
+
+                float progress = juce::jmin(1.0f, static_cast<float>(sampleIndex) / duration);
+
+                // Apply curve shaping
+                float gain = progress;
+                switch (curve)
+                {
+                    case CurveType::LOGARITHMIC:
+                        gain = std::log10(1.0f + progress * 9.0f);  // log10(1 to 10) = 0 to 1
+                        break;
+                    case CurveType::EXPONENTIAL:
+                        gain = (std::exp(progress * 2.0f) - 1.0f) / (std::exp(2.0f) - 1.0f);
+                        break;
+                    case CurveType::S_CURVE:
+                        gain = 0.5f * (1.0f + std::tanh(6.0f * (progress - 0.5f)));
+                        break;
+                    case CurveType::LINEAR:
+                    default:
+                        break;
+                }
+
+                // Invert for fade out
+                if (type == FadeType::FADE_OUT)
+                    gain = 1.0f - gain;
+
+                // Apply gain to all channels
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    buffer.getWritePointer(ch)[i] *= gain;
+                }
+            }
+
+            // P2 FIX: Wrap sample counter for looping support
+            int64_t newSampleCount = currentSample + numSamples;
+            if (duration > 0.0f)
+                newSampleCount = newSampleCount % static_cast<int64_t>(duration);
+            samplesProcessed.store(newSampleCount);
+        }
+    };
+    FadeProcessor m_fadeProcessor;
+
+    // DC Offset processor for real-time DC removal
+    struct DCOffsetProcessor
+    {
+        std::atomic<bool> enabled{false};
+        std::atomic<float> highpassFreq{5.0f};  // 5Hz high-pass filter
+
+        // Simple DC blocking filter (high-pass at 5Hz)
+        struct DCBlocker
+        {
+            float x1 = 0.0f;  // Previous input
+            float y1 = 0.0f;  // Previous output
+            float alpha = 0.995f;  // Filter coefficient
+
+            void updateCoefficient(double sampleRate, float cutoffHz)
+            {
+                // Calculate alpha for first-order high-pass filter
+                float rc = 1.0f / (2.0f * juce::MathConstants<float>::pi * cutoffHz);
+                float dt = 1.0f / static_cast<float>(sampleRate);
+                alpha = rc / (rc + dt);
+            }
+
+            float processSample(float input)
+            {
+                float output = alpha * (y1 + input - x1);
+                x1 = input;
+                y1 = output;
+                return output;
+            }
+
+            void reset()
+            {
+                x1 = 0.0f;
+                y1 = 0.0f;
+            }
+        };
+
+        std::array<DCBlocker, 8> dcBlockers;  // Support up to 8 channels
+
+        void process(juce::AudioBuffer<float>& buffer, double sampleRate)
+        {
+            if (!enabled.load()) return;
+
+            const int numChannels = buffer.getNumChannels();
+            const int numSamples = buffer.getNumSamples();
+            const float freq = highpassFreq.load();
+
+            // Update filter coefficients if needed
+            for (int ch = 0; ch < numChannels && ch < 8; ++ch)
+            {
+                dcBlockers[static_cast<size_t>(ch)].updateCoefficient(sampleRate, freq);
+
+                // Process samples
+                float* channelData = buffer.getWritePointer(ch);
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    channelData[i] = dcBlockers[static_cast<size_t>(ch)].processSample(channelData[i]);
+                }
+            }
+        }
+
+        void reset()
+        {
+            for (auto& blocker : dcBlockers)
+                blocker.reset();
+        }
+    };
+    DCOffsetProcessor m_dcOffsetProcessor;
+
+    // Parametric EQ processor for real-time preview
+    std::unique_ptr<ParametricEQ> m_parametricEQ;
+    juce::Atomic<bool> m_parametricEQEnabled{false};
+    ParametricEQ::Parameters m_parametricEQParams;  // Accessed only from audio thread after atomic flag
+    juce::Atomic<bool> m_parametricEQParamsChanged{false};
+    ParametricEQ::Parameters m_pendingParametricEQParams;  // Written from message thread
 
     // Mute flag to prevent audio output during other document's preview
     std::atomic<bool> m_isMuted{false};

@@ -37,6 +37,12 @@ class AudioBufferManager;
 class NormalizeDialog : public juce::Component
 {
 public:
+    // Normalization mode
+    enum class NormalizeMode
+    {
+        PEAK,  // Normalize to peak level (traditional)
+        RMS    // Normalize to RMS level (perceived loudness)
+    };
     /**
      * Constructor.
      *
@@ -55,7 +61,25 @@ public:
      * Get the target peak level in dB.
      * @return Target peak level (-80.0 to 0.0 dB)
      */
-    float getTargetLevel() const { return m_targetLevelSlider.getValue(); }
+    float getTargetLevel() const { return static_cast<float>(m_targetLevelSlider.getValue()); }
+
+    /**
+     * Get the current normalization mode.
+     * @return Current mode (PEAK or RMS)
+     */
+    NormalizeMode getMode() const { return m_mode; }
+
+    /**
+     * Get the current peak level in dB.
+     * @return Current peak level in dB
+     */
+    float getCurrentPeakDB() const { return m_currentPeakDB; }
+
+    /**
+     * Get the current RMS level in dB.
+     * @return Current RMS level in dB
+     */
+    float getCurrentRMSDB() const { return m_currentRMSDB; }
 
     /**
      * Set a callback to be invoked when Apply is clicked.
@@ -81,9 +105,21 @@ private:
     void analyzePeakLevel();
 
     /**
+     * Update current levels (both peak and RMS).
+     * Called when mode changes or dialog opens.
+     */
+    void updateCurrentLevels();
+
+    /**
      * Update the required gain label based on current/target peaks.
      */
     void updateRequiredGain();
+
+    /**
+     * Handle mode selector change.
+     * Updates UI and recalculates levels.
+     */
+    void onModeChanged();
 
     /**
      * Preview button callback.
@@ -111,10 +147,14 @@ private:
 
     // UI Components
     juce::Label m_titleLabel;
+    juce::Label m_modeLabel;
+    juce::ComboBox m_modeSelector;
     juce::Slider m_targetLevelSlider;
     juce::Label m_targetLevelLabel;
     juce::Label m_currentPeakLabel;
     juce::Label m_currentPeakValue;
+    juce::Label m_currentRMSLabel;
+    juce::Label m_currentRMSValue;
     juce::Label m_requiredGainLabel;
     juce::Label m_requiredGainValue;
     juce::ToggleButton m_loopToggle;
@@ -131,7 +171,9 @@ private:
     int64_t m_selectionEnd;
 
     // State
+    NormalizeMode m_mode {NormalizeMode::PEAK};  // Default to Peak for backward compatibility
     float m_currentPeakDB {0.0f};
+    float m_currentRMSDB {-std::numeric_limits<float>::infinity()};
     bool m_isPreviewPlaying {false};  // Track preview playback state for toggle
     std::function<void(float)> m_applyCallback;
     std::function<void()> m_cancelCallback;

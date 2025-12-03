@@ -62,8 +62,8 @@ FadeOutDialog::FadeOutDialog(AudioEngine* audioEngine,
     addAndMakeVisible(m_curvePreview);
 
     // Loop toggle
-    m_loopToggle.setButtonText("Loop Preview");
-    m_loopToggle.setToggleState(false, juce::dontSendNotification);
+    m_loopToggle.setButtonText("Loop");
+    m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON
     addAndMakeVisible(m_loopToggle);
 
     // Buttons
@@ -167,6 +167,7 @@ void FadeOutDialog::onPreviewClicked()
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setFadePreview(false, 0, 0.0f, false);  // Disable fade processor
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
@@ -188,41 +189,36 @@ void FadeOutDialog::onPreviewClicked()
     bool shouldLoop = m_loopToggle.getToggleState();
     m_audioEngine->setLooping(shouldLoop);
 
-    // 3. Extract selection using bounds passed in constructor
+    // 3. Get fade parameters
     int64_t numSamples = m_selectionEnd - m_selectionStart;
-    auto workBuffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
     const double sampleRate = m_bufferManager->getSampleRate();
-    const int numChannels = workBuffer.getNumChannels();
-
-    // 4. Apply fade out to copy with selected curve type (ON MESSAGE THREAD)
+    float durationMs = static_cast<float>((numSamples / sampleRate) * 1000.0);
     int curveIndex = m_curveTypeBox.getSelectedId() - 1;  // Convert to 0-based index
-    auto curveType = static_cast<FadeCurveType>(curveIndex);
-    AudioProcessor::fadeOut(workBuffer, numSamples, curveType);
 
-    // 5. Load into preview system (THREAD-SAFE)
-    m_audioEngine->loadPreviewBuffer(workBuffer, sampleRate, numChannels);
+    // 4. Set preview mode to REALTIME_DSP for instant parameter changes
+    m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
 
-    // 6. Set preview mode and position
-    m_audioEngine->setPreviewMode(PreviewMode::OFFLINE_BUFFER);
+    // 5. Set fade parameters (false = fade out)
+    m_audioEngine->setFadePreview(false, curveIndex, durationMs, true);
 
-    // CRITICAL: Set preview selection offset for accurate cursor positioning
-    // This transforms preview buffer coordinates (0-based) to file coordinates
+    // 6. Set preview selection offset for accurate cursor positioning
     m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
 
-    m_audioEngine->setPosition(0.0);
+    // 7. Set position and loop points in FILE coordinates
+    double selectionStartSec = m_selectionStart / sampleRate;
+    double selectionEndSec = m_selectionEnd / sampleRate;
 
-    // CRITICAL: Set loop points in PREVIEW BUFFER coordinates (0-based)
-    // Preview buffer spans from 0.0s to selection length
-    double selectionLengthSec = numSamples / sampleRate;
+    m_audioEngine->setPosition(selectionStartSec);
+
     if (shouldLoop)
     {
-        m_audioEngine->setLoopPoints(0.0, selectionLengthSec);
+        m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
     }
 
-    // 7. Start playback
+    // 8. Start playback
     m_audioEngine->play();
 
-    // 8. Update button state for toggle
+    // 9. Update button state for toggle
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
     m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
@@ -267,12 +263,15 @@ void FadeOutDialog::onCurveTypeChanged()
     // Update the curve preview
     m_curvePreview.setCurveType(static_cast<FadeCurveType>(curveIndex));
 
-    // If preview is active, re-render with new curve
-    if (m_isPreviewPlaying && m_audioEngine && m_audioEngine->isPlaying())
+    // If preview is active, update parameters in real-time
+    if (m_isPreviewPlaying && m_audioEngine)
     {
-        // Re-trigger preview to use new curve
-        // Pattern: stop current, restart with new settings
-        onPreviewClicked(); // Stops
-        onPreviewClicked(); // Restarts with new curve
+        // Calculate fade duration
+        int64_t numSamples = m_selectionEnd - m_selectionStart;
+        const double sampleRate = m_bufferManager->getSampleRate();
+        float durationMs = static_cast<float>((numSamples / sampleRate) * 1000.0);
+
+        // Update fade parameters atomically - instant response!
+        m_audioEngine->setFadePreview(false, curveIndex, durationMs, true);
     }
 }

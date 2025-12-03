@@ -172,6 +172,40 @@ float AudioProcessor::getPeakLevelDB(const juce::AudioBuffer<float>& buffer)
     return linearToDB(peak);
 }
 
+float AudioProcessor::getRMSLevelDB(const juce::AudioBuffer<float>& buffer)
+{
+    if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+    {
+        return -std::numeric_limits<float>::infinity();
+    }
+
+    // Calculate sum of squares across all channels
+    float sumSquares = 0.0f;
+    int64_t totalSamples = 0;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        const float* channelData = buffer.getReadPointer(ch);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            float sample = channelData[i];
+            sumSquares += sample * sample;
+            totalSamples++;
+        }
+    }
+
+    // Calculate RMS: sqrt(mean(squares))
+    float rms = std::sqrt(sumSquares / static_cast<float>(totalSamples));
+
+    // Convert to dB
+    if (rms <= 0.0f)
+    {
+        return -std::numeric_limits<float>::infinity();
+    }
+
+    return 20.0f * std::log10(rms);
+}
+
 //==============================================================================
 // Fade Operations
 

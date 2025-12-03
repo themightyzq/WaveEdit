@@ -235,7 +235,7 @@ ParametricEQDialog::ParametricEQDialog(AudioEngine* audioEngine,
         m_previewButton.onClick = [this]() { onPreviewClicked(); };
         addAndMakeVisible(m_previewButton);
 
-        m_loopToggle.setToggleState(false, juce::dontSendNotification);
+        m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON
         addAndMakeVisible(m_loopToggle);
 
         // Create EQ processor for preview
@@ -368,6 +368,12 @@ void ParametricEQDialog::onApplyClicked()
 {
     m_result = getCurrentParameters();
 
+    // Disable EQ preview when applying
+    if (m_audioEngine)
+    {
+        m_audioEngine->setParametricEQPreview(ParametricEQ::Parameters::createNeutral(), false);
+    }
+
     if (auto* parent = findParentComponentOfClass<juce::DialogWindow>())
     {
         parent->exitModalState(1);
@@ -377,6 +383,12 @@ void ParametricEQDialog::onApplyClicked()
 void ParametricEQDialog::onCancelClicked()
 {
     m_result = std::nullopt;
+
+    // Disable EQ preview when cancelling
+    if (m_audioEngine)
+    {
+        m_audioEngine->setParametricEQPreview(ParametricEQ::Parameters::createNeutral(), false);
+    }
 
     if (auto* parent = findParentComponentOfClass<juce::DialogWindow>())
     {
@@ -407,7 +419,7 @@ void ParametricEQDialog::onPreviewClicked()
         return;
     }
 
-    // Following NormalizeDialog pattern for OFFLINE_BUFFER preview
+    // Using REALTIME_DSP mode for instant parameter updates
 
     // 0. Stop any current playback FIRST
     if (m_audioEngine->isPlaying())
@@ -422,39 +434,25 @@ void ParametricEQDialog::onPreviewClicked()
     bool shouldLoop = m_loopToggle.getToggleState();
     m_audioEngine->setLooping(shouldLoop);
 
-    // 3. Extract selection using bounds passed in constructor
-    int64_t numSamples = m_selectionEnd - m_selectionStart;
+    // 3. Set preview mode to REALTIME_DSP for instant parameter changes
+    m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
 
-    auto workBuffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
-    const double sampleRate = m_bufferManager->getSampleRate();
-    const int numChannels = workBuffer.getNumChannels();
-
-    // 4. Apply EQ to copy (ON MESSAGE THREAD)
-    // Prepare the EQ processor with correct sample rate
-    m_parametricEQ->prepare(sampleRate, workBuffer.getNumSamples());
-
-    // Apply EQ with current UI parameters
+    // 4. Set initial EQ parameters
     ParametricEQ::Parameters params = getCurrentParameters();
-    m_parametricEQ->applyEQ(workBuffer, params);
+    m_audioEngine->setParametricEQPreview(params, true);
 
-    // 5. Load into preview system (THREAD-SAFE)
-    m_audioEngine->loadPreviewBuffer(workBuffer, sampleRate, numChannels);
-
-    // 6. Set preview mode and position
-    m_audioEngine->setPreviewMode(PreviewMode::OFFLINE_BUFFER);
-
-    // CRITICAL: Set preview selection offset for accurate cursor positioning
-    // This transforms preview buffer coordinates (0-based) to file coordinates
+    // 5. Set preview selection offset for accurate cursor positioning
     m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
 
-    m_audioEngine->setPosition(0.0);
+    // 6. Set position and loop points in FILE coordinates
+    double selectionStartSec = m_selectionStart / m_bufferManager->getSampleRate();
+    double selectionEndSec = m_selectionEnd / m_bufferManager->getSampleRate();
 
-    // CRITICAL: Set loop points in PREVIEW BUFFER coordinates (0-based)
-    // Preview buffer spans from 0.0s to selection length
-    double selectionLengthSec = numSamples / sampleRate;
+    m_audioEngine->setPosition(selectionStartSec);
+
     if (shouldLoop)
     {
-        m_audioEngine->setLoopPoints(0.0, selectionLengthSec);
+        m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
     }
 
     // 7. Start playback
@@ -469,33 +467,15 @@ void ParametricEQDialog::onPreviewClicked()
 void ParametricEQDialog::onParameterChanged()
 {
     // Only update preview if it's currently playing
-    if (!m_isPreviewPlaying || !m_audioEngine || !m_bufferManager || !m_parametricEQ)
+    if (!m_isPreviewPlaying || !m_audioEngine)
         return;
 
-    // Re-render the preview buffer with new parameters (similar to GainDialog pattern)
-    bool wasPlaying = m_audioEngine->isPlaying();
-    double currentPos = m_audioEngine->getCurrentPosition();
-
-    // Extract and process the selection with new EQ parameters
-    int64_t numSamples = m_selectionEnd - m_selectionStart;
-    auto workBuffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
-    const double sampleRate = m_bufferManager->getSampleRate();
-    const int numChannels = workBuffer.getNumChannels();
-
-    // Apply EQ with current UI parameters
-    m_parametricEQ->prepare(sampleRate, workBuffer.getNumSamples());
+    // Update EQ parameters atomically - no buffer reload needed!
     ParametricEQ::Parameters params = getCurrentParameters();
-    m_parametricEQ->applyEQ(workBuffer, params);
+    m_audioEngine->setParametricEQPreview(params, true);
 
-    // Reload preview buffer
-    m_audioEngine->loadPreviewBuffer(workBuffer, sampleRate, numChannels);
-
-    // Restore playback state
-    if (wasPlaying)
-    {
-        m_audioEngine->setPosition(currentPos);
-        m_audioEngine->play();
-    }
+    // That's it! The audio thread will pick up the new parameters
+    // on the next audio block. No artifacts, instant response.
 }
 
 ParametricEQ::Parameters ParametricEQDialog::getCurrentParameters() const

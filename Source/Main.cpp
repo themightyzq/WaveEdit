@@ -1218,15 +1218,11 @@ public:
         // Update waveform display with current playback position
         if (doc->getAudioEngine().isPlaying())
         {
+            // CRITICAL: getCurrentPosition() already returns FILE coordinates
+            // For OFFLINE_BUFFER mode, it adds the preview offset internally
+            // For REALTIME_DSP mode, it returns the file position directly
+            // No additional offset needed here!
             double position = doc->getAudioEngine().getCurrentPosition();
-
-            // Add preview selection offset when in preview mode
-            // This allows the cursor to animate correctly through the selection
-            // during preview playback, tracking transients and tails in real-time
-            if (doc->getAudioEngine().getPreviewMode() != PreviewMode::DISABLED)
-            {
-                position += doc->getAudioEngine().getPreviewSelectionOffsetSeconds();
-            }
 
             doc->getWaveformDisplay().setPlaybackPosition(position);
             repaint(); // Update status bar
@@ -5253,16 +5249,24 @@ public:
                 beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
             }
 
+            // Get mode and calculate required gain
+            NormalizeDialog::NormalizeMode mode = dialog.getMode();
+            float currentLevel = (mode == NormalizeDialog::NormalizeMode::RMS) ?
+                dialog.getCurrentRMSDB() : dialog.getCurrentPeakDB();
+            float requiredGainDB = targetDB - currentLevel;
+
             // Start a new transaction
+            juce::String modeStr = (mode == NormalizeDialog::NormalizeMode::RMS) ? "RMS" : "Peak";
             juce::String transactionName = juce::String::formatted(
-                "Normalize to %.1f dB (%s)",
+                "Normalize %s to %.1f dB (%s)",
+                modeStr.toRawUTF8(),
                 targetDB,
                 isSelection ? "selection" : "entire file"
             );
             doc->getUndoManager().beginNewTransaction(transactionName);
 
-            // Create undo action with target level
-            auto* undoAction = new NormalizeUndoAction(
+            // Create undo action with required gain (not target level)
+            auto* undoAction = new GainUndoAction(
                 doc->getBufferManager(),
                 doc->getWaveformDisplay(),
                 doc->getAudioEngine(),
@@ -5270,7 +5274,7 @@ public:
                 startSample,
                 numSamples,
                 isSelection,
-                targetDB
+                requiredGainDB
             );
 
             // Apply the normalization
