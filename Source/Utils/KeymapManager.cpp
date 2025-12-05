@@ -604,6 +604,8 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::fileProperties] = "fileProperties";
         commandNameMap[CommandIDs::fileExit] = "fileExit";
         commandNameMap[CommandIDs::filePreferences] = "filePreferences";
+        commandNameMap[CommandIDs::fileEditBWFMetadata] = "fileEditBWFMetadata";
+        commandNameMap[CommandIDs::fileEditiXMLMetadata] = "fileEditiXMLMetadata";
 
         // Edit operations
         commandNameMap[CommandIDs::editUndo] = "editUndo";
@@ -622,6 +624,7 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::playbackStop] = "playbackStop";
         commandNameMap[CommandIDs::playbackLoop] = "playbackLoop";
         commandNameMap[CommandIDs::playbackRecord] = "playbackRecord";
+        commandNameMap[CommandIDs::playbackLoopRegion] = "playbackLoopRegion";
 
         // View operations
         commandNameMap[CommandIDs::viewZoomIn] = "viewZoomIn";

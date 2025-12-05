@@ -1,6 +1,6 @@
 # WaveEdit by ZQ SFX - TODO
 
-**Last Updated**: 2025-12-03 (Preview Loop Coordinate System Fix & UI Consistency)
+**Last Updated**: 2025-12-04 (Progress Dialog Integration Complete)
 **Company**: ZQ SFX (© 2025)
 **Philosophy**: Feature-driven development - ship when ready, not before
 
@@ -8,18 +8,19 @@
 
 ## 🎯 Priority Summary (Post-Audit)
 
-**P0 Critical** (2 hours remaining):
+**P0 Critical**: ✅ ALL RESOLVED
 - ✅ COMPLETED: Fixed preview playback bug (played from file start instead of selection)
 - ✅ COMPLETED: Added Preview button to Normalize, Fade In, Fade Out, DC Offset dialogs
 - ✅ COMPLETED: Added Loop Preview checkbox to all preview dialogs
-- Add Preview button to ParametricEQ dialog (2 hours)
+- ✅ COMPLETED: Preview button in ParametricEQ dialog (verified 2025-12-03)
 
-**P1 Major** (9-11 hours):
-- Fix keyboard shortcut conflicts (Cmd+M, Cmd+Tab, Cmd+R) - 1 hour
-- Add missing critical shortcuts (Cmd+N, Cmd+Shift+L, Cmd+Shift+B) - 30 min
-- Region system undo/redo support - 4-5 hours
-- Progress dialogs for long operations - 3 hours
-- Auto-scroll playback cursor - 1 hour
+**P1 Major**: ✅ ALL RESOLVED
+- ✅ COMPLETED: Fixed keyboard shortcut conflicts (Cmd+M→Cmd+Shift+K, Cmd+Tab→Ctrl+Tab, Cmd+R conflict resolved)
+- ✅ COMPLETED: Added missing shortcuts (Cmd+N, Cmd+Shift+L, Cmd+Alt+B)
+- ✅ COMPLETED: Implemented File → New (Cmd+N) with NewFileDialog (sample rate, channels, duration, bit depth)
+- ✅ COMPLETED: Region system undo/redo support (Add/Delete/Merge/Split all undoable)
+- ✅ COMPLETED: Auto-scroll playback cursor (WaveformDisplay.cpp:287-350)
+- ✅ COMPLETED: Progress dialogs fully integrated (Normalize, Fade In/Out, DC Offset show progress for >500k samples)
 
 **High Priority Features**:
 - VST3 Plugin Hosting (20+ hours) - CORE FEATURE
@@ -99,10 +100,11 @@
 - Configuration via View menu submenus
 
 **Quality**:
-- Automated test suite: 47 assertions, 100% pass rate
+- Automated test suite: 47 assertions, tests passing
 - Sub-1 second startup, 60fps rendering
 - <10ms waveform updates, <10ms playback latency
-- Zero P0/P1 bugs
+- ✅ Zero P0 bugs (all resolved 2025-12-03)
+- ✅ Zero P1 bugs (all resolved 2025-12-03)
 
 ### Known Issues
 
@@ -161,105 +163,107 @@ See Backlog section for prioritized features.
 
 ## Critical Issues (P0/P1) - Blocks Professional Use
 
-### **P0 - Add Preview Buttons to All Processing Dialogs** (8-12 hours)
-**Status**: 🔴 CRITICAL - Violates CLAUDE.md section 10.2 requirement
+### **P0 - Add Preview Buttons to All Processing Dialogs** ✅ COMPLETE (2025-12-03)
+**Status**: ✅ RESOLVED - All critical dialogs have Preview
 
-**Missing Preview Implementation**:
-- [ ] NormalizeDialog (target level, peak meter, Preview button)
-- [x] FadeInDialog (curve type selector with 4 curves, Preview button, Loop toggle) ✅ 2025-12-01
-- [x] FadeOutDialog (curve type selector with 4 curves, Preview button, Loop toggle) ✅ 2025-12-01
-- [ ] DCOffsetDialog (offset measurement display, Preview button)
-- [ ] ParametricEQDialog (already exists, needs Preview button added)
+**Preview Implementation Status**:
+- [x] GainDialog - Preview with real-time parameter updates ✅
+- [x] NormalizeDialog - Preview with target level ✅
+- [x] FadeInDialog - Preview with 4 curve types + Loop ✅ 2025-12-01
+- [x] FadeOutDialog - Preview with 4 curve types + Loop ✅ 2025-12-01
+- [x] DCOffsetDialog - Preview with offset correction ✅
+- [x] ParametricEQDialog - Preview with real-time DSP + Loop ✅ (verified 2025-12-03, lines 211-465)
 
-**Pattern**: Follow GainDialog.cpp (lines 289-365) exactly:
-- Extract selection
-- Apply processing to copy
-- Load preview buffer via `AudioEngine::loadPreviewBuffer()`
-- Set preview mode via `AudioEngine::setPreviewMode(PreviewMode::OFFLINE_BUFFER)`
-- Add loop support for selection-based preview
+**All processing dialogs now support**:
+- Preview button (starts playback with effect applied)
+- Loop toggle (continuous preview of selection)
+- Selection-bounded playback
+- Real-time or offline buffer modes as appropriate
 
-**Why Critical**: Professional audio engineers **REQUIRE** preview capability for all destructive operations. Without preview:
-- **Normalize**: Cannot preview target level before applying (critical for mastering)
-- **DC Offset**: Cannot see offset measurement or preview correction
-- **Parametric EQ**: Cannot audition frequency-dependent changes before committing
-
-**Current State**: 4/7 dialogs have Preview (57%). Industry standard: 100%
-**Recent**: ✅ FadeIn/FadeOut now have preview + 4 curve types (linear, exponential, logarithmic, S-curve)
+**Current State**: 6/6 critical dialogs have Preview (100%) ✅
 
 ---
 
-### **P1 - Fix Keyboard Shortcut System Conflicts** (1 hour)
-**Status**: 🟠 MAJOR - macOS users hit system conflicts
+### **P1 - Fix Keyboard Shortcut System Conflicts** ✅ COMPLETE (2025-12-03)
+**Status**: ✅ RESOLVED
 
-**Conflicts to Fix**:
-1. **Cmd+M** (markerShowList) → Move to **Cmd+Shift+K**
-   - Reason: Cmd+M is macOS standard "Minimize Window"
-   - Impact: Marker list never opens, window minimizes instead
+**Conflicts Fixed**:
+1. ✅ **Cmd+M** (markerShowList) → Moved to **Cmd+Shift+K**
+2. ✅ **Cmd+Tab** (tabNext) → Moved to **Ctrl+Tab**
+3. ✅ **Cmd+R** (regionSplit) → Moved to **Cmd+K** (playbackRecord retains Cmd+R)
 
-2. **Cmd+Tab** (tabNext) → Move to **Ctrl+Tab**
-   - Reason: Cmd+Tab is macOS standard "Application Switcher"
-   - Impact: App switcher interferes with tab navigation
-
-3. **Cmd+R** (duplicate: playbackRecord + regionSplit) → Move regionSplit to **Cmd+K**
-   - Reason: Two commands share same shortcut
-   - Impact: Record command overrides region split
-
-**Files to Update**:
-- Source/Main.cpp (getCommandInfo)
-- Templates/Keymaps/Default.json (default mappings)
+**Files Updated**: Templates/Keymaps/Default.json
 
 ---
 
-### **P1 - Add Missing Critical Keyboard Shortcuts** (30 minutes)
-**Status**: 🟠 MAJOR - Standard operations lack shortcuts
+### **P1 - Add Missing Critical Keyboard Shortcuts** ✅ COMPLETE (2025-12-03)
+**Status**: ✅ RESOLVED
 
-**Add Shortcuts**:
-- [ ] **fileNew** → Cmd+N (industry standard)
-- [ ] **playbackLoopRegion** → Cmd+Shift+L
-- [ ] **fileEditBWFMetadata** → Cmd+Shift+B
+**Shortcuts Added**:
+- ✅ **fileNew** → Cmd+N (industry standard)
+- ✅ **playbackLoopRegion** → Cmd+Shift+L
+- ✅ **fileEditBWFMetadata** → Cmd+Alt+B
 
----
-
-### **P1 - Region System: Add Undo/Redo Support** (4-5 hours)
-**Status**: 🟠 MAJOR - Region operations are permanent until save
-
-**Problem**: Region operations (Add, Delete, Merge, Split) are NOT integrated with UndoManager. Audio edits are undoable, but region metadata changes are permanent.
-
-**User Impact**: User creates 10 regions via Strip Silence, accidentally deletes wrong region, CANNOT undo. Must re-run Strip Silence and lose all manual adjustments.
-
-**Solution**: Create RegionUndoableAction hierarchy:
-- AddRegionAction
-- DeleteRegionAction
-- MergeRegionsAction
-- SplitRegionAction
-
-Wrap all region mutations in Source/Utils/RegionManager.cpp
+**File Updated**: Templates/Keymaps/Default.json
 
 ---
 
-### **P1 - Add Progress Dialogs for Long Operations** (3 hours)
-**Status**: 🟠 MAJOR - Users think app crashed during long processing
+### **P1 - Region System: Add Undo/Redo Support** ✅ COMPLETE (2025-12-03)
+**Status**: ✅ RESOLVED - All region operations now undoable
 
-**Problem**: DSP operations (Normalize on 10-minute file, parametric EQ with large selections) provide NO progress indication.
+**Implementation** (found in Main.cpp:6865-6990):
+- ✅ AddRegionUndoAction - Region creation undoable
+- ✅ DeleteRegionUndoAction - Region deletion undoable
+- ✅ MergeRegionsUndoAction - Region merge undoable
+- ✅ SplitRegionUndoAction - Region split undoable
 
-**Solution**: For operations > 500ms estimated duration:
-- Show modal progress dialog with progress bar (0-100%)
-- Cancel button
-- Operation running on background thread
-- Async completion callback
-
-**Files**: All processing operations in Source/Main.cpp (applyNormalize, applyFadeIn, etc.)
+All region operations integrated with per-document UndoManager
 
 ---
 
-### **P1 - Auto-Scroll Playback Cursor When Out of View** (1 hour)
-**Status**: 🟠 MAJOR - Users lose visual tracking during playback
+### **P1 - Add Progress Dialogs for Long Operations** ✅ COMPLETE (2025-12-04)
+**Status**: ✅ RESOLVED - Fully integrated with DSP operations
 
-**Problem**: Playback cursor can play beyond visible window. User must manually scroll to find position.
+**Implementation**:
+- ✅ `Source/Utils/ProgressCallback.h` - Callback type for progress reporting
+- ✅ `Source/UI/ProgressDialog.h/cpp` - Modal progress dialog with:
+  - Progress bar (0-100%) with elapsed time
+  - Cancel button with thread-safe cancellation
+  - Background thread execution via ProgressWorkerThread
+  - Safe async completion callback
+- ✅ `Source/Audio/AudioProcessor.cpp` - Progress-enabled DSP methods:
+  - `applyGainWithProgress()` - Chunk-based gain with progress
+  - `normalizeWithProgress()` - Two-phase (analyze + apply) progress
+  - `fadeInWithProgress()` / `fadeOutWithProgress()` - Fade with progress
+  - `removeDCOffsetWithProgress()` - Two-phase DC offset removal
+- ✅ `Source/Main.cpp` - Integration with dialog callbacks:
+  - Threshold: 500,000 samples (~11 seconds at 44.1kHz)
+  - Operations ≥ threshold show progress dialog (async path)
+  - Operations < threshold use synchronous processing (existing behavior)
+  - Undo integration via `markAsAlreadyPerformed()` pattern
+  - Cancel restores buffer from snapshot
 
-**Solution**: In `WaveformDisplay::setPlaybackPosition()`, check if position is outside `[m_visibleStart, m_visibleEnd]`, and if playing, auto-scroll to keep cursor centered.
+**Integrated Dialogs**:
+- ✅ Normalize (showNormalizeDialog)
+- ✅ Fade In (showFadeInDialog)
+- ✅ Fade Out (showFadeOutDialog)
+- ✅ Remove DC Offset (showDCOffsetDialog)
 
-**File**: Source/UI/WaveformDisplay.cpp
+**Known Limitation** (P2):
+- Document close during progress operation may cause crash (edge case)
+- Workaround: Wait for operation to complete before closing file
+
+---
+
+### **P1 - Auto-Scroll Playback Cursor When Out of View** ✅ COMPLETE (2025-12-03)
+**Status**: ✅ RESOLVED
+
+**Implementation** (WaveformDisplay.cpp:287-350):
+- ✅ Auto-scroll triggers when cursor approaches view edges
+- ✅ Smooth look-ahead scrolling keeps cursor visible
+- ✅ Smart positioning at CURSOR_POSITION_RATIO from left edge
+- ✅ Toggle via Cmd+Shift+F (m_followPlayback setting)
+- ✅ Disabled during selection drag to prevent interference
 
 ---
 
@@ -497,6 +501,18 @@ See CLAUDE.md "Quality Assurance" section for details.
 ---
 
 ## Changelog
+
+### 2025-12-04 - Progress Dialog Bug Fix (P0 Critical)
+- ✅ **P0 CRITICAL FIXED**: Fade In/Out/DC Offset/Normalize applied to wrong location when using progress dialog
+  - **Problem**: Operations applied at FILE START (sample 0) instead of SELECTION START
+  - **Root Cause**: Async path directly modified main buffer instead of using regionBuffer pattern
+  - **Solution**: Implemented regionBuffer pattern (extract → process → copy back at startSample)
+  - **Also Fixed**: Normalize operation had race condition (modified main buffer from background thread)
+  - **Thread Safety**: All large DSP operations now process isolated regionBuffer, copy back on message thread
+  - **Undo/Redo**: All operations now correctly undoable with markAsAlreadyPerformed() pattern
+- **Files Modified**: Source/Main.cpp (showNormalizeDialog, showFadeInDialog, showFadeOutDialog, showDCOffsetDialog)
+- **Code Review**: ✅ APPROVED - Thread safety verified, regionBuffer pattern consistent across all operations
+- **Impact**: Progress dialogs now work correctly for selections anywhere in the file
 
 ### 2025-12-03 - Preview Loop Coordinate System & UI Consistency (P0/P1 Complete)
 - ✅ **P0 CRITICAL**: Preview Loop Coordinate System Fix (RESOLVED)

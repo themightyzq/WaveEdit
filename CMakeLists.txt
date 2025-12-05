@@ -57,6 +57,8 @@ target_sources(WaveEdit
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
+        Source/UI/NewFileDialog.cpp
+        Source/UI/NewFileDialog.h
         Source/UI/NormalizeDialog.cpp
         Source/UI/NormalizeDialog.h
         Source/UI/FadeInDialog.cpp
@@ -99,6 +101,9 @@ target_sources(WaveEdit
         Source/UI/SaveAsOptionsPanel.h
         Source/UI/ShortcutEditorPanel.cpp
         Source/UI/ShortcutEditorPanel.h
+        Source/UI/ProgressDialog.cpp
+        Source/UI/ProgressDialog.h
+        Source/Utils/ProgressCallback.h
         Source/Utils/Document.cpp
         Source/Utils/Document.h
         Source/Utils/DocumentManager.cpp
@@ -396,6 +401,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
+        Source/UI/NewFileDialog.cpp
+        Source/UI/NewFileDialog.h
         Source/UI/NormalizeDialog.cpp
         Source/UI/NormalizeDialog.h
         Source/UI/FadeInDialog.cpp

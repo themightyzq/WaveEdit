@@ -19,8 +19,10 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
+#include "../Utils/ProgressCallback.h"
 #include <cmath>
 #include <algorithm>
+#include <functional>
 
 /**
  * Fade curve types for fade in/out operations.
@@ -107,6 +109,74 @@ public:
      * Performance: O(n)
      */
     static float getPeakLevelDB(const juce::AudioBuffer<float>& buffer);
+
+    //==============================================================================
+    // Progress-Enabled Operations (for long-running tasks)
+
+    /**
+     * Applies gain adjustment with progress reporting.
+     * Processes in chunks and reports progress via callback.
+     *
+     * @param buffer Audio buffer to process (modified in place)
+     * @param gainDB Gain in decibels
+     * @param startSample Starting sample index
+     * @param numSamples Number of samples to process
+     * @param progress Callback for progress updates (returns false to cancel)
+     * @return true if completed successfully, false if cancelled or failed
+     *
+     * Thread Safety: Safe to call from background thread
+     */
+    static bool applyGainWithProgress(juce::AudioBuffer<float>& buffer, float gainDB,
+                                      int startSample, int numSamples,
+                                      const ProgressCallback& progress);
+
+    /**
+     * Normalizes audio buffer with progress reporting.
+     *
+     * @param buffer Audio buffer to process
+     * @param targetDB Target peak level in dB
+     * @param startSample Starting sample index
+     * @param numSamples Number of samples to process
+     * @param progress Callback for progress updates
+     * @return true if completed successfully, false if cancelled or failed
+     */
+    static bool normalizeWithProgress(juce::AudioBuffer<float>& buffer, float targetDB,
+                                      int startSample, int numSamples,
+                                      const ProgressCallback& progress);
+
+    /**
+     * Applies fade-in with progress reporting.
+     *
+     * @param buffer Audio buffer to process
+     * @param numSamples Number of samples to fade
+     * @param curve Fade curve type
+     * @param progress Callback for progress updates
+     * @return true if completed successfully, false if cancelled or failed
+     */
+    static bool fadeInWithProgress(juce::AudioBuffer<float>& buffer, int numSamples,
+                                   FadeCurveType curve, const ProgressCallback& progress);
+
+    /**
+     * Applies fade-out with progress reporting.
+     *
+     * @param buffer Audio buffer to process
+     * @param numSamples Number of samples to fade
+     * @param curve Fade curve type
+     * @param progress Callback for progress updates
+     * @return true if completed successfully, false if cancelled or failed
+     */
+    static bool fadeOutWithProgress(juce::AudioBuffer<float>& buffer, int numSamples,
+                                    FadeCurveType curve, const ProgressCallback& progress);
+
+    /**
+     * Removes DC offset with progress reporting.
+     *
+     * @param buffer Audio buffer to process
+     * @param progress Callback for progress updates
+     * @return true if completed successfully, false if cancelled or failed
+     */
+    static bool removeDCOffsetWithProgress(juce::AudioBuffer<float>& buffer,
+                                           const ProgressCallback& progress);
 
     /**
      * Calculate RMS (Root Mean Square) level of an audio buffer.

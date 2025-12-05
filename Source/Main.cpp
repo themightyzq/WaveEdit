@@ -34,6 +34,7 @@
 #include "UI/TransportControls.h"
 #include "UI/Meters.h"
 #include "UI/GainDialog.h"
+#include "UI/NewFileDialog.h"
 #include "UI/NormalizeDialog.h"
 #include "UI/FadeInDialog.h"
 #include "UI/FadeOutDialog.h"
@@ -56,10 +57,17 @@
 #include "UI/SpectrumAnalyzer.h"
 #include "UI/TabComponent.h"
 #include "UI/KeyboardCheatSheetDialog.h"
+#include "UI/ProgressDialog.h"
 #include "Utils/Document.h"
 #include "Utils/DocumentManager.h"
 #include "Utils/RegionExporter.h"
 #include "Utils/KeymapManager.h"
+
+//==============================================================================
+// Progress Dialog Threshold
+// Operations affecting more than this many samples will show a progress dialog.
+// 500,000 samples = ~11 seconds at 44.1kHz, ~10.4 seconds at 48kHz
+constexpr int64_t kProgressDialogThreshold = 500000;
 
 //==============================================================================
 /**
@@ -1255,6 +1263,7 @@ public:
     void getAllCommands(juce::Array<juce::CommandID>& commands) override
     {
         const juce::CommandID ids[] = {
+            CommandIDs::fileNew,
             CommandIDs::fileOpen,
             CommandIDs::fileSave,
             CommandIDs::fileSaveAs,
@@ -1394,6 +1403,13 @@ public:
 
         switch (commandID)
         {
+            case CommandIDs::fileNew:
+                result.setInfo("New...", "Create a new audio file", "File", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                // Always available (no document required)
+                break;
+
             case CommandIDs::fileOpen:
                 result.setInfo("Open...", "Open an audio file", "File", 0);
                 if (keyPress.isValid())
@@ -2198,6 +2214,58 @@ public:
 
         switch (info.commandID)
         {
+            case CommandIDs::fileNew:
+            {
+                auto settings = NewFileDialog::showDialog();
+                if (settings.has_value())
+                {
+                    // Create new document
+                    auto* newDoc = m_documentManager.createDocument();
+                    if (newDoc != nullptr)
+                    {
+                        // Calculate number of samples
+                        int64_t numSamples = static_cast<int64_t>(settings->durationSeconds * settings->sampleRate);
+
+                        // Create empty audio buffer with silence
+                        juce::AudioBuffer<float> emptyBuffer(settings->numChannels, static_cast<int>(numSamples));
+                        emptyBuffer.clear();
+
+                        // Load into buffer manager
+                        auto& buffer = newDoc->getBufferManager().getMutableBuffer();
+                        buffer.setSize(settings->numChannels, static_cast<int>(numSamples));
+                        buffer.clear();
+
+                        // Load into audio engine
+                        newDoc->getAudioEngine().loadFromBuffer(emptyBuffer, settings->sampleRate, settings->numChannels);
+
+                        // Load waveform display
+                        newDoc->getWaveformDisplay().reloadFromBuffer(emptyBuffer, settings->sampleRate, false, false);
+
+                        // Setup region display
+                        newDoc->getRegionDisplay().setSampleRate(settings->sampleRate);
+                        newDoc->getRegionDisplay().setTotalDuration(settings->durationSeconds);
+                        newDoc->getRegionDisplay().setVisibleRange(0.0, settings->durationSeconds);
+                        newDoc->getRegionDisplay().setAudioBuffer(&buffer);
+
+                        // Setup marker display
+                        newDoc->getMarkerDisplay().setSampleRate(settings->sampleRate);
+                        newDoc->getMarkerDisplay().setTotalDuration(settings->durationSeconds);
+
+                        // Set document as modified (new file needs to be saved)
+                        newDoc->setModified(true);
+
+                        // Switch to the new document
+                        m_documentManager.setCurrentDocument(newDoc);
+
+                        juce::Logger::writeToLog("Created new audio file: " +
+                                                juce::String(numSamples) + " samples, " +
+                                                juce::String(settings->sampleRate) + " Hz, " +
+                                                juce::String(settings->numChannels) + " channels");
+                    }
+                }
+                return true;
+            }
+
             case CommandIDs::fileOpen:
                 openFile();
                 return true;
@@ -3266,6 +3334,7 @@ public:
 
         if (menuIndex == 0) // File menu
         {
+            menu.addCommandItem(&m_commandManager, CommandIDs::fileNew);
             menu.addCommandItem(&m_commandManager, CommandIDs::fileOpen);
             menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::fileSave);
@@ -5240,13 +5309,13 @@ public:
                 isSelection = true;
             }
 
-            // Store before state for undo
+            // Store before state for undo (MUST happen before any processing)
             auto& buffer = doc->getBufferManager().getMutableBuffer();
-            juce::AudioBuffer<float> beforeBuffer;
-            beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+            auto beforeBuffer = std::make_shared<juce::AudioBuffer<float>>();
+            beforeBuffer->setSize(buffer.getNumChannels(), numSamples);
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
-                beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                beforeBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
             }
 
             // Get mode and calculate required gain
@@ -5255,7 +5324,7 @@ public:
                 dialog.getCurrentRMSDB() : dialog.getCurrentPeakDB();
             float requiredGainDB = targetDB - currentLevel;
 
-            // Start a new transaction
+            // Build transaction name
             juce::String modeStr = (mode == NormalizeDialog::NormalizeMode::RMS) ? "RMS" : "Peak";
             juce::String transactionName = juce::String::formatted(
                 "Normalize %s to %.1f dB (%s)",
@@ -5263,29 +5332,99 @@ public:
                 targetDB,
                 isSelection ? "selection" : "entire file"
             );
-            doc->getUndoManager().beginNewTransaction(transactionName);
 
-            // Create undo action with required gain (not target level)
-            auto* undoAction = new GainUndoAction(
-                doc->getBufferManager(),
-                doc->getWaveformDisplay(),
-                doc->getAudioEngine(),
-                beforeBuffer,
-                startSample,
-                numSamples,
-                isSelection,
-                requiredGainDB
-            );
-
-            // Apply the normalization
-            doc->getUndoManager().perform(undoAction);
-
-            // Mark as modified
-            doc->setModified(true);
-
-            // Close the dialog
+            // Close the dialog first (before potentially showing progress dialog)
             if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
                 window->exitModalState(1);
+
+            // Check if we need progress dialog for large operations
+            if (numSamples >= kProgressDialogThreshold)
+            {
+                // ASYNCHRONOUS PATH: Large operation - show progress dialog
+                // Create a working copy of the selection region for processing
+                auto regionBuffer = std::make_shared<juce::AudioBuffer<float>>();
+                regionBuffer->setSize(buffer.getNumChannels(), numSamples);
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                {
+                    regionBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                }
+
+                ProgressDialog::runWithProgress(
+                    transactionName,
+                    [regionBuffer, requiredGainDB, numSamples](ProgressCallback progress) -> bool {
+                        // Apply gain to the region copy (not the main buffer)
+                        // Use startSample=0 since regionBuffer is already extracted from startSample
+                        return AudioProcessor::applyGainWithProgress(*regionBuffer, requiredGainDB, 0, numSamples, progress);
+                    },
+                    [doc, beforeBuffer, regionBuffer, startSample, numSamples, transactionName, requiredGainDB, isSelection](bool success) {
+                        if (success)
+                        {
+                            // Copy processed region back to main buffer at correct position
+                            auto& buf = doc->getBufferManager().getMutableBuffer();
+                            for (int ch = 0; ch < regionBuffer->getNumChannels(); ++ch)
+                            {
+                                buf.copyFrom(ch, startSample, *regionBuffer, ch, 0, numSamples);
+                            }
+
+                            // Register undo action (operation already applied)
+                            doc->getUndoManager().beginNewTransaction(transactionName);
+                            auto* undoAction = new GainUndoAction(
+                                doc->getBufferManager(),
+                                doc->getWaveformDisplay(),
+                                doc->getAudioEngine(),
+                                *beforeBuffer,
+                                startSample,
+                                numSamples,
+                                requiredGainDB,  // float gainDB
+                                isSelection      // bool isSelection
+                            );
+                            // Mark as already performed so undo() will restore, but perform() is no-op
+                            undoAction->markAsAlreadyPerformed();
+                            doc->getUndoManager().perform(undoAction);
+                            doc->setModified(true);
+
+                            // Update waveform display
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                        }
+                        else
+                        {
+                            // Cancelled: Restore buffer from snapshot
+                            auto& buf = doc->getBufferManager().getMutableBuffer();
+                            for (int ch = 0; ch < beforeBuffer->getNumChannels(); ++ch)
+                            {
+                                buf.copyFrom(ch, startSample, *beforeBuffer, ch, 0, numSamples);
+                            }
+                            // Update display to show restored state
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                        }
+                    }
+                );
+            }
+            else
+            {
+                // SYNCHRONOUS PATH: Small operation - existing behavior
+                doc->getUndoManager().beginNewTransaction(transactionName);
+
+                auto* undoAction = new GainUndoAction(
+                    doc->getBufferManager(),
+                    doc->getWaveformDisplay(),
+                    doc->getAudioEngine(),
+                    *beforeBuffer,
+                    startSample,
+                    numSamples,
+                    requiredGainDB,  // float gainDB
+                    isSelection      // bool isSelection
+                );
+
+                doc->getUndoManager().perform(undoAction);
+                doc->setModified(true);
+            }
         });
 
         dialog.onCancel([&dialog]() {
@@ -5343,41 +5482,105 @@ public:
             int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
             int numSamples = endSample - startSample;
 
-            // Store before state for undo
+            // Store before state for undo (MUST happen before any processing)
             auto& buffer = doc->getBufferManager().getMutableBuffer();
-            juce::AudioBuffer<float> beforeBuffer;
-            beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+            auto beforeBuffer = std::make_shared<juce::AudioBuffer<float>>();
+            beforeBuffer->setSize(buffer.getNumChannels(), numSamples);
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
-                beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                beforeBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
             }
 
             // Get selected curve type from dialog
             FadeCurveType curveType = dialog.getSelectedCurveType();
 
-            // Start a new transaction
-            doc->getUndoManager().beginNewTransaction("Fade In");
-
-            // Create undo action
-            auto* undoAction = new FadeInUndoAction(
-                doc->getBufferManager(),
-                doc->getWaveformDisplay(),
-                doc->getAudioEngine(),
-                beforeBuffer,
-                startSample,
-                numSamples,
-                curveType
-            );
-
-            // Apply the fade
-            doc->getUndoManager().perform(undoAction);
-
-            // Mark as modified
-            doc->setModified(true);
-
-            // Close the dialog
+            // Close the dialog first (before potentially showing progress dialog)
             if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
                 window->exitModalState(1);
+
+            // Check if we need progress dialog for large operations
+            if (numSamples >= kProgressDialogThreshold)
+            {
+                // ASYNCHRONOUS PATH: Large operation - show progress dialog
+                // Create a working copy of the selection region for processing
+                auto regionBuffer = std::make_shared<juce::AudioBuffer<float>>();
+                regionBuffer->setSize(buffer.getNumChannels(), numSamples);
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                {
+                    regionBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                }
+
+                ProgressDialog::runWithProgress(
+                    "Fade In",
+                    [regionBuffer, numSamples, curveType](ProgressCallback progress) -> bool {
+                        // Apply fade to the region copy (not the main buffer)
+                        return AudioProcessor::fadeInWithProgress(*regionBuffer, numSamples, curveType, progress);
+                    },
+                    [doc, beforeBuffer, regionBuffer, startSample, numSamples, curveType](bool success) {
+                        if (success)
+                        {
+                            // Copy processed region back to main buffer at correct position
+                            auto& buf = doc->getBufferManager().getMutableBuffer();
+                            for (int ch = 0; ch < regionBuffer->getNumChannels(); ++ch)
+                            {
+                                buf.copyFrom(ch, startSample, *regionBuffer, ch, 0, numSamples);
+                            }
+
+                            // Register undo action (operation already applied)
+                            doc->getUndoManager().beginNewTransaction("Fade In");
+                            auto* undoAction = new FadeInUndoAction(
+                                doc->getBufferManager(),
+                                doc->getWaveformDisplay(),
+                                doc->getAudioEngine(),
+                                *beforeBuffer,
+                                startSample,
+                                numSamples,
+                                curveType
+                            );
+                            undoAction->markAsAlreadyPerformed();
+                            doc->getUndoManager().perform(undoAction);
+                            doc->setModified(true);
+
+                            // Update waveform display
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                        }
+                        else
+                        {
+                            // Cancelled: Restore buffer from snapshot
+                            auto& buf = doc->getBufferManager().getMutableBuffer();
+                            for (int ch = 0; ch < beforeBuffer->getNumChannels(); ++ch)
+                            {
+                                buf.copyFrom(ch, startSample, *beforeBuffer, ch, 0, numSamples);
+                            }
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                        }
+                    }
+                );
+            }
+            else
+            {
+                // SYNCHRONOUS PATH: Small operation - existing behavior
+                doc->getUndoManager().beginNewTransaction("Fade In");
+
+                auto* undoAction = new FadeInUndoAction(
+                    doc->getBufferManager(),
+                    doc->getWaveformDisplay(),
+                    doc->getAudioEngine(),
+                    *beforeBuffer,
+                    startSample,
+                    numSamples,
+                    curveType
+                );
+
+                doc->getUndoManager().perform(undoAction);
+                doc->setModified(true);
+            }
         });
 
         dialog.onCancel([&dialog]() {
@@ -5435,41 +5638,105 @@ public:
             int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
             int numSamples = endSample - startSample;
 
-            // Store before state for undo
+            // Store before state for undo (MUST happen before any processing)
             auto& buffer = doc->getBufferManager().getMutableBuffer();
-            juce::AudioBuffer<float> beforeBuffer;
-            beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+            auto beforeBuffer = std::make_shared<juce::AudioBuffer<float>>();
+            beforeBuffer->setSize(buffer.getNumChannels(), numSamples);
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
-                beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                beforeBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
             }
 
             // Get selected curve type from dialog
             FadeCurveType curveType = dialog.getSelectedCurveType();
 
-            // Start a new transaction
-            doc->getUndoManager().beginNewTransaction("Fade Out");
-
-            // Create undo action
-            auto* undoAction = new FadeOutUndoAction(
-                doc->getBufferManager(),
-                doc->getWaveformDisplay(),
-                doc->getAudioEngine(),
-                beforeBuffer,
-                startSample,
-                numSamples,
-                curveType
-            );
-
-            // Apply the fade
-            doc->getUndoManager().perform(undoAction);
-
-            // Mark as modified
-            doc->setModified(true);
-
-            // Close the dialog
+            // Close the dialog first (before potentially showing progress dialog)
             if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
                 window->exitModalState(1);
+
+            // Check if we need progress dialog for large operations
+            if (numSamples >= kProgressDialogThreshold)
+            {
+                // ASYNCHRONOUS PATH: Large operation - show progress dialog
+                // Create a working copy of the selection region for processing
+                auto regionBuffer = std::make_shared<juce::AudioBuffer<float>>();
+                regionBuffer->setSize(buffer.getNumChannels(), numSamples);
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                {
+                    regionBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                }
+
+                ProgressDialog::runWithProgress(
+                    "Fade Out",
+                    [regionBuffer, numSamples, curveType](ProgressCallback progress) -> bool {
+                        // Apply fade to the region copy (not the main buffer)
+                        return AudioProcessor::fadeOutWithProgress(*regionBuffer, numSamples, curveType, progress);
+                    },
+                    [doc, beforeBuffer, regionBuffer, startSample, numSamples, curveType](bool success) {
+                        if (success)
+                        {
+                            // Copy processed region back to main buffer at correct position
+                            auto& buf = doc->getBufferManager().getMutableBuffer();
+                            for (int ch = 0; ch < regionBuffer->getNumChannels(); ++ch)
+                            {
+                                buf.copyFrom(ch, startSample, *regionBuffer, ch, 0, numSamples);
+                            }
+
+                            // Register undo action (operation already applied)
+                            doc->getUndoManager().beginNewTransaction("Fade Out");
+                            auto* undoAction = new FadeOutUndoAction(
+                                doc->getBufferManager(),
+                                doc->getWaveformDisplay(),
+                                doc->getAudioEngine(),
+                                *beforeBuffer,
+                                startSample,
+                                numSamples,
+                                curveType
+                            );
+                            undoAction->markAsAlreadyPerformed();
+                            doc->getUndoManager().perform(undoAction);
+                            doc->setModified(true);
+
+                            // Update waveform display
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                        }
+                        else
+                        {
+                            // Cancelled: Restore buffer from snapshot
+                            auto& buf = doc->getBufferManager().getMutableBuffer();
+                            for (int ch = 0; ch < beforeBuffer->getNumChannels(); ++ch)
+                            {
+                                buf.copyFrom(ch, startSample, *beforeBuffer, ch, 0, numSamples);
+                            }
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                        }
+                    }
+                );
+            }
+            else
+            {
+                // SYNCHRONOUS PATH: Small operation - existing behavior
+                doc->getUndoManager().beginNewTransaction("Fade Out");
+
+                auto* undoAction = new FadeOutUndoAction(
+                    doc->getBufferManager(),
+                    doc->getWaveformDisplay(),
+                    doc->getAudioEngine(),
+                    *beforeBuffer,
+                    startSample,
+                    numSamples,
+                    curveType
+                );
+
+                doc->getUndoManager().perform(undoAction);
+                doc->setModified(true);
+            }
         });
 
         dialog.onCancel([&dialog]() {
@@ -5528,37 +5795,100 @@ public:
             int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
             int numSamples = endSample - startSample;
 
-            // Store before state for undo
+            // Store before state for undo (MUST happen before any processing)
             auto& buffer = doc->getBufferManager().getMutableBuffer();
-            juce::AudioBuffer<float> beforeBuffer;
-            beforeBuffer.setSize(buffer.getNumChannels(), numSamples);
+            auto beforeBuffer = std::make_shared<juce::AudioBuffer<float>>();
+            beforeBuffer->setSize(buffer.getNumChannels(), numSamples);
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
-                beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                beforeBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
             }
 
-            // Start transaction
-            doc->getUndoManager().beginNewTransaction("Remove DC Offset (selection)");
-
-            // Create undo action
-            auto* undoAction = new DCOffsetRemovalUndoAction(
-                doc->getBufferManager(),
-                doc->getWaveformDisplay(),
-                doc->getAudioEngine(),
-                beforeBuffer,
-                startSample,
-                numSamples
-            );
-
-            // Apply the operation
-            doc->getUndoManager().perform(undoAction);
-
-            // Mark as modified
-            doc->setModified(true);
-
-            // Close the dialog
+            // Close the dialog first (before potentially showing progress dialog)
             if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
                 window->exitModalState(1);
+
+            // Check if we need progress dialog for large operations
+            if (numSamples >= kProgressDialogThreshold)
+            {
+                // ASYNCHRONOUS PATH: Large operation - show progress dialog
+                // Create a working copy of the selection region for processing
+                auto regionBuffer = std::make_shared<juce::AudioBuffer<float>>();
+                regionBuffer->setSize(buffer.getNumChannels(), numSamples);
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                {
+                    regionBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                }
+
+                ProgressDialog::runWithProgress(
+                    "Remove DC Offset",
+                    [regionBuffer](ProgressCallback progress) -> bool {
+                        // Apply DC offset removal to the region copy (not the main buffer)
+                        return AudioProcessor::removeDCOffsetWithProgress(*regionBuffer, progress);
+                    },
+                    [doc, beforeBuffer, regionBuffer, startSample, numSamples](bool success) {
+                        if (success)
+                        {
+                            // Copy processed region back to main buffer at correct position
+                            auto& buf = doc->getBufferManager().getMutableBuffer();
+                            for (int ch = 0; ch < regionBuffer->getNumChannels(); ++ch)
+                            {
+                                buf.copyFrom(ch, startSample, *regionBuffer, ch, 0, numSamples);
+                            }
+
+                            // Register undo action (operation already applied)
+                            doc->getUndoManager().beginNewTransaction("Remove DC Offset (selection)");
+                            auto* undoAction = new DCOffsetRemovalUndoAction(
+                                doc->getBufferManager(),
+                                doc->getWaveformDisplay(),
+                                doc->getAudioEngine(),
+                                *beforeBuffer,
+                                startSample,
+                                numSamples
+                            );
+                            undoAction->markAsAlreadyPerformed();
+                            doc->getUndoManager().perform(undoAction);
+                            doc->setModified(true);
+
+                            // Update waveform display
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                        }
+                        else
+                        {
+                            // Cancelled: Restore buffer from snapshot
+                            auto& buf = doc->getBufferManager().getMutableBuffer();
+                            for (int ch = 0; ch < beforeBuffer->getNumChannels(); ++ch)
+                            {
+                                buf.copyFrom(ch, startSample, *beforeBuffer, ch, 0, numSamples);
+                            }
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                        }
+                    }
+                );
+            }
+            else
+            {
+                // SYNCHRONOUS PATH: Small operation - existing behavior
+                doc->getUndoManager().beginNewTransaction("Remove DC Offset (selection)");
+
+                auto* undoAction = new DCOffsetRemovalUndoAction(
+                    doc->getBufferManager(),
+                    doc->getWaveformDisplay(),
+                    doc->getAudioEngine(),
+                    *beforeBuffer,
+                    startSample,
+                    numSamples
+                );
+
+                doc->getUndoManager().perform(undoAction);
+                doc->setModified(true);
+            }
         });
 
         dialog.onCancel([&dialog]() {
@@ -5840,8 +6170,22 @@ public:
             m_beforeBuffer.makeCopyOf(beforeBuffer, true);
         }
 
+        /**
+         * Mark this action as already performed.
+         * Used when the DSP operation was done by a progress-enabled method
+         * before registering with the undo system.
+         */
+        void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
+
         bool perform() override
         {
+            // If already performed (by progress dialog), skip the DSP operation
+            if (m_alreadyPerformed)
+            {
+                m_alreadyPerformed = false; // Reset for redo
+                return true;
+            }
+
             // Check playback state before applying gain
             bool wasPlaying = m_audioEngine.isPlaying();
             double positionBeforeEdit = m_audioEngine.getCurrentPosition();
@@ -5908,6 +6252,7 @@ public:
         int m_numSamples;
         float m_gainDB;
         bool m_isSelection;
+        bool m_alreadyPerformed = false;  // For progress dialog integration
     };
 
     //==============================================================================
@@ -6424,8 +6769,16 @@ public:
             m_beforeBuffer.makeCopyOf(beforeBuffer, true);
         }
 
+        void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
+
         bool perform() override
         {
+            if (m_alreadyPerformed)
+            {
+                m_alreadyPerformed = false;
+                return true;
+            }
+
             // Get the buffer and create a region buffer for fade in
             auto& buffer = m_bufferManager.getMutableBuffer();
 
@@ -6491,6 +6844,7 @@ public:
         int m_startSample;
         int m_numSamples;
         FadeCurveType m_curveType;
+        bool m_alreadyPerformed = false;
     };
 
     /**
@@ -6520,8 +6874,16 @@ public:
             m_beforeBuffer.makeCopyOf(beforeBuffer, true);
         }
 
+        void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
+
         bool perform() override
         {
+            if (m_alreadyPerformed)
+            {
+                m_alreadyPerformed = false;
+                return true;
+            }
+
             // Get the buffer and create a region buffer for fade out
             auto& buffer = m_bufferManager.getMutableBuffer();
 
@@ -6587,6 +6949,7 @@ public:
         int m_startSample;
         int m_numSamples;
         FadeCurveType m_curveType;
+        bool m_alreadyPerformed = false;
     };
 
     /**
@@ -6780,8 +7143,16 @@ public:
             m_beforeBuffer.makeCopyOf(beforeBuffer, true);
         }
 
+        void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
+
         bool perform() override
         {
+            if (m_alreadyPerformed)
+            {
+                m_alreadyPerformed = false;
+                return true;
+            }
+
             auto& buffer = m_bufferManager.getMutableBuffer();
 
             // Extract the region to process
@@ -6853,6 +7224,7 @@ public:
         juce::AudioBuffer<float> m_beforeBuffer;
         int m_startSample;
         int m_numSamples;
+        bool m_alreadyPerformed = false;
     };
 
     //==============================================================================

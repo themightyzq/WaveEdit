@@ -425,3 +425,372 @@ int AudioProcessor::clampToValidRange(juce::AudioBuffer<float>& buffer)
 
     return clippedSamples;
 }
+
+//==============================================================================
+// Progress-Enabled Operations
+
+bool AudioProcessor::applyGainWithProgress(juce::AudioBuffer<float>& buffer, float gainDB,
+                                           int startSample, int numSamples,
+                                           const ProgressCallback& progress)
+{
+    // Validate buffer
+    if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+    {
+        return false;
+    }
+
+    // Determine actual range
+    int actualNumSamples = numSamples;
+    if (actualNumSamples < 0 || startSample + actualNumSamples > buffer.getNumSamples())
+    {
+        actualNumSamples = buffer.getNumSamples() - startSample;
+    }
+
+    // Validate range
+    if (startSample < 0 || startSample >= buffer.getNumSamples() || actualNumSamples <= 0)
+    {
+        return false;
+    }
+
+    // Convert dB to linear gain
+    float linearGain = dBToLinear(gainDB);
+
+    // Process in chunks with progress reporting
+    const int chunkSize = 4096;
+    int processed = 0;
+
+    while (processed < actualNumSamples)
+    {
+        // Calculate chunk boundaries
+        int chunkStart = startSample + processed;
+        int chunkSamples = std::min(chunkSize, actualNumSamples - processed);
+
+        // Apply gain to this chunk across all channels
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            buffer.applyGain(ch, chunkStart, chunkSamples, linearGain);
+        }
+
+        processed += chunkSamples;
+
+        // Report progress
+        float progressValue = static_cast<float>(processed) / static_cast<float>(actualNumSamples);
+        if (!progress(progressValue, "Applying gain..."))
+        {
+            // Cancelled - operation is partially complete
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool AudioProcessor::normalizeWithProgress(juce::AudioBuffer<float>& buffer, float targetDB,
+                                           int startSample, int numSamples,
+                                           const ProgressCallback& progress)
+{
+    // Validate buffer
+    if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+    {
+        return false;
+    }
+
+    // Validate target level
+    if (targetDB > 0.0f || targetDB < -60.0f)
+    {
+        return false;
+    }
+
+    // Determine actual range
+    int actualNumSamples = numSamples;
+    if (actualNumSamples < 0 || startSample + actualNumSamples > buffer.getNumSamples())
+    {
+        actualNumSamples = buffer.getNumSamples() - startSample;
+    }
+
+    // Validate range
+    if (startSample < 0 || startSample >= buffer.getNumSamples() || actualNumSamples <= 0)
+    {
+        return false;
+    }
+
+    // Phase 1: Find peak (50% of progress)
+    float peak = 0.0f;
+    const int chunkSize = 4096;
+    int processed = 0;
+
+    while (processed < actualNumSamples)
+    {
+        int chunkStart = startSample + processed;
+        int chunkSamples = std::min(chunkSize, actualNumSamples - processed);
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            float channelPeak = buffer.getMagnitude(ch, chunkStart, chunkSamples);
+            peak = std::max(peak, channelPeak);
+        }
+
+        processed += chunkSamples;
+
+        // Report progress (0-50% for peak finding)
+        float progressValue = 0.5f * static_cast<float>(processed) / static_cast<float>(actualNumSamples);
+        if (!progress(progressValue, "Analyzing peak levels..."))
+        {
+            return false;
+        }
+    }
+
+    // Check if buffer is silent
+    if (peak < 1e-6f)
+    {
+        return false;
+    }
+
+    // Calculate required gain
+    float targetLinear = dBToLinear(targetDB);
+    float requiredGain = targetLinear / peak;
+
+    // Phase 2: Apply gain (50-100% of progress)
+    processed = 0;
+
+    while (processed < actualNumSamples)
+    {
+        int chunkStart = startSample + processed;
+        int chunkSamples = std::min(chunkSize, actualNumSamples - processed);
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            buffer.applyGain(ch, chunkStart, chunkSamples, requiredGain);
+        }
+
+        processed += chunkSamples;
+
+        // Report progress (50-100% for gain application)
+        float progressValue = 0.5f + 0.5f * static_cast<float>(processed) / static_cast<float>(actualNumSamples);
+        if (!progress(progressValue, "Normalizing audio..."))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool AudioProcessor::fadeInWithProgress(juce::AudioBuffer<float>& buffer, int numSamples,
+                                        FadeCurveType curve, const ProgressCallback& progress)
+{
+    // Validate buffer
+    if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+    {
+        return false;
+    }
+
+    // Use entire buffer if numSamples not specified or out of range
+    int fadeSamples = numSamples;
+    if (fadeSamples <= 0 || fadeSamples > buffer.getNumSamples())
+    {
+        fadeSamples = buffer.getNumSamples();
+    }
+
+    // Process in chunks with progress reporting
+    const int chunkSize = 4096;
+    int processed = 0;
+
+    while (processed < fadeSamples)
+    {
+        int chunkStart = processed;
+        int chunkSamples = std::min(chunkSize, fadeSamples - processed);
+
+        // Apply fade to this chunk across all channels
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            float* channelData = buffer.getWritePointer(ch);
+
+            for (int i = chunkStart; i < chunkStart + chunkSamples; ++i)
+            {
+                float normalizedPosition = static_cast<float>(i) / static_cast<float>(fadeSamples);
+                float gain = 0.0f;
+
+                switch (curve)
+                {
+                    case FadeCurveType::LINEAR:
+                        gain = normalizedPosition;
+                        break;
+                    case FadeCurveType::EXPONENTIAL:
+                        gain = normalizedPosition * normalizedPosition;
+                        break;
+                    case FadeCurveType::LOGARITHMIC:
+                        gain = 1.0f - (1.0f - normalizedPosition) * (1.0f - normalizedPosition);
+                        break;
+                    case FadeCurveType::S_CURVE:
+                        gain = normalizedPosition * normalizedPosition * (3.0f - 2.0f * normalizedPosition);
+                        break;
+                }
+
+                channelData[i] *= gain;
+            }
+        }
+
+        processed += chunkSamples;
+
+        // Report progress
+        float progressValue = static_cast<float>(processed) / static_cast<float>(fadeSamples);
+        if (!progress(progressValue, "Applying fade in..."))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool AudioProcessor::fadeOutWithProgress(juce::AudioBuffer<float>& buffer, int numSamples,
+                                         FadeCurveType curve, const ProgressCallback& progress)
+{
+    // Validate buffer
+    if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+    {
+        return false;
+    }
+
+    // Use entire buffer if numSamples not specified or out of range
+    int fadeSamples = numSamples;
+    if (fadeSamples <= 0 || fadeSamples > buffer.getNumSamples())
+    {
+        fadeSamples = buffer.getNumSamples();
+    }
+
+    // Calculate start position (fade from end backwards)
+    int startSample = buffer.getNumSamples() - fadeSamples;
+
+    // Process in chunks with progress reporting
+    const int chunkSize = 4096;
+    int processed = 0;
+
+    while (processed < fadeSamples)
+    {
+        int chunkOffset = processed;
+        int chunkSamples = std::min(chunkSize, fadeSamples - processed);
+
+        // Apply fade to this chunk across all channels
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            float* channelData = buffer.getWritePointer(ch);
+
+            for (int i = 0; i < chunkSamples; ++i)
+            {
+                int sampleIndex = startSample + chunkOffset + i;
+                float normalizedPosition = static_cast<float>(chunkOffset + i) / static_cast<float>(fadeSamples);
+                float gain = 0.0f;
+
+                switch (curve)
+                {
+                    case FadeCurveType::LINEAR:
+                        gain = 1.0f - normalizedPosition;
+                        break;
+                    case FadeCurveType::EXPONENTIAL:
+                        gain = (1.0f - normalizedPosition) * (1.0f - normalizedPosition);
+                        break;
+                    case FadeCurveType::LOGARITHMIC:
+                        gain = 1.0f - normalizedPosition * normalizedPosition;
+                        break;
+                    case FadeCurveType::S_CURVE:
+                    {
+                        float invPos = 1.0f - normalizedPosition;
+                        gain = invPos * invPos * (3.0f - 2.0f * invPos);
+                        break;
+                    }
+                }
+
+                channelData[sampleIndex] *= gain;
+            }
+        }
+
+        processed += chunkSamples;
+
+        // Report progress
+        float progressValue = static_cast<float>(processed) / static_cast<float>(fadeSamples);
+        if (!progress(progressValue, "Applying fade out..."))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool AudioProcessor::removeDCOffsetWithProgress(juce::AudioBuffer<float>& buffer,
+                                                const ProgressCallback& progress)
+{
+    // Validate buffer
+    if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+    {
+        return false;
+    }
+
+    int numSamples = buffer.getNumSamples();
+    int numChannels = buffer.getNumChannels();
+    const int chunkSize = 4096;
+
+    // Phase 1: Calculate DC offset for each channel (50% of progress)
+    std::vector<double> dcOffsets(static_cast<size_t>(numChannels), 0.0);
+
+    int processed = 0;
+    while (processed < numSamples)
+    {
+        int chunkSamples = std::min(chunkSize, numSamples - processed);
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            const float* channelData = buffer.getReadPointer(ch);
+            for (int i = processed; i < processed + chunkSamples; ++i)
+            {
+                dcOffsets[static_cast<size_t>(ch)] += channelData[i];
+            }
+        }
+
+        processed += chunkSamples;
+
+        // Report progress (0-50% for analysis)
+        float progressValue = 0.5f * static_cast<float>(processed) / static_cast<float>(numSamples);
+        if (!progress(progressValue, "Analyzing DC offset..."))
+        {
+            return false;
+        }
+    }
+
+    // Calculate average DC offset per channel
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        dcOffsets[static_cast<size_t>(ch)] /= numSamples;
+    }
+
+    // Phase 2: Remove DC offset (50-100% of progress)
+    processed = 0;
+    while (processed < numSamples)
+    {
+        int chunkSamples = std::min(chunkSize, numSamples - processed);
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            float* channelData = buffer.getWritePointer(ch);
+            float offset = static_cast<float>(dcOffsets[static_cast<size_t>(ch)]);
+
+            for (int i = processed; i < processed + chunkSamples; ++i)
+            {
+                channelData[i] -= offset;
+            }
+        }
+
+        processed += chunkSamples;
+
+        // Report progress (50-100% for removal)
+        float progressValue = 0.5f + 0.5f * static_cast<float>(processed) / static_cast<float>(numSamples);
+        if (!progress(progressValue, "Removing DC offset..."))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
