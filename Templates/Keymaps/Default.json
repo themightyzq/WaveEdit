@@ -40,6 +40,19 @@
         "cmd"
       ]
     },
+    "fileNew": {
+      "key": "N",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "fileEditBWFMetadata": {
+      "key": "B",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
     "editUndo": {
       "key": "Z",
       "modifiers": [
@@ -111,6 +124,13 @@
       "key": "R",
       "modifiers": [
         "cmd"
+      ]
+    },
+    "playbackLoopRegion": {
+      "key": "L",
+      "modifiers": [
+        "cmd",
+        "shift"
       ]
     },
     "viewZoomIn": {

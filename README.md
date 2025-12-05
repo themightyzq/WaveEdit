@@ -254,11 +254,13 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 ### File Operations
 | Action | Shortcut |
 |--------|----------|
+| New File | `Cmd+N` |
 | Open File | `Cmd+O` |
 | Save | `Cmd+S` |
 | Save As | `Cmd+Shift+S` |
 | Close Window | `Cmd+W` |
 | File Properties | `Cmd+Enter` |
+| Edit BWF Metadata | `Cmd+Alt+B` |
 | Preferences | `Cmd+,` |
 
 ### Navigation
@@ -293,8 +295,10 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 |--------|----------|
 | Play/Stop | `Space` |
 | Play/Pause | `Enter` |
-| Toggle Loop | `Q` |
+| Toggle Loop | `L` |
+| Loop Region | `Cmd+Shift+L` |
 | Record | `Cmd+R` |
+| Auto-scroll | `Cmd+Shift+F` |
 
 ### Processing
 | Action | Shortcut |
@@ -311,14 +315,31 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 ### Regions
 | Action | Shortcut |
 |--------|----------|
-| Region List Panel | `Cmd+Shift+M` |
-| Batch Rename | `Cmd+Shift+N` |
-| Batch Export | `Cmd+Shift+E` |
+| Add Region | `R` |
+| Region List Panel | `Cmd+Shift+R` |
+| Batch Rename | `Cmd+Shift+B` |
+| Batch Export | `Cmd+Alt+R` |
 | Merge Regions | `Cmd+J` |
-| Split Region | `Cmd+T` |
-| Copy Regions | `Cmd+Shift+C` |
-| Paste Regions | `Cmd+Shift+V` |
+| Split Region | `Cmd+K` |
+| Copy Regions | `Cmd+Alt+C` |
+| Paste Regions | `Cmd+Alt+V` |
 | Edit Boundaries | Right-click → Edit Boundaries |
+
+### Markers
+| Action | Shortcut |
+|--------|----------|
+| Add Marker | `M` |
+| Marker List Panel | `Cmd+Shift+K` |
+| Next Marker | `Shift+]` |
+| Previous Marker | `Shift+[` |
+
+### Tabs
+| Action | Shortcut |
+|--------|----------|
+| Next Tab | `Ctrl+Tab` |
+| Previous Tab | `Ctrl+Shift+Tab` |
+| Close Tab | `Cmd+W` |
+| Select Tab 1-9 | `Cmd+1` to `Cmd+9` |
 
 > **Note**: `Cmd` key on macOS = `Ctrl` key on Windows/Linux
 
