@@ -158,6 +158,20 @@ namespace CommandIDs
         markerDelete    = 0xC001,  // Cmd+Shift+Delete (when marker selected) - Delete selected marker
         markerNext      = 0xC002,  // Shift+] - Jump to next marker
         markerPrevious  = 0xC003,  // Shift+[ - Jump to previous marker
-        markerShowList  = 0xC004   // Cmd+Shift+K - Show/hide Marker List Panel (moved from Cmd+M to avoid macOS Minimize Window conflict)
+        markerShowList  = 0xC004,  // Cmd+Shift+K - Show/hide Marker List Panel (moved from Cmd+M to avoid macOS Minimize Window conflict)
+
+        // Plugin Operations (0xD000 - 0xD0FF) - VST3/AU plugin chain support
+        pluginShowChain     = 0xD000,  // Cmd+Shift+P - Show Plugin Chain panel
+        pluginAddPlugin     = 0xD001,  // Cmd+Alt+P - Open Plugin Manager dialog
+        pluginApplyChain    = 0xD002,  // Cmd+P - Apply chain to selection (offline render)
+        pluginBypassAll     = 0xD003,  // Cmd+B - Bypass all plugins in chain
+        pluginRescan        = 0xD004,  // Rescan VST3/AU plugins
+        pluginShowSettings  = 0xD005,  // Plugin scan path settings
+        pluginClearCache    = 0xD006,  // Clear plugin cache and rescan
+        pluginOffline       = 0xD007,  // Cmd+Shift+O - Apply single plugin offline
+
+        // Toolbar Operations (0xE000 - 0xE0FF)
+        toolbarCustomize    = 0xE000,  // Customize toolbar layout dialog
+        toolbarReset        = 0xE001   // Reset toolbar to default layout
     };
 }

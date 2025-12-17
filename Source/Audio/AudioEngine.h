@@ -21,6 +21,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include "../DSP/ParametricEQ.h"
+#include "../Plugins/PluginChain.h"
 
 /**
  * Playback state enumeration for the audio engine.
@@ -378,6 +379,52 @@ public:
      */
     bool isParametricEQEnabled() const { return m_parametricEQEnabled.get(); }
 
+    //==============================================================================
+    // Plugin Chain Support
+
+    /**
+     * Gets the plugin chain for this audio engine.
+     * The plugin chain can be used to add VST3/AU effect plugins to the signal path.
+     *
+     * @return Reference to the plugin chain
+     */
+    PluginChain& getPluginChain() { return m_pluginChain; }
+    const PluginChain& getPluginChain() const { return m_pluginChain; }
+
+    /**
+     * Enables or disables plugin chain processing during playback.
+     * Thread-safe, can be called from UI thread.
+     *
+     * @param enabled true to enable plugin processing, false to bypass
+     */
+    void setPluginChainEnabled(bool enabled) { m_pluginChainEnabled.store(enabled); }
+
+    /**
+     * Gets the plugin chain enabled state.
+     *
+     * @return true if plugin chain processing is enabled
+     */
+    bool isPluginChainEnabled() const { return m_pluginChainEnabled.load(); }
+
+    /**
+     * Sets a single preview plugin instance for real-time offline plugin preview.
+     * This is used by OfflinePluginDialog to enable real-time preview with
+     * plugin visualization (e.g., FabFilter Pro-Q 4 spectrum display).
+     *
+     * The plugin instance is NOT owned by AudioEngine - caller maintains ownership.
+     * Thread-safe, can be called from UI thread.
+     *
+     * @param instance Pointer to the plugin instance, or nullptr to clear
+     */
+    void setPreviewPluginInstance(juce::AudioPluginInstance* instance);
+
+    /**
+     * Gets the current preview plugin instance.
+     *
+     * @return Pointer to the preview plugin instance, or nullptr if none set
+     */
+    juce::AudioPluginInstance* getPreviewPluginInstance() const { return m_previewPluginInstance.load(); }
+
     /**
      * Mutes/unmutes this audio engine's output.
      * Used to prevent audio mixing when another document is previewing.
@@ -729,8 +776,17 @@ private:
     juce::Atomic<bool> m_parametricEQParamsChanged{false};
     ParametricEQ::Parameters m_pendingParametricEQParams;  // Written from message thread
 
+    // VST3/AU Plugin Chain for real-time effects processing
+    PluginChain m_pluginChain;
+    std::atomic<bool> m_pluginChainEnabled{false};
+    juce::MidiBuffer m_emptyMidiBuffer;  // Empty MIDI buffer for processBlock (effects-only)
+
     // Mute flag to prevent audio output during other document's preview
     std::atomic<bool> m_isMuted{false};
+
+    // Preview plugin instance for OfflinePluginDialog real-time preview
+    // NOT owned by AudioEngine - caller maintains ownership
+    std::atomic<juce::AudioPluginInstance*> m_previewPluginInstance{nullptr};
 
     // Preview selection offset for accurate cursor positioning
     std::atomic<int64_t> m_previewSelectionStartSamples{0};

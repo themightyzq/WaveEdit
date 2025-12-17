@@ -572,6 +572,19 @@
       "modifiers": [
         "cmd"
       ]
+    },
+    "pluginShowChain": {
+      "key": "P",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "pluginApplyChain": {
+      "key": "P",
+      "modifiers": [
+        "cmd"
+      ]
     }
   }
 }

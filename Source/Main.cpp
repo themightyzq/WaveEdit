@@ -57,11 +57,25 @@
 #include "UI/SpectrumAnalyzer.h"
 #include "UI/TabComponent.h"
 #include "UI/KeyboardCheatSheetDialog.h"
+#include "UI/PluginManagerDialog.h"
+#include "UI/OfflinePluginDialog.h"
+#include "UI/PluginChainPanel.h"
+#include "UI/PluginChainWindow.h"
+#include "UI/PluginEditorWindow.h"
+#include "Plugins/PluginManager.h"
+#include "Plugins/PluginScannerProtocol.h"
+#include "Plugins/PluginScannerWorker.h"
+#include "Plugins/PluginPathsPanel.h"
+#include "Plugins/PluginScanDialogs.h"
+#include "Plugins/PluginChainRenderer.h"
 #include "UI/ProgressDialog.h"
 #include "Utils/Document.h"
 #include "Utils/DocumentManager.h"
 #include "Utils/RegionExporter.h"
 #include "Utils/KeymapManager.h"
+#include "Utils/ToolbarManager.h"
+#include "UI/CustomizableToolbar.h"
+#include "UI/ToolbarCustomizationDialog.h"
 
 //==============================================================================
 // Progress Dialog Threshold
@@ -352,8 +366,135 @@ public:
             m_keymapManager.loadTemplate("Default");
         }
 
+        // Initialize customizable toolbar
+        m_toolbar = std::make_unique<CustomizableToolbar>(m_commandManager, m_toolbarManager);
+        addAndMakeVisible(*m_toolbar);
+
         // Update component visibility based on whether we have documents
         updateComponentVisibility();
+
+        // Plugin scan logic:
+        // - Plugin scanning is DISABLED at startup for fast, reliable startup
+        // - User can manually trigger scan from Plugins menu when ready
+        // - Some Apple system AudioUnits hang during scanning, so on-demand scanning is safer
+        // - Cached plugins from previous scans are still loaded automatically
+
+        // NOTE: Removed showCrashedPluginWarningIfNeeded() - it caused infinite modal dialog loops
+        // when combined with Timer::callAfterDelay. Users can check blacklist from Plugins menu.
+
+        auto cachedPlugins = PluginManager::getInstance().getAvailablePlugins();
+        if (cachedPlugins.isEmpty())
+        {
+            // First run (no cached plugins) - ask user if they want to scan
+            DBG("No cached plugins found - showing first-run dialog");
+
+            // Use async dialog to avoid blocking the message thread during startup
+            juce::Timer::callAfterDelay(500, [safeThis = juce::Component::SafePointer<MainComponent>(this)]()
+            {
+                if (safeThis == nullptr)
+                    return;
+
+                juce::NativeMessageBox::showYesNoBox(
+                    juce::MessageBoxIconType::QuestionIcon,
+                    "Scan for VST3 Plugins?",
+                    "WaveEdit can scan your system for VST3 plugins.\n\n"
+                    "This allows you to apply effects to your audio files.\n\n"
+                    "Would you like to scan for plugins now?\n\n"
+                    "(You can also do this later from Plugins > Rescan Plugins)",
+                    nullptr,
+                    juce::ModalCallbackFunction::create([safeThis](int result)
+                    {
+                        if (safeThis != nullptr && result == 1)  // Yes
+                        {
+                            safeThis->startPluginScan(false);
+                        }
+                    })
+                );
+            });
+        }
+        else
+        {
+            DBG("Found " + juce::String(cachedPlugins.size()) + " cached plugins");
+        }
+    }
+
+    // NOTE: showCrashedPluginWarningIfNeeded() was removed entirely.
+    // It caused infinite modal dialog loops via Timer::callAfterDelay + NativeMessageBox.
+    // Users can check the blacklist from the Plugins menu if needed.
+
+    /**
+     * Start background VST3 plugin scanning.
+     * Updates status bar with progress.
+     * @param forceRescan If true, clears cached plugins and rescans from scratch
+     */
+    void startPluginScan(bool forceRescan = false)
+    {
+        auto& pluginManager = PluginManager::getInstance();
+
+        // Skip if already scanning
+        if (pluginManager.isScanInProgress())
+            return;
+
+        m_pluginScanInProgress = true;
+        m_pluginScanProgress = 0.0f;
+        m_pluginScanCurrentPlugin = "Initializing...";
+        repaint();
+
+        // Use appropriate scan method based on forceRescan flag
+        auto progressCallback = [this](float progress, const juce::String& currentPlugin)
+        {
+            juce::MessageManager::callAsync([this, progress, currentPlugin]()
+            {
+                m_pluginScanProgress = progress;
+                m_pluginScanCurrentPlugin = currentPlugin;
+                repaint();  // Refresh status bar
+            });
+        };
+
+        auto completionCallback = [this](bool success, int numPluginsFound)
+        {
+            juce::MessageManager::callAsync([this, success, numPluginsFound]()
+            {
+                m_pluginScanInProgress = false;
+                m_pluginScanProgress = 1.0f;
+
+                // Show completion status in status bar briefly
+                if (success)
+                {
+                    m_pluginScanCurrentPlugin = "Complete: " + juce::String(numPluginsFound) + " plugins found";
+                    DBG("Plugin scan complete: found " + juce::String(numPluginsFound) + " plugins");
+                }
+                else
+                {
+                    m_pluginScanCurrentPlugin = "Scan cancelled or failed";
+                    DBG("Plugin scan failed or was cancelled");
+                }
+
+                repaint();
+
+                // NOTE: Removed showCrashedPluginWarningIfNeeded() - caused infinite dialog loops
+
+                // Clear the completion message after a few seconds
+                // Use SafePointer to prevent use-after-free if component is destroyed
+                juce::Timer::callAfterDelay(3000, [safeThis = juce::Component::SafePointer<MainComponent>(this)]()
+                {
+                    if (safeThis != nullptr && !safeThis->m_pluginScanInProgress)
+                    {
+                        safeThis->m_pluginScanCurrentPlugin = "";
+                        safeThis->repaint();
+                    }
+                });
+            });
+        };
+
+        if (forceRescan)
+        {
+            pluginManager.forceRescan(progressCallback, completionCallback);
+        }
+        else
+        {
+            pluginManager.startScanAsync(progressCallback, completionCallback);
+        }
     }
 
     ~MainComponent() override
@@ -431,6 +572,12 @@ public:
 
         // Update tracking
         m_previousDocument = newDocument;
+
+        // Update customizable toolbar with new document context
+        if (m_toolbar)
+        {
+            m_toolbar->setDocument(newDocument);
+        }
 
         // Update window title to reflect new document
         updateWindowTitle();
@@ -1021,6 +1168,43 @@ public:
         g.setColour(juce::Colour(0xff3a3a3a));
         g.drawLine(statusBar.getX(), statusBar.getY(), statusBar.getRight(), statusBar.getY(), 1.0f);
 
+        // Plugin scan progress indicator (displayed on the right side when scanning)
+        if (m_pluginScanInProgress)
+        {
+            auto scanSection = statusBar.removeFromRight(300);
+
+            // Progress bar background
+            auto progressBarBounds = scanSection.reduced(8, 6);
+            g.setColour(juce::Colour(0xff1a1a1a));
+            g.fillRoundedRectangle(progressBarBounds.toFloat(), 3.0f);
+
+            // Progress bar fill
+            auto fillBounds = progressBarBounds;
+            fillBounds.setWidth(static_cast<int>(progressBarBounds.getWidth() * m_pluginScanProgress));
+            g.setColour(juce::Colour(0xff4a9eff));  // Blue progress color
+            g.fillRoundedRectangle(fillBounds.toFloat(), 3.0f);
+
+            // Progress bar border
+            g.setColour(juce::Colour(0xff4a4a4a));
+            g.drawRoundedRectangle(progressBarBounds.toFloat(), 3.0f, 1.0f);
+
+            // Scan text overlay
+            g.setColour(juce::Colours::white);
+            g.setFont(10.0f);
+            juce::String scanText = "Scanning: " + m_pluginScanCurrentPlugin;
+            if (scanText.length() > 40)
+                scanText = scanText.substring(0, 37) + "...";
+            g.drawText(scanText, progressBarBounds.reduced(4, 0), juce::Justification::centred, true);
+        }
+        else if (m_pluginScanCurrentPlugin.isNotEmpty())
+        {
+            // Show completion message briefly after scan finishes
+            auto scanSection = statusBar.removeFromRight(250);
+            g.setColour(juce::Colours::lightgreen);
+            g.setFont(11.0f);
+            g.drawText(m_pluginScanCurrentPlugin, scanSection.reduced(8, 0), juce::Justification::centredRight, true);
+        }
+
         // Status bar text - adapt based on document state
         if (doc && doc->getAudioEngine().isFileLoaded())
         {
@@ -1172,6 +1356,11 @@ public:
             // Tab bar at top (32px height)
             m_tabComponent.setBounds(bounds.removeFromTop(32));
 
+            // Customizable toolbar below tabs (36px height, replaces 80px transport)
+            // Note: m_toolbar may be null during initial construction when setSize triggers resized()
+            if (m_toolbar)
+                m_toolbar->setBounds(bounds.removeFromTop(m_toolbar->getPreferredHeight()));
+
             // Current document container takes remaining space
             m_currentDocumentContainer->setBounds(bounds);
 
@@ -1180,22 +1369,29 @@ public:
             {
                 auto containerBounds = m_currentDocumentContainer->getLocalBounds();
 
-                // Transport controls at top (80px height)
-                doc->getTransportControls().setBounds(containerBounds.removeFromTop(80));
+                // NOTE: Transport controls are now in the toolbar, not here
+                // The old 80px TransportControls is still part of Document but not displayed
+                // We hide it to avoid confusion (transport is now in toolbar)
+                doc->getTransportControls().setVisible(false);
 
-                // Region display below transport (32px height)
+                // Region display at top of container (32px height)
                 doc->getRegionDisplay().setBounds(containerBounds.removeFromTop(32));
 
                 // Marker display below regions (32px height) - Phase 3.4
                 doc->getMarkerDisplay().setBounds(containerBounds.removeFromTop(32));
 
                 // Waveform display takes remaining space
-                // Future: Add SelectionInfoPanel and Meters components
+                // Height gained: 80px (old transport) - 36px (new toolbar) = 44px more for waveform!
                 doc->getWaveformDisplay().setBounds(containerBounds);
             }
         }
         else
         {
+            // Hide toolbar when no document is open
+            // Note: m_toolbar may be null during initial construction
+            if (m_toolbar)
+                m_toolbar->setBounds(0, 0, 0, 0);
+
             // Center the no-file label
             m_noFileLabel.setBounds(bounds);
         }
@@ -1383,9 +1579,20 @@ public:
             CommandIDs::markerNext,
             CommandIDs::markerPrevious,
             CommandIDs::markerShowList,
+            // Plugin commands (VST3/AU plugin chain)
+            CommandIDs::pluginShowChain,
+            CommandIDs::pluginApplyChain,
+            CommandIDs::pluginOffline,
+            CommandIDs::pluginBypassAll,
+            CommandIDs::pluginRescan,
+            CommandIDs::pluginShowSettings,
+            CommandIDs::pluginClearCache,
             // Help commands
             CommandIDs::helpAbout,
-            CommandIDs::helpShortcuts
+            CommandIDs::helpShortcuts,
+            // Toolbar commands
+            CommandIDs::toolbarCustomize,
+            CommandIDs::toolbarReset
         };
 
         commands.addArray(ids, juce::numElementsInArray(ids));
@@ -2198,6 +2405,67 @@ public:
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Cmd+/ = help (common standard)
                 result.setActive(true);
+                break;
+
+            //==============================================================================
+            // Plugin commands (VST3/AU plugin chain)
+            case CommandIDs::pluginShowChain:
+                result.setInfo("Show Plugin Chain", "Show the plugin chain panel", "Plugins", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::pluginApplyChain:
+                result.setInfo("Apply Plugin Chain", "Apply plugin chain to selection (offline)", "Plugins", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                !doc->getAudioEngine().getPluginChain().isEmpty());
+                break;
+
+            case CommandIDs::pluginOffline:
+                result.setInfo("Offline Plugin...", "Apply a single plugin to selection", "Plugins", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                else
+                    result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                !PluginManager::getInstance().getAvailablePlugins().isEmpty());
+                break;
+
+            case CommandIDs::pluginBypassAll:
+                result.setInfo("Bypass All Plugins", "Bypass/enable all plugins in chain", "Plugins", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && !doc->getAudioEngine().getPluginChain().isEmpty());
+                result.setTicked(doc && doc->getAudioEngine().getPluginChain().areAllBypassed());
+                break;
+
+            case CommandIDs::pluginRescan:
+                result.setInfo("Rescan Plugins", "Rescan for VST3/AU plugins", "Plugins", 0);
+                result.setActive(!PluginManager::getInstance().isScanInProgress());
+                break;
+
+            case CommandIDs::pluginShowSettings:
+                result.setInfo("Plugin Search Paths...", "Configure VST3 plugin search directories", "Plugins", 0);
+                break;
+
+            case CommandIDs::pluginClearCache:
+                result.setInfo("Clear Cache & Rescan", "Delete plugin cache and perform full rescan", "Plugins", 0);
+                result.setActive(!PluginManager::getInstance().isScanInProgress());
+                break;
+
+            //==============================================================================
+            // Toolbar commands
+            case CommandIDs::toolbarCustomize:
+                result.setInfo("Customize Toolbar...", "Customize toolbar layout and buttons", "View", 0);
+                result.setActive(true);  // Always available
+                break;
+
+            case CommandIDs::toolbarReset:
+                result.setInfo("Reset Toolbar", "Reset toolbar to default layout", "View", 0);
+                result.setActive(true);  // Always available
                 break;
 
             default:
@@ -3315,6 +3583,88 @@ public:
                 showKeyboardShortcutsDialog();
                 return true;
 
+            //==============================================================================
+            // Plugin commands (VST3/AU plugin chain)
+            case CommandIDs::pluginShowChain:
+                showPluginChainPanel();
+                return true;
+
+            case CommandIDs::pluginApplyChain:
+                if (!doc) return false;
+                applyPluginChainToSelection();
+                return true;
+
+            case CommandIDs::pluginOffline:
+                if (!doc) return false;
+                showOfflinePluginDialog();
+                return true;
+
+            case CommandIDs::pluginBypassAll:
+                if (!doc) return false;
+                {
+                    auto& chain = doc->getAudioEngine().getPluginChain();
+                    chain.setAllBypassed(!chain.areAllBypassed());
+                }
+                return true;
+
+            case CommandIDs::pluginRescan:
+                // Use startPluginScan() to get progress bar in status bar
+                startPluginScan(true);  // true = force rescan
+                return true;
+
+            case CommandIDs::pluginShowSettings:
+                PluginPathsPanel::showDialog();
+                return true;
+
+            case CommandIDs::pluginClearCache:
+            {
+                // Ask user for confirmation before clearing cache
+                auto result = juce::AlertWindow::showOkCancelBox(
+                    juce::AlertWindow::QuestionIcon,
+                    "Clear Plugin Cache",
+                    "This will delete all cached plugin data and perform a fresh scan.\n\n"
+                    "This is useful if:\n"
+                    "- You've installed or removed plugins\n"
+                    "- A plugin is not showing up\n"
+                    "- You want to fix scan-related issues\n\n"
+                    "Continue?",
+                    "Clear & Rescan",
+                    "Cancel"
+                );
+
+                if (result)
+                {
+                    PluginManager::getInstance().clearCache();
+                    startPluginScan(true);  // Force rescan after clearing
+                }
+                return true;
+            }
+
+            //==============================================================================
+            // Toolbar commands
+            case CommandIDs::toolbarCustomize:
+            {
+                // Show the toolbar customization dialog
+                if (ToolbarCustomizationDialog::showDialog(m_toolbarManager, m_commandManager))
+                {
+                    // Layout was changed - reload toolbar
+                    m_toolbar->loadLayout(m_toolbarManager.getCurrentLayout());
+                    m_toolbar->resized();
+                    resized();  // May need to re-layout if toolbar height changed
+                }
+                return true;
+            }
+
+            case CommandIDs::toolbarReset:
+            {
+                // Reset toolbar to default layout
+                m_toolbarManager.loadLayout("Default");
+                m_toolbar->loadLayout(m_toolbarManager.getCurrentLayout());
+                m_toolbar->resized();
+                resized();
+                return true;
+            }
+
             default:
                 return false;
         }
@@ -3325,7 +3675,7 @@ public:
 
     juce::StringArray getMenuBarNames() override
     {
-        return { "File", "Edit", "View", "Region", "Marker", "Process", "Playback", "Help" };
+        return { "File", "Edit", "View", "Region", "Marker", "Process", "Plugins", "Playback", "Help" };
     }
 
     juce::PopupMenu getMenuForIndex(int menuIndex, const juce::String& /*menuName*/) override
@@ -3425,6 +3775,12 @@ public:
             windowFunctionMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumWindowBlackman);
             windowFunctionMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumWindowRectangular);
             menu.addSubMenu("Spectrum Window Function", windowFunctionMenu, m_spectrumAnalyzer != nullptr);
+
+            menu.addSeparator();
+
+            // Toolbar customization
+            menu.addCommandItem(&m_commandManager, CommandIDs::toolbarCustomize);
+            menu.addCommandItem(&m_commandManager, CommandIDs::toolbarReset);
         }
         else if (menuIndex == 3) // Region menu
         {
@@ -3472,7 +3828,19 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::processFadeIn);
             menu.addCommandItem(&m_commandManager, CommandIDs::processFadeOut);
         }
-        else if (menuIndex == 6) // Playback menu
+        else if (menuIndex == 6) // Plugins menu (VST3/AU plugin chain)
+        {
+            menu.addCommandItem(&m_commandManager, CommandIDs::pluginShowChain);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::pluginApplyChain);
+            menu.addCommandItem(&m_commandManager, CommandIDs::pluginOffline);
+            menu.addCommandItem(&m_commandManager, CommandIDs::pluginBypassAll);
+            menu.addSeparator();
+            menu.addCommandItem(&m_commandManager, CommandIDs::pluginRescan);
+            menu.addCommandItem(&m_commandManager, CommandIDs::pluginShowSettings);
+            menu.addCommandItem(&m_commandManager, CommandIDs::pluginClearCache);
+        }
+        else if (menuIndex == 7) // Playback menu
         {
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPlay);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPause);
@@ -3483,7 +3851,7 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoop);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoopRegion);
         }
-        else if (menuIndex == 7) // Help menu
+        else if (menuIndex == 8) // Help menu
         {
             menu.addItem("About WaveEdit", [this] { showAbout(); });
         }
@@ -6056,6 +6424,839 @@ public:
     }
 
     //==============================================================================
+    // Plugin management methods
+
+    /**
+     * Show the Plugin Manager dialog for browsing and selecting plugins.
+     * Uses a simple modal approach for now.
+     */
+    void showPluginManagerDialog()
+    {
+        // Create dialog and show modally
+        PluginManagerDialog dialog;
+
+        // Show in a dialog window
+        juce::DialogWindow::LaunchOptions options;
+        options.dialogTitle = "Plugin Manager";
+        options.dialogBackgroundColour = juce::Colour(0xff1e1e1e);
+        options.content.setNonOwned(&dialog);
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+
+        // Store selected plugin (if any)
+        const juce::PluginDescription* selectedPlugin = nullptr;
+
+        // Set up a simple listener using lambdas (we'll poll the result after modal)
+        // Since DialogWindow::runModal blocks, we check dialog state after it returns
+        int result = options.runModal();
+        juce::ignoreUnused(result);
+
+        // After modal closes, check if user clicked Add and selected a plugin
+        selectedPlugin = dialog.getSelectedPlugin();
+
+        // If user clicked Add button (or double-clicked) with a valid selection
+        if (dialog.wasAddClicked() && selectedPlugin != nullptr)
+        {
+            auto* doc = getCurrentDocument();
+            if (doc)
+            {
+                auto& chain = doc->getAudioEngine().getPluginChain();
+                int index = chain.addPlugin(*selectedPlugin);
+                if (index >= 0)
+                {
+                    // Enable plugin chain if not already enabled
+                    doc->getAudioEngine().setPluginChainEnabled(true);
+                    DBG("Added plugin: " + selectedPlugin->name + " at index " + juce::String(index));
+                }
+                else
+                {
+                    ErrorDialog::show("Plugin Error", "Failed to load plugin: " + selectedPlugin->name);
+                }
+            }
+        }
+    }
+
+    /**
+     * Show the unified Plugin Chain window with integrated browser.
+     */
+    void showPluginChainPanel()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon,
+                "Plugin Chain",
+                "Please open an audio file first.",
+                "OK");
+            return;
+        }
+
+        auto& chain = doc->getAudioEngine().getPluginChain();
+
+        // Create the unified window
+        auto* chainWindow = new PluginChainWindow(&chain);
+
+        // Create a listener class that handles all events
+        class ChainWindowListener : public PluginChainWindow::Listener,
+                                      public juce::DeletedAtShutdown
+        {
+        public:
+            ChainWindowListener(MainComponent* owner, PluginChain& chain, AudioEngine& engine)
+                : m_owner(owner), m_chain(chain), m_audioEngine(engine) {}
+
+            void pluginChainWindowEditPlugin(int index) override
+            {
+                auto* node = m_chain.getPlugin(index);
+                if (node != nullptr)
+                {
+                    PluginEditorWindow::showForNode(node, &m_owner->m_commandManager);
+                }
+            }
+
+            void pluginChainWindowApplyToSelection(const PluginChainWindow::RenderOptions& options) override
+            {
+                // Apply with the render options from the window
+                m_owner->applyPluginChainToSelectionWithOptions(options.convertToStereo, options.includeTail, options.tailLengthSeconds);
+            }
+
+            void pluginChainWindowPluginAdded(const juce::PluginDescription& description) override
+            {
+                int index = m_chain.addPlugin(description);
+                if (index >= 0)
+                {
+                    m_audioEngine.setPluginChainEnabled(true);
+                    DBG("Added plugin: " + description.name);
+                }
+                else
+                {
+                    ErrorDialog::show("Plugin Error", "Failed to load plugin: " + description.name);
+                }
+            }
+
+            void pluginChainWindowPluginRemoved(int index) override
+            {
+                m_chain.removePlugin(index);
+            }
+
+            void pluginChainWindowPluginMoved(int fromIndex, int toIndex) override
+            {
+                m_chain.movePlugin(fromIndex, toIndex);
+            }
+
+            void pluginChainWindowPluginBypassed(int index, bool bypassed) override
+            {
+                auto* node = m_chain.getPlugin(index);
+                if (node != nullptr)
+                {
+                    node->setBypassed(bypassed);
+                }
+            }
+
+            void pluginChainWindowBypassAll(bool bypassed) override
+            {
+                m_chain.setAllBypassed(bypassed);
+            }
+
+        private:
+            MainComponent* m_owner;
+            PluginChain& m_chain;
+            AudioEngine& m_audioEngine;
+        };
+
+        // Create and set listener
+        auto* listener = new ChainWindowListener(this, chain, doc->getAudioEngine());
+        chainWindow->setListener(listener);
+
+        // Show in window with keyboard shortcut support
+        auto* window = chainWindow->showInWindow(&m_commandManager);
+        juce::ignoreUnused(window);
+    }
+
+    /**
+     * Apply the plugin chain to the current selection (offline render).
+     * Version with explicit render options - called from PluginChainWindow.
+     *
+     * @param convertToStereo If true and file is mono, convert to stereo before processing
+     * @param includeTail If true, extend selection to capture reverb/delay tails
+     * @param tailLengthSeconds Length of tail in seconds
+     */
+    void applyPluginChainToSelectionWithOptions(bool convertToStereo, bool includeTail, double tailLengthSeconds)
+    {
+        applyPluginChainToSelectionInternal(convertToStereo, includeTail, tailLengthSeconds);
+    }
+
+    /**
+     * Apply the plugin chain to the current selection (offline render).
+     * Default version called from Cmd+P keyboard shortcut - uses default options.
+     */
+    void applyPluginChainToSelection()
+    {
+        // When called from keyboard shortcut, use default options (no stereo conversion, no tail)
+        // User should use the Plugin Chain window for advanced options
+        applyPluginChainToSelectionInternal(false, false, 2.0);
+    }
+
+    /**
+     * Internal implementation for applying plugin chain with options.
+     * Creates independent plugin instances to avoid real-time audio conflicts.
+     * Supports progress dialog for large selections and full undo/redo.
+     */
+    void applyPluginChainToSelectionInternal(bool convertToStereo, bool includeTail, double tailLengthSeconds)
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        auto& engine = doc->getAudioEngine();
+        auto& chain = engine.getPluginChain();
+
+        if (chain.isEmpty())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon,
+                "Apply Plugin Chain",
+                "The plugin chain is empty. Add plugins first.",
+                "OK");
+            return;
+        }
+
+        // Check if all plugins are bypassed
+        if (chain.areAllBypassed())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon,
+                "Apply Plugin Chain",
+                "All plugins are bypassed. Un-bypass at least one plugin to apply effects.",
+                "OK");
+            return;
+        }
+
+        // Get buffer and determine selection range
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
+        if (buffer.getNumSamples() == 0)
+        {
+            return;
+        }
+
+        int64_t startSample = 0;
+        int64_t numSamples = buffer.getNumSamples();
+        bool hasSelection = doc->getWaveformDisplay().hasSelection();
+
+        if (hasSelection)
+        {
+            startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+            int64_t endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+            numSamples = endSample - startSample;
+
+            if (numSamples <= 0)
+            {
+                return;
+            }
+        }
+
+        // Build chain description for undo action name
+        juce::String chainDescription = PluginChainRenderer::buildChainDescription(chain);
+        juce::String transactionName = "Apply Plugin Chain: " + chainDescription;
+        double sampleRate = doc->getBufferManager().getSampleRate();
+
+        // Handle stereo conversion if requested (and file is mono)
+        int outputChannels = 0;  // 0 = match source channels
+        if (convertToStereo && buffer.getNumChannels() == 1)
+        {
+            // Convert entire buffer to stereo BEFORE processing
+            // This must be done first so the waveform display and audio engine update properly
+            doc->getUndoManager().beginNewTransaction("Convert to Stereo");
+            auto* convertAction = new ConvertToStereoAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine()
+            );
+            doc->getUndoManager().perform(convertAction);
+            doc->setModified(true);
+
+            outputChannels = 2;  // Request stereo output from renderer
+
+            DBG("Converted mono file to stereo for plugin processing");
+        }
+
+        // Calculate tail samples if effect tail is requested
+        int64_t tailSamples = 0;
+        if (includeTail && tailLengthSeconds > 0.0)
+        {
+            tailSamples = static_cast<int64_t>(tailLengthSeconds * sampleRate);
+            DBG("Including tail of " + juce::String(tailLengthSeconds) + " seconds (" + juce::String(tailSamples) + " samples)");
+        }
+
+        // Create shared pointers for async operation
+        auto renderer = std::make_shared<PluginChainRenderer>();
+        auto processedBuffer = std::make_shared<juce::AudioBuffer<float>>();
+
+        // Create the offline chain on the message thread (required for plugin instantiation)
+        // This must be done BEFORE starting the background task
+        auto offlineChain = std::make_shared<PluginChainRenderer::OfflineChain>(
+            PluginChainRenderer::createOfflineChain(chain, sampleRate, renderer->getBlockSize())
+        );
+
+        if (!offlineChain->isValid())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Apply Plugin Chain",
+                "Failed to create offline plugin instances. Some plugins may not support offline rendering.",
+                "OK");
+            return;
+        }
+
+        DBG("Created offline chain with " + juce::String(offlineChain->instances.size()) + " plugins");
+
+        // Use progress dialog for large selections
+        if (numSamples > kProgressDialogThreshold)
+        {
+            ProgressDialog::runWithProgress(
+                transactionName,
+                [doc, renderer, offlineChain, processedBuffer, startSample, numSamples, sampleRate, outputChannels, tailSamples](ProgressCallback progress) -> bool {
+                    // Render selection through pre-created offline chain (safe for background thread)
+                    // Pass outputChannels to preserve stereo output if user requested it
+                    // Pass tailSamples to capture effect tail (reverb/delay trails)
+                    auto result = renderer->renderWithOfflineChain(
+                        doc->getBufferManager().getBuffer(),
+                        *offlineChain,
+                        sampleRate,
+                        startSample,
+                        numSamples,
+                        progress,
+                        outputChannels,
+                        tailSamples
+                    );
+
+                    if (result.success)
+                    {
+                        // Copy processed buffer for use in completion callback
+                        std::cerr << "[BGTASK] Render succeeded! Result buffer: channels="
+                                  << result.processedBuffer.getNumChannels()
+                                  << ", samples=" << result.processedBuffer.getNumSamples() << std::endl;
+                        std::cerr.flush();
+
+                        processedBuffer->setSize(result.processedBuffer.getNumChannels(),
+                                                 result.processedBuffer.getNumSamples());
+                        for (int ch = 0; ch < result.processedBuffer.getNumChannels(); ++ch)
+                        {
+                            processedBuffer->copyFrom(ch, 0, result.processedBuffer, ch, 0,
+                                                      result.processedBuffer.getNumSamples());
+                        }
+
+                        std::cerr << "[BGTASK] Copied to processedBuffer: channels="
+                                  << processedBuffer->getNumChannels()
+                                  << ", samples=" << processedBuffer->getNumSamples() << std::endl;
+                        std::cerr.flush();
+
+                        return true;
+                    }
+                    else if (result.cancelled)
+                    {
+                        return false;  // User cancelled
+                    }
+                    else
+                    {
+                        DBG("Plugin chain render failed: " + result.errorMessage);
+                        return false;
+                    }
+                },
+                [doc, processedBuffer, startSample, numSamples, tailSamples, transactionName, chainDescription, hasSelection](bool success) {
+                    std::cerr << "[CALLBACK] Completion callback entered: success=" << (success ? "true" : "false")
+                              << ", processedBuffer samples=" << processedBuffer->getNumSamples()
+                              << ", processedBuffer channels=" << processedBuffer->getNumChannels()
+                              << ", tailSamples=" << tailSamples << std::endl;
+                    std::cerr.flush();
+
+                    if (success && processedBuffer->getNumSamples() > 0)
+                    {
+                        // For undo, save the ORIGINAL range we're about to overwrite (numSamples, not extended)
+                        // IMPORTANT: Create undo action FIRST to save original audio BEFORE modifying buffer
+                        doc->getUndoManager().beginNewTransaction(transactionName);
+                        auto* undoAction = new ApplyPluginChainAction(
+                            doc->getBufferManager(),
+                            doc->getAudioEngine(),
+                            doc->getWaveformDisplay(),
+                            startSample,
+                            numSamples,  // Original selection size (undo needs to know what to restore)
+                            *processedBuffer,
+                            chainDescription
+                        );
+
+                        // NOW replace the original range with processed audio (may extend buffer if tail included)
+                        // replaceRange handles size differences - it deletes the old range and inserts new audio
+                        std::cerr << "[APPLY] About to replaceRange: bufferCh=" << doc->getBufferManager().getBuffer().getNumChannels()
+                                  << ", bufferSamples=" << doc->getBufferManager().getBuffer().getNumSamples()
+                                  << ", processedCh=" << processedBuffer->getNumChannels()
+                                  << ", processedSamples=" << processedBuffer->getNumSamples()
+                                  << ", startSample=" << startSample
+                                  << ", numSamples=" << numSamples << std::endl;
+                        std::cerr.flush();
+
+                        bool replaced = doc->getBufferManager().replaceRange(startSample, numSamples, *processedBuffer);
+
+                        std::cerr << "[APPLY] replaceRange returned: " << (replaced ? "true" : "false")
+                                  << ", new buffer size: " << doc->getBufferManager().getBuffer().getNumSamples() << std::endl;
+                        std::cerr.flush();
+
+                        if (replaced)
+                        {
+                            // Mark as already performed and register with undo system
+                            undoAction->markAsAlreadyPerformed();
+                            doc->getUndoManager().perform(undoAction);
+                            doc->setModified(true);
+
+                            // Regenerate waveform thumbnail from modified buffer
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                doc->getBufferManager().getBuffer(),
+                                doc->getBufferManager().getSampleRate(),
+                                true,  // preserveView
+                                true   // preserveEditCursor
+                            );
+
+                            // Reload audio engine buffer
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                doc->getBufferManager().getBuffer(),
+                                doc->getBufferManager().getSampleRate(),
+                                doc->getBufferManager().getBuffer().getNumChannels()
+                            );
+
+                            if (tailSamples > 0)
+                            {
+                                DBG("Plugin chain applied to " + juce::String(numSamples) + " samples, " +
+                                    "extended by " + juce::String(tailSamples) + " tail samples (new size: " +
+                                    juce::String(processedBuffer->getNumSamples()) + ")");
+                            }
+                            else
+                            {
+                                DBG("Plugin chain applied to " + juce::String(numSamples) + " samples");
+                            }
+                        }
+                        else
+                        {
+                            delete undoAction;
+                            DBG("Failed to replace audio range with processed buffer");
+                        }
+                    }
+                }
+            );
+        }
+        else
+        {
+            // Small selection: process synchronously without progress dialog
+            // Use renderWithOfflineChain to support outputChannels and tailSamples parameters
+            auto result = renderer->renderWithOfflineChain(
+                buffer,
+                *offlineChain,
+                sampleRate,
+                startSample,
+                numSamples,
+                nullptr,  // No progress callback for small operations
+                outputChannels,
+                tailSamples
+            );
+
+            if (result.success)
+            {
+                // IMPORTANT: Create undo action FIRST to save original audio BEFORE modifying buffer
+                doc->getUndoManager().beginNewTransaction(transactionName);
+                auto* undoAction = new ApplyPluginChainAction(
+                    doc->getBufferManager(),
+                    doc->getAudioEngine(),
+                    doc->getWaveformDisplay(),
+                    startSample,
+                    numSamples,  // Original selection size (undo needs to know what to restore)
+                    result.processedBuffer,
+                    chainDescription
+                );
+
+                // NOW replace the original range with processed audio (may extend buffer if tail included)
+                // replaceRange handles size differences - it deletes the old range and inserts new audio
+                bool replaced = doc->getBufferManager().replaceRange(startSample, numSamples, result.processedBuffer);
+
+                if (replaced)
+                {
+                    // Mark as already performed and register with undo system
+                    undoAction->markAsAlreadyPerformed();
+                    doc->getUndoManager().perform(undoAction);
+                    doc->setModified(true);
+
+                    // Regenerate waveform thumbnail from modified buffer
+                    doc->getWaveformDisplay().reloadFromBuffer(
+                        doc->getBufferManager().getBuffer(),
+                        doc->getBufferManager().getSampleRate(),
+                        true,  // preserveView
+                        true   // preserveEditCursor
+                    );
+
+                    // Reload audio engine buffer
+                    doc->getAudioEngine().reloadBufferPreservingPlayback(
+                        doc->getBufferManager().getBuffer(),
+                        doc->getBufferManager().getSampleRate(),
+                        doc->getBufferManager().getBuffer().getNumChannels()
+                    );
+
+                    if (tailSamples > 0)
+                    {
+                        DBG("Plugin chain applied to " + juce::String(numSamples) + " samples, " +
+                            "extended by " + juce::String(tailSamples) + " tail samples (new size: " +
+                            juce::String(result.processedBuffer.getNumSamples()) + ") (sync)");
+                    }
+                    else
+                    {
+                        DBG("Plugin chain applied to " + juce::String(numSamples) + " samples (sync)");
+                    }
+                }
+                else
+                {
+                    delete undoAction;
+                    DBG("Failed to replace audio range with processed buffer (sync)");
+                }
+            }
+            else if (!result.cancelled)
+            {
+                // Show error message
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Apply Plugin Chain",
+                    "Failed to apply plugin chain:\n" + result.errorMessage,
+                    "OK");
+            }
+        }
+    }
+
+    /**
+     * Show the Offline Plugin dialog for applying a single plugin to selection.
+     * Similar to Gain/Normalize dialog workflow with preview support.
+     */
+    void showOfflinePluginDialog()
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        auto& engine = doc->getAudioEngine();
+        if (!engine.isFileLoaded()) return;
+
+        // Determine selection range
+        int64_t selectionStart = 0;
+        int64_t selectionEnd = doc->getBufferManager().getBuffer().getNumSamples();
+
+        if (doc->getWaveformDisplay().hasSelection())
+        {
+            selectionStart = doc->getBufferManager().timeToSample(
+                doc->getWaveformDisplay().getSelectionStart());
+            selectionEnd = doc->getBufferManager().timeToSample(
+                doc->getWaveformDisplay().getSelectionEnd());
+        }
+
+        // Show the dialog
+        auto result = OfflinePluginDialog::showDialog(
+            &engine,
+            &doc->getBufferManager(),
+            selectionStart,
+            selectionEnd
+        );
+
+        if (result && result->applied)
+        {
+            // User clicked Apply - process the audio with the selected plugin
+            // Pass render options from dialog
+            applyOfflinePlugin(result->pluginDescription, result->pluginState,
+                              selectionStart, selectionEnd - selectionStart,
+                              result->renderOptions.convertToStereo,
+                              result->renderOptions.includeTail,
+                              result->renderOptions.tailLengthSeconds);
+        }
+    }
+
+    /**
+     * Apply a single plugin offline to selection.
+     * Creates undo action and updates waveform.
+     * @param pluginDesc The plugin description
+     * @param pluginState The plugin state to apply
+     * @param startSample Start position in samples
+     * @param numSamples Number of samples to process
+     * @param convertToStereo Whether to convert mono to stereo before processing
+     * @param includeTail Whether to include effect tail (reverb/delay)
+     * @param tailLengthSeconds Length of effect tail in seconds
+     */
+    void applyOfflinePlugin(const juce::PluginDescription& pluginDesc,
+                           const juce::MemoryBlock& pluginState,
+                           int64_t startSample, int64_t numSamples,
+                           bool convertToStereo = false,
+                           bool includeTail = false,
+                           double tailLengthSeconds = 2.0)
+    {
+        auto* doc = getCurrentDocument();
+        if (!doc) return;
+
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
+        double sampleRate = doc->getBufferManager().getSampleRate();
+
+        // Handle stereo conversion if requested (and file is mono)
+        int outputChannels = 0;  // 0 = match source channels
+        if (convertToStereo && buffer.getNumChannels() == 1)
+        {
+            // Convert entire buffer to stereo BEFORE processing
+            doc->getUndoManager().beginNewTransaction("Convert to Stereo");
+            auto* convertAction = new ConvertToStereoAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine()
+            );
+            doc->getUndoManager().perform(convertAction);
+            doc->setModified(true);
+
+            outputChannels = 2;  // Request stereo output from renderer
+
+            DBG("Converted mono file to stereo for offline plugin processing");
+        }
+
+        // Calculate tail samples if effect tail is requested
+        int64_t tailSamples = 0;
+        if (includeTail && tailLengthSeconds > 0.0)
+        {
+            tailSamples = static_cast<int64_t>(tailLengthSeconds * sampleRate);
+            DBG("Including tail of " + juce::String(tailLengthSeconds) + " seconds (" + juce::String(tailSamples) + " samples)");
+        }
+
+        // Create a temporary single-plugin chain
+        PluginChain tempChain;
+        int nodeIndex = tempChain.addPlugin(pluginDesc);
+        if (nodeIndex < 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Offline Plugin",
+                "Failed to load plugin: " + pluginDesc.name,
+                "OK");
+            return;
+        }
+
+        // Apply the plugin state
+        auto* node = tempChain.getPlugin(nodeIndex);
+        if (node != nullptr && pluginState.getSize() > 0)
+        {
+            node->setState(pluginState);
+        }
+
+        // Create renderer
+        auto renderer = std::make_shared<PluginChainRenderer>();
+        juce::String transactionName = "Apply Plugin: " + pluginDesc.name;
+
+        // Use progress dialog for large selections
+        if (numSamples > kProgressDialogThreshold)
+        {
+            auto processedBuffer = std::make_shared<juce::AudioBuffer<float>>();
+
+            // Create offline chain on message thread
+            auto offlineChain = std::make_shared<PluginChainRenderer::OfflineChain>(
+                PluginChainRenderer::createOfflineChain(tempChain, sampleRate, renderer->getBlockSize())
+            );
+
+            if (!offlineChain->isValid())
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Offline Plugin",
+                    "Failed to create offline plugin instance.",
+                    "OK");
+                return;
+            }
+
+            ProgressDialog::runWithProgress(
+                transactionName,
+                [doc, renderer, offlineChain, processedBuffer, startSample, numSamples, sampleRate, outputChannels, tailSamples](ProgressCallback progress) -> bool {
+                    // Pass outputChannels to preserve stereo output if user requested it
+                    // Pass tailSamples to capture effect tail (reverb/delay)
+                    auto result = renderer->renderWithOfflineChain(
+                        doc->getBufferManager().getBuffer(),
+                        *offlineChain,
+                        sampleRate,
+                        startSample,
+                        numSamples,
+                        progress,
+                        outputChannels,
+                        tailSamples
+                    );
+
+                    if (result.success)
+                    {
+                        processedBuffer->setSize(result.processedBuffer.getNumChannels(),
+                                                 result.processedBuffer.getNumSamples());
+                        for (int ch = 0; ch < result.processedBuffer.getNumChannels(); ++ch)
+                        {
+                            processedBuffer->copyFrom(ch, 0, result.processedBuffer, ch, 0,
+                                                      result.processedBuffer.getNumSamples());
+                        }
+                        return true;
+                    }
+                    return !result.cancelled;
+                },
+                [doc, processedBuffer, startSample, numSamples, tailSamples, transactionName, pluginDesc](bool success) {
+                    if (success && processedBuffer->getNumSamples() > 0)
+                    {
+                        const int64_t totalProcessedSamples = processedBuffer->getNumSamples();
+
+                        if (tailSamples > 0)
+                        {
+                            DBG("Offline plugin: processed " + juce::String(totalProcessedSamples) +
+                                " samples (including " + juce::String(tailSamples) + " tail)");
+                        }
+
+                        doc->getUndoManager().beginNewTransaction(transactionName);
+                        auto* undoAction = new ApplyPluginChainAction(
+                            doc->getBufferManager(),
+                            doc->getAudioEngine(),
+                            doc->getWaveformDisplay(),
+                            startSample,
+                            numSamples,  // Original selection size for undo
+                            *processedBuffer,
+                            pluginDesc.name
+                        );
+
+                        // Use replaceRange to properly handle buffer extension when tail is included
+                        // replaceRange deletes the original range and inserts the processed audio,
+                        // allowing the buffer to grow if processedBuffer is larger than numSamples
+                        bool replaced = doc->getBufferManager().replaceRange(startSample, numSamples, *processedBuffer);
+
+                        if (replaced)
+                        {
+                            undoAction->markAsAlreadyPerformed();
+                            doc->getUndoManager().perform(undoAction);
+                            doc->setModified(true);
+
+                            doc->getWaveformDisplay().reloadFromBuffer(
+                                doc->getBufferManager().getBuffer(),
+                                doc->getBufferManager().getSampleRate(),
+                                true, true
+                            );
+
+                            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                                doc->getBufferManager().getBuffer(),
+                                doc->getBufferManager().getSampleRate(),
+                                doc->getBufferManager().getBuffer().getNumChannels()
+                            );
+
+                            if (tailSamples > 0)
+                            {
+                                DBG("Applied plugin " + pluginDesc.name + " with effect tail - buffer extended to " +
+                                    juce::String(doc->getBufferManager().getBuffer().getNumSamples()) + " samples");
+                            }
+                            else
+                            {
+                                DBG("Applied plugin " + pluginDesc.name + " to " + juce::String(numSamples) + " samples");
+                            }
+                        }
+                        else
+                        {
+                            DBG("Offline plugin: replaceRange failed!");
+                            delete undoAction;
+                        }
+                    }
+                }
+            );
+        }
+        else
+        {
+            // Small selection: process synchronously
+            // Create offline chain so we can use renderWithOfflineChain with outputChannels
+            auto offlineChain = PluginChainRenderer::createOfflineChain(tempChain, sampleRate, renderer->getBlockSize());
+            if (!offlineChain.isValid())
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Offline Plugin",
+                    "Failed to create offline plugin instance.",
+                    "OK");
+                return;
+            }
+
+            auto result = renderer->renderWithOfflineChain(
+                doc->getBufferManager().getBuffer(),
+                offlineChain,
+                sampleRate,
+                startSample,
+                numSamples,
+                nullptr,
+                outputChannels,
+                tailSamples
+            );
+
+            if (result.success)
+            {
+                const int64_t totalProcessedSamples = result.processedBuffer.getNumSamples();
+
+                if (tailSamples > 0)
+                {
+                    DBG("Offline plugin (sync): processed " + juce::String(totalProcessedSamples) +
+                        " samples (including " + juce::String(tailSamples) + " tail)");
+                }
+
+                doc->getUndoManager().beginNewTransaction(transactionName);
+                auto* undoAction = new ApplyPluginChainAction(
+                    doc->getBufferManager(),
+                    doc->getAudioEngine(),
+                    doc->getWaveformDisplay(),
+                    startSample,
+                    numSamples,  // Original selection size for undo
+                    result.processedBuffer,
+                    pluginDesc.name
+                );
+
+                // Use replaceRange to properly handle buffer extension when tail is included
+                // replaceRange deletes the original range and inserts the processed audio,
+                // allowing the buffer to grow if processedBuffer is larger than numSamples
+                bool replaced = doc->getBufferManager().replaceRange(startSample, numSamples, result.processedBuffer);
+
+                if (replaced)
+                {
+                    undoAction->markAsAlreadyPerformed();
+                    doc->getUndoManager().perform(undoAction);
+                    doc->setModified(true);
+
+                    doc->getWaveformDisplay().reloadFromBuffer(
+                        doc->getBufferManager().getBuffer(),
+                        doc->getBufferManager().getSampleRate(),
+                        true, true
+                    );
+
+                    doc->getAudioEngine().reloadBufferPreservingPlayback(
+                        doc->getBufferManager().getBuffer(),
+                        doc->getBufferManager().getSampleRate(),
+                        doc->getBufferManager().getBuffer().getNumChannels()
+                    );
+
+                    if (tailSamples > 0)
+                    {
+                        DBG("Applied plugin " + pluginDesc.name + " (sync) with effect tail - buffer extended to " +
+                            juce::String(doc->getBufferManager().getBuffer().getNumSamples()) + " samples");
+                    }
+                    else
+                    {
+                        DBG("Applied plugin " + pluginDesc.name + " (sync) to " + juce::String(numSamples) + " samples");
+                    }
+                }
+                else
+                {
+                    DBG("Offline plugin (sync): replaceRange failed!");
+                    delete undoAction;
+                }
+            }
+            else if (!result.cancelled)
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Offline Plugin",
+                    "Failed to apply plugin:\n" + result.errorMessage,
+                    "OK");
+            }
+        }
+    }
+
+    //==============================================================================
     // Normalization helpers
 
     /**
@@ -6253,6 +7454,96 @@ public:
         float m_gainDB;
         bool m_isSelection;
         bool m_alreadyPerformed = false;  // For progress dialog integration
+    };
+
+    //==============================================================================
+    /**
+     * Undo action for converting mono to stereo.
+     * Stores the original mono buffer for undo.
+     */
+    class ConvertToStereoAction : public juce::UndoableAction
+    {
+    public:
+        ConvertToStereoAction(AudioBufferManager& bufferManager,
+                              WaveformDisplay& waveform,
+                              AudioEngine& audioEngine)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine)
+        {
+            // Store the original mono buffer for undo
+            const auto& originalBuffer = m_bufferManager.getBuffer();
+            m_originalMonoBuffer.setSize(originalBuffer.getNumChannels(),
+                                         originalBuffer.getNumSamples());
+            m_originalMonoBuffer.makeCopyOf(originalBuffer, true);
+        }
+
+        void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
+
+        bool perform() override
+        {
+            if (m_alreadyPerformed)
+            {
+                m_alreadyPerformed = false;
+                return true;
+            }
+
+            // Convert mono to stereo
+            if (!m_bufferManager.convertToStereo())
+            {
+                return false;
+            }
+
+            // Reload audio engine with new channel count
+            m_audioEngine.reloadBufferPreservingPlayback(
+                m_bufferManager.getBuffer(),
+                m_bufferManager.getSampleRate(),
+                m_bufferManager.getBuffer().getNumChannels()
+            );
+
+            // Reload waveform display
+            m_waveformDisplay.reloadFromBuffer(
+                m_bufferManager.getBuffer(),
+                m_bufferManager.getSampleRate(),
+                true, true
+            );
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the original mono buffer
+            auto& buffer = m_bufferManager.getMutableBuffer();
+            buffer.setSize(m_originalMonoBuffer.getNumChannels(),
+                          m_originalMonoBuffer.getNumSamples());
+            buffer.makeCopyOf(m_originalMonoBuffer, true);
+
+            // Reload audio engine with mono
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer,
+                m_bufferManager.getSampleRate(),
+                buffer.getNumChannels()
+            );
+
+            // Reload waveform display
+            m_waveformDisplay.reloadFromBuffer(
+                buffer,
+                m_bufferManager.getSampleRate(),
+                true, true
+            );
+
+            return true;
+        }
+
+        int getSizeInUnits() override { return 100; }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_originalMonoBuffer;
+        bool m_alreadyPerformed = false;
     };
 
     //==============================================================================
@@ -7994,6 +9285,8 @@ private:
     AudioFileManager m_fileManager;
     juce::ApplicationCommandManager m_commandManager;
     KeymapManager m_keymapManager;  // Keyboard shortcut template system (Phase 3)
+    ToolbarManager m_toolbarManager;  // Customizable toolbar template system
+    std::unique_ptr<CustomizableToolbar> m_toolbar;  // Customizable toolbar component
     std::unique_ptr<juce::FileChooser> m_fileChooser;
 
     // UI preferences (Phase 3.5)
@@ -8030,6 +9323,11 @@ private:
     // Marker placement tracking (Phase 3.4) - reliable cursor position for marker placement
     double m_lastClickTimeInSeconds = 0.0;  // Last mouse click position on waveform
     bool m_hasLastClickPosition = false;    // True if user has clicked on waveform
+
+    // Plugin scan progress tracking (Phase 5 - VST3 hosting)
+    bool m_pluginScanInProgress = false;
+    float m_pluginScanProgress = 0.0f;
+    juce::String m_pluginScanCurrentPlugin;
 
     // Helper methods for safe document access
 
@@ -9001,6 +10299,9 @@ public:
            #endif
 
             setVisible(true);
+
+            // Create tooltip window for toolbar buttons and other UI elements
+            m_tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 500);
         }
 
         ~MainWindow() override
@@ -9016,6 +10317,8 @@ public:
         }
 
     private:
+        std::unique_ptr<juce::TooltipWindow> m_tooltipWindow;
+
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
     };
 
@@ -9025,5 +10328,92 @@ private:
 };
 
 //==============================================================================
-// This macro generates the main() routine that launches the app.
-START_JUCE_APPLICATION(WaveEditApplication)
+// Custom main() to support out-of-process plugin scanning.
+// When launched with --waveedit-plugin-scanner, we run as a scanner subprocess
+// instead of the main GUI application. This is critical for crash isolation.
+//
+// IMPORTANT: The scanner worker runs BEFORE JUCE is initialized, so we must
+// pass the command line directly - it cannot use JUCEApplication methods.
+//
+// When defining custom main(), we must also set up the createInstance pointer
+// that JUCE uses to create the application instance. The START_JUCE_APPLICATION
+// macro normally does this, but since we're providing our own main(), we need
+// to do it manually.
+
+// Forward declaration of the application factory function
+static juce::JUCEApplicationBase* juce_CreateApplication() { return new WaveEditApplication(); }
+
+#if JUCE_MAC
+extern "C" int main(int argc, char* argv[])
+{
+    // Build command line string for potential worker use
+    juce::String commandLine;
+    for (int i = 1; i < argc; ++i)
+    {
+        if (i > 1)
+            commandLine += " ";
+        commandLine += juce::String(argv[i]);
+    }
+
+    // Check if we're being launched as a plugin scanner worker
+    if (commandLine.contains(PluginScannerProtocol::kWorkerProcessArg))
+    {
+        // Run as scanner worker - no GUI, just IPC
+        // Pass command line since JUCE isn't initialized yet
+        return runPluginScannerWorker(commandLine);
+    }
+
+    // Set up the application factory - required when using custom main()
+    juce::JUCEApplicationBase::createInstance = &juce_CreateApplication;
+
+    // Normal application launch
+    return juce::JUCEApplicationBase::main(argc, const_cast<const char**>(argv));
+}
+
+#elif JUCE_WINDOWS
+extern "C" int __stdcall WinMain(void*, void*, const char* cmdLine, int)
+{
+    juce::String commandLine(cmdLine);
+
+    // Check if we're being launched as a plugin scanner worker
+    if (commandLine.contains(PluginScannerProtocol::kWorkerProcessArg))
+    {
+        // Run as scanner worker - no GUI, just IPC
+        // Pass command line since JUCE isn't initialized yet
+        return runPluginScannerWorker(commandLine);
+    }
+
+    // Set up the application factory - required when using custom main()
+    juce::JUCEApplicationBase::createInstance = &juce_CreateApplication;
+
+    // Normal application launch
+    return juce::JUCEApplicationBase::main(cmdLine);
+}
+
+#elif JUCE_LINUX
+extern "C" int main(int argc, char* argv[])
+{
+    // Build command line string for potential worker use
+    juce::String commandLine;
+    for (int i = 1; i < argc; ++i)
+    {
+        if (i > 1)
+            commandLine += " ";
+        commandLine += juce::String(argv[i]);
+    }
+
+    // Check if we're being launched as a plugin scanner worker
+    if (commandLine.contains(PluginScannerProtocol::kWorkerProcessArg))
+    {
+        // Run as scanner worker - no GUI, just IPC
+        // Pass command line since JUCE isn't initialized yet
+        return runPluginScannerWorker(commandLine);
+    }
+
+    // Set up the application factory - required when using custom main()
+    juce::JUCEApplicationBase::createInstance = &juce_CreateApplication;
+
+    // Normal application launch
+    return juce::JUCEApplicationBase::main(argc, const_cast<const char**>(argv));
+}
+#endif

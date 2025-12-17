@@ -788,6 +788,10 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
             m_parametricEQ->prepare(device->getCurrentSampleRate(),
                                     device->getCurrentBufferSizeSamples());
         }
+
+        // Prepare the VST3/AU plugin chain for real-time processing
+        m_pluginChain.prepareToPlay(device->getCurrentSampleRate(),
+                                     device->getCurrentBufferSizeSamples());
     }
 }
 
@@ -795,6 +799,9 @@ void AudioEngine::audioDeviceStopped()
 {
     // Release audio resources
     m_transportSource.releaseResources();
+
+    // Release plugin chain resources
+    m_pluginChain.releaseResources();
 }
 
 void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputChannelData*/,
@@ -901,9 +908,22 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     }
 
     //==============================================================================
+    // VST3/AU PLUGIN CHAIN: Real-time effect processing (Soundminer-style monitoring)
+    // This runs ALWAYS during playback when enabled, not just in preview mode.
+    // Enables professional real-time plugin monitoring - users can hear effects
+    // while the chain panel is open and plugins are enabled (checked).
+    // Plugin chain uses SpinLock for thread-safe audio processing.
+    if (m_pluginChainEnabled.load() && !m_pluginChain.isEmpty())
+    {
+        m_pluginChain.processBlock(buffer, m_emptyMidiBuffer);
+    }
+
+    //==============================================================================
     // PREVIEW SYSTEM: Apply real-time DSP processing (Phase 1)
     // This processes audio AFTER transport but BEFORE monitoring/visualization
     // Enables instant preview of effects without modifying main buffer
+    // NOTE: These processors are PREVIEW-SPECIFIC (for dialog previews like Gain, Fade, EQ)
+    // Plugin chain processing above runs always during normal playback.
 
     if (m_previewMode.load() == PreviewMode::REALTIME_DSP)
     {
@@ -912,6 +932,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // 2. Gain/Normalize (amplitude adjustment)
         // 3. EQ (frequency shaping)
         // 4. Fade (final envelope)
+        // 5. Preview plugin instance (for OfflinePluginDialog)
 
         // 1. Apply DC Offset removal if enabled
         double sampleRate = m_sampleRate.load();
@@ -943,6 +964,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (sampleRate > 0)
         {
             m_fadeProcessor.process(buffer, sampleRate);
+        }
+
+        // 7. Apply preview plugin instance (for OfflinePluginDialog real-time preview)
+        // This allows plugins like FabFilter Pro-Q 4 to receive audio and display
+        // their visualizations (spectrum, waveform, etc.) during preview
+        juce::AudioPluginInstance* previewPlugin = m_previewPluginInstance.load();
+        if (previewPlugin != nullptr)
+        {
+            previewPlugin->processBlock(buffer, m_emptyMidiBuffer);
         }
     }
 
@@ -1265,6 +1295,13 @@ void AudioEngine::setDCOffsetPreview(bool enabled)
     }
 
     m_dcOffsetProcessor.enabled.store(enabled);
+}
+
+void AudioEngine::setPreviewPluginInstance(juce::AudioPluginInstance* instance)
+{
+    // Thread-safe: Can be called from UI thread
+    // The atomic pointer ensures safe exchange between threads
+    m_previewPluginInstance.store(instance);
 }
 
 void AudioEngine::setPreviewSelectionOffset(int64_t selectionStartSamples)

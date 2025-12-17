@@ -845,3 +845,140 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ApplyParametricEQAction)
 };
+
+//==============================================================================
+/**
+ * Undoable action for applying plugin chain effects to a selection.
+ *
+ * This action receives the already-processed audio buffer and handles
+ * the undo/redo by storing original/processed audio and swapping them.
+ *
+ * Thread Safety:
+ * - Must be created and performed from message thread
+ * - updatePlaybackAndDisplay() stops playback before buffer modification
+ *
+ * Usage:
+ * The plugin chain rendering is done asynchronously before creating this action:
+ * 1. User invokes "Apply Plugin Chain"
+ * 2. PluginChainRenderer processes audio in background
+ * 3. On success, create ApplyPluginChainAction with processed buffer
+ * 4. UndoManager::perform() applies it
+ */
+class ApplyPluginChainAction : public UndoableEditBase
+{
+public:
+    /**
+     * Creates an undo action for plugin chain application.
+     *
+     * @param bufferManager Reference to the document's buffer manager
+     * @param audioEngine Reference to the document's audio engine
+     * @param waveformDisplay Reference to the waveform display for updates
+     * @param startSample Start of the affected range
+     * @param numSamples Length of the original range being replaced
+     * @param processedAudio The new audio data to apply (already rendered, may be longer than numSamples for effect tail)
+     * @param chainDescription Human-readable description of the chain for undo menu
+     */
+    ApplyPluginChainAction(AudioBufferManager& bufferManager,
+                          AudioEngine& audioEngine,
+                          WaveformDisplay& waveformDisplay,
+                          int64_t startSample,
+                          int64_t numSamples,
+                          const juce::AudioBuffer<float>& processedAudio,
+                          const juce::String& chainDescription)
+        : UndoableEditBase(bufferManager, audioEngine, waveformDisplay),
+          m_startSample(startSample),
+          m_numSamples(numSamples),
+          m_processedAudio(processedAudio.getNumChannels(), processedAudio.getNumSamples()),
+          m_chainDescription(chainDescription)
+    {
+        // Validate parameters
+        jassert(m_bufferManager.hasAudioData());
+        jassert(startSample >= 0 && startSample < m_bufferManager.getNumSamples());
+        jassert(numSamples > 0 && (startSample + numSamples) <= m_bufferManager.getNumSamples());
+        // Note: processedAudio may be longer than numSamples when including effect tail
+        jassert(processedAudio.getNumSamples() >= numSamples);
+
+        // Store original audio for undo
+        m_originalAudio = m_bufferManager.getAudioRange(startSample, numSamples);
+
+        // Copy processed audio
+        for (int ch = 0; ch < processedAudio.getNumChannels(); ++ch)
+        {
+            m_processedAudio.copyFrom(ch, 0, processedAudio, ch, 0, processedAudio.getNumSamples());
+        }
+
+        m_sampleRate = m_bufferManager.getSampleRate();
+    }
+
+    /**
+     * Mark this action as already performed.
+     * Use when the processing was done by ProgressDialog before registering with undo system.
+     */
+    void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
+
+    bool perform() override
+    {
+        // If already performed via progress dialog, skip - just return success
+        if (m_alreadyPerformed)
+        {
+            m_alreadyPerformed = false;  // Reset for redo
+            return true;
+        }
+
+        // Replace original audio with processed audio
+        bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, m_processedAudio);
+
+        if (success)
+        {
+            updatePlaybackAndDisplay();
+        }
+
+        return success;
+    }
+
+    bool undo() override
+    {
+        // Restore original audio
+        // Note: When effect tail was included, m_processedAudio is larger than m_originalAudio.
+        // We need to replace the extended range (processedAudio size) with the original range.
+        int64_t samplesToReplace = m_processedAudio.getNumSamples();
+        bool success = m_bufferManager.replaceRange(m_startSample, samplesToReplace, m_originalAudio);
+
+        if (success)
+        {
+            updatePlaybackAndDisplay();
+        }
+
+        return success;
+    }
+
+    int getSizeInUnits() override
+    {
+        // Return approximate memory usage in bytes (original + processed buffers)
+        size_t originalSize = static_cast<size_t>(m_originalAudio.getNumSamples()) *
+                              static_cast<size_t>(m_originalAudio.getNumChannels()) * sizeof(float);
+        size_t processedSize = static_cast<size_t>(m_processedAudio.getNumSamples()) *
+                               static_cast<size_t>(m_processedAudio.getNumChannels()) * sizeof(float);
+        return static_cast<int>(originalSize + processedSize);
+    }
+
+    /**
+     * Gets the undo/redo action name.
+     * Returns "Apply Plugin Chain: <list of plugin names>"
+     */
+    juce::String getName() const
+    {
+        return "Apply Plugin Chain: " + m_chainDescription;
+    }
+
+private:
+    int64_t m_startSample;
+    int64_t m_numSamples;
+    juce::AudioBuffer<float> m_originalAudio;
+    juce::AudioBuffer<float> m_processedAudio;
+    juce::String m_chainDescription;
+    double m_sampleRate;
+    bool m_alreadyPerformed = false;  ///< Skip first perform() when action was pre-applied
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ApplyPluginChainAction)
+};

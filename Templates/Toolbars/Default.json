@@ -1,0 +1,72 @@
+{
+    "name": "Default",
+    "description": "Transport controls with zoom and common operations",
+    "version": "1.0.0",
+    "height": 36,
+    "showLabels": false,
+    "buttons": [
+        {
+            "id": "transport",
+            "type": "transport",
+            "tooltip": "Transport Controls",
+            "width": 200
+        },
+        {
+            "id": "sep1",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "zoomIn",
+            "type": "command",
+            "commandName": "viewZoomIn",
+            "iconName": "zoomIn",
+            "tooltip": "Zoom In"
+        },
+        {
+            "id": "zoomOut",
+            "type": "command",
+            "commandName": "viewZoomOut",
+            "iconName": "zoomOut",
+            "tooltip": "Zoom Out"
+        },
+        {
+            "id": "zoomFit",
+            "type": "command",
+            "commandName": "viewZoomFit",
+            "iconName": "zoomFit",
+            "tooltip": "Zoom to Fit"
+        },
+        {
+            "id": "sep2",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "fadeIn",
+            "type": "command",
+            "commandName": "processFadeIn",
+            "iconName": "fadeIn",
+            "tooltip": "Fade In"
+        },
+        {
+            "id": "fadeOut",
+            "type": "command",
+            "commandName": "processFadeOut",
+            "iconName": "fadeOut",
+            "tooltip": "Fade Out"
+        },
+        {
+            "id": "normalize",
+            "type": "command",
+            "commandName": "processNormalize",
+            "iconName": "normalize",
+            "tooltip": "Normalize"
+        },
+        {
+            "id": "spacer1",
+            "type": "spacer",
+            "width": 16
+        }
+    ]
+}

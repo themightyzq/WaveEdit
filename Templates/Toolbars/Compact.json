@@ -1,0 +1,20 @@
+{
+    "name": "Compact",
+    "description": "Minimal toolbar with transport controls only",
+    "version": "1.0.0",
+    "height": 36,
+    "showLabels": false,
+    "buttons": [
+        {
+            "id": "transport",
+            "type": "transport",
+            "tooltip": "Transport Controls",
+            "width": 200
+        },
+        {
+            "id": "spacer1",
+            "type": "spacer",
+            "width": 16
+        }
+    ]
+}
