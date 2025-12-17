@@ -49,10 +49,22 @@ target_sources(WaveEdit
         Source/Utils/AudioClipboard.h
         Source/Utils/AudioBufferInputSource.cpp
         Source/Utils/AudioBufferInputSource.h
+        Source/Utils/ToolbarConfig.cpp
+        Source/Utils/ToolbarConfig.h
+        Source/Utils/ToolbarManager.cpp
+        Source/Utils/ToolbarManager.h
         Source/UI/WaveformDisplay.cpp
         Source/UI/WaveformDisplay.h
         Source/UI/TransportControls.cpp
         Source/UI/TransportControls.h
+        Source/UI/CompactTransport.cpp
+        Source/UI/CompactTransport.h
+        Source/UI/ToolbarButton.cpp
+        Source/UI/ToolbarButton.h
+        Source/UI/CustomizableToolbar.cpp
+        Source/UI/CustomizableToolbar.h
+        Source/UI/ToolbarCustomizationDialog.cpp
+        Source/UI/ToolbarCustomizationDialog.h
         Source/UI/Meters.cpp
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
@@ -132,6 +144,36 @@ target_sources(WaveEdit
         Source/UI/MarkerDisplay.h
         Source/UI/SpectrumAnalyzer.cpp
         Source/UI/SpectrumAnalyzer.h
+        Source/UI/PluginManagerDialog.cpp
+        Source/UI/PluginManagerDialog.h
+        Source/UI/PluginChainPanel.cpp
+        Source/UI/PluginChainPanel.h
+        Source/UI/PluginChainWindow.cpp
+        Source/UI/PluginChainWindow.h
+        Source/UI/PluginEditorWindow.cpp
+        Source/UI/PluginEditorWindow.h
+        Source/UI/OfflinePluginDialog.cpp
+        Source/UI/OfflinePluginDialog.h
+        Source/Plugins/PluginManager.cpp
+        Source/Plugins/PluginManager.h
+        Source/Plugins/PluginChain.cpp
+        Source/Plugins/PluginChain.h
+        Source/Plugins/PluginChainNode.cpp
+        Source/Plugins/PluginChainNode.h
+        Source/Plugins/PluginPresetManager.cpp
+        Source/Plugins/PluginPresetManager.h
+        Source/Plugins/PluginScannerProtocol.h
+        Source/Plugins/PluginScannerWorker.cpp
+        Source/Plugins/PluginScannerWorker.h
+        Source/Plugins/PluginScannerCoordinator.cpp
+        Source/Plugins/PluginScannerCoordinator.h
+        Source/Plugins/PluginScanState.h
+        Source/Plugins/PluginScanDialogs.cpp
+        Source/Plugins/PluginScanDialogs.h
+        Source/Plugins/PluginPathsPanel.cpp
+        Source/Plugins/PluginPathsPanel.h
+        Source/Plugins/PluginChainRenderer.cpp
+        Source/Plugins/PluginChainRenderer.h
 )
 
 # JUCE modules required for audio editing application
@@ -168,8 +210,10 @@ target_compile_definitions(WaveEdit
         # Enable modal loops for dialogs (required for BatchExportDialog, FilePropertiesDialog, etc.)
         JUCE_MODAL_LOOPS_PERMITTED=1
 
-        # VST3 support (for future phases)
-        # JUCE_PLUGINHOST_VST3=1
+        # VST3 Plugin Hosting Support
+        JUCE_PLUGINHOST_VST3=1
+        # AudioUnit Plugin Hosting Support (macOS only)
+        JUCE_PLUGINHOST_AU=1
 )
 
 # Include directories
@@ -349,6 +393,41 @@ else()
     )
 endif()
 
+# ============================================================================
+# Copy toolbar template resources to app bundle
+# ============================================================================
+if(APPLE)
+    # On macOS, copy templates to app bundle Resources directory
+    add_custom_command(TARGET WaveEdit POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Resources/Toolbars"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/Templates/Toolbars"
+            "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Resources/Toolbars"
+        COMMENT "Copying toolbar templates to app bundle"
+    )
+elseif(WIN32)
+    # On Windows, copy templates next to executable
+    add_custom_command(TARGET WaveEdit POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:WaveEdit>/Toolbars"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/Templates/Toolbars"
+            "$<TARGET_FILE_DIR:WaveEdit>/Toolbars"
+        COMMENT "Copying toolbar templates to executable directory"
+    )
+else()
+    # On Linux, copy templates next to executable
+    add_custom_command(TARGET WaveEdit POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:WaveEdit>/Toolbars"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/Templates/Toolbars"
+            "$<TARGET_FILE_DIR:WaveEdit>/Toolbars"
+        COMMENT "Copying toolbar templates to executable directory"
+    )
+endif()
+
 # Copy resources (for future phases - icons, fonts, etc.)
 # file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets
 #      DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
@@ -393,10 +472,22 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/AudioClipboard.h
         Source/Utils/AudioBufferInputSource.cpp
         Source/Utils/AudioBufferInputSource.h
+        Source/Utils/ToolbarConfig.cpp
+        Source/Utils/ToolbarConfig.h
+        Source/Utils/ToolbarManager.cpp
+        Source/Utils/ToolbarManager.h
         Source/UI/WaveformDisplay.cpp
         Source/UI/WaveformDisplay.h
         Source/UI/TransportControls.cpp
         Source/UI/TransportControls.h
+        Source/UI/CompactTransport.cpp
+        Source/UI/CompactTransport.h
+        Source/UI/ToolbarButton.cpp
+        Source/UI/ToolbarButton.h
+        Source/UI/CustomizableToolbar.cpp
+        Source/UI/CustomizableToolbar.h
+        Source/UI/ToolbarCustomizationDialog.cpp
+        Source/UI/ToolbarCustomizationDialog.h
         Source/UI/Meters.cpp
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
@@ -459,6 +550,34 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/MarkerDisplay.h
         Source/UI/SpectrumAnalyzer.cpp
         Source/UI/SpectrumAnalyzer.h
+        Source/UI/PluginManagerDialog.cpp
+        Source/UI/PluginManagerDialog.h
+        Source/UI/PluginChainPanel.cpp
+        Source/UI/PluginChainPanel.h
+        Source/UI/PluginChainWindow.cpp
+        Source/UI/PluginChainWindow.h
+        Source/UI/PluginEditorWindow.cpp
+        Source/UI/PluginEditorWindow.h
+        Source/UI/OfflinePluginDialog.cpp
+        Source/UI/OfflinePluginDialog.h
+        Source/Plugins/PluginManager.cpp
+        Source/Plugins/PluginManager.h
+        Source/Plugins/PluginChain.cpp
+        Source/Plugins/PluginChain.h
+        Source/Plugins/PluginChainNode.cpp
+        Source/Plugins/PluginChainNode.h
+        Source/Plugins/PluginScannerProtocol.h
+        Source/Plugins/PluginScannerWorker.cpp
+        Source/Plugins/PluginScannerWorker.h
+        Source/Plugins/PluginScannerCoordinator.cpp
+        Source/Plugins/PluginScannerCoordinator.h
+        Source/Plugins/PluginScanState.h
+        Source/Plugins/PluginScanDialogs.cpp
+        Source/Plugins/PluginScanDialogs.h
+        Source/Plugins/PluginPathsPanel.cpp
+        Source/Plugins/PluginPathsPanel.h
+        Source/Plugins/PluginChainRenderer.cpp
+        Source/Plugins/PluginChainRenderer.h
     )
 
     # Link WaveEditCore to JUCE modules
@@ -495,6 +614,10 @@ if(WAVEEDIT_BUILD_TESTS)
             JUCE_USE_MP3AUDIOFORMAT=1  # Enable MP3 encoding with LAME
             JUCE_APPLICATION_NAME_STRING="WaveEdit"
             JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
+            # VST3 Plugin Hosting Support
+            JUCE_PLUGINHOST_VST3=1
+            # AudioUnit Plugin Hosting Support (macOS only)
+            JUCE_PLUGINHOST_AU=1
     )
 
     # Platform-specific settings for WaveEditCore

@@ -720,6 +720,15 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::markerNext] = "markerNext";
         commandNameMap[CommandIDs::markerPrevious] = "markerPrevious";
         commandNameMap[CommandIDs::markerShowList] = "markerShowList";
+
+        // Plugin operations
+        commandNameMap[CommandIDs::pluginShowChain] = "pluginShowChain";
+        commandNameMap[CommandIDs::pluginAddPlugin] = "pluginAddPlugin";
+        commandNameMap[CommandIDs::pluginApplyChain] = "pluginApplyChain";
+        commandNameMap[CommandIDs::pluginBypassAll] = "pluginBypassAll";
+        commandNameMap[CommandIDs::pluginRescan] = "pluginRescan";
+        commandNameMap[CommandIDs::pluginShowSettings] = "pluginShowSettings";
+        commandNameMap[CommandIDs::pluginClearCache] = "pluginClearCache";
     }
 
     auto it = commandNameMap.find(commandID);
@@ -744,6 +753,7 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::fileNew, CommandIDs::fileOpen, CommandIDs::fileSave,
             CommandIDs::fileSaveAs, CommandIDs::fileClose, CommandIDs::fileProperties,
             CommandIDs::fileExit, CommandIDs::filePreferences,
+            CommandIDs::fileEditBWFMetadata, CommandIDs::fileEditiXMLMetadata,
 
             // Edit operations (0x2000-0x20FF)
             CommandIDs::editUndo, CommandIDs::editRedo, CommandIDs::editCut,
@@ -752,7 +762,7 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
 
             // Playback operations (0x3000-0x30FF)
             CommandIDs::playbackPlay, CommandIDs::playbackPause, CommandIDs::playbackStop,
-            CommandIDs::playbackLoop, CommandIDs::playbackRecord,
+            CommandIDs::playbackLoop, CommandIDs::playbackRecord, CommandIDs::playbackLoopRegion,
 
             // View operations (0x4000-0x40FF)
             CommandIDs::viewZoomIn, CommandIDs::viewZoomOut, CommandIDs::viewZoomFit,
@@ -808,7 +818,13 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             // Marker operations (0xC000-0xC0FF)
             CommandIDs::markerAdd, CommandIDs::markerDelete,
             CommandIDs::markerNext, CommandIDs::markerPrevious,
-            CommandIDs::markerShowList
+            CommandIDs::markerShowList,
+
+            // Plugin operations (0xD000-0xD0FF)
+            CommandIDs::pluginShowChain, CommandIDs::pluginAddPlugin,
+            CommandIDs::pluginApplyChain, CommandIDs::pluginBypassAll,
+            CommandIDs::pluginRescan, CommandIDs::pluginShowSettings,
+            CommandIDs::pluginClearCache
         };
 
         for (const auto& id : allCommandIDs)

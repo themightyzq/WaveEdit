@@ -176,6 +176,25 @@ public:
      */
     bool trimToRange(int64_t startSample, int64_t numSamples);
 
+    //==============================================================================
+    // Channel conversion
+
+    /**
+     * Converts a mono buffer to stereo by duplicating the mono channel.
+     * No-op if already stereo or multi-channel.
+     *
+     * @return true if conversion was performed, false if already stereo or failed
+     */
+    bool convertToStereo();
+
+    /**
+     * Converts a stereo buffer to mono by averaging the channels.
+     * No-op if already mono.
+     *
+     * @return true if conversion was performed, false if already mono or failed
+     */
+    bool convertToMono();
+
 private:
     juce::AudioBuffer<float> m_buffer;
     double m_sampleRate;

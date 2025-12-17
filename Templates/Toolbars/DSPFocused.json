@@ -1,0 +1,98 @@
+{
+    "name": "DSP Focused",
+    "description": "All DSP and processing operations for intensive editing",
+    "version": "1.0.0",
+    "height": 36,
+    "showLabels": false,
+    "buttons": [
+        {
+            "id": "transport",
+            "type": "transport",
+            "tooltip": "Transport Controls",
+            "width": 200
+        },
+        {
+            "id": "sep1",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "fadeIn",
+            "type": "command",
+            "commandName": "processFadeIn",
+            "iconName": "fadeIn",
+            "tooltip": "Fade In"
+        },
+        {
+            "id": "fadeOut",
+            "type": "command",
+            "commandName": "processFadeOut",
+            "iconName": "fadeOut",
+            "tooltip": "Fade Out"
+        },
+        {
+            "id": "normalize",
+            "type": "command",
+            "commandName": "processNormalize",
+            "iconName": "normalize",
+            "tooltip": "Normalize"
+        },
+        {
+            "id": "dcOffset",
+            "type": "command",
+            "commandName": "processDCOffset",
+            "iconName": "dcOffset",
+            "tooltip": "Remove DC Offset"
+        },
+        {
+            "id": "sep2",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "gain",
+            "type": "command",
+            "commandName": "processGain",
+            "iconName": "gain",
+            "tooltip": "Adjust Gain"
+        },
+        {
+            "id": "graphicalEQ",
+            "type": "command",
+            "commandName": "processGraphicalEQ",
+            "iconName": "eq",
+            "tooltip": "Graphical EQ"
+        },
+        {
+            "id": "sep3",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "pluginChain",
+            "type": "command",
+            "commandName": "pluginShowChain",
+            "iconName": "plugin",
+            "tooltip": "Plugin Chain Panel"
+        },
+        {
+            "id": "applyChain",
+            "type": "command",
+            "commandName": "pluginApplyChain",
+            "iconName": "apply",
+            "tooltip": "Apply Plugin Chain"
+        },
+        {
+            "id": "offlinePlugin",
+            "type": "command",
+            "commandName": "pluginOffline",
+            "iconName": "offline",
+            "tooltip": "Offline Plugin"
+        },
+        {
+            "id": "spacer1",
+            "type": "spacer",
+            "width": 16
+        }
+    ]
+}

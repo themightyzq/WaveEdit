@@ -1,6 +1,6 @@
 # WaveEdit by ZQ SFX - TODO
 
-**Last Updated**: 2025-12-04 (Progress Dialog Integration Complete)
+**Last Updated**: 2025-12-17 (Toolbar UX Bug Fixes)
 **Company**: ZQ SFX (© 2025)
 **Philosophy**: Feature-driven development - ship when ready, not before
 
@@ -113,7 +113,15 @@
 - Meters component exists but not integrated into Document class (future feature)
 - Multi-range selection not supported (future: advanced editing workflows)
 
-**All critical bugs resolved** - Production ready for core editing workflows.
+**VST3 Plugin System** (P0, needs architectural fix):
+- ⚠️ **PluginChain::processBlock() race condition**: Vector is modified on message thread while
+  audio thread iterates. Comment claims "atomic pointer swap" but code uses std::vector.
+  - **Risk**: Crash during playback when adding/removing plugins
+  - **Required Fix**: Implement copy-on-write with atomic pointer swap architecture
+  - **Workaround**: Stop playback before modifying plugin chain
+  - **Tracked**: 2025-12-08, documented for future architectural work
+
+**All startup crash bugs resolved** - Production ready for core editing workflows.
 
 ### Bug Fixes (Recent)
 
@@ -501,6 +509,246 @@ See CLAUDE.md "Quality Assurance" section for details.
 ---
 
 ## Changelog
+
+### 2025-12-17 - Toolbar UX Bug Fixes (Complete)
+- ✅ **Context Menu Position Fix**: Right-click context menu now appears at cursor location
+  - **Problem**: Menu appeared at toolbar's left edge instead of mouse position
+  - **Solution**: Pass screen coordinates to `showContextMenu()`, use `withTargetScreenArea()`
+  - **File**: `Source/UI/CustomizableToolbar.cpp` (mouseDown, showContextMenu methods)
+- ✅ **Tooltips for Toolbar Buttons**: Hover tooltips now display properly
+  - **Problem**: Toolbar buttons had tooltip text but no TooltipWindow existed
+  - **Solution**: Added `TooltipWindow` member to `MainWindow` class with 500ms delay
+  - **File**: `Source/Main.cpp` (MainWindow constructor, added m_tooltipWindow member)
+- ✅ **Toolbar Item Insertion Position Fix**: New items appear in visible positions
+  - **Problem**: Items added via Customize Toolbar dialog appeared at far right edge (cut off)
+  - **Root Cause**: Default.json has a spacer at end; items appended after spacer got pushed right
+  - **Solution**: Insert items BEFORE first spacer when no selection exists
+  - **Files**: `Source/UI/ToolbarCustomizationDialog.cpp` (onAddButtonClicked, onAddSeparatorClicked, onAddSpacerClicked)
+- ✅ **Hover Highlights** (fixed in previous session): Highlights stay visible while hovering
+  - **Solution**: `setInterceptsMouseClicks(false, false)` on child DrawableButton components
+- **Impact**: Professional toolbar UX matching Sound Forge Pro standards
+- **Build Status**: Clean build, all tests passing
+- **User Verified**: All three fixes confirmed working
+
+### 2025-12-11 - PluginChainWindow UI/UX Polish (Complete)
+- ✅ **Bypass Button Color Consistency**: Standardized to #cc8800 (orange) across PluginChainWindow and PluginChainPanel
+- ✅ **Tooltips Added**: All interactive buttons now have descriptive tooltips:
+  - Bypass: "Bypass this plugin (disable effect processing)"
+  - Edit: "Open plugin editor"
+  - Remove: "Remove plugin from chain"
+  - Bypass All: "Bypass all plugins in the chain"
+  - Apply to Selection: "Permanently apply plugin chain effects to selected audio"
+  - Rescan: "Scan for new or updated plugins"
+- ✅ **Browser Table Columns**: Widened defaults for better readability (Name: 200px, Type: 60px)
+- ✅ **Empty Search State**: Shows helpful message when filter returns 0 results
+- ✅ **Contrast Improvements**: Secondary text upgraded from #808080 to #909090 (WCAG AA compliant)
+- ✅ **Hover States**: All buttons now show visual feedback on hover (buttonOnColourId)
+  - Bypass button (bypassed): #cc8800 → #dd9900 on hover
+  - Bypass button (active): #404040 → #505050 on hover
+  - Remove button: Subtle red tint (#605050) hints at destructive action
+  - Apply button: Uses accent color brighter(0.2f)
+- ✅ **Code Review**: Passed with Excellent (A) rating
+- **Files Modified**:
+  - `Source/UI/PluginChainWindow.cpp` - All UI improvements
+  - `Source/UI/PluginChainWindow.h` - Added m_emptySearchLabel member
+- **Impact**: Professional-grade plugin chain UI matching Sound Forge Pro standards
+
+### 2025-12-10 - Offline Plugin Chain Rendering (Feature Complete)
+- ✅ **NEW FEATURE**: Apply Plugin Chain to selection/entire file (Cmd+P)
+- ✅ **Offline Rendering**: Creates independent plugin instances for background processing
+  - Audio thread continues uninterrupted during rendering
+  - Plugin state (parameters, presets) preserved from live chain
+- ✅ **Latency Compensation**: Automatic handling for look-ahead plugins
+  - Calculates total chain latency from all non-bypassed plugins
+  - Prepends silence → processes → discards initial samples
+  - Result buffer perfectly aligned with original
+- ✅ **Undo/Redo Support**: Full undo with ApplyPluginChainAction
+  - Transaction name shows plugin names (e.g., "Apply Plugin Chain: Reverb, Compressor")
+  - Memory-efficient storage of before/after buffers
+- ✅ **Progress Dialog**: Shows progress for large selections (>500k samples)
+  - Real-time progress percentage and plugin chain description
+  - Cancellable operation
+  - Synchronous processing for small selections (no dialog)
+- ✅ **Thread Safety**: Safe parallel processing architecture
+  - Plugin instances created fresh for offline rendering
+  - No conflicts with real-time audio callback
+  - Proper synchronization for buffer copy-back
+- ✅ **Files Created**:
+  - `Source/Plugins/PluginChainRenderer.h/cpp` - Offline rendering engine
+  - `Source/Utils/UndoableEdits.h` - Added ApplyPluginChainAction class
+- ✅ **Files Modified**:
+  - `Source/Main.cpp` - Command handler (pluginApplyChain = 0xD002)
+  - `CMakeLists.txt` - Added new source files
+- ✅ **Build Status**: Clean build, all tests passing
+- **Impact**: Enables permanent rendering of plugin effects to audio (Sound Forge-style workflow)
+- **Usage**: Add plugins to chain → Preview during playback → Apply to selection with Cmd+P
+
+### 2025-12-10 - Real-Time Plugin Chain Processing (P0 Critical - RESOLVED)
+- ✅ **P0 CRITICAL FIXED**: Plugin chain now affects audio during normal playback
+- ✅ **Root Cause**: Plugin chain processing was INSIDE the REALTIME_DSP preview mode check
+  - This meant plugins ONLY processed during preview dialogs (Gain, Fade, EQ dialogs)
+  - During normal playback (preview mode DISABLED), plugins were NEVER processed
+  - PluginChainPanel showed plugins but they had no effect on audio
+- ✅ **Solution**: Moved plugin chain processing OUTSIDE the preview mode conditional
+  - Plugin chain now processes ALWAYS when enabled, not just in preview mode
+  - Enables Soundminer-style real-time monitoring during normal playback
+  - Preview-specific processors (Gain, Normalize, EQ, Fade) remain inside preview mode check
+- ✅ **Files Modified**:
+  - `Source/Audio/AudioEngine.cpp` (lines 910-919): Plugin chain processing extracted
+- ✅ **Thread Safety**: Unchanged - SpinLock synchronization already in place
+- ✅ **Build Status**: Clean build, all core tests passing
+- **Impact**: Users can now hear VST/AU plugin effects during normal playback
+- **Testing**: Open audio file → Plugins → Show Plugin Chain → Add plugin → Check enable → Play
+
+### 2025-12-10 - Out-of-Process Plugin Scanning (P0 Critical - RESOLVED)
+- ✅ **P0 CRITICAL FIXED**: Plugin scanning now uses out-of-process architecture
+- ✅ **Root Cause**: In-process plugin scanning crashed WaveEdit when plugins:
+  - Used PACE/iLok protection (TLV bootstrap error)
+  - Had heap corruption bugs (Baby Audio BA-1.vst3)
+  - Called exit() during scan cleanup (mutex destruction race)
+  - Used Thread Local Variables that require special initialization
+- ✅ **Solution**: All plugin scanning now routes through `PluginScannerCoordinator`
+  - Each plugin scanned in separate worker subprocess
+  - If plugin crashes worker, WaveEdit survives and continues scanning
+  - Worker automatically restarts for remaining plugins
+  - Crashed plugins auto-blacklisted for future scans
+- ✅ **Removed Auto-Blacklisting**: No longer pre-blacklist commercial plugins
+  - Previously auto-blacklisted: iZotope, Universal Audio, Baby Audio
+  - Now ALL plugins get a fair chance - crashes handled gracefully
+  - User can manually blacklist if needed via Plugins menu
+- ✅ **Thread Safety Improvements**:
+  - Completion callback properly checks crash flag before signaling success
+  - Results synchronized via WaitableEvent (write before signal, read after wait)
+  - Coordinator lifecycle managed via shared_ptr to prevent use-after-free
+- ✅ **Files Modified**:
+  - `Source/Plugins/PluginManager.cpp`:
+    - `initializeDefaultBlacklist()` - Removed auto-blacklist code
+    - `ExtendedScannerThread::scanPlugin()` - Rewrote to use PluginScannerCoordinator
+- ✅ **Code Review**: PASSED - Thread safety verified, callbacks properly ordered
+- ✅ **Build Status**: Clean build, all tests passing
+- **Impact**: Professional plugin scanning that doesn't crash on problematic plugins
+- **Testing**: Launch app → Plugins → Scan for Plugins (or clear cache and restart)
+
+### 2025-12-08 - Robust VST3 Plugin Scanning System (Feature Complete)
+- ✅ **NEW FEATURE**: Comprehensive VST3 plugin scanning with robust error handling
+- ✅ **Incremental Scanning**: Only scans new/changed plugins on subsequent runs
+  - First run: Full scan of all discovered plugins
+  - Subsequent runs: Checks file modification time and size to skip unchanged plugins
+  - Cache persisted in user preferences directory
+- ✅ **Progress Reporting**: Clear feedback during scanning
+  - Shows current plugin name being scanned
+  - Progress percentage and progress bar
+  - Cancel button to abort scan at any time
+- ✅ **Per-Plugin Error Handling**: Error dialog with Retry/Skip/Cancel options
+  - When a plugin fails to scan: Show error details with options
+  - Retry: Attempt to scan the plugin again
+  - Skip: Continue with remaining plugins, skip this one
+  - Cancel: Abort the entire scan operation
+  - Crashed plugins automatically skipped (can't retry crashes)
+- ✅ **Scan Summary Dialog**: End-of-scan report showing:
+  - Successful scans count (with plugin descriptions found)
+  - Failed scans with detailed error information
+  - Skipped plugins count (user skipped or blacklisted)
+  - Cached plugins count (unchanged, not re-scanned)
+  - Scan duration
+- ✅ **Plugin Paths Configuration**: Preferences UI for managing VST3 directories
+  - Shows default system paths (read-only)
+  - Add/Remove custom search paths
+  - Browse button for directory selection
+  - Paths persist across sessions
+  - Menu: Plugins → Plugin Search Paths...
+- ✅ **Files Created**:
+  - `Source/Plugins/PluginScanState.h` - Scan state tracking and cache entries
+  - `Source/Plugins/PluginScanDialogs.h/cpp` - Error, summary, and progress dialogs
+  - `Source/Plugins/PluginPathsPanel.h/cpp` - Plugin directory configuration UI
+- ✅ **Files Modified**:
+  - `Source/Plugins/PluginManager.h/cpp` - Extended scanning with ScanOptions
+  - `CMakeLists.txt` - Added new files to build
+  - `Source/Main.cpp` - Menu integration for plugin paths command
+- ✅ **Build Status**: Clean build, all tests passing
+- **Impact**: Professional-grade plugin scanning matching industry standards
+
+### 2025-12-08 - Plugin Scanning Hang Fix (P0 Critical - RESOLVED)
+- ✅ **P0 CRITICAL FIXED**: App no longer hangs on startup due to plugin scanning
+- ✅ **Root Cause**: Apple system AudioUnits (HRTFPanner, AUSoundFieldPanner, AUMixer, etc.)
+  hang indefinitely during in-process scanning because they require special system resources
+  (CFRunLoop, NSApplication event loop) that aren't available in background threads
+- ✅ **Multi-Layer Solution Implemented**:
+  1. **Disabled Automatic Startup Scanning**: App starts immediately without plugin scan
+     - Users can manually trigger scan from Plugins menu when ready
+     - Cached plugins from previous scans are still loaded automatically
+  2. **Auto-Blacklist Problematic Apple System AUs**: Known-hanging plugins are pre-blacklisted:
+     - All AudioUnit:Panners/ (spatial audio/3D panners)
+     - All AudioUnit:Mixers/ (system mixers)
+     - All AudioUnit:Generators/ (system generators)
+     - Specific plugins: HRTFPanner, AUSoundFieldPanner, AUMixer, etc.
+  3. **CFRunLoop Pumping in Worker**: Worker subprocess now pumps macOS run loop
+     - Helps AudioUnits that need run loop for initialization
+  4. **Per-Plugin Timeout**: 15-second timeout per plugin in worker subprocess
+     - Thread-safe implementation with proper cleanup
+     - Prevents indefinite hangs even for unknown problematic plugins
+  5. **Improved Blacklist Matching**: Fixed overly broad pattern matching
+     - Wildcard patterns (ending with "/") use prefix matching
+     - Simple names use case-insensitive contains
+     - No longer causes false positives
+- ✅ **Files Modified**:
+  - `Source/Plugins/PluginScannerWorker.cpp` - CFRunLoop pumping, per-plugin timeout
+  - `Source/Plugins/PluginManager.cpp` - Auto-blacklist, improved matching
+  - `Source/Plugins/PluginManager.h` - Added initializeDefaultBlacklist()
+  - `Source/Main.cpp` - Disabled automatic startup scanning
+- ✅ **Code Review**: PASSED - Fixed P0 race conditions, improved thread safety
+- ✅ **Testing**: App starts in <1 second, no hangs, no beachball
+- **Impact**: Professional, reliable startup experience
+
+### 2025-12-08 - Dead-Mans-Pedal File Encoding Fix (P0 Critical - RESOLVED)
+- ✅ **P0 CRITICAL FIXED**: Plugin crash dialog no longer blocks/freezes on startup
+- ✅ **Root Cause**: Dead-mans-pedal file written in UTF-16 but read as UTF-8
+  - `replaceWithText()` defaults to UTF-16 on some platforms (writes `ff fe` BOM)
+  - `loadFileAsString()` expects UTF-8, causing corrupted plugin names
+  - Corrupted strings caused the crash notification dialog to malfunction
+- ✅ **Solution**: Explicit UTF-8 encoding for all internal text files
+  - Changed `m_deadMansPedal.replaceWithText(nextPlugin)` to
+    `m_deadMansPedal.replaceWithText(nextPlugin, false, false, "\n")`
+  - Parameters: `(text, asUnicode=false, writeBOM=false, lineEnding="\n")`
+  - Also fixed blacklist file for consistency
+- ✅ **Files Modified**:
+  - `Source/Plugins/PluginManager.cpp` (lines 128-130, 853-854)
+- ✅ **Code Review**: PASSED - Parameter order verified, thread-safe, cross-platform compatible
+- ✅ **Testing**: App starts cleanly, no blocking dialogs, blacklist file properly UTF-8 encoded
+- **Impact**: Crash recovery system now works correctly on all platforms
+
+### 2025-12-08 - VST3 Plugin System Crash Fix (P0 Critical - RESOLVED)
+- ✅ **P0 CRITICAL FIXED**: VST3 plugin scanning no longer crashes the application on startup
+- ✅ **Root Causes Identified and Fixed**:
+  1. **JUCE Initialization Order**: `runPluginScannerWorker()` was called from `main()` before JUCE was initialized,
+     but it used `JUCEApplication::getCommandLineParameters()` which requires JUCE to be initialized
+     - **Fix**: Changed `runPluginScannerWorker()` to accept command line as parameter, built in `main()`
+  2. **Missing createInstance Setup**: Custom `main()` functions bypassed `START_JUCE_APPLICATION` macro which
+     sets up `JUCEApplicationBase::createInstance` function pointer
+     - **Fix**: Added explicit `createInstance = &juce_CreateApplication` before calling `JUCEApplicationBase::main()`
+  3. **Missing Exception Handling**: PluginManager singleton constructor performed operations that could crash
+     - **Fix**: Added comprehensive try-catch blocks throughout initialization and scanning
+  4. **No User Notification**: Crashed plugins were silently blacklisted without informing the user
+     - **Fix**: Added user-facing warning dialogs for crashed/blacklisted plugins
+- ✅ **Files Modified**:
+  - `Source/Plugins/PluginScannerWorker.h` (signature change)
+  - `Source/Plugins/PluginScannerWorker.cpp` (exception handling, command line parameter)
+  - `Source/Plugins/PluginManager.h` (new crash notification API)
+  - `Source/Plugins/PluginManager.cpp` (exception handling, crash tracking, TOCTOU fix)
+  - `Source/Plugins/PluginChain.cpp` (exception handling in createNode)
+  - `Source/Main.cpp` (custom main() functions, user notification dialogs)
+- ✅ **User Experience Improvements**:
+  - Startup crash detection with clear notification dialog
+  - Runtime scan crash detection with notification
+  - Auto-blacklisting of problematic plugins
+  - Graceful degradation when plugin system fails to initialize
+- ✅ **Code Review**: PASSED - Thread safety verified, exception handling comprehensive
+- ✅ **Build Status**: Clean build, all tests passing
+- ⚠️ **Known Issue (Pre-existing, P0)**: PluginChain has race condition in processBlock() - vector is modified
+  on message thread while audio thread iterates. Needs copy-on-write atomic swap architecture. Documented for
+  future fix - not part of this crash fix scope.
+- **Impact**: VST3 plugin system now robust against crashes from badly-behaved plugins
+- **Status**: ✅ **PRODUCTION READY** - Plugin scanning crash isolated, user notified of issues
 
 ### 2025-12-04 - Progress Dialog Bug Fix (P0 Critical)
 - ✅ **P0 CRITICAL FIXED**: Fade In/Out/DC Offset/Normalize applied to wrong location when using progress dialog

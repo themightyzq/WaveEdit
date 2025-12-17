@@ -15,6 +15,7 @@
 
 #include "AudioBufferManager.h"
 #include <cmath>
+#include <iostream>
 
 //==============================================================================
 AudioBufferManager::AudioBufferManager()
@@ -269,14 +270,32 @@ bool AudioBufferManager::insertAudio(int64_t insertPosition, const juce::AudioBu
 bool AudioBufferManager::replaceRange(int64_t startSample, int64_t numSamplesToReplace,
                                      const juce::AudioBuffer<float>& newAudio)
 {
+    std::cerr << "[BUFFER] replaceRange: start=" << startSample
+              << ", toReplace=" << numSamplesToReplace
+              << ", newAudioSamples=" << newAudio.getNumSamples()
+              << ", newAudioCh=" << newAudio.getNumChannels()
+              << ", currentBufferCh=" << m_buffer.getNumChannels()
+              << ", currentBufferSamples=" << m_buffer.getNumSamples() << std::endl;
+    std::cerr.flush();
+
     // First delete the range
     if (!deleteRange(startSample, numSamplesToReplace))
     {
+        std::cerr << "[BUFFER] replaceRange: deleteRange FAILED" << std::endl;
+        std::cerr.flush();
         return false;
     }
 
+    std::cerr << "[BUFFER] replaceRange: deleteRange succeeded, buffer now has "
+              << m_buffer.getNumSamples() << " samples" << std::endl;
+    std::cerr.flush();
+
     // Then insert the new audio at the same position
-    return insertAudio(startSample, newAudio);
+    bool result = insertAudio(startSample, newAudio);
+    std::cerr << "[BUFFER] replaceRange: insertAudio returned " << (result ? "true" : "false")
+              << ", buffer now has " << m_buffer.getNumSamples() << " samples" << std::endl;
+    std::cerr.flush();
+    return result;
 }
 
 bool AudioBufferManager::silenceRange(int64_t startSample, int64_t numSamples)
@@ -335,6 +354,85 @@ bool AudioBufferManager::trimToRange(int64_t startSample, int64_t numSamples)
 
     juce::Logger::writeToLog("AudioBufferManager: Trimmed to " + juce::String(numSamples) +
                              " samples starting at " + juce::String(startSample));
+
+    return true;
+}
+
+//==============================================================================
+// Channel conversion
+
+bool AudioBufferManager::convertToStereo()
+{
+    juce::ScopedLock sl(m_lock);
+
+    // No-op if already stereo or multi-channel
+    if (m_buffer.getNumChannels() != 1)
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Buffer is not mono, skipping stereo conversion");
+        return false;
+    }
+
+    if (m_buffer.getNumSamples() == 0)
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Empty buffer, skipping stereo conversion");
+        return false;
+    }
+
+    int numSamples = m_buffer.getNumSamples();
+
+    // Create new stereo buffer
+    juce::AudioBuffer<float> stereoBuffer(2, numSamples);
+
+    // Copy mono channel to both left and right channels
+    stereoBuffer.copyFrom(0, 0, m_buffer, 0, 0, numSamples);  // Left
+    stereoBuffer.copyFrom(1, 0, m_buffer, 0, 0, numSamples);  // Right
+
+    // Replace buffer
+    m_buffer = stereoBuffer;
+
+    juce::Logger::writeToLog("AudioBufferManager: Converted mono to stereo (" +
+                             juce::String(numSamples) + " samples)");
+
+    return true;
+}
+
+bool AudioBufferManager::convertToMono()
+{
+    juce::ScopedLock sl(m_lock);
+
+    // No-op if already mono
+    if (m_buffer.getNumChannels() != 2)
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Buffer is not stereo, skipping mono conversion");
+        return false;
+    }
+
+    if (m_buffer.getNumSamples() == 0)
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Empty buffer, skipping mono conversion");
+        return false;
+    }
+
+    int numSamples = m_buffer.getNumSamples();
+
+    // Create new mono buffer
+    juce::AudioBuffer<float> monoBuffer(1, numSamples);
+
+    // Average the stereo channels
+    const float* leftChannel = m_buffer.getReadPointer(0);
+    const float* rightChannel = m_buffer.getReadPointer(1);
+    float* monoChannel = monoBuffer.getWritePointer(0);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        monoChannel[i] = (leftChannel[i] + rightChannel[i]) * 0.5f;
+    }
+
+    // Replace buffer
+    m_buffer = monoBuffer;
+
+    juce::Logger::writeToLog("AudioBufferManager: Converted stereo to mono (" +
+                             juce::String(numSamples) + " samples)");
 
     return true;
 }

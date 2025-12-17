@@ -1,0 +1,117 @@
+{
+    "name": "Sound Forge",
+    "description": "Layout inspired by Sony Sound Forge Pro",
+    "version": "1.0.0",
+    "height": 36,
+    "showLabels": false,
+    "buttons": [
+        {
+            "id": "fileNew",
+            "type": "command",
+            "commandName": "fileNew",
+            "iconName": "new",
+            "tooltip": "New File"
+        },
+        {
+            "id": "fileOpen",
+            "type": "command",
+            "commandName": "fileOpen",
+            "iconName": "open",
+            "tooltip": "Open File"
+        },
+        {
+            "id": "fileSave",
+            "type": "command",
+            "commandName": "fileSave",
+            "iconName": "save",
+            "tooltip": "Save"
+        },
+        {
+            "id": "sep1",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "editCut",
+            "type": "command",
+            "commandName": "editCut",
+            "iconName": "cut",
+            "tooltip": "Cut"
+        },
+        {
+            "id": "editCopy",
+            "type": "command",
+            "commandName": "editCopy",
+            "iconName": "copy",
+            "tooltip": "Copy"
+        },
+        {
+            "id": "editPaste",
+            "type": "command",
+            "commandName": "editPaste",
+            "iconName": "paste",
+            "tooltip": "Paste"
+        },
+        {
+            "id": "sep2",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "editUndo",
+            "type": "command",
+            "commandName": "editUndo",
+            "iconName": "undo",
+            "tooltip": "Undo"
+        },
+        {
+            "id": "editRedo",
+            "type": "command",
+            "commandName": "editRedo",
+            "iconName": "redo",
+            "tooltip": "Redo"
+        },
+        {
+            "id": "sep3",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "transport",
+            "type": "transport",
+            "tooltip": "Transport Controls",
+            "width": 200
+        },
+        {
+            "id": "sep4",
+            "type": "separator",
+            "width": 8
+        },
+        {
+            "id": "zoomIn",
+            "type": "command",
+            "commandName": "viewZoomIn",
+            "iconName": "zoomIn",
+            "tooltip": "Zoom In"
+        },
+        {
+            "id": "zoomOut",
+            "type": "command",
+            "commandName": "viewZoomOut",
+            "iconName": "zoomOut",
+            "tooltip": "Zoom Out"
+        },
+        {
+            "id": "zoomFit",
+            "type": "command",
+            "commandName": "viewZoomFit",
+            "iconName": "zoomFit",
+            "tooltip": "Zoom to Fit"
+        },
+        {
+            "id": "spacer1",
+            "type": "spacer",
+            "width": 16
+        }
+    ]
+}
