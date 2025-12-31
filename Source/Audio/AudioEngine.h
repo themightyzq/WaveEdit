@@ -21,6 +21,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include "../DSP/ParametricEQ.h"
+#include "../DSP/DynamicParametricEQ.h"
 #include "../Plugins/PluginChain.h"
 
 /**
@@ -286,6 +287,15 @@ public:
      */
     void setSpectrumAnalyzer(class SpectrumAnalyzer* spectrumAnalyzer);
 
+    /**
+     * Sets the graphical EQ editor to receive audio data during preview.
+     * Pass nullptr to disconnect graphical EQ editor.
+     * Used for real-time spectrum visualization in the Graphical EQ dialog.
+     *
+     * @param eqEditor Pointer to graphical EQ editor component, or nullptr
+     */
+    void setGraphicalEQEditor(class GraphicalEQEditor* eqEditor);
+
     //==============================================================================
     // Preview System (Universal DSP Preview)
 
@@ -378,6 +388,71 @@ public:
      * @return true if EQ is enabled, false otherwise
      */
     bool isParametricEQEnabled() const { return m_parametricEQEnabled.get(); }
+
+    /**
+     * Set dynamic parametric EQ parameters for real-time preview.
+     * Thread-safe: Can be called from message thread.
+     *
+     * The dynamic EQ supports up to 20 bands with multiple filter types:
+     * Bell, Low Shelf, High Shelf, Low Cut, High Cut, Notch, Bandpass.
+     *
+     * @param params EQ parameters to apply
+     * @param enabled true to enable EQ processing, false to bypass
+     */
+    void setDynamicEQPreview(const DynamicParametricEQ::Parameters& params, bool enabled);
+
+    /**
+     * Get current dynamic EQ enabled state.
+     *
+     * @return true if dynamic EQ is enabled, false otherwise
+     */
+    bool isDynamicEQEnabled() const { return m_dynamicEQEnabled.get(); }
+
+    /**
+     * Get read-only access to the dynamic EQ for frequency response display.
+     * Used by UI to render EQ curves.
+     *
+     * @return Pointer to the dynamic EQ processor (nullptr if not initialized)
+     */
+    const DynamicParametricEQ* getDynamicEQ() const { return m_dynamicEQ.get(); }
+
+    //==============================================================================
+    // Preview Processor Unified API (Phase 2)
+
+    /**
+     * Query structure for active processor states in preview chain.
+     * Provides unified access to check which processors are currently enabled.
+     */
+    struct PreviewProcessorInfo
+    {
+        bool gainActive;
+        bool normalizeActive;
+        bool fadeActive;
+        bool dcOffsetActive;
+        bool eqActive;
+    };
+
+    /**
+     * Resets all preview processors to initial state.
+     * Call when entering preview mode to clear filter history.
+     * Thread-safe: Can be called from message thread.
+     */
+    void resetAllPreviewProcessors();
+
+    /**
+     * Disables all preview processors.
+     * Use when closing a preview dialog to ensure clean state.
+     * Thread-safe: Can be called from message thread.
+     */
+    void disableAllPreviewProcessors();
+
+    /**
+     * Gets current active state of all preview processors.
+     * Thread-safe: Uses atomic reads.
+     *
+     * @return Structure with enabled state of each processor
+     */
+    PreviewProcessorInfo getPreviewProcessorInfo() const;
 
     //==============================================================================
     // Plugin Chain Support
@@ -585,6 +660,9 @@ private:
     // Spectrum analyzer (not owned, just a pointer for data feeding)
     class SpectrumAnalyzer* m_spectrumAnalyzer;
 
+    // Graphical EQ editor (not owned, just a pointer for spectrum data feeding during preview)
+    class GraphicalEQEditor* m_graphicalEQEditor = nullptr;
+
     //==============================================================================
     // Preview System Members
 
@@ -769,12 +847,19 @@ private:
     };
     DCOffsetProcessor m_dcOffsetProcessor;
 
-    // Parametric EQ processor for real-time preview
+    // Parametric EQ processor for real-time preview (3-band fixed)
     std::unique_ptr<ParametricEQ> m_parametricEQ;
     juce::Atomic<bool> m_parametricEQEnabled{false};
     ParametricEQ::Parameters m_parametricEQParams;  // Accessed only from audio thread after atomic flag
     juce::Atomic<bool> m_parametricEQParamsChanged{false};
     ParametricEQ::Parameters m_pendingParametricEQParams;  // Written from message thread
+
+    // Dynamic Parametric EQ processor for real-time preview (20-band, multiple filter types)
+    std::unique_ptr<DynamicParametricEQ> m_dynamicEQ;
+    juce::Atomic<bool> m_dynamicEQEnabled{false};
+    DynamicParametricEQ::Parameters m_dynamicEQParams;  // Accessed only from audio thread after atomic flag
+    juce::Atomic<bool> m_dynamicEQParamsChanged{false};
+    DynamicParametricEQ::Parameters m_pendingDynamicEQParams;  // Written from message thread
 
     // VST3/AU Plugin Chain for real-time effects processing
     PluginChain m_pluginChain;

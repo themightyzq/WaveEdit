@@ -79,6 +79,7 @@ No project files, no import wizards. Just open → edit → save.
 **DSP Operations**:
 - ✅ Gain adjustment (±1dB with `Shift+Up/Down`)
 - ✅ 3-band Parametric EQ (Low/Mid/High shelves)
+- ✅ 20-band Graphical EQ (Bell, Shelf, Cut, Notch, Bandpass filters with real-time curve)
 - ✅ Normalize (0dB peak)
 - ✅ Fade in/out with 4 curve types (Linear, Exponential, Logarithmic, S-Curve) and visual preview
 - ✅ DC offset removal
@@ -454,6 +455,6 @@ See [LICENSE](LICENSE) for full details.
 ---
 
 **Version**: 0.1.0-dev
-**Last Updated**: 2025-11-04
+**Last Updated**: 2025-12-31
 
 For detailed status and roadmap, see [TODO.md](TODO.md).

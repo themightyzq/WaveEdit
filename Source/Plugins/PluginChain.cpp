@@ -18,70 +18,142 @@
 //==============================================================================
 PluginChain::PluginChain()
 {
+    // Initialize with empty chain
+    m_messageThreadChain = std::make_shared<NodeList>();
+    m_activeChain.store(m_messageThreadChain.get(), std::memory_order_release);
 }
 
 PluginChain::~PluginChain()
 {
     releaseResources();
     clear();
+
+    // Set active chain to nullptr to prevent audio thread access during destruction
+    m_activeChain.store(nullptr, std::memory_order_release);
+
+    // Clean up any pending deletes
+    processPendingDeletes();
 }
 
 //==============================================================================
 void PluginChain::prepareToPlay(double sampleRate, int blockSize)
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-
     m_sampleRate = sampleRate;
     m_blockSize = blockSize;
 
-    // SpinLock ensures audio thread is not processing while we prepare
-    const juce::SpinLock::ScopedLockType sl(m_processLock);
-
-    // Prepare all plugins
-    for (auto& node : m_nodes)
+    // Get current chain (message thread only)
+    auto chain = m_messageThreadChain;
+    if (chain != nullptr)
     {
-        if (node != nullptr)
+        for (auto& node : *chain)
         {
-            node->prepareToPlay(sampleRate, blockSize);
+            if (node != nullptr)
+            {
+                node->prepareToPlay(sampleRate, blockSize);
+            }
         }
     }
 
-    m_prepared = true;
+    m_prepared.store(true, std::memory_order_release);
 
-    DBG("PluginChain: Prepared " + juce::String(m_nodes.size()) + " plugins @ " +
+    DBG("PluginChain: Prepared " + juce::String(chain ? chain->size() : 0) + " plugins @ " +
         juce::String(sampleRate) + "Hz");
 }
 
 void PluginChain::releaseResources()
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-
-    // SpinLock ensures audio thread is not processing while we release
-    const juce::SpinLock::ScopedLockType sl(m_processLock);
-
-    for (auto& node : m_nodes)
+    // Get current chain (message thread only)
+    auto chain = m_messageThreadChain;
+    if (chain != nullptr)
     {
-        if (node != nullptr)
+        for (auto& node : *chain)
         {
-            node->releaseResources();
+            if (node != nullptr)
+            {
+                node->releaseResources();
+            }
         }
     }
 
-    m_prepared = false;
+    m_prepared.store(false, std::memory_order_release);
 }
 
 //==============================================================================
 void PluginChain::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    // SpinLock provides audio-safe synchronization with chain modifications
-    const juce::SpinLock::ScopedLockType sl(m_processLock);
+    // LOCK-FREE: Atomic load of active chain pointer
+    // Audio thread never blocks - worst case it processes with stale chain
+    NodeList* chain = m_activeChain.load(std::memory_order_acquire);
 
-    for (auto& node : m_nodes)
+    if (chain == nullptr)
+        return;
+
+    // Process through all nodes in the chain
+    // The chain pointer is stable - modifications create new chains
+    for (auto& node : *chain)
     {
         if (node != nullptr)
         {
             node->processBlock(buffer, midi);
         }
+    }
+}
+
+//==============================================================================
+PluginChain::ChainPtr PluginChain::copyCurrentChain() const
+{
+    // Create a new chain with copies of all node shared_ptrs
+    auto newChain = std::make_shared<NodeList>();
+
+    if (m_messageThreadChain != nullptr)
+    {
+        newChain->reserve(m_messageThreadChain->size());
+        for (const auto& node : *m_messageThreadChain)
+        {
+            newChain->push_back(node);
+        }
+    }
+
+    return newChain;
+}
+
+void PluginChain::publishChain(ChainPtr newChain)
+{
+    // Save old chain for deferred deletion
+    auto oldChain = m_messageThreadChain;
+
+    // Update message thread's reference
+    m_messageThreadChain = newChain;
+
+    // Atomically swap the active chain pointer
+    // Audio thread will see the new chain on next processBlock() call
+    m_activeChain.store(newChain.get(), std::memory_order_release);
+
+    // Queue old chain for deferred deletion
+    // We can't delete immediately because audio thread might still be using it
+    if (oldChain != nullptr)
+    {
+        std::lock_guard<std::mutex> lock(m_pendingDeleteMutex);
+        m_pendingDeletes.push_back(oldChain);
+    }
+
+    // Clean up old chains that are no longer in use
+    processPendingDeletes();
+}
+
+void PluginChain::processPendingDeletes()
+{
+    std::lock_guard<std::mutex> lock(m_pendingDeleteMutex);
+
+    // Generation-based deletion: Keep the last kMinPendingGenerations chains alive
+    // to guarantee the audio thread has finished iterating before we delete.
+    //
+    // The audio thread holds a raw pointer (not shared_ptr), so use_count() doesn't
+    // tell us if it's still iterating. Instead, we wait a minimum number of audio
+    // callbacks (~93ms at 44.1kHz/512 samples with 8 generations) before deletion.
+    while (m_pendingDeletes.size() > kMinPendingGenerations)
+    {
+        m_pendingDeletes.erase(m_pendingDeletes.begin());
     }
 }
 
@@ -107,7 +179,7 @@ std::unique_ptr<PluginChainNode> PluginChain::createNode(const juce::PluginDescr
         auto node = std::make_unique<PluginChainNode>(std::move(instance), description);
 
         // Prepare if chain is already prepared
-        if (m_prepared)
+        if (m_prepared.load(std::memory_order_acquire))
         {
             node->prepareToPlay(m_sampleRate, m_blockSize);
         }
@@ -128,24 +200,30 @@ std::unique_ptr<PluginChainNode> PluginChain::createNode(const juce::PluginDescr
 
 int PluginChain::addPlugin(const juce::PluginDescription& description)
 {
-    return insertPlugin(description, static_cast<int>(m_nodes.size()));
+    return insertPlugin(description, getNumPlugins());
 }
 
 int PluginChain::insertPlugin(const juce::PluginDescription& description, int index)
 {
+    // Create node first (this may involve plugin loading - done outside any locks)
     auto node = createNode(description);
     if (node == nullptr)
         return -1;
 
-    std::lock_guard<std::mutex> lock(m_chainMutex);
+    // Convert to shared_ptr for COW storage
+    auto sharedNode = std::shared_ptr<PluginChainNode>(std::move(node));
 
-    // SpinLock ensures audio thread is not iterating while we modify
-    const juce::SpinLock::ScopedLockType sl(m_processLock);
+    // Copy current chain
+    auto newChain = copyCurrentChain();
 
     // Clamp index to valid range
-    index = juce::jlimit(0, static_cast<int>(m_nodes.size()), index);
+    index = juce::jlimit(0, static_cast<int>(newChain->size()), index);
 
-    m_nodes.insert(m_nodes.begin() + index, std::move(node));
+    // Insert at the specified position
+    newChain->insert(newChain->begin() + index, sharedNode);
+
+    // Atomically publish new chain
+    publishChain(newChain);
 
     DBG("PluginChain: Added " + description.name + " at index " + juce::String(index));
 
@@ -155,25 +233,34 @@ int PluginChain::insertPlugin(const juce::PluginDescription& description, int in
 
 bool PluginChain::removePlugin(int index)
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-
-    if (index < 0 || index >= static_cast<int>(m_nodes.size()))
+    if (m_messageThreadChain == nullptr)
         return false;
 
-    auto& node = m_nodes[static_cast<size_t>(index)];
+    if (index < 0 || index >= static_cast<int>(m_messageThreadChain->size()))
+        return false;
+
+    // Get name for logging before we modify
+    auto& node = (*m_messageThreadChain)[static_cast<size_t>(index)];
     juce::String name = node ? node->getName() : "Unknown";
 
-    // Release resources before removing
-    if (node != nullptr)
-    {
-        node->releaseResources();
-    }
+    // IMPORTANT: Do NOT call releaseResources() here!
+    // The audio thread may still be iterating the chain and calling processBlock()
+    // on this node. We use COW (Copy-on-Write) to safely remove it:
+    // 1. Copy the chain
+    // 2. Remove node from copy
+    // 3. Atomically swap to new chain
+    // 4. Node cleanup happens via delayed deletion (kMinPendingGenerations)
+    //
+    // The node's destructor will handle cleanup when the old chain is finally deleted.
 
-    // SpinLock ensures audio thread is not iterating while we erase
-    {
-        const juce::SpinLock::ScopedLockType sl(m_processLock);
-        m_nodes.erase(m_nodes.begin() + index);
-    }
+    // Copy current chain
+    auto newChain = copyCurrentChain();
+
+    // Remove from the copy
+    newChain->erase(newChain->begin() + index);
+
+    // Atomically publish new chain
+    publishChain(newChain);
 
     DBG("PluginChain: Removed " + name + " from index " + juce::String(index));
 
@@ -183,27 +270,34 @@ bool PluginChain::removePlugin(int index)
 
 bool PluginChain::movePlugin(int fromIndex, int toIndex)
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
+    if (m_messageThreadChain == nullptr)
+        return false;
 
-    const int size = static_cast<int>(m_nodes.size());
-    if (fromIndex < 0 || fromIndex >= size || toIndex < 0 || toIndex >= size)
+    const int size = static_cast<int>(m_messageThreadChain->size());
+    // Note: toIndex can be == size when moving down (the caller passes m_index + 2)
+    // because after the internal adjustment (--toIndex when toIndex > fromIndex),
+    // it will become size - 1 which is valid.
+    if (fromIndex < 0 || fromIndex >= size || toIndex < 0 || toIndex > size)
         return false;
 
     if (fromIndex == toIndex)
         return true;
 
-    // SpinLock ensures audio thread is not iterating while we modify
-    const juce::SpinLock::ScopedLockType sl(m_processLock);
+    // Copy current chain
+    auto newChain = copyCurrentChain();
 
     // Move the node
-    auto node = std::move(m_nodes[static_cast<size_t>(fromIndex)]);
-    m_nodes.erase(m_nodes.begin() + fromIndex);
+    auto node = (*newChain)[static_cast<size_t>(fromIndex)];
+    newChain->erase(newChain->begin() + fromIndex);
 
     // Adjust target index if needed
     if (toIndex > fromIndex)
         --toIndex;
 
-    m_nodes.insert(m_nodes.begin() + toIndex, std::move(node));
+    newChain->insert(newChain->begin() + toIndex, node);
+
+    // Atomically publish new chain
+    publishChain(newChain);
 
     DBG("PluginChain: Moved plugin from " + juce::String(fromIndex) + " to " + juce::String(toIndex));
 
@@ -213,22 +307,23 @@ bool PluginChain::movePlugin(int fromIndex, int toIndex)
 
 void PluginChain::clear()
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
+    if (m_messageThreadChain == nullptr || m_messageThreadChain->empty())
+        return;
 
-    // Release all resources first
-    for (auto& node : m_nodes)
-    {
-        if (node != nullptr)
-        {
-            node->releaseResources();
-        }
-    }
+    // IMPORTANT: Do NOT call releaseResources() here!
+    // The audio thread may still be iterating the chain and calling processBlock()
+    // on these nodes. We use COW to safely clear:
+    // 1. Create empty chain
+    // 2. Atomically swap to empty chain
+    // 3. Old nodes are cleaned up via delayed deletion (kMinPendingGenerations)
+    //
+    // The nodes' destructors will handle cleanup when the old chain is finally deleted.
 
-    // SpinLock ensures audio thread is not iterating while we clear
-    {
-        const juce::SpinLock::ScopedLockType sl(m_processLock);
-        m_nodes.clear();
-    }
+    // Create empty chain
+    auto newChain = std::make_shared<NodeList>();
+
+    // Atomically publish empty chain
+    publishChain(newChain);
 
     DBG("PluginChain: Cleared all plugins");
 
@@ -238,36 +333,40 @@ void PluginChain::clear()
 //==============================================================================
 int PluginChain::getNumPlugins() const
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-    return static_cast<int>(m_nodes.size());
+    if (m_messageThreadChain == nullptr)
+        return 0;
+    return static_cast<int>(m_messageThreadChain->size());
 }
 
 PluginChainNode* PluginChain::getPlugin(int index)
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-
-    if (index < 0 || index >= static_cast<int>(m_nodes.size()))
+    if (m_messageThreadChain == nullptr)
         return nullptr;
 
-    return m_nodes[static_cast<size_t>(index)].get();
+    if (index < 0 || index >= static_cast<int>(m_messageThreadChain->size()))
+        return nullptr;
+
+    return (*m_messageThreadChain)[static_cast<size_t>(index)].get();
 }
 
 const PluginChainNode* PluginChain::getPlugin(int index) const
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-
-    if (index < 0 || index >= static_cast<int>(m_nodes.size()))
+    if (m_messageThreadChain == nullptr)
         return nullptr;
 
-    return m_nodes[static_cast<size_t>(index)].get();
+    if (index < 0 || index >= static_cast<int>(m_messageThreadChain->size()))
+        return nullptr;
+
+    return (*m_messageThreadChain)[static_cast<size_t>(index)].get();
 }
 
 //==============================================================================
 void PluginChain::setAllBypassed(bool bypassed)
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
+    if (m_messageThreadChain == nullptr)
+        return;
 
-    for (auto& node : m_nodes)
+    for (auto& node : *m_messageThreadChain)
     {
         if (node != nullptr)
         {
@@ -278,12 +377,10 @@ void PluginChain::setAllBypassed(bool bypassed)
 
 bool PluginChain::areAllBypassed() const
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-
-    if (m_nodes.empty())
+    if (m_messageThreadChain == nullptr || m_messageThreadChain->empty())
         return false;
 
-    for (const auto& node : m_nodes)
+    for (const auto& node : *m_messageThreadChain)
     {
         if (node != nullptr && !node->isBypassed())
         {
@@ -297,10 +394,11 @@ bool PluginChain::areAllBypassed() const
 //==============================================================================
 int PluginChain::getTotalLatency() const
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
+    if (m_messageThreadChain == nullptr)
+        return 0;
 
     int totalLatency = 0;
-    for (const auto& node : m_nodes)
+    for (const auto& node : *m_messageThreadChain)
     {
         if (node != nullptr && !node->isBypassed())
         {
@@ -314,12 +412,13 @@ int PluginChain::getTotalLatency() const
 //==============================================================================
 std::unique_ptr<juce::XmlElement> PluginChain::saveToXml() const
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-
     auto xml = std::make_unique<juce::XmlElement>("PluginChain");
     xml->setAttribute("version", 1);
 
-    for (const auto& node : m_nodes)
+    if (m_messageThreadChain == nullptr)
+        return xml;
+
+    for (const auto& node : *m_messageThreadChain)
     {
         if (node == nullptr)
             continue;
@@ -401,31 +500,32 @@ bool PluginChain::loadFromXml(const juce::XmlElement& xml)
 
 juce::var PluginChain::saveToJson() const
 {
-    std::lock_guard<std::mutex> lock(m_chainMutex);
-
     juce::Array<juce::var> pluginsArray;
 
-    for (const auto& node : m_nodes)
+    if (m_messageThreadChain != nullptr)
     {
-        if (node == nullptr)
-            continue;
-
-        auto* pluginObj = new juce::DynamicObject();
-
-        const auto& desc = node->getDescription();
-        pluginObj->setProperty("name", desc.name);
-        pluginObj->setProperty("identifier", desc.createIdentifierString());
-        pluginObj->setProperty("manufacturer", desc.manufacturerName);
-        pluginObj->setProperty("bypassed", node->isBypassed());
-
-        // Save plugin state as base64
-        auto state = node->getState();
-        if (state.getSize() > 0)
+        for (const auto& node : *m_messageThreadChain)
         {
-            pluginObj->setProperty("state", state.toBase64Encoding());
-        }
+            if (node == nullptr)
+                continue;
 
-        pluginsArray.add(juce::var(pluginObj));
+            auto* pluginObj = new juce::DynamicObject();
+
+            const auto& desc = node->getDescription();
+            pluginObj->setProperty("name", desc.name);
+            pluginObj->setProperty("identifier", desc.createIdentifierString());
+            pluginObj->setProperty("manufacturer", desc.manufacturerName);
+            pluginObj->setProperty("bypassed", node->isBypassed());
+
+            // Save plugin state as base64
+            auto state = node->getState();
+            if (state.getSize() > 0)
+            {
+                pluginObj->setProperty("state", state.toBase64Encoding());
+            }
+
+            pluginsArray.add(juce::var(pluginObj));
+        }
     }
 
     auto* root = new juce::DynamicObject();

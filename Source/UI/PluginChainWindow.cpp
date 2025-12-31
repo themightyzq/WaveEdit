@@ -21,6 +21,40 @@
 PluginChainWindow::PluginRowComponent::PluginRowComponent(PluginChainWindow& owner)
     : m_owner(owner)
 {
+    // Move Up button
+    m_moveUpButton.setButtonText("^");
+    m_moveUpButton.setTooltip("Move plugin up in chain");
+    m_moveUpButton.setMouseClickGrabsKeyboardFocus(false);
+    m_moveUpButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff505050));
+    m_moveUpButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_moveUpButton.onClick = [this]()
+    {
+        if (m_index > 0 && m_owner.m_listener != nullptr)
+        {
+            m_owner.m_listener->pluginChainWindowPluginMoved(m_index, m_index - 1);
+        }
+    };
+    addAndMakeVisible(m_moveUpButton);
+
+    // Move Down button
+    m_moveDownButton.setButtonText("v");
+    m_moveDownButton.setTooltip("Move plugin down in chain");
+    m_moveDownButton.setMouseClickGrabsKeyboardFocus(false);
+    m_moveDownButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff505050));
+    m_moveDownButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_moveDownButton.onClick = [this]()
+    {
+        // Simply check if button is enabled - updateMoveButtonStates() handles the logic
+        // Note: We pass m_index + 2 because movePlugin() uses "insert position" semantics
+        // where it decrements toIndex when toIndex > fromIndex to account for the removed element.
+        // So to move from position 0 to position 1, we pass (0, 2) which becomes (0, 1) after adjustment.
+        if (m_moveDownButton.isEnabled() && m_index >= 0 && m_owner.m_listener != nullptr)
+        {
+            m_owner.m_listener->pluginChainWindowPluginMoved(m_index, m_index + 2);
+        }
+    };
+    addAndMakeVisible(m_moveDownButton);
+
     m_bypassButton.setButtonText("Bypass");
     m_bypassButton.setTooltip("Bypass this plugin (disable effect processing)");
     m_bypassButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff505050));
@@ -61,14 +95,16 @@ PluginChainWindow::PluginRowComponent::PluginRowComponent(PluginChainWindow& own
 
     m_nameLabel.setFont(juce::FontOptions(14.0f));
     m_nameLabel.setColour(juce::Label::textColourId, juce::Colour(0xffe0e0e0));
+    m_nameLabel.setInterceptsMouseClicks(false, false);  // Allow drag-through
     addAndMakeVisible(m_nameLabel);
 
     m_latencyLabel.setFont(juce::FontOptions(11.0f));
     m_latencyLabel.setColour(juce::Label::textColourId, juce::Colour(0xff909090));
+    m_latencyLabel.setInterceptsMouseClicks(false, false);  // Allow drag-through
     addAndMakeVisible(m_latencyLabel);
 }
 
-void PluginChainWindow::PluginRowComponent::update(int index, PluginChainNode* node)
+void PluginChainWindow::PluginRowComponent::update(int index, PluginChainNode* node, int totalCount)
 {
     m_index = index;
     m_node = node;
@@ -83,12 +119,22 @@ void PluginChainWindow::PluginRowComponent::update(int index, PluginChainNode* n
             m_latencyLabel.setText("", juce::dontSendNotification);
 
         updateBypassButtonAppearance(node->isBypassed());
+        updateMoveButtonStates(index, totalCount);
     }
     else
     {
         m_nameLabel.setText("", juce::dontSendNotification);
         m_latencyLabel.setText("", juce::dontSendNotification);
     }
+}
+
+void PluginChainWindow::PluginRowComponent::updateMoveButtonStates(int index, int totalCount)
+{
+    // First plugin can't move up
+    m_moveUpButton.setEnabled(index > 0);
+
+    // Last plugin can't move down
+    m_moveDownButton.setEnabled(index < totalCount - 1);
 }
 
 void PluginChainWindow::PluginRowComponent::updateBypassButtonAppearance(bool isBypassed)
@@ -118,13 +164,18 @@ void PluginChainWindow::PluginRowComponent::resized()
 {
     auto bounds = getLocalBounds().reduced(4);
 
+    // Move Up/Down buttons on left
+    auto moveButtonArea = bounds.removeFromLeft(56);
+    m_moveUpButton.setBounds(moveButtonArea.removeFromLeft(26).reduced(2));
+    m_moveDownButton.setBounds(moveButtonArea.reduced(2));
+
     // Buttons on right
     auto buttonArea = bounds.removeFromRight(200);
     m_removeButton.setBounds(buttonArea.removeFromRight(30).reduced(2));
     m_editButton.setBounds(buttonArea.removeFromRight(50).reduced(2));
     m_bypassButton.setBounds(buttonArea.removeFromRight(70).reduced(2));
 
-    // Name and latency on left
+    // Name and latency in middle
     auto labelArea = bounds;
     m_nameLabel.setBounds(labelArea.removeFromTop(22));
     m_latencyLabel.setBounds(labelArea);
@@ -184,11 +235,18 @@ void PluginChainWindow::DraggableListBox::itemDropped(const SourceDetails& detai
     int fromIndex = static_cast<int>(details.description);
     int toIndex = getInsertIndexForPosition(details.localPosition.y);
 
-    if (fromIndex != toIndex && fromIndex != toIndex - 1)
-    {
-        if (toIndex > fromIndex)
-            toIndex--;
+    // PluginChain::movePlugin() uses "insert before" semantics:
+    // - It removes the item from fromIndex
+    // - Then internally does --toIndex if toIndex > fromIndex (to account for shift)
+    // - Then inserts at toIndex
+    //
+    // For drag-and-drop, we want to pass the raw insert position.
+    // The no-op conditions are:
+    // - toIndex == fromIndex (dropping on self, same position)
+    // - toIndex == fromIndex + 1 (dropping just below self, same position after adjustment)
 
+    if (toIndex != fromIndex && toIndex != fromIndex + 1)
+    {
         if (m_owner.m_listener != nullptr)
             m_owner.m_listener->pluginChainWindowPluginMoved(fromIndex, toIndex);
     }
@@ -200,13 +258,25 @@ void PluginChainWindow::DraggableListBox::itemDropped(const SourceDetails& detai
 void PluginChainWindow::DraggableListBox::paint(juce::Graphics& g)
 {
     juce::ListBox::paint(g);
+}
 
-    // Draw drop indicator
+void PluginChainWindow::DraggableListBox::paintOverChildren(juce::Graphics& g)
+{
+    // Draw drop indicator on top of all children (including viewport content)
     if (m_dropInsertIndex >= 0)
     {
-        int y = m_dropInsertIndex * m_owner.m_chainRowHeight;
-        g.setColour(m_owner.m_accentColour);
-        g.fillRect(0, y - 2, getWidth(), 4);
+        // Get the viewport to account for scroll position
+        auto* viewport = getViewport();
+        int scrollOffset = viewport != nullptr ? viewport->getViewPositionY() : 0;
+
+        int y = (m_dropInsertIndex * m_owner.m_chainRowHeight) - scrollOffset;
+
+        // Only draw if visible
+        if (y >= 0 && y <= getHeight())
+        {
+            g.setColour(m_owner.m_accentColour);
+            g.fillRect(0, y - 2, getWidth(), 4);
+        }
     }
 }
 
@@ -708,10 +778,15 @@ juce::Component* PluginChainWindow::refreshComponentForRow(int rowNumber, bool,
         row = new PluginRowComponent(*this);
 
     PluginChainNode* node = nullptr;
-    if (m_chain != nullptr && rowNumber >= 0 && rowNumber < m_chain->getNumPlugins())
-        node = m_chain->getPlugin(rowNumber);
+    int totalCount = 0;
+    if (m_chain != nullptr)
+    {
+        totalCount = m_chain->getNumPlugins();
+        if (rowNumber >= 0 && rowNumber < totalCount)
+            node = m_chain->getPlugin(rowNumber);
+    }
 
-    row->update(rowNumber, node);
+    row->update(rowNumber, node, totalCount);
     return row;
 }
 

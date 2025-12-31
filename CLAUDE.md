@@ -248,7 +248,44 @@ if (wasPlaying) {
 
 Always prefer calling a helper like AudioEngine::reloadBufferPreservingPlayback().
 
-6.6 KEYBOARD SHORTCUT AND COMMAND SYSTEM PROTOCOL
+6.6 JUCE IIR FILTER COEFFICIENT PROTOCOL
+
+When implementing filter curve visualization or any code that reads JUCE IIR filter coefficients:
+
+CRITICAL: JUCE normalizes biquad coefficients by a0 and stores only 5 elements, NOT 6.
+
+Standard biquad form has 6 coefficients: [b0, b1, b2, a0, a1, a2]
+JUCE's juce_IIRFilter_Impl.h assignImpl() normalizes by a0 and skips it during storage.
+
+Storage format (5 elements):
+  coeffs[0] = b0/a0
+  coeffs[1] = b1/a0
+  coeffs[2] = b2/a0
+  coeffs[3] = a1/a0
+  coeffs[4] = a2/a0
+
+When calculating frequency response using the z-transform:
+  H(z) = (b0 + b1*z^-1 + b2*z^-2) / (1 + a1*z^-1 + a2*z^-2)
+
+Correct coefficient extraction:
+  float b0 = coeffs[0];
+  float b1 = coeffs[1];
+  float b2 = coeffs[2];
+  float a1 = coeffs[3];  // NOT coeffs[4]
+  float a2 = coeffs[4];  // NOT coeffs[5]
+
+Size check: if (coeffs.size() < 5) return identity;  // NOT < 6
+
+Reference: JUCE/modules/juce_dsp/filter_design/juce_IIRFilter_Impl.h
+  - assignImpl() at lines 41-58 shows skipping a0 index
+  - process() at lines 138-161 shows reading indices 0,1,2,3,4
+
+This applies to ALL JUCE IIR filters including:
+  - juce::dsp::IIR::Filter
+  - juce::dsp::IIR::Coefficients
+  - Any custom filter using JUCE's coefficient storage
+
+6.7 KEYBOARD SHORTCUT AND COMMAND SYSTEM PROTOCOL
 
 Every new command must:
 • Have unique CommandID.

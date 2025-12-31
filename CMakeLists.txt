@@ -38,6 +38,8 @@ target_sources(WaveEdit
         Source/Audio/RecordingEngine.h
         Source/DSP/ParametricEQ.cpp
         Source/DSP/ParametricEQ.h
+        Source/DSP/DynamicParametricEQ.cpp
+        Source/DSP/DynamicParametricEQ.h
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h
@@ -461,6 +463,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Audio/AudioProcessor.h
         Source/DSP/ParametricEQ.cpp
         Source/DSP/ParametricEQ.h
+        Source/DSP/DynamicParametricEQ.cpp
+        Source/DSP/DynamicParametricEQ.h
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h

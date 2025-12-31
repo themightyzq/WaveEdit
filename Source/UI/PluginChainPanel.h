@@ -148,26 +148,24 @@ private:
     {
     public:
         PluginRowComponent(PluginChainPanel& owner);
-        void update(int index, PluginChainNode* node);
+        void update(int index, PluginChainNode* node, int totalCount);
         void paint(juce::Graphics& g) override;
         void resized() override;
-        void mouseDown(const juce::MouseEvent& e) override;
-        void mouseDrag(const juce::MouseEvent& e) override;
 
     private:
         void updateBypassButtonAppearance(bool isBypassed);
+        void updateMoveButtonStates(int index, int totalCount);
         PluginChainPanel& m_owner;
         int m_index = -1;
         PluginChainNode* m_node = nullptr;
 
+        juce::TextButton m_moveUpButton;
+        juce::TextButton m_moveDownButton;
         juce::TextButton m_bypassButton;
         juce::TextButton m_editButton;
         juce::TextButton m_removeButton;
         juce::Label m_nameLabel;
         juce::Label m_latencyLabel;
-
-        bool m_dragStarted = false;
-        juce::Point<int> m_dragStartPos;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginRowComponent)
     };

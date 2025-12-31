@@ -15,6 +15,7 @@
 
 #include "AudioEngine.h"
 #include "../UI/SpectrumAnalyzer.h"
+#include "../UI/GraphicalEQEditor.h"
 
 // Static member definition
 std::atomic<AudioEngine*> AudioEngine::s_previewingEngine{nullptr};
@@ -212,6 +213,9 @@ AudioEngine::AudioEngine()
 
     // Initialize parametric EQ processor
     m_parametricEQ = std::make_unique<ParametricEQ>();
+
+    // Initialize dynamic parametric EQ processor (20-band, multiple filter types)
+    m_dynamicEQ = std::make_unique<DynamicParametricEQ>();
 
     // Initialize level monitoring state
     for (int ch = 0; ch < MAX_CHANNELS; ++ch)
@@ -751,6 +755,11 @@ void AudioEngine::setSpectrumAnalyzer(SpectrumAnalyzer* spectrumAnalyzer)
     m_spectrumAnalyzer = spectrumAnalyzer;
 }
 
+void AudioEngine::setGraphicalEQEditor(GraphicalEQEditor* eqEditor)
+{
+    m_graphicalEQEditor = eqEditor;
+}
+
 //==============================================================================
 // ChangeListener Implementation
 
@@ -787,6 +796,13 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
         {
             m_parametricEQ->prepare(device->getCurrentSampleRate(),
                                     device->getCurrentBufferSizeSamples());
+        }
+
+        // Prepare the DynamicParametricEQ for real-time processing (20-band)
+        if (m_dynamicEQ)
+        {
+            m_dynamicEQ->prepare(device->getCurrentSampleRate(),
+                                 device->getCurrentBufferSizeSamples());
         }
 
         // Prepare the VST3/AU plugin chain for real-time processing
@@ -960,6 +976,23 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             m_parametricEQ->applyEQ(buffer, m_parametricEQParams);
         }
 
+        // 5b. Update DynamicParametricEQ parameters if changed (thread-safe parameter exchange)
+        if (m_dynamicEQParamsChanged.get())
+        {
+            m_dynamicEQParams = m_pendingDynamicEQParams;
+            if (m_dynamicEQ)
+            {
+                m_dynamicEQ->setParameters(m_dynamicEQParams);
+            }
+            m_dynamicEQParamsChanged.set(false);
+        }
+
+        // 5c. Apply dynamic parametric EQ if enabled (20-band, multiple filter types)
+        if (m_dynamicEQEnabled.get() && m_dynamicEQ)
+        {
+            m_dynamicEQ->applyEQ(buffer);
+        }
+
         // 6. Apply fade processor last (affects overall envelope)
         if (sampleRate > 0)
         {
@@ -1018,6 +1051,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // Mix down to mono for spectrum analysis (use left channel or mono mix)
         const float* channelData = buffer.getReadPointer(0);
         m_spectrumAnalyzer->pushAudioData(channelData, numSamples);
+    }
+
+    // Feed graphical EQ editor with audio data (if connected AND in EQ preview mode)
+    if (m_graphicalEQEditor != nullptr && m_dynamicEQEnabled.get() && buffer.getNumChannels() > 0)
+    {
+        const float* channelData = buffer.getReadPointer(0);
+        m_graphicalEQEditor->pushAudioData(channelData, numSamples);
     }
 }
 
@@ -1239,6 +1279,15 @@ void AudioEngine::setParametricEQPreview(const ParametricEQ::Parameters& params,
     m_parametricEQEnabled.set(enabled);
 }
 
+void AudioEngine::setDynamicEQPreview(const DynamicParametricEQ::Parameters& params, bool enabled)
+{
+    // Thread-safe: Can be called from UI thread
+    // Use atomic flag to safely exchange parameters between threads
+    m_pendingDynamicEQParams = params;
+    m_dynamicEQParamsChanged.set(true);
+    m_dynamicEQEnabled.set(enabled);
+}
+
 void AudioEngine::setNormalizePreview(float gainDB, bool enabled)
 {
     // Thread-safe: Can be called from UI thread
@@ -1295,6 +1344,42 @@ void AudioEngine::setDCOffsetPreview(bool enabled)
     }
 
     m_dcOffsetProcessor.enabled.store(enabled);
+}
+
+//==============================================================================
+// Preview Processor Unified API (Phase 2)
+
+void AudioEngine::resetAllPreviewProcessors()
+{
+    // Thread-safe: Can be called from message thread
+    // Resets processors with internal state (filter history, etc.)
+    m_fadeProcessor.reset();
+    m_dcOffsetProcessor.reset();
+    // Note: GainProcessor and NormalizeProcessor are stateless (pure gain)
+    // Note: ParametricEQ reset is handled by setParametricEQBands when reconfigured
+}
+
+void AudioEngine::disableAllPreviewProcessors()
+{
+    // Thread-safe: Uses atomic stores
+    // Disables all preview processors for clean state on dialog close
+    m_gainProcessor.enabled.store(false);
+    m_normalizeProcessor.enabled.store(false);
+    m_fadeProcessor.enabled.store(false);
+    m_dcOffsetProcessor.enabled.store(false);
+    m_parametricEQEnabled.set(false);
+}
+
+AudioEngine::PreviewProcessorInfo AudioEngine::getPreviewProcessorInfo() const
+{
+    // Thread-safe: Uses atomic loads
+    PreviewProcessorInfo info;
+    info.gainActive = m_gainProcessor.enabled.load();
+    info.normalizeActive = m_normalizeProcessor.enabled.load();
+    info.fadeActive = m_fadeProcessor.enabled.load();
+    info.dcOffsetActive = m_dcOffsetProcessor.enabled.load();
+    info.eqActive = m_parametricEQEnabled.get();
+    return info;
 }
 
 void AudioEngine::setPreviewPluginInstance(juce::AudioPluginInstance* instance)

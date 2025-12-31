@@ -18,7 +18,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_dsp/juce_dsp.h>
-#include "../DSP/ParametricEQ.h"
+#include "../DSP/DynamicParametricEQ.h"
 #include <optional>
 
 // Forward declarations
@@ -35,17 +35,19 @@ class AudioEngine;
  * - Professional visual feedback with color-coded bands
  *
  * Features:
- * - 3-band parametric EQ (Low Shelf, Mid Peak, High Shelf)
+ * - Up to 20 dynamic EQ bands with multiple filter types
+ * - Filter types: Bell, Low Shelf, High Shelf, Low Cut, High Cut, Notch, Bandpass
  * - Draggable control points (click and drag to adjust frequency/gain)
+ * - Double-click to add new band at cursor position
+ * - Right-click to delete a band
  * - Mouse wheel to adjust Q (bandwidth/resonance)
  * - Real-time spectrum analyzer visualization
- * - Combined frequency response curve display
+ * - Accurate frequency response curve using IIR filter math
  * - Grid lines and axis labels for precision
- * - Color-coded bands (Low=blue, Mid=green, High=red)
+ * - Color-coded bands by filter type
  *
  * Architecture:
- * - Reuses SpectrumAnalyzer FFT visualization logic
- * - Calculates combined EQ frequency response in real-time
+ * - Uses DynamicParametricEQ for accurate frequency response calculation
  * - Interactive mouse/keyboard controls for parameter adjustment
  * - Thread-safe audio data transfer for spectrum display
  */
@@ -56,9 +58,9 @@ public:
     /**
      * Creates a graphical EQ editor with optional initial parameters.
      *
-     * @param initialParams Initial EQ parameters (defaults to neutral if not provided)
+     * @param initialParams Initial EQ parameters (defaults to default preset)
      */
-    explicit GraphicalEQEditor(const ParametricEQ::Parameters& initialParams = ParametricEQ::Parameters::createNeutral());
+    explicit GraphicalEQEditor(const DynamicParametricEQ::Parameters& initialParams = DynamicParametricEQ::createDefaultPreset());
     ~GraphicalEQEditor() override;
 
     //==============================================================================
@@ -68,14 +70,13 @@ public:
      * Shows the graphical EQ editor as a modal dialog.
      * Returns the edited EQ parameters if Apply was clicked, otherwise std::nullopt.
      *
-     * NOTE: Preview functionality requires AudioEngine refactoring to support
-     * temporary buffer playback. Currently preview is disabled.
-     *
+     * @param audioEngine Pointer to the audio engine for preview functionality (can be nullptr)
      * @param initialParams Initial EQ parameters
      * @return Edited parameters if applied, std::nullopt if cancelled
      */
-    static std::optional<ParametricEQ::Parameters> showDialog(
-        const ParametricEQ::Parameters& initialParams = ParametricEQ::Parameters::createNeutral()
+    static std::optional<DynamicParametricEQ::Parameters> showDialog(
+        AudioEngine* audioEngine,
+        const DynamicParametricEQ::Parameters& initialParams = DynamicParametricEQ::createDefaultPreset()
     );
 
     /**
@@ -83,7 +84,7 @@ public:
      *
      * @return Current EQ parameter values
      */
-    const ParametricEQ::Parameters& getParameters() const { return m_params; }
+    const DynamicParametricEQ::Parameters& getParameters() const { return m_params; }
 
     /**
      * Sets the audio engine to monitor for spectrum visualization.
@@ -92,6 +93,12 @@ public:
      * @param audioEngine The audio engine to monitor, or nullptr
      */
     void setAudioEngine(AudioEngine* audioEngine);
+
+    /**
+     * Pushes audio samples for FFT analysis (thread-safe).
+     * Called by AudioEngine to feed spectrum analyzer data.
+     */
+    void pushAudioData(const float* buffer, int numSamples);
 
     //==============================================================================
     // Component Overrides
@@ -103,39 +110,34 @@ public:
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
     void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
 
 private:
     //==============================================================================
     // Control Point Representation
 
-    enum class BandType
-    {
-        LOW,
-        MID,
-        HIGH
-    };
-
     struct ControlPoint
     {
-        BandType band;
+        int bandIndex;        // Index into m_params.bands
         float x;              // Screen X coordinate
         float y;              // Screen Y coordinate
         bool isDragging;
 
-        ControlPoint(BandType b) : band(b), x(0.0f), y(0.0f), isDragging(false) {}
+        ControlPoint(int idx = -1) : bandIndex(idx), x(0.0f), y(0.0f), isDragging(false) {}
     };
 
     //==============================================================================
     // EQ Parameters
 
-    ParametricEQ::Parameters m_params;
-    std::optional<ParametricEQ::Parameters> m_result;  // Result from modal dialog
+    DynamicParametricEQ::Parameters m_params;
+    std::optional<DynamicParametricEQ::Parameters> m_result;  // Result from modal dialog
 
-    // Control points for each band
-    ControlPoint m_lowBandPoint;
-    ControlPoint m_midBandPoint;
-    ControlPoint m_highBandPoint;
+    // Dynamic control points (one per band)
+    std::vector<ControlPoint> m_controlPoints;
+
+    // Track which band is being dragged
+    int m_draggingBandIndex = -1;
 
     //==============================================================================
     // Spectrum Analyzer State (reused from SpectrumAnalyzer)
@@ -174,6 +176,9 @@ private:
     juce::TextButton m_previewButton;
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
+
+    // Preview state
+    bool m_previewActive = false;
 
     //==============================================================================
     // Helper Methods - Coordinate Conversions
@@ -225,11 +230,6 @@ private:
     // Helper Methods - Audio Processing
 
     /**
-     * Pushes audio samples for FFT analysis (thread-safe).
-     */
-    void pushAudioData(const float* buffer, int numSamples);
-
-    /**
      * Processes the FFT and updates visualization data.
      */
     void processFFT();
@@ -238,20 +238,40 @@ private:
     // Helper Methods - Mouse Interaction
 
     /**
-     * Finds the control point nearest to the given screen position.
-     * Returns nullptr if no point is within interaction threshold.
+     * Finds the control point index nearest to the given screen position.
+     * Returns -1 if no point is within interaction threshold.
      */
-    ControlPoint* findNearestControlPoint(float x, float y);
+    int findNearestControlPointIndex(float x, float y);
 
     /**
-     * Updates control point positions based on current EQ parameters.
+     * Updates all control point screen positions based on current EQ parameters.
      */
     void updateControlPointPositions();
 
     /**
-     * Updates EQ parameters based on control point screen positions.
+     * Updates EQ parameters from control point screen position for specific band.
      */
-    void updateParametersFromControlPoints();
+    void updateParametersFromControlPoint(int bandIndex);
+
+    /**
+     * Add a new EQ band at the given screen position.
+     */
+    void addBandAtPosition(float x, float y);
+
+    /**
+     * Remove the band at the given index.
+     */
+    void removeBand(int bandIndex);
+
+    /**
+     * Get color for a filter type.
+     */
+    juce::Colour getFilterTypeColor(DynamicParametricEQ::FilterType type) const;
+
+    /**
+     * Show context menu for band editing.
+     */
+    void showBandContextMenu(int bandIndex);
 
     /**
      * Process preview audio with current EQ parameters.
@@ -262,6 +282,9 @@ private:
      * Start/stop preview playback.
      */
     void togglePreview();
+
+    // DynamicParametricEQ instance for accurate frequency response calculation
+    std::unique_ptr<DynamicParametricEQ> m_eqProcessor;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GraphicalEQEditor)
 };

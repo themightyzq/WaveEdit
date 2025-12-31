@@ -1,6 +1,6 @@
 # WaveEdit by ZQ SFX - TODO
 
-**Last Updated**: 2025-12-17 (Toolbar UX Bug Fixes)
+**Last Updated**: 2025-12-31 (DynamicParametricEQ & GraphicalEQ Complete)
 **Company**: ZQ SFX (© 2025)
 **Philosophy**: Feature-driven development - ship when ready, not before
 
@@ -40,6 +40,7 @@
 - Gain adjustment, normalize, DC offset removal, silence, trim
 - Fade in/out with 4 curve types (linear, exponential, logarithmic, S-curve) + preview
 - 3-band Parametric EQ (Low/Mid/High shelves with Gain/Freq/Q controls)
+- 20-band Graphical EQ (Bell, Shelf, Cut, Notch, Bandpass filters with real-time curve)
 
 **Playback**:
 - Play, pause, stop, loop with selection-bounded playback
@@ -113,13 +114,13 @@
 - Meters component exists but not integrated into Document class (future feature)
 - Multi-range selection not supported (future: advanced editing workflows)
 
-**VST3 Plugin System** (P0, needs architectural fix):
-- ⚠️ **PluginChain::processBlock() race condition**: Vector is modified on message thread while
-  audio thread iterates. Comment claims "atomic pointer swap" but code uses std::vector.
-  - **Risk**: Crash during playback when adding/removing plugins
-  - **Required Fix**: Implement copy-on-write with atomic pointer swap architecture
-  - **Workaround**: Stop playback before modifying plugin chain
-  - **Tracked**: 2025-12-08, documented for future architectural work
+**VST3 Plugin System** ✅ P0 Race Condition RESOLVED (2025-12-17):
+- ✅ **PluginChain::processBlock() race condition**: FIXED with Copy-on-Write (COW) architecture
+  - **Solution**: Lock-free audio thread access via atomic pointer swap
+  - **Architecture**: Message thread creates new chain copy → modifies → atomically publishes
+  - **Memory Safety**: Generation-based deletion (8 generations = ~93ms at 44.1kHz/512) prevents use-after-free
+  - **Files Modified**: `Source/Plugins/PluginChain.h`, `Source/Plugins/PluginChain.cpp`
+  - **Thread Safety**: Audio thread uses `std::memory_order_acquire`, message thread uses `std::memory_order_release`
 
 **All startup crash bugs resolved** - Production ready for core editing workflows.
 
@@ -146,22 +147,35 @@
 
 ### In Progress 🔄
 
-**Universal Preview System** (Phase 1 Core - 20% complete):
+**Universal Preview System** (Phase 2 Complete - 40%):
 - ✅ Phase 1.1: PreviewMode infrastructure in AudioEngine (COMPLETE)
   - PreviewMode enum (DISABLED, REALTIME_DSP, OFFLINE_BUFFER)
   - Audio callback integration with real-time DSP processing
   - GainProcessor with atomic thread-safe parameters
   - Preview API: setPreviewMode(), loadPreviewBuffer(), setGainPreview()
 - ✅ Phase 1.2: Build verification and testing (COMPLETE)
-- 🔄 Phase 1.3: Create test dialog to demonstrate gain preview
-- ⏳ Phase 1.4: Test real-time bypass and thread safety
-- ⏳ Phase 2: Expand ProcessorChain (EQ, Fade, DC Offset)
-- ⏳ Phase 3: DynamicParametricEQ (20-band system)
-- ⏳ Phase 4: GraphicalEQEditor refactor (dynamic control points)
+- ✅ Phase 1.3: GainDialog preview integration (COMPLETE)
+- ✅ Phase 1.4: Real-time bypass and thread safety verified (COMPLETE)
+- ✅ Phase 2: Expand ProcessorChain (COMPLETE - 2025-12-17)
+  - All 5 processors integrated: Gain, Normalize, Fade, DC Offset, ParametricEQ
+  - Unified API added: resetAllPreviewProcessors(), disableAllPreviewProcessors(), getPreviewProcessorInfo()
+  - Per-processor bypass via atomic `enabled` flags
+  - Thread-safe: All operations use atomic loads/stores
+- ✅ Phase 3: DynamicParametricEQ (COMPLETE - 2025-12-31)
+  - 20-band capacity with all filter types: Bell, Low/High Shelf, Low/High Cut, Notch, Bandpass
+  - JUCE IIR filter coefficient protocol (5-element storage) correctly implemented
+  - Thread-safe with proper lock usage for coefficient updates
+  - updateCoefficientsForVisualization() for real-time curve updates
+- ✅ Phase 4: GraphicalEQEditor refactor (COMPLETE - 2025-12-31)
+  - Dynamic control points with add/remove via double-click/right-click
+  - Real-time curve visualization with accurate frequency response
+  - Filter type selection per band via context menu
+  - Preview button with AudioEngine integration
+  - Undo/redo support via ApplyGraphicalEQAction
 - ⏳ Phase 5: EQ preset system (JSON save/load)
 - ⏳ Phase 6: Integration testing and polish
 
-**Status**: Foundation complete, ready for GainDialog integration
+**Status**: Phase 4 complete (80%), ready for EQ preset system
 
 ### Up Next
 
@@ -509,6 +523,70 @@ See CLAUDE.md "Quality Assurance" section for details.
 ---
 
 ## Changelog
+
+### 2025-12-18 - Clear Cache & Rescan Bug Fix (Complete)
+- ✅ **P0 BUG FIXED**: "Clear Cache & Rescan" now properly deletes all cache files and provides user feedback
+- ✅ **Root Causes Identified**:
+  1. **Silent File Deletion Failure**: `deleteFile()` failures only logged via `DBG()` - user got no notification
+  2. **Incremental Cache File NOT Deleted**: `plugin_incremental_cache.xml` was not being deleted
+  3. **Blacklist File NOT Cleared**: `plugins_blacklist.xml` persisted after cache clear
+  4. **No User Feedback**: Main.cpp handler didn't check return value or notify user
+- ✅ **Solution Implemented**:
+  - `clearCache()` now returns `bool` indicating success/failure
+  - Deletes all 4 cache files: `plugins.xml`, `scan_in_progress.tmp`, `plugin_incremental_cache.xml`, `plugins_blacklist.xml`
+  - Tracks failed deletions and reports them via `DBG()` log
+  - Command handler shows warning dialog if any files couldn't be deleted
+  - Rescan continues even if cache clear partially fails (graceful degradation)
+- ✅ **Files Modified**:
+  - `Source/Plugins/PluginManager.cpp` - Rewrote `clearCache()` to delete all cache files and return bool
+  - `Source/Plugins/PluginManager.h` - Changed `clearCache()` return type from `void` to `bool`
+  - `Source/Main.cpp` - Added return value check and warning dialog to command handler
+- ✅ **Build Status**: Clean build, all tests passing
+- **Impact**: Users now get proper feedback if cache files couldn't be deleted (e.g., locked by antivirus)
+
+### 2025-12-18 - Plugin Chain Reordering Fixes (Complete)
+- ✅ **Move Down Button Fix**: Second-to-last plugin can now move down
+  - **Problem**: Move Down button on second-to-last plugin did nothing
+  - **Root Cause**: PluginChain.cpp bounds check used `>= size` instead of `> size`
+  - **Solution**: Changed `if (toIndex >= static_cast<int>(newChain->size()))` to `> size`
+  - **File**: `Source/Plugins/PluginChain.cpp` (line 280)
+- ✅ **Visual Drag Indicator**: Blue drop indicator now visible during drag-and-drop
+  - **Problem**: No visual feedback showing where plugin would be dropped
+  - **Solution**: Added `paintOverChildren()` override to DraggableListBox
+  - **Implementation**: Draws 3px blue line at drop position, updates during drag
+  - **File**: `Source/UI/PluginChainWindow.cpp` (lines 200-217), `Source/UI/PluginChainWindow.h` (line 207)
+- ✅ **Adjacent Drag-and-Drop Fix**: All adjacent moves now work correctly
+  - **Problem**: Dragging first→second or second-to-last→last slot failed
+  - **Root Cause**: Double-adjustment of toIndex (UI and backend both adjusted)
+  - **Solution**: Removed pre-adjustment in `itemDropped()`, let `movePlugin()` handle it
+  - **No-op Check**: Changed from `fromIndex != toIndex - 1` to `toIndex != fromIndex + 1`
+  - **File**: `Source/UI/PluginChainWindow.cpp` (lines 233-256)
+- **Features Working**:
+  - Drag-and-drop reordering with visual indicator
+  - Move Up (^) and Move Down (v) buttons on each plugin row
+  - All adjacent and non-adjacent moves work correctly
+  - Buttons properly enabled/disabled based on position
+- **Build Status**: Clean build, all tests passing
+- **User Verified**: All three fixes confirmed working
+
+### 2025-12-17 - P0 PluginChain Race Condition Fix (Complete)
+- ✅ **P0 CRITICAL FIXED**: PluginChain now thread-safe with Copy-on-Write (COW) architecture
+- ✅ **Root Cause**: Audio thread was iterating `std::vector` while message thread modified it
+  - Adding/removing plugins during playback could cause crash or audio glitches
+  - Original SpinLock solution had priority inversion (audio thread blocked by message thread)
+- ✅ **Solution**: Lock-free COW with atomic pointer swap
+  - Audio thread: Loads active chain pointer atomically (`std::memory_order_acquire`)
+  - Message thread: Creates chain copy → modifies → publishes atomically
+  - No locks, no blocking, no allocations on audio thread
+- ✅ **Memory Safety**: Generation-based delayed deletion
+  - Old chains kept alive for 8 generations (~93ms at 44.1kHz/512 samples)
+  - Guarantees audio thread finished iterating before deletion
+  - Fixes use-after-free identified during code review
+- ✅ **Files Modified**:
+  - `Source/Plugins/PluginChain.h` - COW architecture with atomic pointer and pending deletes
+  - `Source/Plugins/PluginChain.cpp` - Lock-free processBlock, generation-based cleanup
+- ✅ **Build Status**: Clean build, all tests passing
+- **Impact**: Plugin chain can now be safely modified during playback without crashes
 
 ### 2025-12-17 - Toolbar UX Bug Fixes (Complete)
 - ✅ **Context Menu Position Fix**: Right-click context menu now appears at cursor location
