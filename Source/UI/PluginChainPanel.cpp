@@ -14,6 +14,7 @@
 */
 
 #include "PluginChainPanel.h"
+#include <iostream>
 
 //==============================================================================
 // PluginRowComponent
@@ -22,9 +23,42 @@
 PluginChainPanel::PluginRowComponent::PluginRowComponent(PluginChainPanel& owner)
     : m_owner(owner)
 {
+    std::cerr << "[PLUGINROW] Constructor called" << std::endl;
+
+    // Move Up button - use simple ASCII arrow that renders reliably
+    m_moveUpButton.setButtonText("^");
+    m_moveUpButton.setTooltip("Move plugin up in chain");
+    m_moveUpButton.setMouseClickGrabsKeyboardFocus(false);
+    m_moveUpButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff505050));
+    m_moveUpButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_moveUpButton.onClick = [this]()
+    {
+        if (m_index > 0 && m_owner.m_listener != nullptr)
+        {
+            m_owner.m_listener->pluginChainPanelMovePlugin(m_index, m_index - 1);
+        }
+    };
+    addAndMakeVisible(m_moveUpButton);
+
+    // Move Down button - use simple ASCII "v" that renders reliably
+    m_moveDownButton.setButtonText("v");
+    m_moveDownButton.setTooltip("Move plugin down in chain");
+    m_moveDownButton.setMouseClickGrabsKeyboardFocus(false);
+    m_moveDownButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff505050));
+    m_moveDownButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_moveDownButton.onClick = [this]()
+    {
+        if (m_owner.m_listener != nullptr)
+        {
+            m_owner.m_listener->pluginChainPanelMovePlugin(m_index, m_index + 1);
+        }
+    };
+    addAndMakeVisible(m_moveDownButton);
+
     m_bypassButton.setButtonText("Bypass");
     m_bypassButton.setTooltip("Bypass this plugin (disable effect processing)");
     m_bypassButton.setClickingTogglesState(true);
+    m_bypassButton.setMouseClickGrabsKeyboardFocus(false);
     m_bypassButton.onClick = [this]()
     {
         if (m_node != nullptr && m_owner.m_listener != nullptr)
@@ -38,6 +72,7 @@ PluginChainPanel::PluginRowComponent::PluginRowComponent(PluginChainPanel& owner
 
     m_editButton.setButtonText("Edit");
     m_editButton.setTooltip("Open plugin editor");
+    m_editButton.setMouseClickGrabsKeyboardFocus(false);
     m_editButton.onClick = [this]()
     {
         if (m_owner.m_listener != nullptr)
@@ -49,6 +84,7 @@ PluginChainPanel::PluginRowComponent::PluginRowComponent(PluginChainPanel& owner
 
     m_removeButton.setButtonText("X");
     m_removeButton.setTooltip("Remove plugin from chain");
+    m_removeButton.setMouseClickGrabsKeyboardFocus(false);
     m_removeButton.onClick = [this]()
     {
         if (m_owner.m_listener != nullptr)
@@ -66,7 +102,7 @@ PluginChainPanel::PluginRowComponent::PluginRowComponent(PluginChainPanel& owner
     addAndMakeVisible(m_latencyLabel);
 }
 
-void PluginChainPanel::PluginRowComponent::update(int index, PluginChainNode* node)
+void PluginChainPanel::PluginRowComponent::update(int index, PluginChainNode* node, int totalCount)
 {
     m_index = index;
     m_node = node;
@@ -93,29 +129,43 @@ void PluginChainPanel::PluginRowComponent::update(int index, PluginChainNode* no
         m_nameLabel.setText("", juce::dontSendNotification);
         m_latencyLabel.setText("", juce::dontSendNotification);
     }
+
+    // Update move button enabled states
+    updateMoveButtonStates(index, totalCount);
+}
+
+void PluginChainPanel::PluginRowComponent::updateMoveButtonStates(int index, int totalCount)
+{
+    // Can't move up if at the top
+    m_moveUpButton.setEnabled(index > 0);
+
+    // Can't move down if at the bottom
+    m_moveDownButton.setEnabled(index < totalCount - 1);
 }
 
 void PluginChainPanel::PluginRowComponent::paint(juce::Graphics& g)
 {
-    // Draw drag handle area on left
-    g.setColour(juce::Colour(0xff404040));
-    g.fillRect(0, 0, 20, getHeight());
-
-    // Draw grip lines
-    g.setColour(juce::Colour(0xff606060));
-    int gripY = getHeight() / 2;
-    for (int i = -2; i <= 2; ++i)
-    {
-        g.drawHorizontalLine(gripY + i * 3, 5.0f, 15.0f);
-    }
+    // Note: Background is painted by paintListBoxItem(), not here
+    // This component is transparent to allow ListBox drag-and-drop to work
 }
 
 void PluginChainPanel::PluginRowComponent::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Drag handle area
-    bounds.removeFromLeft(24);
+    std::cerr << "[PLUGINROW] resized() called, bounds: " << bounds.toString()
+        << ", width=" << bounds.getWidth() << ", height=" << bounds.getHeight() << std::endl;
+
+    // Move buttons on left side (compact arrow buttons)
+    auto moveArea = bounds.removeFromLeft(56);  // Two small buttons side by side
+    auto upBounds = moveArea.removeFromLeft(28).reduced(4);
+    auto downBounds = moveArea.reduced(4);
+
+    std::cerr << "[PLUGINROW] Move Up button bounds: " << upBounds.toString() << std::endl;
+    std::cerr << "[PLUGINROW] Move Down button bounds: " << downBounds.toString() << std::endl;
+
+    m_moveUpButton.setBounds(upBounds);
+    m_moveDownButton.setBounds(downBounds);
 
     // Remove button on right (keep X small)
     m_removeButton.setBounds(bounds.removeFromRight(32).reduced(4));
@@ -130,30 +180,6 @@ void PluginChainPanel::PluginRowComponent::resized()
     auto infoArea = bounds.reduced(4);
     m_nameLabel.setBounds(infoArea.removeFromTop(infoArea.getHeight() / 2));
     m_latencyLabel.setBounds(infoArea);
-}
-
-void PluginChainPanel::PluginRowComponent::mouseDown(const juce::MouseEvent& e)
-{
-    if (e.x < 24)  // Drag handle area
-    {
-        m_dragStarted = false;
-        m_dragStartPos = e.getPosition();
-    }
-}
-
-void PluginChainPanel::PluginRowComponent::mouseDrag(const juce::MouseEvent& e)
-{
-    if (e.x < 24 || m_dragStartPos.x < 24)
-    {
-        auto distance = e.getDistanceFromDragStart();
-        if (!m_dragStarted && distance > 4)
-        {
-            m_dragStarted = true;
-            juce::var dragData;
-            dragData.append(m_index);
-            m_owner.startDragging(dragData, this, juce::ScaledImage(), true);
-        }
-    }
 }
 
 void PluginChainPanel::PluginRowComponent::updateBypassButtonAppearance(bool isBypassed)
@@ -543,12 +569,17 @@ juce::Component* PluginChainPanel::refreshComponentForRow(int rowNumber, bool /*
     }
 
     PluginChainNode* node = nullptr;
-    if (m_chain != nullptr && rowNumber < m_chain->getNumPlugins())
+    int totalCount = 0;
+    if (m_chain != nullptr)
     {
-        node = m_chain->getPlugin(rowNumber);
+        totalCount = m_chain->getNumPlugins();
+        if (rowNumber < totalCount)
+        {
+            node = m_chain->getPlugin(rowNumber);
+        }
     }
 
-    row->update(rowNumber, node);
+    row->update(rowNumber, node, totalCount);
     return row;
 }
 

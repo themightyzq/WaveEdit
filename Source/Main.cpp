@@ -603,6 +603,20 @@ public:
 
     void documentRemoved(Document* document, int index) override
     {
+        // Close any Plugin Chain windows for this document before it's destroyed
+        if (document != nullptr)
+        {
+            auto* chain = &document->getAudioEngine().getPluginChain();
+            for (int i = m_pluginChainListeners.size() - 1; i >= 0; --i)
+            {
+                if (m_pluginChainListeners[i] != nullptr && m_pluginChainListeners[i]->isForChain(chain))
+                {
+                    m_pluginChainListeners[i]->documentClosed();
+                    m_pluginChainListeners.remove(i);
+                }
+            }
+        }
+
         // Update tab component to remove tab
         updateComponentVisibility();
     }
@@ -3634,7 +3648,22 @@ public:
 
                 if (result)
                 {
-                    PluginManager::getInstance().clearCache();
+                    bool success = PluginManager::getInstance().clearCache();
+
+                    if (!success)
+                    {
+                        juce::AlertWindow::showMessageBoxAsync(
+                            juce::AlertWindow::WarningIcon,
+                            "Cache Clear Warning",
+                            "Some cache files could not be deleted.\n\n"
+                            "This may happen if:\n"
+                            "- Files are in use by another application\n"
+                            "- Antivirus is blocking file deletion\n\n"
+                            "The rescan will continue, but you may need to manually delete "
+                            "the WaveEdit folder in your config directory for a complete reset."
+                        );
+                    }
+
                     startPluginScan(true);  // Force rescan after clearing
                 }
                 return true;
@@ -3684,22 +3713,25 @@ public:
 
         if (menuIndex == 0) // File menu
         {
+            // --- Document ---
+            menu.addSectionHeader("Document");
             menu.addCommandItem(&m_commandManager, CommandIDs::fileNew);
             menu.addCommandItem(&m_commandManager, CommandIDs::fileOpen);
-            menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::fileSave);
             menu.addCommandItem(&m_commandManager, CommandIDs::fileSaveAs);
-            menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::fileClose);
+
+            // --- Metadata ---
+            menu.addSectionHeader("Metadata");
             menu.addCommandItem(&m_commandManager, CommandIDs::fileProperties);
             menu.addCommandItem(&m_commandManager, CommandIDs::fileEditBWFMetadata);
             menu.addCommandItem(&m_commandManager, CommandIDs::fileEditiXMLMetadata);
-            menu.addSeparator();
 
             // Recent files submenu
             auto recentFiles = Settings::getInstance().getRecentFiles();
             if (!recentFiles.isEmpty())
             {
+                menu.addSectionHeader("Recent");
                 juce::PopupMenu recentFilesMenu;
                 for (int i = 0; i < recentFiles.size(); ++i)
                 {
@@ -3709,55 +3741,56 @@ public:
                 recentFilesMenu.addSeparator();
                 recentFilesMenu.addItem("Clear Recent Files", [] { Settings::getInstance().clearRecentFiles(); });
                 menu.addSubMenu("Recent Files", recentFilesMenu);
-                menu.addSeparator();
             }
 
+            // --- Application ---
+            menu.addSectionHeader("Application");
             menu.addCommandItem(&m_commandManager, CommandIDs::filePreferences);
-            menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::fileExit);
         }
         else if (menuIndex == 1) // Edit menu
         {
+            // --- History ---
+            menu.addSectionHeader("History");
             menu.addCommandItem(&m_commandManager, CommandIDs::editUndo);
             menu.addCommandItem(&m_commandManager, CommandIDs::editRedo);
 
-            menu.addSeparator();
-
+            // --- Clipboard ---
+            menu.addSectionHeader("Clipboard");
             menu.addCommandItem(&m_commandManager, CommandIDs::editCut);
             menu.addCommandItem(&m_commandManager, CommandIDs::editCopy);
             menu.addCommandItem(&m_commandManager, CommandIDs::editPaste);
             menu.addCommandItem(&m_commandManager, CommandIDs::editDelete);
 
-            menu.addSeparator();
-
+            // --- Audio Editing ---
+            menu.addSectionHeader("Audio Editing");
             menu.addCommandItem(&m_commandManager, CommandIDs::editSilence);
             menu.addCommandItem(&m_commandManager, CommandIDs::editTrim);
 
-            menu.addSeparator();
-
+            // --- Selection ---
+            menu.addSectionHeader("Selection");
             menu.addCommandItem(&m_commandManager, CommandIDs::editSelectAll);
         }
         else if (menuIndex == 2) // View menu
         {
-            // Zoom commands
+            // --- Zoom ---
+            menu.addSectionHeader("Zoom");
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomIn);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomOut);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomFit);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomSelection);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomOneToOne);
 
-            menu.addSeparator();
-
-            // Display options
+            // --- Display Options ---
+            menu.addSectionHeader("Display");
             menu.addCommandItem(&m_commandManager, CommandIDs::viewCycleTimeFormat);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewAutoScroll);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewZoomToRegion);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewAutoPreviewRegions);
             menu.addCommandItem(&m_commandManager, CommandIDs::viewToggleRegions);
 
-            menu.addSeparator();
-
-            // Spectrum Analyzer
+            // --- Spectrum Analyzer ---
+            menu.addSectionHeader("Spectrum Analyzer");
             menu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumAnalyzer);
 
             // Spectrum Analyzer Configuration Submenus
@@ -3776,78 +3809,114 @@ public:
             windowFunctionMenu.addCommandItem(&m_commandManager, CommandIDs::viewSpectrumWindowRectangular);
             menu.addSubMenu("Spectrum Window Function", windowFunctionMenu, m_spectrumAnalyzer != nullptr);
 
-            menu.addSeparator();
-
-            // Toolbar customization
+            // --- Toolbar ---
+            menu.addSectionHeader("Toolbar");
             menu.addCommandItem(&m_commandManager, CommandIDs::toolbarCustomize);
             menu.addCommandItem(&m_commandManager, CommandIDs::toolbarReset);
         }
         else if (menuIndex == 3) // Region menu
         {
+            // --- Create/Delete ---
+            menu.addSectionHeader("Create/Delete");
             menu.addCommandItem(&m_commandManager, CommandIDs::regionAdd);
             menu.addCommandItem(&m_commandManager, CommandIDs::regionDelete);
-            menu.addSeparator();
+
+            // --- Navigation ---
+            menu.addSectionHeader("Navigation");
             menu.addCommandItem(&m_commandManager, CommandIDs::regionNext);
             menu.addCommandItem(&m_commandManager, CommandIDs::regionPrevious);
-            menu.addSeparator();
+
+            // --- Selection ---
+            menu.addSectionHeader("Selection");
             menu.addCommandItem(&m_commandManager, CommandIDs::regionSelectInverse);
             menu.addCommandItem(&m_commandManager, CommandIDs::regionSelectAll);
-            menu.addSeparator();
+
+            // --- Editing ---
+            menu.addSectionHeader("Editing");
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionMerge);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionSplit);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionCopy);
+            menu.addCommandItem(&m_commandManager, CommandIDs::regionPaste);
+
+            // --- Batch Operations ---
+            menu.addSectionHeader("Batch Operations");
             menu.addCommandItem(&m_commandManager, CommandIDs::regionStripSilence);
             menu.addCommandItem(&m_commandManager, CommandIDs::regionExportAll);
             menu.addCommandItem(&m_commandManager, CommandIDs::regionBatchRename);
-            menu.addSeparator();
-            // Region editing (Phase 3.4)
-            menu.addCommandItem(&m_commandManager, CommandIDs::regionMerge);
-            menu.addCommandItem(&m_commandManager, CommandIDs::regionSplit);
-            menu.addSeparator();
-            menu.addCommandItem(&m_commandManager, CommandIDs::regionCopy);
-            menu.addCommandItem(&m_commandManager, CommandIDs::regionPaste);
-            menu.addSeparator();
+
+            // --- View ---
+            menu.addSectionHeader("View");
             menu.addCommandItem(&m_commandManager, CommandIDs::regionShowList);
         }
         else if (menuIndex == 4) // Marker menu (Phase 3.4)
         {
+            // --- Create/Delete ---
+            menu.addSectionHeader("Create/Delete");
             menu.addCommandItem(&m_commandManager, CommandIDs::markerAdd);
             menu.addCommandItem(&m_commandManager, CommandIDs::markerDelete);
-            menu.addSeparator();
+
+            // --- Navigation ---
+            menu.addSectionHeader("Navigation");
             menu.addCommandItem(&m_commandManager, CommandIDs::markerNext);
             menu.addCommandItem(&m_commandManager, CommandIDs::markerPrevious);
-            menu.addSeparator();
+
+            // --- View ---
+            menu.addSectionHeader("View");
             menu.addCommandItem(&m_commandManager, CommandIDs::markerShowList);
         }
         else if (menuIndex == 5) // Process menu
         {
+            // --- Volume ---
+            menu.addSectionHeader("Volume");
             menu.addCommandItem(&m_commandManager, CommandIDs::processGain);
+            menu.addCommandItem(&m_commandManager, CommandIDs::processNormalize);
+
+            // --- Equalization ---
+            menu.addSectionHeader("Equalization");
             menu.addCommandItem(&m_commandManager, CommandIDs::processParametricEQ);
             menu.addCommandItem(&m_commandManager, CommandIDs::processGraphicalEQ);
-            menu.addSeparator();
-            menu.addCommandItem(&m_commandManager, CommandIDs::processNormalize);
+
+            // --- Repair ---
+            menu.addSectionHeader("Repair");
             menu.addCommandItem(&m_commandManager, CommandIDs::processDCOffset);
-            menu.addSeparator();
+
+            // --- Fades ---
+            menu.addSectionHeader("Fades");
             menu.addCommandItem(&m_commandManager, CommandIDs::processFadeIn);
             menu.addCommandItem(&m_commandManager, CommandIDs::processFadeOut);
         }
         else if (menuIndex == 6) // Plugins menu (VST3/AU plugin chain)
         {
+            // --- Plugin Chain ---
+            menu.addSectionHeader("Plugin Chain");
             menu.addCommandItem(&m_commandManager, CommandIDs::pluginShowChain);
-            menu.addSeparator();
             menu.addCommandItem(&m_commandManager, CommandIDs::pluginApplyChain);
-            menu.addCommandItem(&m_commandManager, CommandIDs::pluginOffline);
             menu.addCommandItem(&m_commandManager, CommandIDs::pluginBypassAll);
-            menu.addSeparator();
+
+            // --- Offline Processing ---
+            menu.addSectionHeader("Offline Processing");
+            menu.addCommandItem(&m_commandManager, CommandIDs::pluginOffline);
+
+            // --- Plugin Management ---
+            menu.addSectionHeader("Plugin Management");
             menu.addCommandItem(&m_commandManager, CommandIDs::pluginRescan);
             menu.addCommandItem(&m_commandManager, CommandIDs::pluginShowSettings);
             menu.addCommandItem(&m_commandManager, CommandIDs::pluginClearCache);
         }
         else if (menuIndex == 7) // Playback menu
         {
+            // --- Transport ---
+            menu.addSectionHeader("Transport");
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPlay);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackPause);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackStop);
-            menu.addSeparator();
+
+            // --- Recording ---
+            menu.addSectionHeader("Recording");
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackRecord);
-            menu.addSeparator();
+
+            // --- Looping ---
+            menu.addSectionHeader("Looping");
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoop);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoopRegion);
         }
@@ -6352,24 +6421,29 @@ public:
 
         juce::Logger::writeToLog("showGraphicalEQDialog: startSample=" + juce::String(startSample) + ", numSamples=" + juce::String(numSamples));
 
-        // Show graphical editor (initialized with neutral EQ)
-        auto eqParams = ParametricEQ::Parameters::createNeutral();
-        auto result = GraphicalEQEditor::showDialog(eqParams);
+        // Show graphical editor (initialized with default preset)
+        auto eqParams = DynamicParametricEQ::createDefaultPreset();
+        auto result = GraphicalEQEditor::showDialog(&engine, eqParams);
 
         if (result.has_value())
         {
             juce::Logger::writeToLog("GraphicalEQ dialog returned parameters:");
-            juce::Logger::writeToLog("  Low: " + juce::String(result->low.frequency) + " Hz, " +
-                juce::String(result->low.gain) + " dB, Q=" + juce::String(result->low.q));
-            juce::Logger::writeToLog("  Mid: " + juce::String(result->mid.frequency) + " Hz, " +
-                juce::String(result->mid.gain) + " dB, Q=" + juce::String(result->mid.q));
-            juce::Logger::writeToLog("  High: " + juce::String(result->high.frequency) + " Hz, " +
-                juce::String(result->high.gain) + " dB, Q=" + juce::String(result->high.q));
+            juce::Logger::writeToLog("  Output Gain: " + juce::String(result->outputGain) + " dB");
+            juce::Logger::writeToLog("  Bands: " + juce::String(static_cast<int>(result->bands.size())));
+            for (size_t i = 0; i < result->bands.size(); ++i)
+            {
+                const auto& band = result->bands[i];
+                juce::Logger::writeToLog("    Band " + juce::String(static_cast<int>(i)) + ": " +
+                    juce::String(band.frequency) + " Hz, " +
+                    juce::String(band.gain) + " dB, Q=" + juce::String(band.q) +
+                    ", Type=" + DynamicParametricEQ::getFilterTypeName(band.filterType) +
+                    (band.enabled ? " [ON]" : " [OFF]"));
+            }
 
             // Apply EQ with undo support
             doc->getUndoManager().beginNewTransaction("Graphical EQ");
 
-            auto* undoAction = new ApplyParametricEQAction(
+            auto* undoAction = new ApplyDynamicParametricEQAction(
                 doc->getBufferManager(),
                 doc->getAudioEngine(),
                 doc->getWaveformDisplay(),
@@ -6498,80 +6572,15 @@ public:
         // Create the unified window
         auto* chainWindow = new PluginChainWindow(&chain);
 
-        // Create a listener class that handles all events
-        class ChainWindowListener : public PluginChainWindow::Listener,
-                                      public juce::DeletedAtShutdown
-        {
-        public:
-            ChainWindowListener(MainComponent* owner, PluginChain& chain, AudioEngine& engine)
-                : m_owner(owner), m_chain(chain), m_audioEngine(engine) {}
+        // Show in window with keyboard shortcut support (need window pointer for listener)
+        auto* window = chainWindow->showInWindow(&m_commandManager);
 
-            void pluginChainWindowEditPlugin(int index) override
-            {
-                auto* node = m_chain.getPlugin(index);
-                if (node != nullptr)
-                {
-                    PluginEditorWindow::showForNode(node, &m_owner->m_commandManager);
-                }
-            }
-
-            void pluginChainWindowApplyToSelection(const PluginChainWindow::RenderOptions& options) override
-            {
-                // Apply with the render options from the window
-                m_owner->applyPluginChainToSelectionWithOptions(options.convertToStereo, options.includeTail, options.tailLengthSeconds);
-            }
-
-            void pluginChainWindowPluginAdded(const juce::PluginDescription& description) override
-            {
-                int index = m_chain.addPlugin(description);
-                if (index >= 0)
-                {
-                    m_audioEngine.setPluginChainEnabled(true);
-                    DBG("Added plugin: " + description.name);
-                }
-                else
-                {
-                    ErrorDialog::show("Plugin Error", "Failed to load plugin: " + description.name);
-                }
-            }
-
-            void pluginChainWindowPluginRemoved(int index) override
-            {
-                m_chain.removePlugin(index);
-            }
-
-            void pluginChainWindowPluginMoved(int fromIndex, int toIndex) override
-            {
-                m_chain.movePlugin(fromIndex, toIndex);
-            }
-
-            void pluginChainWindowPluginBypassed(int index, bool bypassed) override
-            {
-                auto* node = m_chain.getPlugin(index);
-                if (node != nullptr)
-                {
-                    node->setBypassed(bypassed);
-                }
-            }
-
-            void pluginChainWindowBypassAll(bool bypassed) override
-            {
-                m_chain.setAllBypassed(bypassed);
-            }
-
-        private:
-            MainComponent* m_owner;
-            PluginChain& m_chain;
-            AudioEngine& m_audioEngine;
-        };
-
-        // Create and set listener
-        auto* listener = new ChainWindowListener(this, chain, doc->getAudioEngine());
+        // Create and set listener with pointers to allow null-checking after document close
+        auto* listener = new ChainWindowListener(this, &chain, &doc->getAudioEngine(), window);
         chainWindow->setListener(listener);
 
-        // Show in window with keyboard shortcut support
-        auto* window = chainWindow->showInWindow(&m_commandManager);
-        juce::ignoreUnused(window);
+        // Track the listener so we can notify it when document is closed
+        m_pluginChainListeners.add(listener);
     }
 
     /**
@@ -9319,6 +9328,106 @@ private:
     // Region clipboard (Phase 3.4) - for copy/paste region definitions
     std::vector<Region> m_regionClipboard;
     bool m_hasRegionClipboard = false;
+
+    /**
+     * Listener class for Plugin Chain Window events.
+     * CRITICAL FIX: Uses pointers instead of references to prevent dangling reference crash
+     * when document is closed while Plugin Chain window is still open.
+     * This is defined as a nested class (not local) so it can be referenced by m_pluginChainListeners.
+     */
+    class ChainWindowListener : public PluginChainWindow::Listener,
+                                  public juce::DeletedAtShutdown
+    {
+    public:
+        ChainWindowListener(MainComponent* owner, PluginChain* chain, AudioEngine* engine,
+                           juce::DocumentWindow* window)
+            : m_owner(owner), m_chain(chain), m_audioEngine(engine), m_window(window) {}
+
+        void pluginChainWindowEditPlugin(int index) override
+        {
+            if (m_chain == nullptr) return;
+            auto* node = m_chain->getPlugin(index);
+            if (node != nullptr)
+            {
+                PluginEditorWindow::showForNode(node, &m_owner->m_commandManager);
+            }
+        }
+
+        void pluginChainWindowApplyToSelection(const PluginChainWindow::RenderOptions& options) override
+        {
+            if (m_chain == nullptr || m_audioEngine == nullptr) return;
+            // Apply with the render options from the window
+            m_owner->applyPluginChainToSelectionWithOptions(options.convertToStereo, options.includeTail, options.tailLengthSeconds);
+        }
+
+        void pluginChainWindowPluginAdded(const juce::PluginDescription& description) override
+        {
+            if (m_chain == nullptr || m_audioEngine == nullptr) return;
+            int index = m_chain->addPlugin(description);
+            if (index >= 0)
+            {
+                m_audioEngine->setPluginChainEnabled(true);
+                DBG("Added plugin: " + description.name);
+            }
+            else
+            {
+                ErrorDialog::show("Plugin Error", "Failed to load plugin: " + description.name);
+            }
+        }
+
+        void pluginChainWindowPluginRemoved(int index) override
+        {
+            if (m_chain == nullptr) return;
+            m_chain->removePlugin(index);
+        }
+
+        void pluginChainWindowPluginMoved(int fromIndex, int toIndex) override
+        {
+            if (m_chain == nullptr) return;
+            m_chain->movePlugin(fromIndex, toIndex);
+        }
+
+        void pluginChainWindowPluginBypassed(int index, bool bypassed) override
+        {
+            if (m_chain == nullptr) return;
+            auto* node = m_chain->getPlugin(index);
+            if (node != nullptr)
+            {
+                node->setBypassed(bypassed);
+            }
+        }
+
+        void pluginChainWindowBypassAll(bool bypassed) override
+        {
+            if (m_chain == nullptr) return;
+            m_chain->setAllBypassed(bypassed);
+        }
+
+        /** Called when the associated document is closed - invalidates pointers and closes window */
+        void documentClosed()
+        {
+            m_chain = nullptr;
+            m_audioEngine = nullptr;
+            if (m_window != nullptr)
+            {
+                m_window->setVisible(false);
+                delete m_window;
+                m_window = nullptr;
+            }
+        }
+
+        /** Check if this listener is for the given chain */
+        bool isForChain(PluginChain* chain) const { return m_chain == chain; }
+
+    private:
+        MainComponent* m_owner;
+        PluginChain* m_chain;
+        AudioEngine* m_audioEngine;
+        juce::DocumentWindow* m_window;
+    };
+
+    // Plugin chain window listeners - need to track these to notify when document closes
+    juce::Array<ChainWindowListener*> m_pluginChainListeners;
 
     // Marker placement tracking (Phase 3.4) - reliable cursor position for marker placement
     double m_lastClickTimeInSeconds = 0.0;  // Last mouse click position on waveform

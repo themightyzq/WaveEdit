@@ -174,27 +174,60 @@ public:
 
 private:
     //==============================================================================
-    using NodeList = std::vector<std::unique_ptr<PluginChainNode>>;
+    // Copy-on-Write Node List with Atomic Swap
+    //
+    // Thread Safety Architecture:
+    // - Audio thread: Reads via m_activeChain (lock-free atomic load)
+    // - Message thread: Creates copy, modifies, atomically swaps
+    // - Old chains use delayed deletion (kept for kMinPendingGenerations)
+    //   to guarantee audio thread has finished with old chain
+    //
+    // This eliminates all blocking on the audio thread while maintaining
+    // thread safety for chain modifications.
+    //==============================================================================
 
-    // The active chain used by audio thread
-    NodeList m_nodes;
+    using NodePtr = std::shared_ptr<PluginChainNode>;
+    using NodeList = std::vector<NodePtr>;
+    using ChainPtr = std::shared_ptr<NodeList>;
 
-    // SpinLock for audio-thread-safe synchronization
-    // Used in processBlock and all chain modification methods
-    juce::SpinLock m_processLock;
+    // Minimum number of chain generations to keep before deletion
+    // At 44.1kHz with 512 samples/buffer, 8 generations = ~93ms
+    // This guarantees the audio thread has finished with old chains
+    static constexpr size_t kMinPendingGenerations = 8;
 
-    // Mutex for chain modifications from message thread
-    mutable std::mutex m_chainMutex;
+    // Active chain - accessed atomically by audio thread
+    std::atomic<NodeList*> m_activeChain{nullptr};
+
+    // The current chain owned by message thread (for modifications)
+    ChainPtr m_messageThreadChain;
+
+    // Pending deletions - chains waiting to be freed on message thread
+    // We keep the last kMinPendingGenerations chains alive to ensure
+    // the audio thread has finished iterating before we delete
+    std::mutex m_pendingDeleteMutex;
+    std::vector<ChainPtr> m_pendingDeletes;
 
     // Playback state
     double m_sampleRate = 44100.0;
     int m_blockSize = 512;
-    bool m_prepared = false;
+    std::atomic<bool> m_prepared{false};
 
-    // Create a plugin instance from description
+    //==============================================================================
+    // Copy-on-Write helpers
+
+    /** Copy the current chain for modification (message thread only) */
+    ChainPtr copyCurrentChain() const;
+
+    /** Atomically publish a new chain to the audio thread (message thread only) */
+    void publishChain(ChainPtr newChain);
+
+    /** Clean up old chains using delayed deletion (message thread only) */
+    void processPendingDeletes();
+
+    /** Create a plugin instance from description */
     std::unique_ptr<PluginChainNode> createNode(const juce::PluginDescription& description);
 
-    // Notify listeners that chain changed
+    /** Notify listeners that chain changed */
     void notifyChainChanged();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginChain)

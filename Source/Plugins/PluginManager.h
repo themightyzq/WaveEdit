@@ -208,8 +208,10 @@ public:
     /** Load plugin list from cache */
     bool loadCache();
 
-    /** Clear the plugin cache file */
-    void clearCache();
+    /** Clear the plugin cache file.
+     *  @return true if all cache files were deleted successfully, false if some deletions failed
+     */
+    bool clearCache();
 
     /** Get the last scan date */
     juce::Time getLastScanDate() const { return m_lastScanDate; }

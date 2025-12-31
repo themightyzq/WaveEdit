@@ -671,7 +671,7 @@ bool PluginManager::loadCache()
     }
 }
 
-void PluginManager::clearCache()
+bool PluginManager::clearCache()
 {
     // Cancel any in-progress scan first to avoid race conditions
     // Always call cancelScan() to avoid TOCTOU race - it's safe to call even when no scan is running
@@ -679,27 +679,69 @@ void PluginManager::clearCache()
 
     const juce::ScopedLock sl(m_lock);
 
+    bool allDeleted = true;
+    juce::StringArray failedFiles;
+
+    // 1. Delete main cache file (plugins.xml)
     auto cacheFile = getPluginCacheFile();
     if (cacheFile.existsAsFile())
     {
-        if (cacheFile.deleteFile())
-            DBG("PluginManager: Deleted cache file: " + cacheFile.getFullPathName());
-        else
-            DBG("PluginManager: Warning - failed to delete cache file");
+        if (!cacheFile.deleteFile())
+        {
+            failedFiles.add(cacheFile.getFileName());
+            allDeleted = false;
+        }
     }
 
-    // Also clean up dead-mans-pedal file if it exists
+    // 2. Delete dead-mans-pedal file (scan_in_progress.tmp)
     if (m_deadMansPedalFile.existsAsFile())
     {
-        if (m_deadMansPedalFile.deleteFile())
-            DBG("PluginManager: Deleted dead-mans-pedal file");
-        else
-            DBG("PluginManager: Warning - failed to delete dead-mans-pedal file");
+        if (!m_deadMansPedalFile.deleteFile())
+        {
+            failedFiles.add(m_deadMansPedalFile.getFileName());
+            allDeleted = false;
+        }
     }
 
+    // 3. Delete incremental cache file (plugin_incremental_cache.xml)
+    auto incrementalFile = getIncrementalCacheFile();
+    if (incrementalFile.existsAsFile())
+    {
+        if (!incrementalFile.deleteFile())
+        {
+            failedFiles.add(incrementalFile.getFileName());
+            allDeleted = false;
+        }
+    }
+
+    // 4. Delete blacklist file (plugins_blacklist.xml)
+    // This allows previously problematic plugins to be rescanned fresh
+    auto blacklistFile = getBlacklistFile();
+    if (blacklistFile.existsAsFile())
+    {
+        if (!blacklistFile.deleteFile())
+        {
+            failedFiles.add(blacklistFile.getFileName());
+            allDeleted = false;
+        }
+    }
+
+    // Clear in-memory state
     m_knownPluginList.clear();
     m_lastScanDate = juce::Time();  // Reset scan date
-    DBG("PluginManager: Cleared plugin cache and reset scan state");
+    m_incrementalCache.clear();     // Clear incremental cache map
+
+    // Log results
+    if (allDeleted)
+    {
+        DBG("PluginManager: Successfully cleared all plugin cache files");
+    }
+    else
+    {
+        DBG("PluginManager::clearCache() - Failed to delete: " + failedFiles.joinIntoString(", "));
+    }
+
+    return allDeleted;
 }
 
 //==============================================================================

@@ -16,6 +16,7 @@
 #include "GraphicalEQEditor.h"
 #include "../Audio/AudioEngine.h"
 #include <cmath>
+#include <iostream>
 
 //==============================================================================
 // Display Configuration Constants
@@ -35,14 +36,14 @@ namespace
     /**
      * Control point interaction threshold (pixels)
      */
-    constexpr float CONTROL_POINT_RADIUS = 8.0f;
-    constexpr float CONTROL_POINT_CLICK_THRESHOLD = 15.0f;
+    constexpr float CONTROL_POINT_RADIUS = 10.0f;
+    constexpr float CONTROL_POINT_CLICK_THRESHOLD = 18.0f;
 
     /**
      * Dialog window dimensions
      */
-    constexpr int DIALOG_WIDTH = 800;
-    constexpr int DIALOG_HEIGHT = 600;
+    constexpr int DIALOG_WIDTH = 900;
+    constexpr int DIALOG_HEIGHT = 650;
     constexpr int BUTTON_HEIGHT = 30;
     constexpr int BUTTON_WIDTH = 100;
     constexpr int MARGIN = 10;
@@ -51,11 +52,8 @@ namespace
 //==============================================================================
 // Constructor / Destructor
 
-GraphicalEQEditor::GraphicalEQEditor(const ParametricEQ::Parameters& initialParams)
+GraphicalEQEditor::GraphicalEQEditor(const DynamicParametricEQ::Parameters& initialParams)
     : m_params(initialParams)
-    , m_lowBandPoint(BandType::LOW)
-    , m_midBandPoint(BandType::MID)
-    , m_highBandPoint(BandType::HIGH)
     , m_fft(std::make_unique<juce::dsp::FFT>(FFT_ORDER))
     , m_window(std::make_unique<juce::dsp::WindowingFunction<float>>(
         FFT_SIZE, juce::dsp::WindowingFunction<float>::hann))
@@ -64,8 +62,8 @@ GraphicalEQEditor::GraphicalEQEditor(const ParametricEQ::Parameters& initialPara
     , m_audioEngine(nullptr)
     , m_minFrequency(20.0f)
     , m_maxFrequency(20000.0f)
-    , m_minDB(-60.0f)
-    , m_maxDB(20.0f)
+    , m_minDB(-30.0f)
+    , m_maxDB(30.0f)
     , m_previewButton("Preview")
     , m_applyButton("Apply")
     , m_cancelButton("Cancel")
@@ -76,28 +74,34 @@ GraphicalEQEditor::GraphicalEQEditor(const ParametricEQ::Parameters& initialPara
     m_fftData.fill(0.0f);
     m_scopeData.fill(0.0f);
 
+    // Create the EQ processor for accurate frequency response calculation
+    m_eqProcessor = std::make_unique<DynamicParametricEQ>();
+    m_eqProcessor->prepare(44100.0, 512);
+    m_eqProcessor->setParameters(m_params);
+    m_eqProcessor->updateCoefficientsForVisualization();  // Force coefficient creation for initial curve display
+
     // Setup buttons
     m_previewButton.onClick = [this]()
     {
         togglePreview();
     };
-    m_previewButton.setEnabled(true); // Enabled but shows info message about preview
+    m_previewButton.setEnabled(true);
     addAndMakeVisible(m_previewButton);
 
     m_applyButton.onClick = [this]()
     {
-        // DON'T re-sync from screen coords - m_params already updated during drag
-        // Parameters are already current from mouseDrag() operations
         m_result = m_params;
 
-        // Use Logger for Release builds (DBG is compiled out)
         juce::Logger::writeToLog("GraphicalEQ Apply clicked:");
-        juce::Logger::writeToLog("  Low: " + juce::String(m_params.low.frequency) + " Hz, " +
-            juce::String(m_params.low.gain) + " dB, Q=" + juce::String(m_params.low.q));
-        juce::Logger::writeToLog("  Mid: " + juce::String(m_params.mid.frequency) + " Hz, " +
-            juce::String(m_params.mid.gain) + " dB, Q=" + juce::String(m_params.mid.q));
-        juce::Logger::writeToLog("  High: " + juce::String(m_params.high.frequency) + " Hz, " +
-            juce::String(m_params.high.gain) + " dB, Q=" + juce::String(m_params.high.q));
+        juce::Logger::writeToLog("  " + juce::String(m_params.bands.size()) + " bands");
+        for (size_t i = 0; i < m_params.bands.size(); ++i)
+        {
+            const auto& band = m_params.bands[i];
+            juce::Logger::writeToLog("  Band " + juce::String(i) + ": " +
+                juce::String(band.frequency) + " Hz, " +
+                juce::String(band.gain) + " dB, Q=" + juce::String(band.q) +
+                ", Type=" + DynamicParametricEQ::getFilterTypeName(band.filterType));
+        }
 
         if (auto* dialogWindow = findParentComponentOfClass<juce::DialogWindow>())
         {
@@ -129,24 +133,38 @@ GraphicalEQEditor::GraphicalEQEditor(const ParametricEQ::Parameters& initialPara
 GraphicalEQEditor::~GraphicalEQEditor()
 {
     stopTimer();
+
+    // Ensure preview is disabled and unregister from AudioEngine when dialog closes
+    // CRITICAL: Must stop playback and disable preview mode - same pattern as GainDialog/ParametricEQDialog
+    if (m_audioEngine)
+    {
+        // Unregister from receiving audio data for spectrum visualization
+        m_audioEngine->setGraphicalEQEditor(nullptr);
+
+        if (m_previewActive)
+        {
+            // FIX: Must stop audio playback when closing dialog (was missing before)
+            m_audioEngine->stop();
+            m_audioEngine->setDynamicEQPreview(DynamicParametricEQ::Parameters(), false);
+            m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+            m_previewActive = false;
+        }
+    }
 }
 
 //==============================================================================
 // Public API
 
-std::optional<ParametricEQ::Parameters> GraphicalEQEditor::showDialog(
-    const ParametricEQ::Parameters& initialParams)
+std::optional<DynamicParametricEQ::Parameters> GraphicalEQEditor::showDialog(
+    AudioEngine* audioEngine,
+    const DynamicParametricEQ::Parameters& initialParams)
 {
-    // Create dialog on stack (like ParametricEQDialog does)
     GraphicalEQEditor editor(initialParams);
-
-    // TODO: Preview functionality requires AudioEngine refactoring
-    // to support temporary buffer playback without modifying the main buffer.
-    // For now, preview is disabled.
+    editor.setAudioEngine(audioEngine);
 
     juce::DialogWindow::LaunchOptions options;
-    options.content.setNonOwned(&editor);  // Dialog stays alive on stack
-    options.dialogTitle = "Graphical Parametric EQ";
+    options.content.setNonOwned(&editor);
+    options.dialogTitle = "Graphical Parametric EQ (20-Band)";
     options.dialogBackgroundColour = juce::Colour(0xff2d2d2d);
     options.escapeKeyTriggersCloseButton = false;
     options.useNativeTitleBar = false;
@@ -157,7 +175,6 @@ std::optional<ParametricEQ::Parameters> GraphicalEQEditor::showDialog(
         int result = options.runModal();
         return (result == 1) ? editor.m_result : std::nullopt;
     #else
-        // Non-modal mode not supported for this dialog
         jassertfalse;
         return std::nullopt;
     #endif
@@ -165,12 +182,17 @@ std::optional<ParametricEQ::Parameters> GraphicalEQEditor::showDialog(
 
 void GraphicalEQEditor::setAudioEngine(AudioEngine* audioEngine)
 {
-    // Note: Currently unused as spectrum analyzer audio feed is disabled
-    // Future: Add thread-safe audio data access when implementing real-time visualization
     m_audioEngine = audioEngine;
     if (audioEngine)
     {
-        m_sampleRate.store(audioEngine->getSampleRate());
+        double sr = audioEngine->getSampleRate();
+        // Only update sample rate if valid - AudioEngine may return 0 if no file is loaded
+        if (sr > 0)
+        {
+            m_sampleRate.store(sr);
+            if (m_eqProcessor)
+                m_eqProcessor->prepare(sr, 512);
+        }
     }
 }
 
@@ -193,11 +215,18 @@ void GraphicalEQEditor::paint(juce::Graphics& g)
     // Draw spectrum analyzer background
     drawSpectrum(g, vizBounds);
 
-    // Draw EQ frequency response curve
+    // Draw EQ frequency response curve (accurate using DynamicParametricEQ)
     drawEQCurve(g, vizBounds);
 
     // Draw control points on top
     drawControlPoints(g, vizBounds);
+
+    // Draw instructions
+    g.setColour(juce::Colours::grey);
+    g.setFont(11.0f);
+    g.drawText("Double-click to add band | Right-click band to delete | Scroll wheel to adjust Q",
+               vizBounds.getX(), vizBounds.getBottom() - 20, vizBounds.getWidth(), 20,
+               juce::Justification::centred);
 }
 
 void GraphicalEQEditor::resized()
@@ -225,10 +254,6 @@ void GraphicalEQEditor::timerCallback()
         m_nextFFTBlockReady.store(false);
     }
 
-    // Future: Feed audio data from engine for real-time spectrum visualization
-    // This would require adding getAudioData() API to AudioEngine
-    // For now, spectrum analyzer is disabled (shows only EQ curve)
-
     repaint();
 }
 
@@ -243,16 +268,34 @@ void GraphicalEQEditor::mouseDown(const juce::MouseEvent& event)
     float x = static_cast<float>(event.x);
     float y = static_cast<float>(event.y);
 
-    // Find nearest control point
-    ControlPoint* point = findNearestControlPoint(x, y);
-    if (point)
+    // Handle right-click for context menu
+    if (event.mods.isRightButtonDown())
     {
-        point->isDragging = true;
+        int bandIndex = findNearestControlPointIndex(x, y);
+        if (bandIndex >= 0)
+        {
+            showBandContextMenu(bandIndex);
+        }
+        return;
+    }
+
+    // Find nearest control point for dragging
+    int bandIndex = findNearestControlPointIndex(x, y);
+    if (bandIndex >= 0)
+    {
+        m_draggingBandIndex = bandIndex;
+        if (static_cast<size_t>(bandIndex) < m_controlPoints.size())
+        {
+            m_controlPoints[static_cast<size_t>(bandIndex)].isDragging = true;
+        }
     }
 }
 
 void GraphicalEQEditor::mouseDrag(const juce::MouseEvent& event)
 {
+    if (m_draggingBandIndex < 0 || static_cast<size_t>(m_draggingBandIndex) >= m_controlPoints.size())
+        return;
+
     auto bounds = getLocalBounds().reduced(MARGIN);
     bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
     auto vizBounds = bounds.toFloat();
@@ -260,46 +303,39 @@ void GraphicalEQEditor::mouseDrag(const juce::MouseEvent& event)
     float x = juce::jlimit(vizBounds.getX(), vizBounds.getRight(), static_cast<float>(event.x));
     float y = juce::jlimit(vizBounds.getY(), vizBounds.getBottom(), static_cast<float>(event.y));
 
-    // Update dragging point position
-    bool parametersChanged = false;
+    // Update control point position
+    m_controlPoints[static_cast<size_t>(m_draggingBandIndex)].x = x;
+    m_controlPoints[static_cast<size_t>(m_draggingBandIndex)].y = y;
 
-    if (m_lowBandPoint.isDragging)
+    // Update parameters from control point
+    updateParametersFromControlPoint(m_draggingBandIndex);
+
+    // Update EQ processor for accurate frequency response
+    if (m_eqProcessor)
     {
-        m_lowBandPoint.x = x;
-        m_lowBandPoint.y = y;
-        updateParametersFromControlPoints();
-        parametersChanged = true;
-    }
-    else if (m_midBandPoint.isDragging)
-    {
-        m_midBandPoint.x = x;
-        m_midBandPoint.y = y;
-        updateParametersFromControlPoints();
-        parametersChanged = true;
-    }
-    else if (m_highBandPoint.isDragging)
-    {
-        m_highBandPoint.x = x;
-        m_highBandPoint.y = y;
-        updateParametersFromControlPoints();
-        parametersChanged = true;
+        m_eqProcessor->setParameters(m_params);
+        m_eqProcessor->updateCoefficientsForVisualization();
     }
 
-    // Preview would update here if enabled
-    // TODO: Requires AudioEngine refactoring to support temp buffer playback
-    (void)parametersChanged;
+    // Update preview in real-time if active
+    if (m_previewActive && m_audioEngine)
+    {
+        m_audioEngine->setDynamicEQPreview(m_params, true);
+    }
 
     repaint();
 }
 
 void GraphicalEQEditor::mouseUp(const juce::MouseEvent& /*event*/)
 {
-    m_lowBandPoint.isDragging = false;
-    m_midBandPoint.isDragging = false;
-    m_highBandPoint.isDragging = false;
+    if (m_draggingBandIndex >= 0 && static_cast<size_t>(m_draggingBandIndex) < m_controlPoints.size())
+    {
+        m_controlPoints[static_cast<size_t>(m_draggingBandIndex)].isDragging = false;
+    }
+    m_draggingBandIndex = -1;
 }
 
-void GraphicalEQEditor::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+void GraphicalEQEditor::mouseDoubleClick(const juce::MouseEvent& event)
 {
     auto bounds = getLocalBounds().reduced(MARGIN);
     bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
@@ -307,24 +343,62 @@ void GraphicalEQEditor::mouseWheelMove(const juce::MouseEvent& event, const juce
     float x = static_cast<float>(event.x);
     float y = static_cast<float>(event.y);
 
+    // Check if clicking on existing control point - if so, toggle enabled
+    int bandIndex = findNearestControlPointIndex(x, y);
+    if (bandIndex >= 0 && static_cast<size_t>(bandIndex) < m_params.bands.size())
+    {
+        m_params.bands[static_cast<size_t>(bandIndex)].enabled =
+            !m_params.bands[static_cast<size_t>(bandIndex)].enabled;
+
+        // Update EQ processor
+        if (m_eqProcessor)
+        {
+            m_eqProcessor->setParameters(m_params);
+            m_eqProcessor->updateCoefficientsForVisualization();
+        }
+
+        // Update preview if active
+        if (m_previewActive && m_audioEngine)
+        {
+            m_audioEngine->setDynamicEQPreview(m_params, true);
+        }
+
+        repaint();
+        return;
+    }
+
+    // Add new band at click position
+    if (bounds.contains(event.x, event.y))
+    {
+        addBandAtPosition(x, y);
+    }
+}
+
+void GraphicalEQEditor::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    float x = static_cast<float>(event.x);
+    float y = static_cast<float>(event.y);
+
     // Find nearest control point
-    ControlPoint* point = findNearestControlPoint(x, y);
-    if (point)
+    int bandIndex = findNearestControlPointIndex(x, y);
+    if (bandIndex >= 0 && static_cast<size_t>(bandIndex) < m_params.bands.size())
     {
         // Adjust Q value with mouse wheel
         float qDelta = wheel.deltaY * 0.5f;
+        auto& band = m_params.bands[static_cast<size_t>(bandIndex)];
+        band.q = juce::jlimit(DynamicParametricEQ::MIN_Q, DynamicParametricEQ::MAX_Q, band.q + qDelta);
 
-        if (point->band == BandType::LOW)
+        // Update EQ processor
+        if (m_eqProcessor)
         {
-            m_params.low.q = juce::jlimit(0.1f, 10.0f, m_params.low.q + qDelta);
+            m_eqProcessor->setParameters(m_params);
+            m_eqProcessor->updateCoefficientsForVisualization();
         }
-        else if (point->band == BandType::MID)
+
+        // Update preview if active
+        if (m_previewActive && m_audioEngine)
         {
-            m_params.mid.q = juce::jlimit(0.1f, 10.0f, m_params.mid.q + qDelta);
-        }
-        else if (point->band == BandType::HIGH)
-        {
-            m_params.high.q = juce::jlimit(0.1f, 10.0f, m_params.high.q + qDelta);
+            m_audioEngine->setDynamicEQPreview(m_params, true);
         }
 
         repaint();
@@ -336,7 +410,6 @@ void GraphicalEQEditor::mouseWheelMove(const juce::MouseEvent& event, const juce
 
 float GraphicalEQEditor::frequencyToX(float frequency, juce::Rectangle<float> bounds) const
 {
-    // Logarithmic scale
     float logMin = std::log10(m_minFrequency);
     float logMax = std::log10(m_maxFrequency);
     float logFreq = std::log10(juce::jlimit(m_minFrequency, m_maxFrequency, frequency));
@@ -347,7 +420,6 @@ float GraphicalEQEditor::frequencyToX(float frequency, juce::Rectangle<float> bo
 
 float GraphicalEQEditor::xToFrequency(float x, juce::Rectangle<float> bounds) const
 {
-    // Logarithmic scale
     float normalized = (x - bounds.getX()) / bounds.getWidth();
     normalized = juce::jlimit(0.0f, 1.0f, normalized);
 
@@ -360,7 +432,6 @@ float GraphicalEQEditor::xToFrequency(float x, juce::Rectangle<float> bounds) co
 
 float GraphicalEQEditor::gainToY(float gainDB, juce::Rectangle<float> bounds) const
 {
-    // Linear scale
     float normalized = (gainDB - m_minDB) / (m_maxDB - m_minDB);
     normalized = 1.0f - normalized; // Flip Y axis
     return bounds.getY() + normalized * bounds.getHeight();
@@ -368,7 +439,6 @@ float GraphicalEQEditor::gainToY(float gainDB, juce::Rectangle<float> bounds) co
 
 float GraphicalEQEditor::yToGain(float y, juce::Rectangle<float> bounds) const
 {
-    // Linear scale
     float normalized = (y - bounds.getY()) / bounds.getHeight();
     normalized = 1.0f - normalized; // Flip Y axis
     return m_minDB + normalized * (m_maxDB - m_minDB);
@@ -379,61 +449,110 @@ float GraphicalEQEditor::yToGain(float y, juce::Rectangle<float> bounds) const
 
 void GraphicalEQEditor::drawSpectrum(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    // Spectrum visualization is currently disabled (no audio feed)
-    // This will be enabled when real-time audio monitoring is implemented
-    // For now, we skip drawing the spectrum to avoid visual clutter
+    // Only draw spectrum if we have FFT data ready
+    if (!m_nextFFTBlockReady.load() && m_scopeData[0] == 0.0f)
+        return;
 
-    // Future: Re-enable when m_audioEngine provides real-time audio data
-    (void)g;
-    (void)bounds;
+    // Draw spectrum as a semi-transparent filled area
+    juce::Path spectrumPath;
+    bool firstPoint = true;
+
+    const int numBins = FFT_SIZE / 2;
+    const double sampleRate = m_sampleRate.load();
+    const double nyquist = sampleRate / 2.0;
+
+    for (int i = 1; i < numBins; ++i)
+    {
+        // Calculate frequency for this bin
+        double freq = static_cast<double>(i) * nyquist / static_cast<double>(numBins);
+
+        // Skip frequencies outside our display range
+        if (freq < static_cast<double>(m_minFrequency) || freq > static_cast<double>(m_maxFrequency))
+            continue;
+
+        // Get magnitude in dB (already computed by processFFT)
+        float magnitudeDB = m_scopeData[static_cast<size_t>(i)];
+
+        // Convert to screen coordinates
+        float x = frequencyToX(static_cast<float>(freq), bounds);
+        float y = gainToY(magnitudeDB, bounds);
+
+        // Clamp Y to bounds
+        y = juce::jlimit(bounds.getY(), bounds.getBottom(), y);
+
+        if (firstPoint)
+        {
+            spectrumPath.startNewSubPath(x, y);
+            firstPoint = false;
+        }
+        else
+        {
+            spectrumPath.lineTo(x, y);
+        }
+    }
+
+    if (!firstPoint)
+    {
+        // Close the path to create a filled area
+        juce::Path fillPath = spectrumPath;
+        float bottomY = bounds.getBottom();
+        fillPath.lineTo(bounds.getRight(), bottomY);
+        fillPath.lineTo(bounds.getX(), bottomY);
+        fillPath.closeSubPath();
+
+        // Draw filled spectrum (subtle purple/blue gradient)
+        g.setColour(juce::Colour(0x20a040c0));  // Semi-transparent purple-blue
+        g.fillPath(fillPath);
+
+        // Draw spectrum outline
+        g.setColour(juce::Colour(0x60a060ff));  // Brighter purple-blue
+        g.strokePath(spectrumPath, juce::PathStrokeType(1.0f));
+    }
 }
 
 void GraphicalEQEditor::drawEQCurve(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    // Calculate combined frequency response curve with smooth interpolation
+    if (m_params.bands.empty())
+        return;
+
+    // Use valid sample rate - fall back to 44100 if m_sampleRate is invalid
+    double sampleRate = m_sampleRate.load();
+    if (sampleRate <= 0)
+        sampleRate = 44100.0;
+
+    // CRITICAL FIX: Create a FRESH temporary processor each paint cycle.
+    // This ensures the processor always has the exact current parameters
+    // and properly calculates coefficients with a valid sample rate.
+    // The member m_eqProcessor was causing issues because:
+    // 1. setParameters() has an early return if params haven't changed
+    // 2. But the UI may have changed m_params directly during drag operations
+    // 3. Creating a fresh processor guarantees all state is properly initialized
+    auto tempProcessor = std::make_unique<DynamicParametricEQ>();
+    tempProcessor->prepare(sampleRate, 512);
+    tempProcessor->setParameters(m_params);
+    tempProcessor->updateCoefficientsForVisualization();
+
+    // Get frequency response from the temporary processor
+    const int numPoints = 512;
+    std::vector<float> magnitudes(static_cast<size_t>(numPoints));
+
+    tempProcessor->getFrequencyResponse(magnitudes.data(), numPoints,
+        static_cast<double>(m_minFrequency), static_cast<double>(m_maxFrequency), true);
+
+    // Build the path
     juce::Path curvePath;
     bool firstPoint = true;
-
-    const int numPoints = 1024; // Increased resolution for smoother curves
-    std::vector<juce::Point<float>> curvePoints;
 
     for (int i = 0; i < numPoints; ++i)
     {
         float t = static_cast<float>(i) / static_cast<float>(numPoints - 1);
         float freq = m_minFrequency * std::pow(m_maxFrequency / m_minFrequency, t);
 
-        // Calculate magnitude response using bell-curve approximation for each band
-        float totalGainDB = 0.0f;
-
-        // Low shelf contribution (smooth transition)
-        {
-            float logDist = std::log10(freq / m_params.low.frequency);
-            float bandwidth = 1.0f / m_params.low.q;
-            float lowResponse = m_params.low.gain / (1.0f + std::pow(logDist / bandwidth, 2.0f));
-            totalGainDB += lowResponse;
-        }
-
-        // Mid peak contribution (bell curve)
-        {
-            float logDist = std::log10(freq / m_params.mid.frequency);
-            float bandwidth = 0.5f / m_params.mid.q;
-            float midResponse = m_params.mid.gain * std::exp(-std::pow(logDist / bandwidth, 2.0f));
-            totalGainDB += midResponse;
-        }
-
-        // High shelf contribution (smooth transition)
-        {
-            float logDist = std::log10(freq / m_params.high.frequency);
-            float bandwidth = 1.0f / m_params.high.q;
-            float highResponse = m_params.high.gain / (1.0f + std::pow(logDist / bandwidth, 2.0f));
-            totalGainDB += highResponse;
-        }
-
-        // Convert to screen coordinates
         float x = frequencyToX(freq, bounds);
-        float y = gainToY(totalGainDB, bounds);
+        float y = gainToY(magnitudes[static_cast<size_t>(i)], bounds);
 
-        curvePoints.push_back(juce::Point<float>(x, y));
+        // Clamp Y to bounds
+        y = juce::jlimit(bounds.getY(), bounds.getBottom(), y);
 
         if (firstPoint)
         {
@@ -442,14 +561,6 @@ void GraphicalEQEditor::drawEQCurve(juce::Graphics& g, juce::Rectangle<float> bo
         }
         else
         {
-            // Use quadratic curves for smoother appearance
-            if (i > 0 && i < numPoints - 1)
-            {
-                // Calculate midpoint for smooth curve
-                auto& prev = curvePoints[curvePoints.size() - 2];
-                auto& curr = curvePoints[curvePoints.size() - 1];
-                curvePath.quadraticTo(prev.x, prev.y, (prev.x + curr.x) * 0.5f, (prev.y + curr.y) * 0.5f);
-            }
             curvePath.lineTo(x, y);
         }
     }
@@ -471,24 +582,33 @@ void GraphicalEQEditor::drawEQCurve(juce::Graphics& g, juce::Rectangle<float> bo
 
 void GraphicalEQEditor::drawControlPoints(juce::Graphics& g, juce::Rectangle<float> /*bounds*/)
 {
-    // Control point positions are updated in updateControlPointPositions()
-    // and during mouse drag. Don't update them here to avoid feedback loops.
-
-    // Draw control points
-    auto drawPoint = [&g](const ControlPoint& point, const juce::Colour& colour)
+    for (size_t i = 0; i < m_controlPoints.size() && i < m_params.bands.size(); ++i)
     {
+        const auto& point = m_controlPoints[i];
+        const auto& band = m_params.bands[i];
+
+        juce::Colour colour = getFilterTypeColor(band.filterType);
+
+        // Dim if disabled
+        if (!band.enabled)
+            colour = colour.withAlpha(0.3f);
+
+        // Draw control point
+        float radius = point.isDragging ? CONTROL_POINT_RADIUS * 1.3f : CONTROL_POINT_RADIUS;
+
         g.setColour(colour.withAlpha(0.5f));
-        g.fillEllipse(point.x - CONTROL_POINT_RADIUS, point.y - CONTROL_POINT_RADIUS,
-                      CONTROL_POINT_RADIUS * 2, CONTROL_POINT_RADIUS * 2);
+        g.fillEllipse(point.x - radius, point.y - radius, radius * 2, radius * 2);
 
         g.setColour(colour);
-        g.drawEllipse(point.x - CONTROL_POINT_RADIUS, point.y - CONTROL_POINT_RADIUS,
-                      CONTROL_POINT_RADIUS * 2, CONTROL_POINT_RADIUS * 2, 2.0f);
-    };
+        g.drawEllipse(point.x - radius, point.y - radius, radius * 2, radius * 2, 2.0f);
 
-    drawPoint(m_lowBandPoint, juce::Colours::blue);
-    drawPoint(m_midBandPoint, juce::Colours::green);
-    drawPoint(m_highBandPoint, juce::Colours::red);
+        // Draw filter type label
+        g.setColour(juce::Colours::white);
+        g.setFont(9.0f);
+        g.drawText(DynamicParametricEQ::getFilterTypeShortName(band.filterType),
+                   static_cast<int>(point.x) - 12, static_cast<int>(point.y) - 25, 24, 14,
+                   juce::Justification::centred);
+    }
 }
 
 void GraphicalEQEditor::drawGrid(juce::Graphics& g, juce::Rectangle<float> bounds)
@@ -496,7 +616,7 @@ void GraphicalEQEditor::drawGrid(juce::Graphics& g, juce::Rectangle<float> bound
     g.setColour(juce::Colour(0xff3d3d3d));
 
     // Draw frequency grid lines (logarithmic)
-    const std::array<float, 9> frequencies = {20, 50, 100, 200, 500, 1000, 2000, 5000, 10000};
+    const std::array<float, 10> frequencies = {20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000};
     for (float freq : frequencies)
     {
         if (freq >= m_minFrequency && freq <= m_maxFrequency)
@@ -506,30 +626,32 @@ void GraphicalEQEditor::drawGrid(juce::Graphics& g, juce::Rectangle<float> bound
 
             // Draw frequency label
             juce::String label = freq < 1000 ? juce::String(static_cast<int>(freq)) + " Hz"
-                                             : juce::String(static_cast<int>(freq / 1000)) + " kHz";
+                                             : juce::String(static_cast<int>(freq / 1000)) + "k";
             g.setColour(juce::Colours::grey);
-            g.drawText(label, static_cast<int>(x) - 30, static_cast<int>(bounds.getBottom()) + 5, 60, 20,
+            g.setFont(10.0f);
+            g.drawText(label, static_cast<int>(x) - 20, static_cast<int>(bounds.getBottom()) + 2, 40, 16,
                       juce::Justification::centred);
             g.setColour(juce::Colour(0xff3d3d3d));
         }
     }
 
-    // Draw gain grid lines (linear)
-    for (float gainDB = m_minDB; gainDB <= m_maxDB; gainDB += 10.0f)
+    // Draw gain grid lines (linear, every 6 dB)
+    for (float gainDB = m_minDB; gainDB <= m_maxDB; gainDB += 6.0f)
     {
         float y = gainToY(gainDB, bounds);
         g.drawLine(bounds.getX(), y, bounds.getRight(), y, 1.0f);
 
         // Draw gain label
         g.setColour(juce::Colours::grey);
+        g.setFont(10.0f);
         g.drawText(juce::String(static_cast<int>(gainDB)) + " dB",
-                  static_cast<int>(bounds.getX()) - 50, static_cast<int>(y) - 10, 45, 20,
+                  static_cast<int>(bounds.getX()) - 45, static_cast<int>(y) - 8, 40, 16,
                   juce::Justification::right);
         g.setColour(juce::Colour(0xff3d3d3d));
     }
 
     // Draw 0 dB reference line (highlighted)
-    g.setColour(juce::Colour(0xff5d5d5d));
+    g.setColour(juce::Colour(0xff6d6d6d));
     float zeroY = gainToY(0.0f, bounds);
     g.drawLine(bounds.getX(), zeroY, bounds.getRight(), zeroY, 2.0f);
 }
@@ -558,21 +680,15 @@ void GraphicalEQEditor::processFFT()
 {
     juce::SpinLock::ScopedLockType lock(m_fftLock);
 
-    // Apply windowing function
     m_window->multiplyWithWindowingTable(m_fftData.data(), FFT_SIZE);
-
-    // Perform forward FFT for real-valued input
-    // Note: This is currently unused as spectrum visualization is disabled
     m_fft->performRealOnlyForwardTransform(m_fftData.data());
 
-    // Convert to dB and smooth
     const int numBins = FFT_SIZE / 2;
     for (int i = 0; i < numBins; ++i)
     {
         float magnitude = m_fftData[static_cast<size_t>(i)];
         float magnitudeDB = juce::Decibels::gainToDecibels(magnitude * FFT_DISPLAY_SCALE, m_minDB);
 
-        // Exponential smoothing
         m_scopeData[static_cast<size_t>(i)] = SMOOTHING_FACTOR * m_scopeData[static_cast<size_t>(i)]
                                             + (1.0f - SMOOTHING_FACTOR) * magnitudeDB;
     }
@@ -581,13 +697,14 @@ void GraphicalEQEditor::processFFT()
 //==============================================================================
 // Mouse Interaction Helpers
 
-GraphicalEQEditor::ControlPoint* GraphicalEQEditor::findNearestControlPoint(float x, float y)
+int GraphicalEQEditor::findNearestControlPointIndex(float x, float y)
 {
     float minDistance = std::numeric_limits<float>::max();
-    ControlPoint* nearest = nullptr;
+    int nearestIndex = -1;
 
-    auto checkPoint = [&](ControlPoint& point)
+    for (size_t i = 0; i < m_controlPoints.size(); ++i)
     {
+        const auto& point = m_controlPoints[i];
         float dx = x - point.x;
         float dy = y - point.y;
         float distance = std::sqrt(dx * dx + dy * dy);
@@ -595,15 +712,11 @@ GraphicalEQEditor::ControlPoint* GraphicalEQEditor::findNearestControlPoint(floa
         if (distance < CONTROL_POINT_CLICK_THRESHOLD && distance < minDistance)
         {
             minDistance = distance;
-            nearest = &point;
+            nearestIndex = static_cast<int>(i);
         }
-    };
+    }
 
-    checkPoint(m_lowBandPoint);
-    checkPoint(m_midBandPoint);
-    checkPoint(m_highBandPoint);
-
-    return nearest;
+    return nearestIndex;
 }
 
 void GraphicalEQEditor::updateControlPointPositions()
@@ -612,44 +725,213 @@ void GraphicalEQEditor::updateControlPointPositions()
     bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
     auto vizBounds = bounds.toFloat();
 
-    m_lowBandPoint.x = frequencyToX(m_params.low.frequency, vizBounds);
-    m_lowBandPoint.y = gainToY(m_params.low.gain, vizBounds);
+    // Resize control points vector to match bands
+    m_controlPoints.resize(m_params.bands.size());
 
-    m_midBandPoint.x = frequencyToX(m_params.mid.frequency, vizBounds);
-    m_midBandPoint.y = gainToY(m_params.mid.gain, vizBounds);
-
-    m_highBandPoint.x = frequencyToX(m_params.high.frequency, vizBounds);
-    m_highBandPoint.y = gainToY(m_params.high.gain, vizBounds);
+    // Update each control point position
+    for (size_t i = 0; i < m_params.bands.size(); ++i)
+    {
+        const auto& band = m_params.bands[i];
+        m_controlPoints[i].bandIndex = static_cast<int>(i);
+        m_controlPoints[i].x = frequencyToX(band.frequency, vizBounds);
+        m_controlPoints[i].y = gainToY(band.gain, vizBounds);
+    }
 }
 
-void GraphicalEQEditor::updateParametersFromControlPoints()
+void GraphicalEQEditor::updateParametersFromControlPoint(int bandIndex)
 {
+    if (bandIndex < 0 || static_cast<size_t>(bandIndex) >= m_params.bands.size())
+        return;
+
     auto bounds = getLocalBounds().reduced(MARGIN);
     bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
     auto vizBounds = bounds.toFloat();
 
-    // Update parameters from control point positions
-    m_params.low.frequency = xToFrequency(m_lowBandPoint.x, vizBounds);
-    m_params.low.gain = yToGain(m_lowBandPoint.y, vizBounds);
+    const auto& point = m_controlPoints[static_cast<size_t>(bandIndex)];
+    auto& band = m_params.bands[static_cast<size_t>(bandIndex)];
 
-    m_params.mid.frequency = xToFrequency(m_midBandPoint.x, vizBounds);
-    m_params.mid.gain = yToGain(m_midBandPoint.y, vizBounds);
-
-    m_params.high.frequency = xToFrequency(m_highBandPoint.x, vizBounds);
-    m_params.high.gain = yToGain(m_highBandPoint.y, vizBounds);
+    // Update frequency and gain from control point position
+    band.frequency = xToFrequency(point.x, vizBounds);
+    band.gain = yToGain(point.y, vizBounds);
 
     // Clamp to valid ranges
     double sampleRate = m_sampleRate.load();
     double nyquist = sampleRate / 2.0;
 
-    m_params.low.frequency = juce::jlimit(20.0f, static_cast<float>(nyquist * 0.49), m_params.low.frequency);
-    m_params.low.gain = juce::jlimit(-20.0f, 20.0f, m_params.low.gain);
+    band.frequency = juce::jlimit(DynamicParametricEQ::MIN_FREQUENCY,
+                                   static_cast<float>(nyquist * 0.49f),
+                                   band.frequency);
+    band.gain = juce::jlimit(DynamicParametricEQ::MIN_GAIN,
+                              DynamicParametricEQ::MAX_GAIN,
+                              band.gain);
+}
 
-    m_params.mid.frequency = juce::jlimit(20.0f, static_cast<float>(nyquist * 0.49), m_params.mid.frequency);
-    m_params.mid.gain = juce::jlimit(-20.0f, 20.0f, m_params.mid.gain);
+void GraphicalEQEditor::addBandAtPosition(float x, float y)
+{
+    if (static_cast<int>(m_params.bands.size()) >= DynamicParametricEQ::MAX_BANDS)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "Maximum Bands Reached",
+            "Cannot add more than " + juce::String(DynamicParametricEQ::MAX_BANDS) + " bands.",
+            "OK"
+        );
+        return;
+    }
 
-    m_params.high.frequency = juce::jlimit(20.0f, static_cast<float>(nyquist * 0.49), m_params.high.frequency);
-    m_params.high.gain = juce::jlimit(-20.0f, 20.0f, m_params.high.gain);
+    auto bounds = getLocalBounds().reduced(MARGIN);
+    bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
+    auto vizBounds = bounds.toFloat();
+
+    // Create new band at click position
+    DynamicParametricEQ::BandParameters newBand;
+    newBand.frequency = xToFrequency(x, vizBounds);
+    newBand.gain = yToGain(y, vizBounds);
+    newBand.q = DynamicParametricEQ::DEFAULT_Q;
+    newBand.filterType = DynamicParametricEQ::FilterType::Bell;
+    newBand.enabled = true;
+
+    // Clamp frequency
+    double sampleRate = m_sampleRate.load();
+    double nyquist = sampleRate / 2.0;
+    newBand.frequency = juce::jlimit(DynamicParametricEQ::MIN_FREQUENCY,
+                                      static_cast<float>(nyquist * 0.49f),
+                                      newBand.frequency);
+
+    // Add the band
+    m_params.bands.push_back(newBand);
+
+    // Update control points
+    updateControlPointPositions();
+
+    // Update EQ processor
+    if (m_eqProcessor)
+    {
+        m_eqProcessor->setParameters(m_params);
+        m_eqProcessor->updateCoefficientsForVisualization();
+    }
+
+    // Update preview if active
+    if (m_previewActive && m_audioEngine)
+    {
+        m_audioEngine->setDynamicEQPreview(m_params, true);
+    }
+
+    repaint();
+}
+
+void GraphicalEQEditor::removeBand(int bandIndex)
+{
+    if (bandIndex < 0 || static_cast<size_t>(bandIndex) >= m_params.bands.size())
+        return;
+
+    m_params.bands.erase(m_params.bands.begin() + bandIndex);
+
+    // Update control points
+    updateControlPointPositions();
+
+    // Update EQ processor
+    if (m_eqProcessor)
+    {
+        m_eqProcessor->setParameters(m_params);
+        m_eqProcessor->updateCoefficientsForVisualization();
+    }
+
+    // Update preview if active
+    if (m_previewActive && m_audioEngine)
+    {
+        m_audioEngine->setDynamicEQPreview(m_params, true);
+    }
+
+    repaint();
+}
+
+juce::Colour GraphicalEQEditor::getFilterTypeColor(DynamicParametricEQ::FilterType type) const
+{
+    switch (type)
+    {
+        case DynamicParametricEQ::FilterType::Bell:      return juce::Colours::green;
+        case DynamicParametricEQ::FilterType::LowShelf:  return juce::Colours::blue;
+        case DynamicParametricEQ::FilterType::HighShelf: return juce::Colours::red;
+        case DynamicParametricEQ::FilterType::LowCut:    return juce::Colours::purple;
+        case DynamicParametricEQ::FilterType::HighCut:   return juce::Colours::orange;
+        case DynamicParametricEQ::FilterType::Notch:     return juce::Colours::cyan;
+        case DynamicParametricEQ::FilterType::Bandpass:  return juce::Colours::yellow;
+        default:                                          return juce::Colours::white;
+    }
+}
+
+void GraphicalEQEditor::showBandContextMenu(int bandIndex)
+{
+    if (bandIndex < 0 || static_cast<size_t>(bandIndex) >= m_params.bands.size())
+        return;
+
+    auto& band = m_params.bands[static_cast<size_t>(bandIndex)];
+
+    juce::PopupMenu menu;
+
+    // Filter type submenu
+    juce::PopupMenu typeMenu;
+    typeMenu.addItem(1, "Bell", true, band.filterType == DynamicParametricEQ::FilterType::Bell);
+    typeMenu.addItem(2, "Low Shelf", true, band.filterType == DynamicParametricEQ::FilterType::LowShelf);
+    typeMenu.addItem(3, "High Shelf", true, band.filterType == DynamicParametricEQ::FilterType::HighShelf);
+    typeMenu.addItem(4, "Low Cut (HP)", true, band.filterType == DynamicParametricEQ::FilterType::LowCut);
+    typeMenu.addItem(5, "High Cut (LP)", true, band.filterType == DynamicParametricEQ::FilterType::HighCut);
+    typeMenu.addItem(6, "Notch", true, band.filterType == DynamicParametricEQ::FilterType::Notch);
+    typeMenu.addItem(7, "Bandpass", true, band.filterType == DynamicParametricEQ::FilterType::Bandpass);
+    menu.addSubMenu("Filter Type", typeMenu);
+
+    menu.addSeparator();
+
+    menu.addItem(10, band.enabled ? "Disable Band" : "Enable Band");
+    menu.addItem(11, "Reset to 0 dB");
+
+    menu.addSeparator();
+
+    menu.addItem(20, "Delete Band");
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, bandIndex](int result)
+    {
+        if (result == 0 || static_cast<size_t>(bandIndex) >= m_params.bands.size())
+            return;
+
+        auto& band = m_params.bands[static_cast<size_t>(bandIndex)];
+
+        if (result >= 1 && result <= 7)
+        {
+            // Filter type selection
+            band.filterType = static_cast<DynamicParametricEQ::FilterType>(result - 1);
+        }
+        else if (result == 10)
+        {
+            band.enabled = !band.enabled;
+        }
+        else if (result == 11)
+        {
+            band.gain = 0.0f;
+            updateControlPointPositions();
+        }
+        else if (result == 20)
+        {
+            removeBand(bandIndex);
+            return; // removeBand already calls repaint
+        }
+
+        // Update EQ processor and repaint
+        if (m_eqProcessor)
+        {
+            m_eqProcessor->setParameters(m_params);
+            m_eqProcessor->updateCoefficientsForVisualization();
+        }
+
+        // Update preview if active
+        if (m_previewActive && m_audioEngine)
+        {
+            m_audioEngine->setDynamicEQPreview(m_params, true);
+        }
+
+        repaint();
+    });
 }
 
 //==============================================================================
@@ -658,23 +940,58 @@ void GraphicalEQEditor::updateParametersFromControlPoints()
 void GraphicalEQEditor::processPreviewAudio()
 {
     // TODO: Implement preview audio processing
-    // Requires AudioEngine refactoring to support temporary buffer playback
 }
 
 void GraphicalEQEditor::togglePreview()
 {
-    // TODO: Implement preview playback
-    // Requires AudioEngine refactoring to support temporary buffer playback
-    // For now, show a message explaining this
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::MessageBoxIconType::InfoIcon,
-        "Preview Not Available",
-        "Real-time preview functionality requires AudioEngine refactoring\n"
-        "to support temporary buffer playback without modifying the main buffer.\n\n"
-        "For now, you can:\n"
-        "1. Adjust the EQ curve visually\n"
-        "2. Click Apply to hear the result\n"
-        "3. Use Undo (Cmd+Z) if you don't like it",
-        "OK"
-    );
+    // Check if we have an audio engine to work with
+    if (!m_audioEngine)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Preview Not Available",
+            "No audio engine connected. Preview requires an active audio document.",
+            "OK"
+        );
+        return;
+    }
+
+    // FIX: Match the toggle pattern from GainDialog/ParametricEQDialog
+    // Check if we're currently previewing AND playing - if so, stop
+    if (m_previewActive && m_audioEngine->isPlaying())
+    {
+        // FIX: Must stop audio playback when clicking "Stop Preview" (was missing before)
+        m_audioEngine->stop();
+        m_audioEngine->setGraphicalEQEditor(nullptr);
+        m_audioEngine->setDynamicEQPreview(DynamicParametricEQ::Parameters(), false);
+        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_previewActive = false;
+        m_previewButton.setButtonText("Preview");
+        m_previewButton.setColour(juce::TextButton::buttonColourId,
+            getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        return;
+    }
+
+    // Start preview
+    m_previewActive = true;
+
+    // Register this editor to receive audio data for spectrum visualization
+    m_audioEngine->setGraphicalEQEditor(this);
+
+    // Clear any existing loop points before starting (matches GainDialog pattern)
+    m_audioEngine->clearLoopPoints();
+
+    // Enable real-time EQ preview
+    m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
+    m_audioEngine->setDynamicEQPreview(m_params, true);
+
+    // Start playback if not already playing
+    if (!m_audioEngine->isPlaying())
+    {
+        m_audioEngine->play();
+    }
+
+    // Update button text and color to indicate active state (matches GainDialog pattern)
+    m_previewButton.setButtonText("Stop Preview");
+    m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
 }

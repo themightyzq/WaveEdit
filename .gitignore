@@ -161,6 +161,7 @@ diagnose_*.sh
 verify_*
 analyze_*.py
 run_*_tests.sh
+test_eq_coeff
 
 # QA test artifacts
 QA_TEST_PLAN_SUMMARY.txt

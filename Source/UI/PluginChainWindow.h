@@ -163,7 +163,7 @@ private:
     {
     public:
         PluginRowComponent(PluginChainWindow& owner);
-        void update(int index, PluginChainNode* node);
+        void update(int index, PluginChainNode* node, int totalCount);
         void paint(juce::Graphics& g) override;
         void resized() override;
         void mouseDown(const juce::MouseEvent& e) override;
@@ -171,10 +171,13 @@ private:
 
     private:
         void updateBypassButtonAppearance(bool isBypassed);
+        void updateMoveButtonStates(int index, int totalCount);
         PluginChainWindow& m_owner;
         int m_index = -1;
         PluginChainNode* m_node = nullptr;
 
+        juce::TextButton m_moveUpButton;
+        juce::TextButton m_moveDownButton;
         juce::TextButton m_bypassButton;
         juce::TextButton m_editButton;
         juce::TextButton m_removeButton;
@@ -202,6 +205,7 @@ private:
         void itemDragExit(const SourceDetails& details) override;
         void itemDropped(const SourceDetails& details) override;
         void paint(juce::Graphics& g) override;
+        void paintOverChildren(juce::Graphics& g) override;
 
     private:
         PluginChainWindow& m_owner;
