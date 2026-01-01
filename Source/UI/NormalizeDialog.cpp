@@ -102,6 +102,12 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_previewButton.onClick = [this]() { onPreviewClicked(); };
     addAndMakeVisible(m_previewButton);
 
+    // Bypass button for A/B comparison (only enabled when preview is active)
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.onClick = [this]() { onBypassClicked(); };
+    m_bypassButton.setEnabled(false);  // Disabled until preview starts
+    addAndMakeVisible(m_bypassButton);
+
     m_applyButton.setButtonText("Apply");
     m_applyButton.onClick = [this]() { onApplyClicked(); };
     addAndMakeVisible(m_applyButton);
@@ -115,11 +121,12 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
 
 NormalizeDialog::~NormalizeDialog()
 {
-    // Stop any preview playback
+    // Stop any preview playback and reset bypass state
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setPreviewBypassed(false);
     }
 }
 
@@ -178,10 +185,12 @@ void NormalizeDialog::resized()
     const int buttonWidth = 90;
     const int buttonSpacing = 10;
 
-    // Left side: Preview and Loop toggle
+    // Left side: Preview, Bypass, and Loop toggle
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
-    m_loopToggle.setBounds(buttonRow.removeFromLeft(100));  // Wider for "Loop Preview" text
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower for bypass
+    buttonRow.removeFromLeft(buttonSpacing);
+    m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
     buttonRow.removeFromLeft(buttonSpacing);
 
     // Right side: Cancel and Apply buttons
@@ -323,9 +332,15 @@ void NormalizeDialog::onPreviewClicked()
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
         m_audioEngine->setNormalizePreview(0.0f, false);  // Disable normalize processor
+        m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+
+        // Disable and reset bypass button
+        m_bypassButton.setEnabled(false);
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
         return;
     }
 
@@ -377,6 +392,9 @@ void NormalizeDialog::onPreviewClicked()
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
     m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+
+    // 10. Enable bypass button now that preview is active
+    m_bypassButton.setEnabled(true);
 }
 
 void NormalizeDialog::onApplyClicked()
@@ -441,4 +459,28 @@ void NormalizeDialog::onModeChanged()
 
     // Force layout update
     resized();
+}
+
+void NormalizeDialog::onBypassClicked()
+{
+    if (!m_audioEngine || !m_isPreviewPlaying)
+    {
+        return;  // Bypass only works when preview is active
+    }
+
+    // Toggle bypass state
+    bool newBypassState = !m_audioEngine->isPreviewBypassed();
+    m_audioEngine->setPreviewBypassed(newBypassState);
+
+    // Update button appearance for visual feedback
+    if (newBypassState)
+    {
+        m_bypassButton.setButtonText("Bypassed");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));  // Orange
+    }
+    else
+    {
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+    }
 }

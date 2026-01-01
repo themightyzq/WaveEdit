@@ -77,6 +77,7 @@ private:
     void onApplyClicked();
     void onCancelClicked();
     void onPreviewClicked();
+    void onBypassClicked();
     void onSliderValueChanged();
     void disablePreview();
 
@@ -88,6 +89,7 @@ private:
     juce::Label m_gainValueLabel;       // NEW: Display current slider value
     juce::ToggleButton m_loopCheckbox;  // NEW: Loop preview playback
     juce::TextButton m_previewButton;   // NEW: Toggle preview on/off
+    juce::TextButton m_bypassButton;    // NEW: Toggle bypass for A/B comparison
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
 

@@ -50,6 +50,12 @@ DCOffsetDialog::DCOffsetDialog(AudioEngine* audioEngine,
     m_previewButton.onClick = [this]() { onPreviewClicked(); };
     addAndMakeVisible(m_previewButton);
 
+    // Bypass button (starts disabled, enabled only during preview)
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.onClick = [this]() { onBypassClicked(); };
+    m_bypassButton.setEnabled(false);  // Disabled until preview starts
+    addAndMakeVisible(m_bypassButton);
+
     m_applyButton.setButtonText("Apply");
     m_applyButton.onClick = [this]() { onApplyClicked(); };
     addAndMakeVisible(m_applyButton);
@@ -63,11 +69,12 @@ DCOffsetDialog::DCOffsetDialog(AudioEngine* audioEngine,
 
 DCOffsetDialog::~DCOffsetDialog()
 {
-    // Stop any preview playback
+    // Stop any preview playback and reset bypass
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setPreviewBypassed(false);
     }
 }
 
@@ -89,16 +96,18 @@ void DCOffsetDialog::resized()
     bounds.removeFromTop(15); // Spacing
 
     // Buttons (bottom) - standardized layout
-    // Left: Preview + Loop | Right: Cancel + Apply
+    // Left: Preview + Loop + Bypass | Right: Cancel + Apply
     bounds.removeFromTop(bounds.getHeight() - 40); // Push to bottom
     auto buttonRow = bounds.removeFromTop(40);
     const int buttonWidth = 90;
     const int buttonSpacing = 10;
 
-    // Left side: Preview and Loop toggle
+    // Left side: Preview, Loop toggle, and Bypass
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
-    m_loopToggle.setBounds(buttonRow.removeFromLeft(100));  // Wider for "Loop Preview" text
+    m_loopToggle.setBounds(buttonRow.removeFromLeft(60));  // Loop toggle
+    buttonRow.removeFromLeft(buttonSpacing);
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
 
     // Right side: Cancel and Apply buttons
@@ -131,9 +140,14 @@ void DCOffsetDialog::onPreviewClicked()
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
         m_audioEngine->setDCOffsetPreview(false);  // Disable DC offset processor
+        m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        // Disable and reset bypass button
+        m_bypassButton.setEnabled(false);
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
         return;
     }
 
@@ -180,6 +194,9 @@ void DCOffsetDialog::onPreviewClicked()
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
     m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+
+    // 9. Enable bypass button during preview
+    m_bypassButton.setEnabled(true);
 }
 
 void DCOffsetDialog::onApplyClicked()
@@ -209,5 +226,27 @@ void DCOffsetDialog::onCancelClicked()
     if (m_cancelCallback)
     {
         m_cancelCallback();
+    }
+}
+
+void DCOffsetDialog::onBypassClicked()
+{
+    if (!m_audioEngine)
+        return;
+
+    bool bypassed = m_audioEngine->isPreviewBypassed();
+    m_audioEngine->setPreviewBypassed(!bypassed);
+
+    // Update button appearance
+    if (!bypassed)
+    {
+        m_bypassButton.setButtonText("Bypassed");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));
+    }
+    else
+    {
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId,
+                                 getLookAndFeel().findColour(juce::TextButton::buttonColourId));
     }
 }

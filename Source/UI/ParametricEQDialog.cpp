@@ -238,6 +238,12 @@ ParametricEQDialog::ParametricEQDialog(AudioEngine* audioEngine,
         m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON
         addAndMakeVisible(m_loopToggle);
 
+        // Bypass button (starts disabled, enabled only during preview)
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.onClick = [this]() { onBypassClicked(); };
+        m_bypassButton.setEnabled(false);  // Disabled until preview starts
+        addAndMakeVisible(m_bypassButton);
+
         // Create EQ processor for preview
         m_parametricEQ = std::make_unique<ParametricEQ>();
     }
@@ -258,11 +264,12 @@ ParametricEQDialog::ParametricEQDialog(AudioEngine* audioEngine,
 
 ParametricEQDialog::~ParametricEQDialog()
 {
-    // Stop preview when dialog is destroyed
+    // Stop preview when dialog is destroyed and reset bypass
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setPreviewBypassed(false);
     }
 }
 
@@ -332,12 +339,14 @@ void ParametricEQDialog::resized()
     const int buttonWidth = 90;
     const int buttonSpacing = 10;
 
-    // Left side: Preview and Loop toggle (if audio engine available)
+    // Left side: Preview, Loop toggle, and Bypass (if audio engine available)
     if (m_audioEngine && m_bufferManager)
     {
         m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
         buttonRow.removeFromLeft(buttonSpacing);
         m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
+        buttonRow.removeFromLeft(buttonSpacing);
+        m_bypassButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
         buttonRow.removeFromLeft(buttonSpacing);
     }
 
@@ -413,9 +422,14 @@ void ParametricEQDialog::onPreviewClicked()
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        // Disable and reset bypass button
+        m_bypassButton.setEnabled(false);
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
         return;
     }
 
@@ -462,6 +476,9 @@ void ParametricEQDialog::onPreviewClicked()
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
     m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+
+    // 9. Enable bypass button during preview
+    m_bypassButton.setEnabled(true);
 }
 
 void ParametricEQDialog::onParameterChanged()
@@ -485,4 +502,26 @@ ParametricEQ::Parameters ParametricEQDialog::getCurrentParameters() const
     params.mid = m_midBand.getParameters();
     params.high = m_highBand.getParameters();
     return params;
+}
+
+void ParametricEQDialog::onBypassClicked()
+{
+    if (!m_audioEngine)
+        return;
+
+    bool bypassed = m_audioEngine->isPreviewBypassed();
+    m_audioEngine->setPreviewBypassed(!bypassed);
+
+    // Update button appearance
+    if (!bypassed)
+    {
+        m_bypassButton.setButtonText("Bypassed");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));
+    }
+    else
+    {
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId,
+                                 getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+    }
 }

@@ -112,6 +112,12 @@ GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManag
     m_previewButton.setEnabled(m_audioEngine != nullptr);
     addAndMakeVisible(m_previewButton);
 
+    // Bypass button for A/B comparison (only enabled when preview is active)
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.onClick = [this]() { onBypassClicked(); };
+    m_bypassButton.setEnabled(false);  // Disabled until preview starts
+    addAndMakeVisible(m_bypassButton);
+
     // Apply button
     m_applyButton.onClick = [this]() { onApplyClicked(); };
     addAndMakeVisible(m_applyButton);
@@ -186,15 +192,17 @@ void GainDialog::resized()
     area.removeFromTop(10); // Spacing before buttons
 
     // Buttons (bottom) - standardized layout
-    // Left: Preview + Loop | Right: Cancel + Apply
+    // Left: Preview + Bypass + Loop | Right: Cancel + Apply
     auto buttonRow = area.removeFromTop(30);
     const int buttonWidth = 90;
     const int buttonSpacing = 10;
 
-    // Left side: Preview and Loop toggle
+    // Left side: Preview, Bypass, and Loop toggle
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
-    m_loopCheckbox.setBounds(buttonRow.removeFromLeft(100));  // Wider for "Loop Preview" text
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower for bypass
+    buttonRow.removeFromLeft(buttonSpacing);
+    m_loopCheckbox.setBounds(buttonRow.removeFromLeft(60));  // Reduced width for just "Loop"
     buttonRow.removeFromLeft(buttonSpacing);
 
     // Right side: Cancel and Apply buttons
@@ -298,10 +306,16 @@ void GainDialog::onPreviewClicked()
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setPreviewBypassed(false);  // Clear bypass state
         m_isPreviewPlaying = false;
         m_isPreviewActive = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+
+        // Disable bypass button when preview stops
+        m_bypassButton.setEnabled(false);
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
         return;
     }
 
@@ -363,6 +377,9 @@ void GainDialog::onPreviewClicked()
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
     m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+
+    // Enable bypass button now that preview is active
+    m_bypassButton.setEnabled(true);
 }
 
 void GainDialog::onSliderValueChanged()
@@ -442,6 +459,38 @@ void GainDialog::disablePreview()
         m_audioEngine->setGainPreview(0.0f, false);
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
 
+        // Clear bypass state
+        m_audioEngine->setPreviewBypassed(false);
+
         m_isPreviewActive = false;
+    }
+
+    // Reset bypass button state
+    m_bypassButton.setEnabled(false);
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+}
+
+void GainDialog::onBypassClicked()
+{
+    if (!m_audioEngine || !m_isPreviewActive)
+    {
+        return;  // Bypass only works when preview is active
+    }
+
+    // Toggle bypass state
+    bool newBypassState = !m_audioEngine->isPreviewBypassed();
+    m_audioEngine->setPreviewBypassed(newBypassState);
+
+    // Update button visual state
+    if (newBypassState)
+    {
+        m_bypassButton.setButtonText("Bypassed");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));  // Orange for bypassed
+    }
+    else
+    {
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
     }
 }

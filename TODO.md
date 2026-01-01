@@ -1,6 +1,6 @@
 # WaveEdit by ZQ SFX - TODO
 
-**Last Updated**: 2025-12-31 (DynamicParametricEQ & GraphicalEQ Complete)
+**Last Updated**: 2026-01-01 (Global Bypass System for DSP Preview Dialogs Complete)
 **Company**: ZQ SFX (© 2025)
 **Philosophy**: Feature-driven development - ship when ready, not before
 
@@ -172,10 +172,16 @@
   - Filter type selection per band via context menu
   - Preview button with AudioEngine integration
   - Undo/redo support via ApplyGraphicalEQAction
-- ⏳ Phase 5: EQ preset system (JSON save/load)
+- ✅ Phase 5: EQ preset system (COMPLETE - 2026-01-01)
+  - EQPresetManager with JSON serialization (.weeq files)
+  - 11 factory presets (Flat, Default, Vocal Presence, De-Muddy, Warmth, Bright, Bass Boost, Low Shelf, Low Cut, High Shelf, High Cut)
+  - User preset save/load/delete with overwrite warning
+  - Preset UI bar in GraphicalEQEditor (dropdown, Save, Delete, Reset buttons)
+  - Info labels on band markers showing frequency/gain values
+  - "Set Gain..." context menu option for precise gain input
 - ⏳ Phase 6: Integration testing and polish
 
-**Status**: Phase 4 complete (80%), ready for EQ preset system
+**Status**: Phase 5 complete (90%), ready for final polish
 
 ### Up Next
 
@@ -523,6 +529,41 @@ See CLAUDE.md "Quality Assurance" section for details.
 ---
 
 ## Changelog
+
+### 2026-01-01 - Global Bypass System for DSP Preview Dialogs (Complete)
+- ✅ **NEW FEATURE**: Global bypass system for A/B comparison during DSP preview
+- ✅ **Architecture**: Centralized bypass flag in AudioEngine with atomic operations
+  - Added `std::atomic<bool> m_previewBypassed{false}` to AudioEngine.h
+  - Added `setPreviewBypassed(bool)` and `isPreviewBypassed()` methods
+  - Audio callback checks bypass flag at line 944: `!m_previewBypassed.load()`
+- ✅ **UI Implementation**: Bypass button added to ALL 7 DSP preview dialogs
+  - GainDialog - Volume adjustment preview
+  - NormalizeDialog - Normalization preview
+  - FadeInDialog - Fade in preview
+  - FadeOutDialog - Fade out preview
+  - DCOffsetDialog - DC offset removal preview
+  - ParametricEQDialog - 3-band EQ preview
+  - GraphicalEQEditor - 20-band graphical EQ preview
+- ✅ **Bypass Button Behavior**:
+  - Button starts disabled, text "Bypass"
+  - Enabled when preview starts
+  - Clicking toggles between "Bypass" (active DSP) and "Bypassed" (unprocessed audio)
+  - Orange color (`0xffff8c00`) when bypassed for clear visual feedback
+  - Disabled and reset when preview stops or dialog closes
+- ✅ **Thread Safety**: `std::atomic<bool>` ensures lock-free audio thread reads
+- ✅ **Purpose**: Enables instant A/B comparison between processed and unprocessed audio
+- ✅ **Files Modified**:
+  - `Source/Audio/AudioEngine.h` - Added bypass flag and methods
+  - `Source/Audio/AudioEngine.cpp` - Implemented bypass methods and audio callback check
+  - `Source/UI/GainDialog.cpp` - Added bypass button
+  - `Source/UI/NormalizeDialog.cpp` - Added bypass button
+  - `Source/UI/FadeInDialog.cpp` - Added bypass button
+  - `Source/UI/FadeOutDialog.cpp` - Added bypass button
+  - `Source/UI/DCOffsetDialog.cpp` - Added bypass button
+  - `Source/UI/ParametricEQDialog.cpp` - Added bypass button
+  - `Source/UI/GraphicalEQEditor.cpp` - Added bypass button and `onBypassClicked()` method
+- ✅ **Build Status**: Clean build, all tests passing
+- **Impact**: Professional workflow - users can instantly compare processed vs unprocessed audio
 
 ### 2025-12-18 - Clear Cache & Rescan Bug Fix (Complete)
 - ✅ **P0 BUG FIXED**: "Clear Cache & Rescan" now properly deletes all cache files and provides user feedback

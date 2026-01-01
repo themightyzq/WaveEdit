@@ -140,6 +140,12 @@ private:
     void onCancelClicked();
 
     /**
+     * Bypass button callback.
+     * Toggles bypass state during preview for A/B comparison.
+     */
+    void onBypassClicked();
+
+    /**
      * Target level slider changed callback.
      * Updates required gain display.
      */
@@ -159,6 +165,7 @@ private:
     juce::Label m_requiredGainValue;
     juce::ToggleButton m_loopToggle;
     juce::TextButton m_previewButton;
+    juce::TextButton m_bypassButton;      // NEW: Toggle bypass for A/B comparison
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
 
