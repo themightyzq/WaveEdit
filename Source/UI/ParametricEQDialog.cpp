@@ -292,7 +292,7 @@ std::optional<ParametricEQ::Parameters> ParametricEQDialog::showDialog(
     options.dialogTitle = "Parametric EQ";
     options.dialogBackgroundColour = juce::Colour(0xff2b2b2b);
     options.escapeKeyTriggersCloseButton = false;
-    options.useNativeTitleBar = false;
+    options.useNativeTitleBar = true;
     options.resizable = false;
     options.componentToCentreAround = nullptr;
 
@@ -339,14 +339,14 @@ void ParametricEQDialog::resized()
     const int buttonWidth = 90;
     const int buttonSpacing = 10;
 
-    // Left side: Preview, Loop toggle, and Bypass (if audio engine available)
+    // Left side: Preview, Bypass, and Loop toggle (standardized order)
     if (m_audioEngine && m_bufferManager)
     {
         m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
         buttonRow.removeFromLeft(buttonSpacing);
-        m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
+        m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower for bypass
         buttonRow.removeFromLeft(buttonSpacing);
-        m_bypassButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+        m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
         buttonRow.removeFromLeft(buttonSpacing);
     }
 

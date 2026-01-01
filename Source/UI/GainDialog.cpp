@@ -129,7 +129,7 @@ GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManag
     // Set initial focus to text input
     m_gainInput.setWantsKeyboardFocus(true);
 
-    setSize(400, 260);  // Increased size for slider and loop checkbox
+    setSize(450, 260);  // Width matches ParametricEQDialog standard for button layout
 }
 
 std::optional<float> GainDialog::showDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManager, int64_t selectionStart, int64_t selectionEnd)
@@ -141,7 +141,7 @@ std::optional<float> GainDialog::showDialog(AudioEngine* audioEngine, AudioBuffe
     options.dialogTitle = "Apply Gain";
     options.dialogBackgroundColour = juce::Colour(0xff2b2b2b);
     options.escapeKeyTriggersCloseButton = false;
-    options.useNativeTitleBar = false;
+    options.useNativeTitleBar = true;
     options.resizable = false;
     options.componentToCentreAround = nullptr;
 

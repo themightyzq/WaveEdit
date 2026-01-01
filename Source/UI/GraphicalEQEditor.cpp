@@ -94,6 +94,11 @@ GraphicalEQEditor::GraphicalEQEditor(const DynamicParametricEQ::Parameters& init
     m_bypassButton.setEnabled(false);  // Disabled until preview starts
     addAndMakeVisible(m_bypassButton);
 
+    // Loop toggle (default ON for preview playback)
+    m_loopToggle.setButtonText("Loop");
+    m_loopToggle.setToggleState(true, juce::dontSendNotification);
+    addAndMakeVisible(m_loopToggle);
+
     m_applyButton.onClick = [this]()
     {
         m_result = m_params;
@@ -194,7 +199,7 @@ std::optional<DynamicParametricEQ::Parameters> GraphicalEQEditor::showDialog(
     options.dialogTitle = "Graphical Parametric EQ (20-Band)";
     options.dialogBackgroundColour = juce::Colour(0xff2d2d2d);
     options.escapeKeyTriggersCloseButton = false;
-    options.useNativeTitleBar = false;
+    options.useNativeTitleBar = true;
     options.resizable = false;
     options.componentToCentreAround = nullptr;
 
@@ -230,9 +235,15 @@ void GraphicalEQEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff1e1e1e));
 
-    // Calculate visualization bounds (reserve space for buttons)
+    // Calculate visualization bounds (reserve space for preset controls, axis labels, and buttons)
+    // Must match the layout in resized()
+    constexpr int AXIS_LABEL_HEIGHT = 20;
+    constexpr int FOOTER_SPACING = 10;
+
     auto bounds = getLocalBounds().reduced(MARGIN);
-    bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
+    bounds.removeFromTop(BUTTON_HEIGHT);  // Preset controls
+    bounds.removeFromTop(MARGIN);         // Spacing
+    bounds.removeFromBottom(BUTTON_HEIGHT + FOOTER_SPACING + AXIS_LABEL_HEIGHT);  // Footer area
 
     auto vizBounds = bounds.toFloat();
 
@@ -272,22 +283,38 @@ void GraphicalEQEditor::resized()
     presetArea.removeFromLeft(MARGIN / 2);
     m_resetButton.setBounds(presetArea.removeFromLeft(60));
 
-    bounds.removeFromTop(MARGIN);  // Add spacing between preset controls and EQ display
+    bounds.removeFromTop(MARGIN);  // Spacing between preset controls and EQ display
+
+    // Reserve space at bottom for:
+    // 1. Frequency axis labels (20px)
+    // 2. Spacing (10px)
+    // 3. Buttons (30px)
+    // Total footer height: 60px
+    constexpr int AXIS_LABEL_HEIGHT = 20;
+    constexpr int FOOTER_SPACING = 10;
+
+    auto footerArea = bounds.removeFromBottom(BUTTON_HEIGHT + FOOTER_SPACING + AXIS_LABEL_HEIGHT);
+
+    // Skip the axis label area (visualization will draw labels here)
+    footerArea.removeFromTop(AXIS_LABEL_HEIGHT);
+    footerArea.removeFromTop(FOOTER_SPACING);
 
     // Position buttons at bottom - standardized layout
-    // Left: Preview + Bypass | Right: Cancel + Apply
-    auto buttonArea = bounds.removeFromBottom(BUTTON_HEIGHT);
+    // Left: Preview + Bypass + Loop | Right: Cancel + Apply
+    auto buttonArea = footerArea;
+    const int buttonSpacing = 10;
 
-    // Left side: Preview and Bypass
-    m_previewButton.setBounds(buttonArea.removeFromLeft(BUTTON_WIDTH));
-    buttonArea.removeFromLeft(MARGIN);
-    m_bypassButton.setBounds(buttonArea.removeFromLeft(BUTTON_WIDTH));
-    buttonArea.removeFromLeft(MARGIN);
+    // Left side: Preview, Bypass, and Loop toggle (standardized order)
+    m_previewButton.setBounds(buttonArea.removeFromLeft(90));  // Standard width
+    buttonArea.removeFromLeft(buttonSpacing);
+    m_bypassButton.setBounds(buttonArea.removeFromLeft(70));   // Slightly narrower for bypass
+    buttonArea.removeFromLeft(buttonSpacing);
+    m_loopToggle.setBounds(buttonArea.removeFromLeft(60));     // Loop toggle
 
-    // Right side: Cancel and Apply
-    m_applyButton.setBounds(buttonArea.removeFromRight(BUTTON_WIDTH));
-    buttonArea.removeFromRight(MARGIN);
-    m_cancelButton.setBounds(buttonArea.removeFromRight(BUTTON_WIDTH));
+    // Right side: Cancel and Apply buttons
+    m_applyButton.setBounds(buttonArea.removeFromRight(90));   // Standard width
+    buttonArea.removeFromRight(buttonSpacing);
+    m_cancelButton.setBounds(buttonArea.removeFromRight(90));  // Standard width
 
     // Update control point positions when window resizes
     updateControlPointPositions();

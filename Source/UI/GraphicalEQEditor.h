@@ -176,6 +176,7 @@ private:
 
     juce::TextButton m_previewButton;
     juce::TextButton m_bypassButton;      // Toggle bypass for A/B comparison
+    juce::ToggleButton m_loopToggle;      // Loop toggle for preview playback
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
 

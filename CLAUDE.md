@@ -301,6 +301,66 @@ Never:
 • Create duplicates.
 • Forget to update templates.
 
+6.8 PROCESSING DIALOG FOOTER PROTOCOL
+
+All processing dialogs (Process menu) must follow a standardized footer layout for consistency.
+
+Standard Button Order (left to right):
+  LEFT SIDE:  Preview (90px) → Bypass (70px) → Loop (60px)
+  RIGHT SIDE: Cancel (90px) → Apply (90px)
+
+Button Specifications:
+• Preview: juce::TextButton, 90px width
+  - Toggles to "Stop Preview" with dark red background when active
+  - Controls real-time DSP preview playback
+• Bypass: juce::TextButton, 70px width
+  - Toggles to "Bypassed" with orange background when active
+  - Enabled only during preview (disabled by default)
+  - A/B comparison between processed and original audio
+• Loop: juce::ToggleButton, 60px width
+  - Checkbox labeled "Loop"
+  - Default state: ON (checked)
+  - Controls whether preview loops the selection
+• Cancel: juce::TextButton, 90px width
+  - Stops preview and closes dialog without applying
+• Apply: juce::TextButton, 90px width
+  - Stops preview and applies the effect to the audio buffer
+
+Layout Implementation (resized() method):
+```cpp
+// Buttons (bottom) - standardized layout
+// Left: Preview + Bypass + Loop | Right: Cancel + Apply
+bounds.removeFromTop(bounds.getHeight() - 40); // Push to bottom
+auto buttonRow = bounds.removeFromTop(40);
+const int buttonWidth = 90;
+const int buttonSpacing = 10;
+
+// Left side: Preview, Bypass, and Loop toggle (standardized order)
+m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+buttonRow.removeFromLeft(buttonSpacing);
+m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower
+buttonRow.removeFromLeft(buttonSpacing);
+m_loopToggle.setBounds(buttonRow.removeFromLeft(60));    // Loop toggle
+
+// Right side: Cancel and Apply buttons
+m_applyButton.setBounds(buttonRow.removeFromRight(buttonWidth));
+buttonRow.removeFromRight(buttonSpacing);
+m_cancelButton.setBounds(buttonRow.removeFromRight(buttonWidth));
+```
+
+Reference Implementations:
+• GainDialog.cpp (Source/UI/GainDialog.cpp)
+• NormalizeDialog.cpp (Source/UI/NormalizeDialog.cpp)
+
+Dialogs that follow this standard:
+• GainDialog
+• NormalizeDialog
+• DCOffsetDialog
+• FadeInDialog
+• FadeOutDialog
+• ParametricEQDialog
+• GraphicalEQEditor
+
 7. CODING STANDARDS
 
 Indentation: 4 spaces.
