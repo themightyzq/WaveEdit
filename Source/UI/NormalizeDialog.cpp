@@ -116,7 +116,7 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
     addAndMakeVisible(m_cancelButton);
 
-    setSize(400, 380);  // Increased height for mode selector and RMS display
+    setSize(450, 380);  // Width matches ParametricEQDialog standard for button layout
 }
 
 NormalizeDialog::~NormalizeDialog()

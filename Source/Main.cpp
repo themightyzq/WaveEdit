@@ -38,7 +38,7 @@
 #include "UI/NormalizeDialog.h"
 #include "UI/FadeInDialog.h"
 #include "UI/FadeOutDialog.h"
-#include "UI/DCOffsetDialog.h"
+// DCOffsetDialog removed - DC Offset now runs automatically without dialog
 #include "UI/ParametricEQDialog.h"
 #include "UI/GraphicalEQEditor.h"
 #include "UI/RecordingDialog.h"
@@ -3579,7 +3579,7 @@ public:
 
             case CommandIDs::processDCOffset:
                 if (!doc) return false;
-                showDCOffsetDialog();
+                applyDCOffset();  // Run automatically without dialog
                 return true;
 
             case CommandIDs::editSilence:
@@ -6198,155 +6198,131 @@ public:
     }
 
     /**
-     * Show DC offset dialog and remove DC offset from selection.
-     * Requires selection (won't work on entire file).
+     * Apply DC offset removal automatically (no dialog).
+     * Works on selection if present, otherwise on entire file.
      */
-    void showDCOffsetDialog()
+    void applyDCOffset()
     {
         Document* doc = m_documentManager.getCurrentDocument();
         if (!doc || !doc->getAudioEngine().isFileLoaded())
             return;
 
-        // Check for selection (DC offset dialog requires selection)
+        // Determine if we have a selection or should process entire file
         auto& waveform = doc->getWaveformDisplay();
-        if (!waveform.hasSelection())
+        auto& engine = doc->getAudioEngine();
+        bool hasSelection = waveform.hasSelection();
+
+        // Get bounds (selection or entire file)
+        double sampleRate = engine.getSampleRate();
+        int startSample, endSample, numSamples;
+
+        if (hasSelection)
         {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "No Selection",
-                "Please select a region before removing DC offset.",
-                "OK"
-            );
+            startSample = doc->getBufferManager().timeToSample(waveform.getSelectionStart());
+            endSample = doc->getBufferManager().timeToSample(waveform.getSelectionEnd());
+        }
+        else
+        {
+            startSample = 0;
+            endSample = doc->getBufferManager().getBuffer().getNumSamples();
+        }
+        numSamples = endSample - startSample;
+
+        if (numSamples <= 0)
             return;
+
+        // Store before state for undo (MUST happen before any processing)
+        auto& buffer = doc->getBufferManager().getMutableBuffer();
+        auto beforeBuffer = std::make_shared<juce::AudioBuffer<float>>();
+        beforeBuffer->setSize(buffer.getNumChannels(), numSamples);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            beforeBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
         }
 
-        // Convert selection to sample coordinates
-        auto& engine = doc->getAudioEngine();
-        double sampleRate = engine.getSampleRate();
-        int64_t startSample = static_cast<int64_t>(waveform.getSelectionStart() * sampleRate);
-        int64_t endSample = static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate);
+        juce::String transactionName = hasSelection ? "Remove DC Offset (selection)" : "Remove DC Offset (entire file)";
 
-        // Create dialog
-        DCOffsetDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
-
-        // Set up apply callback
-        dialog.onApply([this, doc, &dialog]() {
-            // Get selection bounds
-            int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-            int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
-            int numSamples = endSample - startSample;
-
-            // Store before state for undo (MUST happen before any processing)
-            auto& buffer = doc->getBufferManager().getMutableBuffer();
-            auto beforeBuffer = std::make_shared<juce::AudioBuffer<float>>();
-            beforeBuffer->setSize(buffer.getNumChannels(), numSamples);
+        // Check if we need progress dialog for large operations
+        if (numSamples >= kProgressDialogThreshold)
+        {
+            // ASYNCHRONOUS PATH: Large operation - show progress dialog
+            // Create a working copy of the region for processing
+            auto regionBuffer = std::make_shared<juce::AudioBuffer<float>>();
+            regionBuffer->setSize(buffer.getNumChannels(), numSamples);
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
-                beforeBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
+                regionBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
             }
 
-            // Close the dialog first (before potentially showing progress dialog)
-            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
-                window->exitModalState(1);
-
-            // Check if we need progress dialog for large operations
-            if (numSamples >= kProgressDialogThreshold)
-            {
-                // ASYNCHRONOUS PATH: Large operation - show progress dialog
-                // Create a working copy of the selection region for processing
-                auto regionBuffer = std::make_shared<juce::AudioBuffer<float>>();
-                regionBuffer->setSize(buffer.getNumChannels(), numSamples);
-                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                {
-                    regionBuffer->copyFrom(ch, 0, buffer, ch, startSample, numSamples);
-                }
-
-                ProgressDialog::runWithProgress(
-                    "Remove DC Offset",
-                    [regionBuffer](ProgressCallback progress) -> bool {
-                        // Apply DC offset removal to the region copy (not the main buffer)
-                        return AudioProcessor::removeDCOffsetWithProgress(*regionBuffer, progress);
-                    },
-                    [doc, beforeBuffer, regionBuffer, startSample, numSamples](bool success) {
-                        if (success)
+            ProgressDialog::runWithProgress(
+                "Remove DC Offset",
+                [regionBuffer](ProgressCallback progress) -> bool {
+                    // Apply DC offset removal to the region copy (not the main buffer)
+                    return AudioProcessor::removeDCOffsetWithProgress(*regionBuffer, progress);
+                },
+                [doc, beforeBuffer, regionBuffer, startSample, numSamples, transactionName](bool success) {
+                    if (success)
+                    {
+                        // Copy processed region back to main buffer at correct position
+                        auto& buf = doc->getBufferManager().getMutableBuffer();
+                        for (int ch = 0; ch < regionBuffer->getNumChannels(); ++ch)
                         {
-                            // Copy processed region back to main buffer at correct position
-                            auto& buf = doc->getBufferManager().getMutableBuffer();
-                            for (int ch = 0; ch < regionBuffer->getNumChannels(); ++ch)
-                            {
-                                buf.copyFrom(ch, startSample, *regionBuffer, ch, 0, numSamples);
-                            }
-
-                            // Register undo action (operation already applied)
-                            doc->getUndoManager().beginNewTransaction("Remove DC Offset (selection)");
-                            auto* undoAction = new DCOffsetRemovalUndoAction(
-                                doc->getBufferManager(),
-                                doc->getWaveformDisplay(),
-                                doc->getAudioEngine(),
-                                *beforeBuffer,
-                                startSample,
-                                numSamples
-                            );
-                            undoAction->markAsAlreadyPerformed();
-                            doc->getUndoManager().perform(undoAction);
-                            doc->setModified(true);
-
-                            // Update waveform display
-                            doc->getAudioEngine().reloadBufferPreservingPlayback(
-                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
-                            doc->getWaveformDisplay().reloadFromBuffer(
-                                buf, doc->getAudioEngine().getSampleRate(), true, true);
+                            buf.copyFrom(ch, startSample, *regionBuffer, ch, 0, numSamples);
                         }
-                        else
-                        {
-                            // Cancelled: Restore buffer from snapshot
-                            auto& buf = doc->getBufferManager().getMutableBuffer();
-                            for (int ch = 0; ch < beforeBuffer->getNumChannels(); ++ch)
-                            {
-                                buf.copyFrom(ch, startSample, *beforeBuffer, ch, 0, numSamples);
-                            }
-                            doc->getAudioEngine().reloadBufferPreservingPlayback(
-                                buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
-                            doc->getWaveformDisplay().reloadFromBuffer(
-                                buf, doc->getAudioEngine().getSampleRate(), true, true);
-                        }
+
+                        // Register undo action (operation already applied)
+                        doc->getUndoManager().beginNewTransaction(transactionName);
+                        auto* undoAction = new DCOffsetRemovalUndoAction(
+                            doc->getBufferManager(),
+                            doc->getWaveformDisplay(),
+                            doc->getAudioEngine(),
+                            *beforeBuffer,
+                            startSample,
+                            numSamples
+                        );
+                        undoAction->markAsAlreadyPerformed();
+                        doc->getUndoManager().perform(undoAction);
+                        doc->setModified(true);
+
+                        // Update waveform display
+                        doc->getAudioEngine().reloadBufferPreservingPlayback(
+                            buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                        doc->getWaveformDisplay().reloadFromBuffer(
+                            buf, doc->getAudioEngine().getSampleRate(), true, true);
                     }
-                );
-            }
-            else
-            {
-                // SYNCHRONOUS PATH: Small operation - existing behavior
-                doc->getUndoManager().beginNewTransaction("Remove DC Offset (selection)");
+                    else
+                    {
+                        // Cancelled: Restore buffer from snapshot
+                        auto& buf = doc->getBufferManager().getMutableBuffer();
+                        for (int ch = 0; ch < beforeBuffer->getNumChannels(); ++ch)
+                        {
+                            buf.copyFrom(ch, startSample, *beforeBuffer, ch, 0, numSamples);
+                        }
+                        doc->getAudioEngine().reloadBufferPreservingPlayback(
+                            buf, doc->getBufferManager().getSampleRate(), buf.getNumChannels());
+                        doc->getWaveformDisplay().reloadFromBuffer(
+                            buf, doc->getAudioEngine().getSampleRate(), true, true);
+                    }
+                }
+            );
+        }
+        else
+        {
+            // SYNCHRONOUS PATH: Small operation - immediate processing
+            doc->getUndoManager().beginNewTransaction(transactionName);
 
-                auto* undoAction = new DCOffsetRemovalUndoAction(
-                    doc->getBufferManager(),
-                    doc->getWaveformDisplay(),
-                    doc->getAudioEngine(),
-                    *beforeBuffer,
-                    startSample,
-                    numSamples
-                );
+            auto* undoAction = new DCOffsetRemovalUndoAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                *beforeBuffer,
+                startSample,
+                numSamples
+            );
 
-                doc->getUndoManager().perform(undoAction);
-                doc->setModified(true);
-            }
-        });
-
-        dialog.onCancel([&dialog]() {
-            if (auto* window = dialog.findParentComponentOfClass<juce::DialogWindow>())
-                window->exitModalState(0);
-        });
-
-        // Show dialog modally
-        juce::DialogWindow::LaunchOptions options;
-        options.content.setNonOwned(&dialog);  // Use setNonOwned for stack-allocated dialog
-        options.componentToCentreAround = this;
-        options.dialogTitle = "Remove DC Offset";
-        options.escapeKeyTriggersCloseButton = true;
-        options.useNativeTitleBar = true;
-        options.resizable = false;
-
-        options.runModal();
+            doc->getUndoManager().perform(undoAction);
+            doc->setModified(true);
+        }
     }
 
     /**

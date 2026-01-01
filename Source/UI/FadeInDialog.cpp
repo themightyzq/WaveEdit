@@ -139,13 +139,12 @@ void FadeInDialog::resized()
     const int buttonWidth = 90;
     const int buttonSpacing = 10;
 
-    // Left side: Preview, Loop toggle, and Bypass
+    // Left side: Preview, Bypass, and Loop toggle (standardized order)
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower for bypass
+    buttonRow.removeFromLeft(buttonSpacing);
     m_loopToggle.setBounds(buttonRow.removeFromLeft(60));  // Loop toggle
-    buttonRow.removeFromLeft(buttonSpacing);
-    m_bypassButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
-    buttonRow.removeFromLeft(buttonSpacing);
 
     // Right side: Cancel and Apply buttons
     m_applyButton.setBounds(buttonRow.removeFromRight(buttonWidth));

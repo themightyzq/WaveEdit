@@ -83,8 +83,6 @@ target_sources(WaveEdit
         Source/UI/FadeOutDialog.h
         Source/UI/FadeCurvePreview.cpp
         Source/UI/FadeCurvePreview.h
-        Source/UI/DCOffsetDialog.cpp
-        Source/UI/DCOffsetDialog.h
         Source/UI/RecordingDialog.cpp
         Source/UI/RecordingDialog.h
         Source/UI/ParametricEQDialog.cpp
@@ -510,8 +508,6 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/FadeOutDialog.h
         Source/UI/FadeCurvePreview.cpp
         Source/UI/FadeCurvePreview.h
-        Source/UI/DCOffsetDialog.cpp
-        Source/UI/DCOffsetDialog.h
         Source/UI/RecordingDialog.cpp
         Source/UI/RecordingDialog.h
         Source/UI/ParametricEQDialog.cpp

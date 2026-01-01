@@ -1,6 +1,6 @@
 # WaveEdit by ZQ SFX - TODO
 
-**Last Updated**: 2026-01-01 (Global Bypass System for DSP Preview Dialogs Complete)
+**Last Updated**: 2026-01-01 (Dialog Title Bar Consistency & Layout Fixes)
 **Company**: ZQ SFX (© 2025)
 **Philosophy**: Feature-driven development - ship when ready, not before
 
@@ -529,6 +529,39 @@ See CLAUDE.md "Quality Assurance" section for details.
 ---
 
 ## Changelog
+
+### 2026-01-01 - Dialog Layout & Title Bar Consistency Fixes (Complete)
+- ✅ **Dialog Width Fixes**: Increased minimum width for dialogs with truncated Cancel buttons
+  - GainDialog: 400px → 450px
+  - NormalizeDialog: 400px → 450px
+  - Matches ParametricEQDialog (450px) as the standard for dialog width
+- ✅ **Native Title Bar Consistency**: All processing dialogs now use native macOS title bars
+  - Changed `useNativeTitleBar = false` to `true` in:
+    - GraphicalEQEditor.cpp
+    - GainDialog.cpp
+    - ParametricEQDialog.cpp
+  - All dialogs now have consistent system-native window controls
+- ✅ **DCOffsetDialog Removal**: Removed the DC Offset dialog entirely
+  - DC Offset now runs automatically when selected from Process menu
+  - Works on selection or full waveform (if no selection)
+  - No parameters to preview, so dialog was unnecessary
+  - Deleted: DCOffsetDialog.cpp, DCOffsetDialog.h
+  - Updated CMakeLists.txt to remove deleted files
+- ✅ **GraphicalEQEditor Footer Layout**: Fixed footer button spacing to prevent overlap with frequency axis
+- ✅ **Files Modified**:
+  - `Source/UI/GainDialog.cpp` - Width increase, native title bar
+  - `Source/UI/NormalizeDialog.cpp` - Width increase
+  - `Source/UI/GraphicalEQEditor.cpp` - Native title bar
+  - `Source/UI/ParametricEQDialog.cpp` - Native title bar
+  - `Source/UI/FadeInDialog.cpp` - Minor layout adjustments
+  - `Source/UI/FadeOutDialog.cpp` - Minor layout adjustments
+  - `Source/Main.cpp` - DC Offset now runs directly without dialog
+  - `CMakeLists.txt` - Removed DCOffsetDialog files
+- ✅ **Files Deleted**:
+  - `Source/UI/DCOffsetDialog.cpp`
+  - `Source/UI/DCOffsetDialog.h`
+- ✅ **Build Status**: Clean build, all tests passing
+- **Impact**: Professional, consistent dialog appearance across all processing operations
 
 ### 2026-01-01 - Global Bypass System for DSP Preview Dialogs (Complete)
 - ✅ **NEW FEATURE**: Global bypass system for A/B comparison during DSP preview
