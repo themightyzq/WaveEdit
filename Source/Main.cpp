@@ -389,7 +389,9 @@ public:
             DBG("No cached plugins found - showing first-run dialog");
 
             // Use async dialog to avoid blocking the message thread during startup
-            juce::Timer::callAfterDelay(500, [safeThis = juce::Component::SafePointer<MainComponent>(this)]()
+            // Declare SafePointer before lambda to ensure MSVC compatibility
+            juce::Component::SafePointer<MainComponent> safeThis(this);
+            juce::Timer::callAfterDelay(500, [safeThis]()
             {
                 if (safeThis == nullptr)
                     return;
@@ -476,12 +478,14 @@ public:
 
                 // Clear the completion message after a few seconds
                 // Use SafePointer to prevent use-after-free if component is destroyed
-                juce::Timer::callAfterDelay(3000, [safeThis = juce::Component::SafePointer<MainComponent>(this)]()
+                // Declare SafePointer before lambda to ensure MSVC compatibility
+                juce::Component::SafePointer<MainComponent> safeComp(this);
+                juce::Timer::callAfterDelay(3000, [safeComp]()
                 {
-                    if (safeThis != nullptr && !safeThis->m_pluginScanInProgress)
+                    if (safeComp != nullptr && !safeComp->m_pluginScanInProgress)
                     {
-                        safeThis->m_pluginScanCurrentPlugin = "";
-                        safeThis->repaint();
+                        safeComp->m_pluginScanCurrentPlugin = "";
+                        safeComp->repaint();
                     }
                 });
             });
