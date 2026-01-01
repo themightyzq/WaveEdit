@@ -107,6 +107,12 @@ private:
      */
     void onCurveTypeChanged();
 
+    /**
+     * Bypass button callback.
+     * Toggles bypass state during preview for A/B comparison.
+     */
+    void onBypassClicked();
+
     // UI Components
     juce::Label m_titleLabel;
     juce::Label m_instructionLabel;
@@ -115,6 +121,7 @@ private:
     FadeCurvePreview m_curvePreview { true };  // true = fade in mode
     juce::ToggleButton m_loopToggle;
     juce::TextButton m_previewButton;
+    juce::TextButton m_bypassButton;      // Toggle bypass for A/B comparison
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
 

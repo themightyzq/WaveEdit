@@ -40,6 +40,8 @@ target_sources(WaveEdit
         Source/DSP/ParametricEQ.h
         Source/DSP/DynamicParametricEQ.cpp
         Source/DSP/DynamicParametricEQ.h
+        Source/DSP/EQPresetManager.cpp
+        Source/DSP/EQPresetManager.h
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h
@@ -465,6 +467,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/DSP/ParametricEQ.h
         Source/DSP/DynamicParametricEQ.cpp
         Source/DSP/DynamicParametricEQ.h
+        Source/DSP/EQPresetManager.cpp
+        Source/DSP/EQPresetManager.h
         Source/Commands/CommandIDs.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h

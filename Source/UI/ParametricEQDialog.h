@@ -137,6 +137,7 @@ private:
     void onCancelClicked();
     void onResetClicked();
     void onPreviewClicked();
+    void onBypassClicked();     // Toggle bypass during preview
     void onParameterChanged();  // Called when any EQ parameter slider changes
 
     /**
@@ -153,6 +154,7 @@ private:
     // Preview controls
     juce::TextButton m_previewButton;
     juce::ToggleButton m_loopToggle;
+    juce::TextButton m_bypassButton;      // Toggle bypass for A/B comparison
 
     juce::TextButton m_resetButton;
     juce::TextButton m_applyButton;

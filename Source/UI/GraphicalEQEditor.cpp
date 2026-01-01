@@ -88,6 +88,12 @@ GraphicalEQEditor::GraphicalEQEditor(const DynamicParametricEQ::Parameters& init
     m_previewButton.setEnabled(true);
     addAndMakeVisible(m_previewButton);
 
+    // Bypass button (starts disabled, enabled only during preview)
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.onClick = [this]() { onBypassClicked(); };
+    m_bypassButton.setEnabled(false);  // Disabled until preview starts
+    addAndMakeVisible(m_bypassButton);
+
     m_applyButton.onClick = [this]()
     {
         m_result = m_params;
@@ -120,6 +126,26 @@ GraphicalEQEditor::GraphicalEQEditor(const DynamicParametricEQ::Parameters& init
     };
     addAndMakeVisible(m_cancelButton);
 
+    // Setup preset controls
+    m_presetComboBox.setTextWhenNothingSelected("Select Preset...");
+    m_presetComboBox.onChange = [this]() { presetSelected(); };
+    addAndMakeVisible(m_presetComboBox);
+
+    m_savePresetButton.setButtonText("Save");
+    m_savePresetButton.onClick = [this]() { savePreset(); };
+    addAndMakeVisible(m_savePresetButton);
+
+    m_deletePresetButton.setButtonText("Delete");
+    m_deletePresetButton.onClick = [this]() { deletePreset(); };
+    addAndMakeVisible(m_deletePresetButton);
+
+    m_resetButton.setButtonText("Reset");
+    m_resetButton.onClick = [this]() { resetToFlat(); };
+    addAndMakeVisible(m_resetButton);
+
+    // Populate preset list
+    refreshPresetList();
+
     // Set size FIRST to establish valid bounds
     setSize(DIALOG_WIDTH, DIALOG_HEIGHT);
 
@@ -147,6 +173,7 @@ GraphicalEQEditor::~GraphicalEQEditor()
             m_audioEngine->stop();
             m_audioEngine->setDynamicEQPreview(DynamicParametricEQ::Parameters(), false);
             m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+            m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
             m_previewActive = false;
         }
     }
@@ -233,13 +260,34 @@ void GraphicalEQEditor::resized()
 {
     auto bounds = getLocalBounds().reduced(MARGIN);
 
-    // Position buttons at bottom
+    // Position preset controls at top-right
+    auto presetArea = bounds.removeFromTop(BUTTON_HEIGHT);
+    presetArea.removeFromLeft(presetArea.getWidth() - 400);  // Leave 400px on the right for presets
+
+    m_presetComboBox.setBounds(presetArea.removeFromLeft(180));
+    presetArea.removeFromLeft(MARGIN / 2);
+    m_savePresetButton.setBounds(presetArea.removeFromLeft(60));
+    presetArea.removeFromLeft(MARGIN / 2);
+    m_deletePresetButton.setBounds(presetArea.removeFromLeft(60));
+    presetArea.removeFromLeft(MARGIN / 2);
+    m_resetButton.setBounds(presetArea.removeFromLeft(60));
+
+    bounds.removeFromTop(MARGIN);  // Add spacing between preset controls and EQ display
+
+    // Position buttons at bottom - standardized layout
+    // Left: Preview + Bypass | Right: Cancel + Apply
     auto buttonArea = bounds.removeFromBottom(BUTTON_HEIGHT);
-    m_cancelButton.setBounds(buttonArea.removeFromLeft(BUTTON_WIDTH));
-    buttonArea.removeFromLeft(MARGIN);
+
+    // Left side: Preview and Bypass
     m_previewButton.setBounds(buttonArea.removeFromLeft(BUTTON_WIDTH));
     buttonArea.removeFromLeft(MARGIN);
-    m_applyButton.setBounds(buttonArea.removeFromLeft(BUTTON_WIDTH));
+    m_bypassButton.setBounds(buttonArea.removeFromLeft(BUTTON_WIDTH));
+    buttonArea.removeFromLeft(MARGIN);
+
+    // Right side: Cancel and Apply
+    m_applyButton.setBounds(buttonArea.removeFromRight(BUTTON_WIDTH));
+    buttonArea.removeFromRight(MARGIN);
+    m_cancelButton.setBounds(buttonArea.removeFromRight(BUTTON_WIDTH));
 
     // Update control point positions when window resizes
     updateControlPointPositions();
@@ -602,12 +650,54 @@ void GraphicalEQEditor::drawControlPoints(juce::Graphics& g, juce::Rectangle<flo
         g.setColour(colour);
         g.drawEllipse(point.x - radius, point.y - radius, radius * 2, radius * 2, 2.0f);
 
-        // Draw filter type label
+        // Draw filter type label above the control point
         g.setColour(juce::Colours::white);
         g.setFont(9.0f);
         g.drawText(DynamicParametricEQ::getFilterTypeShortName(band.filterType),
                    static_cast<int>(point.x) - 12, static_cast<int>(point.y) - 25, 24, 14,
                    juce::Justification::centred);
+
+        // Draw info label showing frequency and gain below the control point
+        // Format frequency: show Hz for < 1kHz, kHz for >= 1kHz
+        juce::String freqStr;
+        if (band.frequency >= 1000.0f)
+            freqStr = juce::String(band.frequency / 1000.0f, 1) + "k";
+        else if (band.frequency >= 100.0f)
+            freqStr = juce::String(static_cast<int>(band.frequency));
+        else
+            freqStr = juce::String(band.frequency, 1);
+
+        // Format gain with sign and 1 decimal
+        juce::String gainStr = (band.gain >= 0 ? "+" : "") + juce::String(band.gain, 1) + "dB";
+
+        // Combine into info label
+        juce::String infoLabel = freqStr + " Hz\n" + gainStr;
+
+        // Draw info label in a semi-transparent background box below control point
+        g.setFont(10.0f);
+        int labelWidth = 60;
+        int labelHeight = 28;
+        int labelX = static_cast<int>(point.x) - labelWidth / 2;
+        int labelY = static_cast<int>(point.y) + static_cast<int>(radius) + 4;
+
+        // Background box
+        g.setColour(juce::Colour(0xcc1e1e1e));  // Semi-transparent dark background
+        g.fillRoundedRectangle(static_cast<float>(labelX), static_cast<float>(labelY),
+                               static_cast<float>(labelWidth), static_cast<float>(labelHeight), 3.0f);
+
+        // Border
+        g.setColour(colour.withAlpha(0.6f));
+        g.drawRoundedRectangle(static_cast<float>(labelX), static_cast<float>(labelY),
+                               static_cast<float>(labelWidth), static_cast<float>(labelHeight), 3.0f, 1.0f);
+
+        // Text - frequency on first line
+        g.setColour(juce::Colours::white);
+        g.setFont(9.0f);
+        g.drawText(freqStr + " Hz", labelX, labelY + 2, labelWidth, 12, juce::Justification::centred);
+
+        // Text - gain on second line
+        g.setColour(band.gain > 0 ? juce::Colours::lightgreen : (band.gain < 0 ? juce::Colours::lightsalmon : juce::Colours::grey));
+        g.drawText(gainStr, labelX, labelY + 14, labelWidth, 12, juce::Justification::centred);
     }
 }
 
@@ -885,6 +975,7 @@ void GraphicalEQEditor::showBandContextMenu(int bandIndex)
 
     menu.addItem(10, band.enabled ? "Disable Band" : "Enable Band");
     menu.addItem(11, "Reset to 0 dB");
+    menu.addItem(12, "Set Gain...");
 
     menu.addSeparator();
 
@@ -910,6 +1001,58 @@ void GraphicalEQEditor::showBandContextMenu(int bandIndex)
         {
             band.gain = 0.0f;
             updateControlPointPositions();
+        }
+        else if (result == 12)
+        {
+            // Set Gain... - show dialog to input specific gain value
+            auto alertWindow = std::make_unique<juce::AlertWindow>(
+                "Set Gain",
+                "Enter gain value in dB (range: " + juce::String(DynamicParametricEQ::MIN_GAIN, 1) + " to " + juce::String(DynamicParametricEQ::MAX_GAIN, 1) + " dB):",
+                juce::MessageBoxIconType::QuestionIcon);
+
+            alertWindow->addTextEditor("gain", juce::String(band.gain, 1), "Gain (dB):");
+            alertWindow->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            alertWindow->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+            auto* gainEditor = alertWindow->getTextEditor("gain");
+            if (gainEditor)
+            {
+                gainEditor->setInputRestrictions(10, "-0123456789.");
+            }
+
+            alertWindow->enterModalState(true, juce::ModalCallbackFunction::create(
+                [this, bandIndex, alertWindow = alertWindow.release()](int returnValue)
+                {
+                    std::unique_ptr<juce::AlertWindow> aw(alertWindow);
+                    if (returnValue == 1 && static_cast<size_t>(bandIndex) < m_params.bands.size())
+                    {
+                        auto* editor = aw->getTextEditor("gain");
+                        if (editor)
+                        {
+                            float newGain = editor->getText().getFloatValue();
+                            // Clamp to valid range
+                            newGain = juce::jlimit(DynamicParametricEQ::MIN_GAIN, DynamicParametricEQ::MAX_GAIN, newGain);
+                            m_params.bands[static_cast<size_t>(bandIndex)].gain = newGain;
+                            updateControlPointPositions();
+
+                            // Update EQ processor and repaint
+                            if (m_eqProcessor)
+                            {
+                                m_eqProcessor->setParameters(m_params);
+                                m_eqProcessor->updateCoefficientsForVisualization();
+                            }
+
+                            // Update preview if active
+                            if (m_previewActive && m_audioEngine)
+                            {
+                                m_audioEngine->setDynamicEQPreview(m_params, true);
+                            }
+
+                            repaint();
+                        }
+                    }
+                }), true);
+            return;  // Don't fall through to the common update code below
         }
         else if (result == 20)
         {
@@ -965,9 +1108,15 @@ void GraphicalEQEditor::togglePreview()
         m_audioEngine->setGraphicalEQEditor(nullptr);
         m_audioEngine->setDynamicEQPreview(DynamicParametricEQ::Parameters(), false);
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
         m_previewActive = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId,
+            getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        // Disable and reset bypass button
+        m_bypassButton.setEnabled(false);
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId,
             getLookAndFeel().findColour(juce::TextButton::buttonColourId));
         return;
     }
@@ -994,4 +1143,307 @@ void GraphicalEQEditor::togglePreview()
     // Update button text and color to indicate active state (matches GainDialog pattern)
     m_previewButton.setButtonText("Stop Preview");
     m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+
+    // Enable bypass button during preview
+    m_bypassButton.setEnabled(true);
+}
+
+//==============================================================================
+// Preset Helper Methods
+
+void GraphicalEQEditor::refreshPresetList()
+{
+    m_presetComboBox.clear(juce::dontSendNotification);
+
+    int itemId = 1;
+
+    // Add factory presets section
+    auto factoryPresets = EQPresetManager::getFactoryPresetNames();
+    if (!factoryPresets.isEmpty())
+    {
+        m_presetComboBox.addSectionHeading("Factory Presets");
+
+        for (const auto& name : factoryPresets)
+        {
+            m_presetComboBox.addItem(name, itemId++);
+        }
+
+        m_presetComboBox.addSeparator();
+    }
+
+    // Add user presets section
+    auto userPresets = EQPresetManager::getAvailablePresets();
+    if (!userPresets.isEmpty())
+    {
+        m_presetComboBox.addSectionHeading("User Presets");
+
+        for (const auto& name : userPresets)
+        {
+            m_presetComboBox.addItem(name, itemId++);
+        }
+    }
+
+    // Update delete button state - only enabled for user presets
+    m_deletePresetButton.setEnabled(false);
+}
+
+void GraphicalEQEditor::presetSelected()
+{
+    juce::String selectedName = m_presetComboBox.getText();
+
+    if (selectedName.isEmpty())
+        return;
+
+    // Check if it's a factory preset
+    if (EQPresetManager::isFactoryPreset(selectedName))
+    {
+        m_params = EQPresetManager::getFactoryPreset(selectedName);
+        m_deletePresetButton.setEnabled(false);
+    }
+    else
+    {
+        // Try to load user preset
+        if (EQPresetManager::loadPreset(m_params, selectedName))
+        {
+            m_deletePresetButton.setEnabled(true);
+        }
+        else
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Load Failed",
+                "Could not load preset: " + selectedName,
+                "OK"
+            );
+            return;
+        }
+    }
+
+    // Update control points
+    updateControlPointPositions();
+
+    // Update EQ processor for visualization
+    if (m_eqProcessor)
+    {
+        m_eqProcessor->setParameters(m_params);
+        m_eqProcessor->updateCoefficientsForVisualization();
+    }
+
+    // Update preview if active
+    if (m_previewActive && m_audioEngine)
+    {
+        m_audioEngine->setDynamicEQPreview(m_params, true);
+    }
+
+    repaint();
+}
+
+void GraphicalEQEditor::savePreset()
+{
+    // Show dialog to get preset name
+    auto* alertWindow = new juce::AlertWindow(
+        "Save EQ Preset",
+        "Enter a name for this preset:",
+        juce::MessageBoxIconType::QuestionIcon
+    );
+
+    alertWindow->addTextEditor("presetName", "", "Preset Name:");
+    alertWindow->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alertWindow->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    alertWindow->enterModalState(true, juce::ModalCallbackFunction::create(
+        [this, alertWindow](int result)
+        {
+            if (result == 1)
+            {
+                juce::String presetName = alertWindow->getTextEditorContents("presetName").trim();
+
+                if (presetName.isEmpty())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Invalid Name",
+                        "Please enter a valid preset name.",
+                        "OK"
+                    );
+                }
+                else if (EQPresetManager::isFactoryPreset(presetName))
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Reserved Name",
+                        "Cannot use a factory preset name. Please choose a different name.",
+                        "OK"
+                    );
+                }
+                else
+                {
+                    // Check if preset already exists
+                    if (EQPresetManager::presetExists(presetName))
+                    {
+                        juce::AlertWindow::showOkCancelBox(
+                            juce::MessageBoxIconType::QuestionIcon,
+                            "Overwrite Preset?",
+                            "A preset named \"" + presetName + "\" already exists. Overwrite it?",
+                            "Overwrite",
+                            "Cancel",
+                            nullptr,
+                            juce::ModalCallbackFunction::create(
+                                [this, presetName](int overwriteResult)
+                                {
+                                    if (overwriteResult == 1)
+                                    {
+                                        doSavePreset(presetName);
+                                    }
+                                }
+                            )
+                        );
+                    }
+                    else
+                    {
+                        doSavePreset(presetName);
+                    }
+                }
+            }
+
+            delete alertWindow;
+        }
+    ), true);
+}
+
+void GraphicalEQEditor::doSavePreset(const juce::String& presetName)
+{
+    if (EQPresetManager::savePreset(m_params, presetName))
+    {
+        refreshPresetList();
+
+        // Select the newly saved preset
+        for (int i = 0; i < m_presetComboBox.getNumItems(); ++i)
+        {
+            if (m_presetComboBox.getItemText(i) == presetName)
+            {
+                m_presetComboBox.setSelectedItemIndex(i, juce::dontSendNotification);
+                m_deletePresetButton.setEnabled(true);
+                break;
+            }
+        }
+
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "Preset Saved",
+            "Preset \"" + presetName + "\" saved successfully.",
+            "OK"
+        );
+    }
+    else
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Save Failed",
+            "Could not save preset. Please check disk permissions.",
+            "OK"
+        );
+    }
+}
+
+void GraphicalEQEditor::deletePreset()
+{
+    juce::String selectedName = m_presetComboBox.getText();
+
+    if (selectedName.isEmpty())
+        return;
+
+    // Cannot delete factory presets
+    if (EQPresetManager::isFactoryPreset(selectedName))
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Cannot Delete",
+            "Factory presets cannot be deleted.",
+            "OK"
+        );
+        return;
+    }
+
+    // Confirm deletion
+    juce::AlertWindow::showOkCancelBox(
+        juce::MessageBoxIconType::QuestionIcon,
+        "Delete Preset?",
+        "Are you sure you want to delete the preset \"" + selectedName + "\"?",
+        "Delete",
+        "Cancel",
+        nullptr,
+        juce::ModalCallbackFunction::create(
+            [this, selectedName](int result)
+            {
+                if (result == 1)
+                {
+                    if (EQPresetManager::deletePreset(selectedName))
+                    {
+                        refreshPresetList();
+                        m_deletePresetButton.setEnabled(false);
+                    }
+                    else
+                    {
+                        juce::AlertWindow::showMessageBoxAsync(
+                            juce::MessageBoxIconType::WarningIcon,
+                            "Delete Failed",
+                            "Could not delete preset.",
+                            "OK"
+                        );
+                    }
+                }
+            }
+        )
+    );
+}
+
+void GraphicalEQEditor::resetToFlat()
+{
+    // Create a flat EQ with no bands
+    m_params = EQPresetManager::getFactoryPreset("Flat");
+
+    // Update control points
+    updateControlPointPositions();
+
+    // Update EQ processor for visualization
+    if (m_eqProcessor)
+    {
+        m_eqProcessor->setParameters(m_params);
+        m_eqProcessor->updateCoefficientsForVisualization();
+    }
+
+    // Update preview if active
+    if (m_previewActive && m_audioEngine)
+    {
+        m_audioEngine->setDynamicEQPreview(m_params, true);
+    }
+
+    // Clear preset selection
+    m_presetComboBox.setSelectedId(0, juce::dontSendNotification);
+    m_deletePresetButton.setEnabled(false);
+
+    repaint();
+}
+
+void GraphicalEQEditor::onBypassClicked()
+{
+    if (!m_audioEngine)
+        return;
+
+    bool bypassed = m_audioEngine->isPreviewBypassed();
+    m_audioEngine->setPreviewBypassed(!bypassed);
+
+    // Update button appearance
+    if (!bypassed)
+    {
+        m_bypassButton.setButtonText("Bypassed");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));
+    }
+    else
+    {
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId,
+                                 getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+    }
 }

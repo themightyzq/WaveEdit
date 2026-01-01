@@ -19,6 +19,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_dsp/juce_dsp.h>
 #include "../DSP/DynamicParametricEQ.h"
+#include "../DSP/EQPresetManager.h"
 #include <optional>
 
 // Forward declarations
@@ -174,11 +175,20 @@ private:
     // Dialog Controls
 
     juce::TextButton m_previewButton;
+    juce::TextButton m_bypassButton;      // Toggle bypass for A/B comparison
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
 
     // Preview state
     bool m_previewActive = false;
+
+    //==============================================================================
+    // Preset Controls
+
+    juce::ComboBox m_presetComboBox;
+    juce::TextButton m_savePresetButton;
+    juce::TextButton m_deletePresetButton;
+    juce::TextButton m_resetButton;
 
     //==============================================================================
     // Helper Methods - Coordinate Conversions
@@ -282,6 +292,44 @@ private:
      * Start/stop preview playback.
      */
     void togglePreview();
+
+    /**
+     * Toggle bypass during preview for A/B comparison.
+     */
+    void onBypassClicked();
+
+    //==============================================================================
+    // Helper Methods - Preset UI
+
+    /**
+     * Populate the preset ComboBox with factory and user presets.
+     */
+    void refreshPresetList();
+
+    /**
+     * Handle preset selection from ComboBox.
+     */
+    void presetSelected();
+
+    /**
+     * Save current parameters as a new user preset.
+     */
+    void savePreset();
+
+    /**
+     * Delete the currently selected user preset.
+     */
+    void deletePreset();
+
+    /**
+     * Reset EQ to flat/default state.
+     */
+    void resetToFlat();
+
+    /**
+     * Actually save the preset (called after validation).
+     */
+    void doSavePreset(const juce::String& presetName);
 
     // DynamicParametricEQ instance for accurate frequency response calculation
     std::unique_ptr<DynamicParametricEQ> m_eqProcessor;

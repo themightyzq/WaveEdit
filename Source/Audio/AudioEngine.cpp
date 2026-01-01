@@ -941,7 +941,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // NOTE: These processors are PREVIEW-SPECIFIC (for dialog previews like Gain, Fade, EQ)
     // Plugin chain processing above runs always during normal playback.
 
-    if (m_previewMode.load() == PreviewMode::REALTIME_DSP)
+    // Only apply preview DSP if preview mode is enabled AND bypass is not active
+    // When bypassed, audio plays through without any preview processing (for A/B comparison)
+    if (m_previewMode.load() == PreviewMode::REALTIME_DSP && !m_previewBypassed.load())
     {
         // Process chain - order matters for best results:
         // 1. DC Offset removal (clean up signal first)
@@ -1368,6 +1370,19 @@ void AudioEngine::disableAllPreviewProcessors()
     m_fadeProcessor.enabled.store(false);
     m_dcOffsetProcessor.enabled.store(false);
     m_parametricEQEnabled.set(false);
+}
+
+void AudioEngine::setPreviewBypassed(bool bypassed)
+{
+    // Thread-safe: Uses atomic store
+    // When bypassed, all preview DSP processing is skipped for A/B comparison
+    m_previewBypassed.store(bypassed);
+}
+
+bool AudioEngine::isPreviewBypassed() const
+{
+    // Thread-safe: Uses atomic load
+    return m_previewBypassed.load();
 }
 
 AudioEngine::PreviewProcessorInfo AudioEngine::getPreviewProcessorInfo() const

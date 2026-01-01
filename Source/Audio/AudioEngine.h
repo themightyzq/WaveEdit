@@ -455,6 +455,26 @@ public:
     PreviewProcessorInfo getPreviewProcessorInfo() const;
 
     //==============================================================================
+    // Preview Bypass Support
+
+    /**
+     * Sets the preview bypass state.
+     * When bypassed, all preview DSP processing is skipped for A/B comparison.
+     * Thread-safe: Can be called from message thread.
+     *
+     * @param bypassed true to bypass preview processing, false to enable
+     */
+    void setPreviewBypassed(bool bypassed);
+
+    /**
+     * Gets the current preview bypass state.
+     * Thread-safe: Uses atomic read.
+     *
+     * @return true if preview processing is bypassed
+     */
+    bool isPreviewBypassed() const;
+
+    //==============================================================================
     // Plugin Chain Support
 
     /**
@@ -668,6 +688,10 @@ private:
 
     // Preview mode state
     std::atomic<PreviewMode> m_previewMode;
+
+    // Preview bypass state - when true, all preview DSP processing is bypassed
+    // Allows A/B comparison between processed and unprocessed audio
+    std::atomic<bool> m_previewBypassed{false};
 
     // Preview buffer for offline effects (Normalize, Time Stretch, etc.)
     std::unique_ptr<MemoryAudioSource> m_previewBufferSource;
