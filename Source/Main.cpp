@@ -10480,7 +10480,11 @@ extern "C" int main(int argc, char* argv[])
 }
 
 #elif JUCE_WINDOWS
-extern "C" int __stdcall WinMain(void*, void*, const char* cmdLine, int)
+// Use JUCE's recommended WinMain signature with proper Windows types
+// Note: JUCE_BEGIN_IGNORE_WARNINGS_MSVC/END suppress warning 28251 about WinMain annotation
+JUCE_BEGIN_IGNORE_WARNINGS_MSVC (28251)
+extern "C" int __stdcall WinMain(struct HINSTANCE__*, struct HINSTANCE__*, char* cmdLine, int)
+JUCE_END_IGNORE_WARNINGS_MSVC
 {
     juce::String commandLine(cmdLine);
 
@@ -10495,8 +10499,9 @@ extern "C" int __stdcall WinMain(void*, void*, const char* cmdLine, int)
     // Set up the application factory - required when using custom main()
     juce::JUCEApplicationBase::createInstance = &juce_CreateApplication;
 
-    // Normal application launch
-    return juce::JUCEApplicationBase::main(cmdLine);
+    // Normal application launch - on Windows, JUCEApplicationBase::main() takes no args
+    // (JUCE internally handles command line via GetCommandLine() on Windows)
+    return juce::JUCEApplicationBase::main();
 }
 
 #elif JUCE_LINUX

@@ -19,6 +19,12 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #if JUCE_WINDOWS
+  #ifndef NOMINMAX
+    #define NOMINMAX  // Prevent Windows min/max macros from conflicting with std::min/std::max
+  #endif
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN  // Exclude rarely-used Windows APIs
+  #endif
   #include <windows.h>  // For GetCurrentProcessId()
 #else
   #include <unistd.h>   // For getpid()
