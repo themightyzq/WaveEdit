@@ -16,15 +16,30 @@
 #include "PluginScannerWorker.h"
 #include <fstream>
 #include <csignal>
-#include <fcntl.h>
-#include <unistd.h>
+
+#if JUCE_WINDOWS
+  #include <windows.h>
+  #include <io.h>  // For _open, _write, _close on Windows
+  #define open _open
+  #define write _write
+  #define close _close
+  #define O_WRONLY _O_WRONLY
+  #define O_APPEND _O_APPEND
+  #define O_CREAT _O_CREAT
+#else
+  #include <fcntl.h>
+  #include <unistd.h>
+#endif
 
 // NOTE: CoreFoundation include removed - no longer needed since we only scan VST3
 // (AudioUnit support has been removed from WaveEdit)
 
 //==============================================================================
-// Signal handler to catch crashes and exit cleanly (suppress macOS crash dialog)
+// Signal handler to catch crashes and exit cleanly (suppress crash dialogs)
+// Note: On Windows, we rely on JUCE's built-in exception handling.
+//       POSIX signal handling is only available on macOS/Linux.
 //==============================================================================
+#if ! JUCE_WINDOWS
 static std::atomic<bool> g_crashHandled{false};
 static juce::String g_currentPluginPath;  // Track which plugin is being scanned
 
@@ -74,12 +89,23 @@ static void installCrashHandlers()
     sigaction(SIGFPE, &sa, nullptr);   // Floating point exception
     sigaction(SIGILL, &sa, nullptr);   // Illegal instruction
 }
+#else
+// Windows: No-op - rely on JUCE's exception handling and Windows SEH
+static void installCrashHandlers() {}
+#endif
 
 // Debug file logging for worker process (stderr doesn't work for subprocesses)
 static void workerLog(const juce::String& message)
 {
+    // Use platform-appropriate temp directory
+    #if JUCE_WINDOWS
+    static std::ofstream logFile(juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                  .getChildFile("waveedit_worker.log").getFullPathName().toStdString(), std::ios::app);
+    logFile << "[WORKER " << GetCurrentProcessId() << "] " << message.toStdString() << std::endl;
+    #else
     static std::ofstream logFile("/tmp/waveedit_worker.log", std::ios::app);
     logFile << "[WORKER " << getpid() << "] " << message.toStdString() << std::endl;
+    #endif
     logFile.flush();
 }
 

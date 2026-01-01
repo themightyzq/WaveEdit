@@ -18,8 +18,10 @@
 #include <juce_core/juce_core.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
-#if ! JUCE_WINDOWS
-#include <unistd.h>  // For getpid()
+#if JUCE_WINDOWS
+  #include <windows.h>  // For GetCurrentProcessId()
+#else
+  #include <unistd.h>   // For getpid()
 #endif
 
 /**
