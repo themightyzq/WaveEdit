@@ -18,6 +18,12 @@
 #include <csignal>
 
 #if JUCE_WINDOWS
+  #ifndef NOMINMAX
+    #define NOMINMAX  // Prevent Windows min/max macros from conflicting with std::min/std::max
+  #endif
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN  // Exclude rarely-used Windows APIs
+  #endif
   #include <windows.h>
   #include <io.h>  // For _open, _write, _close on Windows
   #define open _open
