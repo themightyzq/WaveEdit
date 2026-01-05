@@ -10,11 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - Spectrum analyzer integration during preview playback (displays during REALTIME_DSP mode)
+- Preview position indicator in waveform display (orange cursor during DSP preview playback)
 - EQ preset system with 11 factory presets and user preset save/load/delete
 - Global bypass system for A/B comparison in all DSP preview dialogs
 - Info labels on EQ band markers showing frequency/gain values
 - "Set Gain..." context menu option for precise gain input in Graphical EQ
 - Bypass button and loop toggle state persistence across dialog reopens for all DSP preview dialogs
+
+### Fixed
+- Graphical EQ preview now starts from selection start instead of file beginning
 
 ### Changed
 - Dialog width standardized to 450px minimum for GainDialog and NormalizeDialog

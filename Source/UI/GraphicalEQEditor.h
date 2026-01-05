@@ -73,11 +73,15 @@ public:
      *
      * @param audioEngine Pointer to the audio engine for preview functionality (can be nullptr)
      * @param initialParams Initial EQ parameters
+     * @param selectionStart Start of selection in samples (for preview positioning)
+     * @param selectionEnd End of selection in samples (for preview positioning)
      * @return Edited parameters if applied, std::nullopt if cancelled
      */
     static std::optional<DynamicParametricEQ::Parameters> showDialog(
         AudioEngine* audioEngine,
-        const DynamicParametricEQ::Parameters& initialParams = DynamicParametricEQ::createDefaultPreset()
+        const DynamicParametricEQ::Parameters& initialParams = DynamicParametricEQ::createDefaultPreset(),
+        int64_t selectionStart = 0,
+        int64_t selectionEnd = 0
     );
 
     /**
@@ -182,6 +186,10 @@ private:
 
     // Preview state
     bool m_previewActive = false;
+
+    // Selection bounds for preview positioning
+    int64_t m_selectionStart = 0;
+    int64_t m_selectionEnd = 0;
 
     //==============================================================================
     // Preset Controls

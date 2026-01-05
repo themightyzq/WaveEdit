@@ -62,7 +62,9 @@ WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
       m_zeroCrossingEnabled(false),
       m_audioBufferRef(nullptr),
       m_useDirectRendering(false),
-      m_regionManager(nullptr)
+      m_regionManager(nullptr),
+      m_previewPosition(0.0),
+      m_hasPreviewPosition(false)
 {
     // Set up thumbnail
     m_thumbnail.addChangeListener(this);
@@ -321,6 +323,38 @@ void WaveformDisplay::setPlaybackPosition(double positionInSeconds)
 
         repaint();
     }
+}
+
+void WaveformDisplay::setPreviewPosition(double positionInSeconds)
+{
+    juce::ScopedLock lock(m_playbackLock);  // Thread safety for preview position
+
+    // Minimal epsilon comparison for performance
+    constexpr double epsilon = 0.00001;
+    if (std::abs(m_previewPosition - positionInSeconds) < epsilon && m_hasPreviewPosition)
+    {
+        return;  // No significant change
+    }
+
+    m_previewPosition = positionInSeconds;
+    m_hasPreviewPosition = true;
+
+    repaint();
+}
+
+void WaveformDisplay::clearPreviewPosition()
+{
+    juce::ScopedLock lock(m_playbackLock);  // Thread safety for preview position
+
+    if (!m_hasPreviewPosition)
+    {
+        return;  // Already cleared
+    }
+
+    m_hasPreviewPosition = false;
+    m_previewPosition = 0.0;
+
+    repaint();
 }
 
 void WaveformDisplay::setFollowPlayback(bool shouldFollow)
@@ -1372,6 +1406,9 @@ void WaveformDisplay::paint(juce::Graphics& g)
     // Draw playback cursor (green)
     drawPlaybackCursor(g, waveformArea);
 
+    // Draw preview cursor (orange) - shows position during DSP preview mode
+    drawPreviewCursor(g, waveformArea);
+
     // Draw edit cursor on top of everything (yellow, shows paste position)
     drawEditCursor(g, waveformArea);
 }
@@ -1987,6 +2024,33 @@ void WaveformDisplay::drawPlaybackCursor(juce::Graphics& g, juce::Rectangle<int>
     g.drawLine(x, bounds.getY(), x, bounds.getBottom(), 2.0f);
 
     // Draw triangle at top
+    juce::Path triangle;
+    triangle.addTriangle(x - 5, bounds.getY(),
+                        x + 5, bounds.getY(),
+                        x, bounds.getY() + 8);
+    g.fillPath(triangle);
+}
+
+void WaveformDisplay::drawPreviewCursor(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    if (!m_hasPreviewPosition)
+    {
+        return; // No preview position active
+    }
+
+    if (m_previewPosition < m_visibleStart || m_previewPosition > m_visibleEnd)
+    {
+        return; // Cursor not visible
+    }
+
+    int x = timeToX(m_previewPosition);
+
+    // Draw preview cursor in ORANGE (distinct from green playback and yellow edit cursor)
+    // This indicates DSP preview mode is active during processing dialog preview
+    g.setColour(juce::Colour(0xFFFF8000)); // Bright orange for preview
+    g.drawLine(x, bounds.getY(), x, bounds.getBottom(), 2.0f);
+
+    // Draw triangle at top (pointing down to indicate preview position)
     juce::Path triangle;
     triangle.addTriangle(x - 5, bounds.getY(),
                         x + 5, bounds.getY(),

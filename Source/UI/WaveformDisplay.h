@@ -209,6 +209,34 @@ public:
     void moveEditCursor(double deltaInSeconds);
 
     //==============================================================================
+    // Preview position (for DSP preview in processing dialogs - Phase 6)
+
+    /**
+     * Sets the preview position for display during DSP preview playback.
+     * The preview cursor is drawn in ORANGE to distinguish it from the
+     * GREEN playback cursor and YELLOW edit cursor.
+     *
+     * @param positionInSeconds Position in seconds (in file coordinates)
+     */
+    void setPreviewPosition(double positionInSeconds);
+
+    /**
+     * Clears the preview position indicator.
+     * Should be called when preview playback stops.
+     */
+    void clearPreviewPosition();
+
+    /**
+     * Returns true if a preview position is currently active.
+     */
+    bool hasPreviewPosition() const { return m_hasPreviewPosition; }
+
+    /**
+     * Gets the current preview position in seconds.
+     */
+    double getPreviewPosition() const { return m_previewPosition; }
+
+    //==============================================================================
     // Zoom and navigation
 
     /**
@@ -525,6 +553,11 @@ private:
     void drawEditCursor(juce::Graphics& g, juce::Rectangle<int> bounds);
 
     /**
+     * Draws the preview cursor (orange cursor during DSP preview playback).
+     */
+    void drawPreviewCursor(juce::Graphics& g, juce::Rectangle<int> bounds);
+
+    /**
      * Draws semi-transparent region overlays on the waveform.
      * Uses the same color palette as the Auto Region preview dialog.
      */
@@ -565,6 +598,10 @@ private:
     double m_lastUserScrollTime;        ///< Timestamp of last manual scroll (for auto-disable logic)
     bool m_isScrollingProgrammatically; ///< Flag to distinguish auto-scroll from user scroll
     mutable juce::CriticalSection m_playbackLock; ///< Thread safety for playback position updates
+
+    // Preview position state (for DSP preview in processing dialogs - Phase 6)
+    double m_previewPosition;           ///< Current preview playback position in seconds
+    bool m_hasPreviewPosition;          ///< Whether preview position indicator should be shown
 
     // Selection state
     bool m_hasSelection;

@@ -197,10 +197,16 @@ GraphicalEQEditor::~GraphicalEQEditor()
 
 std::optional<DynamicParametricEQ::Parameters> GraphicalEQEditor::showDialog(
     AudioEngine* audioEngine,
-    const DynamicParametricEQ::Parameters& initialParams)
+    const DynamicParametricEQ::Parameters& initialParams,
+    int64_t selectionStart,
+    int64_t selectionEnd)
 {
     GraphicalEQEditor editor(initialParams);
     editor.setAudioEngine(audioEngine);
+
+    // Store selection bounds for preview positioning
+    editor.m_selectionStart = selectionStart;
+    editor.m_selectionEnd = selectionEnd;
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setNonOwned(&editor);
@@ -1168,6 +1174,29 @@ void GraphicalEQEditor::togglePreview()
     // Enable real-time EQ preview
     m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
     m_audioEngine->setDynamicEQPreview(m_params, true);
+
+    // FIX: Position playback at selection start (like GainDialog pattern)
+    // If there's a valid selection, start preview from selection start
+    if (m_selectionEnd > m_selectionStart)
+    {
+        // Set the preview selection offset for DSP preview to work correctly
+        m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
+
+        // Calculate selection bounds in seconds
+        const double sampleRate = m_audioEngine->getSampleRate();
+        double selectionStartSec = static_cast<double>(m_selectionStart) / sampleRate;
+        double selectionEndSec = static_cast<double>(m_selectionEnd) / sampleRate;
+
+        // Position playhead at selection start
+        m_audioEngine->setPosition(selectionStartSec);
+
+        // Set loop points if loop toggle is enabled
+        bool shouldLoop = m_loopToggle.getToggleState();
+        if (shouldLoop)
+        {
+            m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
+        }
+    }
 
     // Start playback if not already playing
     if (!m_audioEngine->isPlaying())
