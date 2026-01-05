@@ -5,9 +5,9 @@ For completed work, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## Priority: Finalize Universal Preview System
+## Completed: Universal Preview System
 
-**Phase 6** - Remaining polish items to complete the preview system:
+**Phase 6** - All polish items complete:
 
 - [x] Spectrum analyzer integration during preview playback
 - [x] Bypass button state persistence across dialog reopens
@@ -17,9 +17,6 @@ For completed work, see [CHANGELOG.md](CHANGELOG.md).
 ---
 
 ## Active Tasks
-
-### In Progress
-- Universal Preview System Phase 6 finalization (see above)
 
 ### Up Next
 - **VST3 Plugin Hosting**: Load and use third-party VST3 plugins in the plugin chain
