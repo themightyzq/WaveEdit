@@ -18,6 +18,11 @@
 #include <cmath>
 #include <iostream>
 
+// Static state persistence for dialog reopens (Phase 6 finalization)
+// These persist bypass and loop toggle states across dialog instances
+static bool s_lastBypassState = false;
+static bool s_lastLoopState = true;  // Default ON per CLAUDE.md Protocol
+
 //==============================================================================
 // Display Configuration Constants
 
@@ -94,9 +99,12 @@ GraphicalEQEditor::GraphicalEQEditor(const DynamicParametricEQ::Parameters& init
     m_bypassButton.setEnabled(false);  // Disabled until preview starts
     addAndMakeVisible(m_bypassButton);
 
-    // Loop toggle (default ON for preview playback)
+    // Loop toggle - restore persisted state
     m_loopToggle.setButtonText("Loop");
-    m_loopToggle.setToggleState(true, juce::dontSendNotification);
+    m_loopToggle.setToggleState(s_lastLoopState, juce::dontSendNotification);  // Restore persisted state
+    m_loopToggle.onStateChange = [this]() {
+        s_lastLoopState = m_loopToggle.getToggleState();  // Save state on change
+    };
     addAndMakeVisible(m_loopToggle);
 
     m_applyButton.onClick = [this]()
@@ -1459,7 +1467,11 @@ void GraphicalEQEditor::onBypassClicked()
         return;
 
     bool bypassed = m_audioEngine->isPreviewBypassed();
-    m_audioEngine->setPreviewBypassed(!bypassed);
+    bool newBypassState = !bypassed;
+    m_audioEngine->setPreviewBypassed(newBypassState);
+
+    // Save bypass state for persistence across dialog reopens
+    s_lastBypassState = newBypassState;
 
     // Update button appearance
     if (!bypassed)

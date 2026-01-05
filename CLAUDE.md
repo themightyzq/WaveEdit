@@ -20,7 +20,7 @@ If anything in a user prompt conflicts with this file, follow this file unless t
 
 1. DOCUMENTATION STRUCTURE (SINGLE SOURCE OF TRUTH)
 
-WaveEdit uses three core docs:
+WaveEdit uses four core docs:
 
 CLAUDE.md (this file)
 AI instructions, multi-agent orchestration, architecture patterns, coding standards.
@@ -29,14 +29,25 @@ README.md
 User guide, build instructions, keyboard shortcuts, feature overview.
 
 TODO.md
-Current status, roadmap, bug list, priorities.
+Current status, roadmap, bug list, priorities. Keep concise (~100-150 lines max).
+
+CHANGELOG.md
+Historical record of all changes. Follows Keep a Changelog format.
 
 Rules:
 Do not duplicate content across these files.
 If documentation is user-facing (how to use the app), update README.md.
 If it is planning / backlog / status, update TODO.md.
 If it is how AI should think or code, update CLAUDE.md.
+If it is a completed change (feature, fix, improvement), add to CHANGELOG.md.
 When in doubt, link to other files rather than duplicating content.
+
+Changelog Protocol:
+After completing significant work, add an entry to CHANGELOG.md under [Unreleased].
+When a version is released, move [Unreleased] items to a dated version section.
+Use categories: Added, Changed, Deprecated, Removed, Fixed, Security.
+Write entries from the user's perspective (what changed for them).
+Include brief technical notes only when necessary for understanding.
 
 2. PROJECT OVERVIEW
 

@@ -1047,8 +1047,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
-    // Feed spectrum analyzer with audio data (if connected AND playing)
-    if (m_spectrumAnalyzer != nullptr && m_transportSource.isPlaying() && buffer.getNumChannels() > 0)
+    // Feed spectrum analyzer with audio data (if connected AND either normal playback or preview)
+    bool shouldFeedSpectrum = m_spectrumAnalyzer != nullptr && buffer.getNumChannels() > 0;
+    bool isNormalPlayback = m_transportSource.isPlaying();
+    bool isPreviewPlayback = (m_previewMode.load() != PreviewMode::DISABLED);
+
+    if (shouldFeedSpectrum && (isNormalPlayback || isPreviewPlayback))
     {
         // Mix down to mono for spectrum analysis (use left channel or mono mix)
         const float* channelData = buffer.getReadPointer(0);
