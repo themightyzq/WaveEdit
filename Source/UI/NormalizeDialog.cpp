@@ -19,6 +19,11 @@
 #include "../Audio/AudioProcessor.h"
 #include "../Utils/Settings.h"
 
+// Static state persistence for dialog reopens (Phase 6 finalization)
+// These persist bypass and loop toggle states across dialog instances
+static bool s_lastBypassState = false;
+static bool s_lastLoopState = true;  // Default ON per CLAUDE.md Protocol
+
 NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
                                  AudioBufferManager* bufferManager,
                                  int64_t selectionStart,
@@ -92,9 +97,12 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_requiredGainValue.setFont(juce::Font(14.0f, juce::Font::bold));
     addAndMakeVisible(m_requiredGainValue);
 
-    // Loop toggle
+    // Loop toggle - restore persisted state
     m_loopToggle.setButtonText("Loop");
-    m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON
+    m_loopToggle.setToggleState(s_lastLoopState, juce::dontSendNotification);  // Restore persisted state
+    m_loopToggle.onStateChange = [this]() {
+        s_lastLoopState = m_loopToggle.getToggleState();  // Save state on change
+    };
     addAndMakeVisible(m_loopToggle);
 
     // Buttons
@@ -471,6 +479,9 @@ void NormalizeDialog::onBypassClicked()
     // Toggle bypass state
     bool newBypassState = !m_audioEngine->isPreviewBypassed();
     m_audioEngine->setPreviewBypassed(newBypassState);
+
+    // Save state for persistence across dialog reopens
+    s_lastBypassState = newBypassState;
 
     // Update button appearance for visual feedback
     if (newBypassState)

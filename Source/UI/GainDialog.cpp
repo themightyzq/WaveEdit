@@ -2,6 +2,11 @@
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
 
+// Static state persistence for dialog reopens (Phase 6 finalization)
+// These persist bypass and loop toggle states across dialog instances
+static bool s_lastBypassState = false;
+static bool s_lastLoopState = true;  // Default ON per CLAUDE.md Protocol
+
 GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManager, int64_t selectionStart, int64_t selectionEnd)
     : m_titleLabel("titleLabel", "Apply Gain"),
       m_gainLabel("gainLabel", "Gain (dB):"),
@@ -102,9 +107,12 @@ GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManag
     m_gainValueLabel.setFont(juce::Font(14.0f, juce::Font::bold));
     addAndMakeVisible(m_gainValueLabel);
 
-    // Loop checkbox for preview
+    // Loop checkbox for preview - restore last state
     m_loopCheckbox.setButtonText("Loop");
-    m_loopCheckbox.setToggleState(true, juce::dontSendNotification);  // Default ON
+    m_loopCheckbox.setToggleState(s_lastLoopState, juce::dontSendNotification);  // Restore persisted state
+    m_loopCheckbox.onStateChange = [this]() {
+        s_lastLoopState = m_loopCheckbox.getToggleState();  // Save state on change
+    };
     addAndMakeVisible(m_loopCheckbox);
 
     // Preview button (non-toggle - starts looped playback with preview)
@@ -481,6 +489,9 @@ void GainDialog::onBypassClicked()
     // Toggle bypass state
     bool newBypassState = !m_audioEngine->isPreviewBypassed();
     m_audioEngine->setPreviewBypassed(newBypassState);
+
+    // Save bypass state for persistence across dialog reopens (Phase 6 finalization)
+    s_lastBypassState = newBypassState;
 
     // Update button visual state
     if (newBypassState)

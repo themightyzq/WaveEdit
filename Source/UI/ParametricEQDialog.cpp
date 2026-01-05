@@ -18,6 +18,11 @@
 #include "../Audio/AudioBufferManager.h"
 #include <cmath>
 
+// Static state persistence for dialog reopens (Phase 6 finalization)
+// These persist bypass and loop toggle states across dialog instances
+static bool s_lastBypassState = false;
+static bool s_lastLoopState = true;  // Default ON per CLAUDE.md Protocol
+
 //==============================================================================
 // BandControl Implementation
 
@@ -235,7 +240,11 @@ ParametricEQDialog::ParametricEQDialog(AudioEngine* audioEngine,
         m_previewButton.onClick = [this]() { onPreviewClicked(); };
         addAndMakeVisible(m_previewButton);
 
-        m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON
+        // Loop toggle - restore persisted state
+        m_loopToggle.setToggleState(s_lastLoopState, juce::dontSendNotification);  // Restore persisted state
+        m_loopToggle.onStateChange = [this]() {
+            s_lastLoopState = m_loopToggle.getToggleState();  // Save state on change
+        };
         addAndMakeVisible(m_loopToggle);
 
         // Bypass button (starts disabled, enabled only during preview)
@@ -510,7 +519,11 @@ void ParametricEQDialog::onBypassClicked()
         return;
 
     bool bypassed = m_audioEngine->isPreviewBypassed();
-    m_audioEngine->setPreviewBypassed(!bypassed);
+    bool newBypassState = !bypassed;
+    m_audioEngine->setPreviewBypassed(newBypassState);
+
+    // Save bypass state for persistence across dialog reopens
+    s_lastBypassState = newBypassState;
 
     // Update button appearance
     if (!bypassed)
