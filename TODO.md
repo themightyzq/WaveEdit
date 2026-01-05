@@ -12,7 +12,7 @@ For completed work, see [CHANGELOG.md](CHANGELOG.md).
 - [x] Spectrum analyzer integration during preview playback
 - [x] Bypass button state persistence across dialog reopens
 - [x] Loop toggle state persistence across dialog reopens
-- [ ] Preview position indicator in waveform display
+- [x] Preview position indicator in waveform display
 
 ---
 

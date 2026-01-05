@@ -1456,6 +1456,21 @@ public:
             // Future: Reset meters when integrated into Document class
         }
 
+        // Update preview position indicator (Phase 6 finalization)
+        // Shows a distinct ORANGE cursor during DSP preview mode in processing dialogs
+        auto previewMode = doc->getAudioEngine().getPreviewMode();
+        if (previewMode != PreviewMode::DISABLED && doc->getAudioEngine().isPlaying())
+        {
+            // Preview is active - show the preview position cursor
+            double previewPos = doc->getAudioEngine().getCurrentPosition();
+            doc->getWaveformDisplay().setPreviewPosition(previewPos);
+        }
+        else
+        {
+            // Preview not active - clear the preview cursor
+            doc->getWaveformDisplay().clearPreviewPosition();
+        }
+
         // Auto-save check (Phase 3.5 - Priority #6)
         // Check auto-save every ~60 seconds (1200 ticks at 50ms each)
         m_autoSaveTimerTicks++;
@@ -6402,8 +6417,9 @@ public:
         juce::Logger::writeToLog("showGraphicalEQDialog: startSample=" + juce::String(startSample) + ", numSamples=" + juce::String(numSamples));
 
         // Show graphical editor (initialized with default preset)
+        // Pass selection bounds for preview positioning
         auto eqParams = DynamicParametricEQ::createDefaultPreset();
-        auto result = GraphicalEQEditor::showDialog(&engine, eqParams);
+        auto result = GraphicalEQEditor::showDialog(&engine, eqParams, startSample, endSample);
 
         if (result.has_value())
         {
