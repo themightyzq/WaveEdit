@@ -180,20 +180,32 @@ public:
     // Channel conversion
 
     /**
-     * Converts a mono buffer to stereo by duplicating the mono channel.
-     * No-op if already stereo or multi-channel.
+     * Converts any channel count to stereo using intelligent downmix/upmix.
+     * - Mono: duplicates to both channels
+     * - Stereo: no-op
+     * - Multichannel: mixes down using proper speaker position weighting
      *
      * @return true if conversion was performed, false if already stereo or failed
      */
     bool convertToStereo();
 
     /**
-     * Converts a stereo buffer to mono by averaging the channels.
+     * Converts any channel count to mono by mixing all channels.
+     * Uses equal weighting for all source channels.
      * No-op if already mono.
      *
      * @return true if conversion was performed, false if already mono or failed
      */
     bool convertToMono();
+
+    /**
+     * Converts buffer to specified channel count.
+     * Handles upmix, downmix, and channel remapping based on target layout.
+     *
+     * @param targetChannels Target number of channels (1-8)
+     * @return true if conversion was performed, false if already at target count or failed
+     */
+    bool convertToChannelCount(int targetChannels);
 
 private:
     juce::AudioBuffer<float> m_buffer;

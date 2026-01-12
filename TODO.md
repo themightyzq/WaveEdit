@@ -7,6 +7,11 @@ For completed work, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Recently Completed
 
+- ✅ **Multichannel Support + Channel Converter** - Full N-channel audio pipeline (1-8 channels)
+  - ChannelLayout system with Mono, Stereo, LCR, Quad, 5.0-7.1 Surround support
+  - Film/SMPTE channel ordering, proper channel labels in waveform display
+  - WAVEFORMATEXTENSIBLE speaker position masks
+  - Channel Converter dialog (Cmd+Shift+U) with intelligent upmix/downmix
 - ✅ **Batch Processor** - Process multiple files with DSP chain, EQ presets, plugin chains
 - ✅ **Universal Preview System** (Phase 6 complete)
 - ✅ **VST3/AU Plugin Hosting** - Full implementation with scanning, chain, presets
@@ -19,26 +24,6 @@ For completed work, see [CHANGELOG.md](CHANGELOG.md).
 ## Active Tasks
 
 ### Up Next
-- **Multichannel Support + Channel Converter**: Full N-channel audio pipeline
-  - **Phase A - Discovery**: Audit current I/O, buffer, waveform, and export paths for >2 channel assumptions
-  - **Phase B - Research & Spec**:
-    - Create `docs/audio_channel_layouts.md` documenting Film vs SMPTE ordering
-    - Define `ChannelLayout` type with role enum, channelMask, preset mappings
-    - Document WAV WAVEFORMATEXTENSIBLE requirements
-  - **Phase C - Multichannel Foundation**:
-    - Core buffer support for arbitrary channelCount (no "assume 2 channels" math)
-    - Waveform display for N channels (stacked lanes or selectable view)
-    - All edit ops apply to frames, not raw samples
-    - Export with WAVEFORMATEXTENSIBLE channel masks for >2ch WAV
-  - **Phase D - Channel Converter Feature**:
-    - UI dialog with preset dropdown + manual mapping matrix
-    - Presets: Mono, Stereo, Quad, 5.1 Film, 5.1 SMPTE, 5.1 Logic/DTS, 7.1 Film, 7.1 SMPTE
-    - Reorder-only conversions (lossless), explicit downmix/upmix with warnings
-    - Channel swap utilities (C/LFE, surround pairs)
-  - **Phase E - Testing**: Unit tests for presets/mappings, roundtrip I/O tests, manual QA checklist
-  - See: [Full specification in original request]
-
-### Backlog (Next)
 - **Looping Tools (nvk_LOOPMAKER-style)**: Selection-driven seamless loop creation
   - **Phase 1 - Discovery**: Audit selection model, preview engine, and processing tool UI patterns
   - **Phase 2 - Core Loop Engine**:

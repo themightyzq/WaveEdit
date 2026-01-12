@@ -30,6 +30,7 @@ target_sources(WaveEdit
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
         Source/Audio/AudioBufferManager.h
+        Source/Audio/ChannelLayout.h
         Source/Audio/AudioFileManager.cpp
         Source/Audio/AudioFileManager.h
         Source/Audio/AudioProcessor.cpp
@@ -73,6 +74,8 @@ target_sources(WaveEdit
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
+        Source/UI/ChannelConverterDialog.cpp
+        Source/UI/ChannelConverterDialog.h
         Source/UI/NewFileDialog.cpp
         Source/UI/NewFileDialog.h
         Source/UI/NormalizeDialog.cpp
@@ -470,6 +473,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
         Source/Audio/AudioBufferManager.h
+        Source/Audio/ChannelLayout.h
         Source/Audio/AudioFileManager.cpp
         Source/Audio/AudioFileManager.h
         Source/Audio/AudioProcessor.cpp
@@ -511,6 +515,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/Meters.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
+        Source/UI/ChannelConverterDialog.cpp
+        Source/UI/ChannelConverterDialog.h
         Source/UI/NewFileDialog.cpp
         Source/UI/NewFileDialog.h
         Source/UI/NormalizeDialog.cpp

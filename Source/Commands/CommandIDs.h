@@ -87,6 +87,7 @@ namespace CommandIDs
         processDecreaseGain = 0x5006,  // Shift+Down (decrease by -1 dB)
         processParametricEQ = 0x5007,  // Shift+E - 3-band Parametric EQ dialog
         processGraphicalEQ = 0x5008,  // Cmd+E - Graphical Parametric EQ editor
+        processChannelConverter = 0x5009,  // Cmd+Shift+U - Channel Converter dialog
 
         // Navigation Operations (0x6000 - 0x60FF)
         navigateLeft         = 0x6000,  // Arrow left (uses current snap increment)

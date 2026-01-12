@@ -77,6 +77,7 @@
 #include "UI/CustomizableToolbar.h"
 #include "UI/ToolbarCustomizationDialog.h"
 #include "Batch/BatchProcessorDialog.h"
+#include "UI/ChannelConverterDialog.h"
 #include "UI/WaveEditLookAndFeel.h"
 
 //==============================================================================
@@ -1586,6 +1587,7 @@ public:
             CommandIDs::processFadeIn,
             CommandIDs::processFadeOut,
             CommandIDs::processDCOffset,
+            CommandIDs::processChannelConverter,
             // Region commands (Phase 3 Tier 2)
             CommandIDs::regionAdd,
             CommandIDs::regionDelete,
@@ -2219,6 +2221,13 @@ public:
 
             case CommandIDs::processGraphicalEQ:
                 result.setInfo("Graphical EQ...", "Graphical 3-band parametric EQ editor", "Process", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::processChannelConverter:
+                result.setInfo("Channel Converter...", "Convert between mono, stereo, and surround formats", "Process", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
@@ -3587,6 +3596,11 @@ public:
                 showGraphicalEQDialog();
                 return true;
 
+            case CommandIDs::processChannelConverter:
+                if (!doc) return false;
+                showChannelConverterDialog();
+                return true;
+
             case CommandIDs::processNormalize:
                 if (!doc) return false;
                 showNormalizeDialog();
@@ -3911,6 +3925,10 @@ public:
             menu.addSectionHeader("Equalization");
             menu.addCommandItem(&m_commandManager, CommandIDs::processParametricEQ);
             menu.addCommandItem(&m_commandManager, CommandIDs::processGraphicalEQ);
+
+            // --- Channels ---
+            menu.addSectionHeader("Channels");
+            menu.addCommandItem(&m_commandManager, CommandIDs::processChannelConverter);
 
             // --- Repair ---
             menu.addSectionHeader("Repair");
@@ -6479,6 +6497,62 @@ public:
         else
         {
             juce::Logger::writeToLog("GraphicalEQ dialog cancelled");
+        }
+    }
+
+    /**
+     * Show channel converter dialog and apply channel conversion.
+     */
+    void showChannelConverterDialog()
+    {
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+            return;
+
+        auto& bufferManager = doc->getBufferManager();
+        int currentChannels = bufferManager.getNumChannels();
+
+        auto result = ChannelConverterDialog::showDialog(currentChannels);
+
+        if (result.has_value())
+        {
+            int targetChannels = result->targetChannels;
+
+            if (targetChannels == currentChannels)
+            {
+                juce::Logger::writeToLog("Channel conversion: no change needed");
+                return;
+            }
+
+            juce::Logger::writeToLog("Converting from " + juce::String(currentChannels) +
+                                     " to " + juce::String(targetChannels) + " channels");
+
+            // Create undo transaction
+            doc->getUndoManager().beginNewTransaction("Channel Converter");
+
+            // Perform conversion
+            if (bufferManager.convertToChannelCount(targetChannels))
+            {
+                // Reload the audio engine with the new buffer
+                auto& engine = doc->getAudioEngine();
+                const auto& buffer = bufferManager.getBuffer();
+                engine.reloadBufferPreservingPlayback(buffer, bufferManager.getSampleRate(), buffer.getNumChannels());
+
+                // Reload waveform display with new channel count
+                doc->getWaveformDisplay().reloadFromBuffer(buffer, bufferManager.getSampleRate(), true, true);
+
+                doc->setModified(true);
+
+                juce::Logger::writeToLog("Channel conversion completed successfully");
+            }
+            else
+            {
+                juce::Logger::writeToLog("Channel conversion failed");
+            }
+        }
+        else
+        {
+            juce::Logger::writeToLog("Channel converter dialog cancelled");
         }
     }
 

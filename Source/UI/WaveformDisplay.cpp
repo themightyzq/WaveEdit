@@ -24,6 +24,7 @@
 #include "../Utils/AudioBufferInputSource.h"
 #include "../Utils/RegionManager.h"
 #include "../Utils/Region.h"
+#include "../Audio/ChannelLayout.h"
 #include <cmath>
 
 //==============================================================================
@@ -1835,14 +1836,22 @@ void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int
         m_thumbnail.drawChannel(g, bounds, m_visibleStart, m_visibleEnd, channelNum, 1.0f);
     }
 
-    // Channel label (for stereo)
-    if (m_numChannels == 2)
+    // Channel label (for all channel counts)
+    if (m_numChannels >= 1)
     {
         g.setColour(juce::Colours::grey);
         g.setFont(10.0f);
-        juce::String label = (channelNum == 0) ? "L" : "R";
-        g.drawText(label, bounds.getX() + 5, bounds.getY() + 5, 20, 20,
-                   juce::Justification::centred, true);
+
+        // Use ChannelLayout for proper labels
+        waveedit::ChannelLayout layout = waveedit::ChannelLayout::fromChannelCount(m_numChannels);
+        juce::String label = layout.getShortLabel(channelNum);
+
+        // Fallback to generic numbering if no label defined
+        if (label.isEmpty() || label == "?")
+            label = "Ch " + juce::String(channelNum + 1);
+
+        g.drawText(label, bounds.getX() + 5, bounds.getY() + 5, 30, 20,
+                   juce::Justification::centredLeft, true);
     }
 }
 
