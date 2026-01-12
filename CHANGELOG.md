@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Batch Processor** (Cmd+Alt+B): Process multiple audio files with identical settings
+  - DSP chain support: Gain, Normalize, DC Offset, Fade In/Out, EQ presets
+  - Plugin chain integration with VST3/AU effects
+  - Configurable output: directory, naming patterns, format conversion
+  - Error handling options: stop on error, continue, or skip and log
+  - Preset system for saving and loading batch configurations
 - Spectrum analyzer integration during preview playback (displays during REALTIME_DSP mode)
 - Preview position indicator in waveform display (orange cursor during DSP preview playback)
 - EQ preset system with 11 factory presets and user preset save/load/delete

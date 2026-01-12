@@ -76,6 +76,7 @@
 #include "Utils/ToolbarManager.h"
 #include "UI/CustomizableToolbar.h"
 #include "UI/ToolbarCustomizationDialog.h"
+#include "Batch/BatchProcessorDialog.h"
 
 //==============================================================================
 // Progress Dialog Threshold
@@ -1625,7 +1626,9 @@ public:
             CommandIDs::helpShortcuts,
             // Toolbar commands
             CommandIDs::toolbarCustomize,
-            CommandIDs::toolbarReset
+            CommandIDs::toolbarReset,
+            // Batch commands
+            CommandIDs::fileBatchProcessor
         };
 
         commands.addArray(ids, juce::numElementsInArray(ids));
@@ -2498,6 +2501,12 @@ public:
 
             case CommandIDs::toolbarReset:
                 result.setInfo("Reset Toolbar", "Reset toolbar to default layout", "View", 0);
+                result.setActive(true);  // Always available
+                break;
+
+            case CommandIDs::fileBatchProcessor:
+                result.setInfo("Batch Processor...", "Open batch processing dialog for multiple files", "File", 0);
+                result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);
                 result.setActive(true);  // Always available
                 break;
 
@@ -3713,6 +3722,13 @@ public:
                 return true;
             }
 
+            case CommandIDs::fileBatchProcessor:
+            {
+                // Show batch processor dialog
+                waveedit::BatchProcessorDialog::showDialog();
+                return true;
+            }
+
             default:
                 return false;
         }
@@ -3761,6 +3777,10 @@ public:
                 recentFilesMenu.addItem("Clear Recent Files", [] { Settings::getInstance().clearRecentFiles(); });
                 menu.addSubMenu("Recent Files", recentFilesMenu);
             }
+
+            // --- Batch Processing ---
+            menu.addSectionHeader("Batch Processing");
+            menu.addCommandItem(&m_commandManager, CommandIDs::fileBatchProcessor);
 
             // --- Application ---
             menu.addSectionHeader("Application");
