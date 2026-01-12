@@ -592,6 +592,16 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Plugins/PluginPathsPanel.h
         Source/Plugins/PluginChainRenderer.cpp
         Source/Plugins/PluginChainRenderer.h
+        Source/Plugins/PluginPresetManager.cpp
+        Source/Plugins/PluginPresetManager.h
+        Source/Batch/BatchProcessorSettings.cpp
+        Source/Batch/BatchProcessorSettings.h
+        Source/Batch/BatchJob.cpp
+        Source/Batch/BatchJob.h
+        Source/Batch/BatchProcessorEngine.cpp
+        Source/Batch/BatchProcessorEngine.h
+        Source/Batch/BatchPresetManager.cpp
+        Source/Batch/BatchPresetManager.h
     )
 
     # Link WaveEditCore to JUCE modules
@@ -688,6 +698,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Integration/RegionListBatchRenameTests.cpp    # Week 4 ✅ (Batch Rename regions)
             Tests/Integration/SaveAsFormatsTests.cpp            # Phase 4 ✅ (Save As all formats)
             Tests/Integration/SaveAs8BitTests.cpp               # Phase 4 ✅ (8-bit Save Tests)
+            Tests/Unit/BatchJobTests.cpp                        # Batch Processor tests
             # Tests/Integration/RegionListPanelTests.cpp        # Week 4 ⚠️ (Needs migration to Catch2)
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
