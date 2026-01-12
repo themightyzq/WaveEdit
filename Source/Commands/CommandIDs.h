@@ -172,6 +172,9 @@ namespace CommandIDs
 
         // Toolbar Operations (0xE000 - 0xE0FF)
         toolbarCustomize    = 0xE000,  // Customize toolbar layout dialog
-        toolbarReset        = 0xE001   // Reset toolbar to default layout
+        toolbarReset        = 0xE001,  // Reset toolbar to default layout
+
+        // Batch Operations (0xF000 - 0xF0FF)
+        fileBatchProcessor  = 0xF000   // Cmd+Alt+B - Batch Processor dialog
     };
 }

@@ -176,6 +176,16 @@ target_sources(WaveEdit
         Source/Plugins/PluginPathsPanel.h
         Source/Plugins/PluginChainRenderer.cpp
         Source/Plugins/PluginChainRenderer.h
+        Source/Batch/BatchProcessorSettings.cpp
+        Source/Batch/BatchProcessorSettings.h
+        Source/Batch/BatchJob.cpp
+        Source/Batch/BatchJob.h
+        Source/Batch/BatchProcessorEngine.cpp
+        Source/Batch/BatchProcessorEngine.h
+        Source/Batch/BatchPresetManager.cpp
+        Source/Batch/BatchPresetManager.h
+        Source/Batch/BatchProcessorDialog.cpp
+        Source/Batch/BatchProcessorDialog.h
 )
 
 # JUCE modules required for audio editing application

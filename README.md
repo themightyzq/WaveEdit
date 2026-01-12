@@ -129,12 +129,20 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Toggle with `Cmd+Alt+S` or View → Spectrum Analyzer
 - ✅ Configure FFT size and window function from View menu submenus
 
+**Batch Processor** 🆕:
+- ✅ Process multiple audio files with identical DSP settings (`Cmd+Alt+B`)
+- ✅ DSP chain: Gain, Normalize, DC Offset, Fade In/Out, EQ presets
+- ✅ Plugin chain support (apply VST3/AU effect chains)
+- ✅ Output settings: directory, naming patterns, sample rate/bit depth conversion
+- ✅ Error handling: stop on error, continue, or skip and log
+- ✅ Save/load batch presets for recurring workflows
+
 ### What's Next
 
 See [TODO.md](TODO.md) for detailed roadmap. Highlights include:
 - ✅ Recording from input (COMPLETE - Cmd+R or Playback → Record)
+- ✅ Batch processing (COMPLETE - Cmd+Alt+B)
 - Additional DSP operations (reverb, EQ, compressor)
-- Batch processing
 
 ---
 
@@ -304,6 +312,7 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 ### Processing
 | Action | Shortcut |
 |--------|----------|
+| Batch Processor | `Cmd+Alt+B` |
 | Parametric EQ | `Shift+E` |
 | Gain Dialog | `Cmd+Shift+G` |
 | Increase Gain | `Shift+Up` |
