@@ -118,6 +118,7 @@ public:
 
     juce::File outputDirectory;
     juce::String outputPattern = "{filename}_processed";
+    bool sameAsSource = false;            ///< Output to same folder as source file
     bool createSubfolders = false;
     bool overwriteExisting = false;
 

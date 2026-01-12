@@ -14,6 +14,7 @@
 */
 
 #include "PluginChainWindow.h"
+#include "UIConstants.h"
 
 //==============================================================================
 // PluginRowComponent implementation
@@ -343,7 +344,7 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain)
 
     // Render Options group
     m_renderOptionsGroup.setText("Render Options");
-    m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, juce::Colour(0xff555555));
+    m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, juce::Colour(waveedit::ui::kBorderVisible));
     m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, m_textColour);
     addAndMakeVisible(m_renderOptionsGroup);
 

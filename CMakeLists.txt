@@ -156,6 +156,9 @@ target_sources(WaveEdit
         Source/UI/PluginEditorWindow.h
         Source/UI/OfflinePluginDialog.cpp
         Source/UI/OfflinePluginDialog.h
+        Source/UI/UIConstants.h
+        Source/UI/WaveEditLookAndFeel.cpp
+        Source/UI/WaveEditLookAndFeel.h
         Source/Plugins/PluginManager.cpp
         Source/Plugins/PluginManager.h
         Source/Plugins/PluginChain.cpp
@@ -574,6 +577,9 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/PluginEditorWindow.h
         Source/UI/OfflinePluginDialog.cpp
         Source/UI/OfflinePluginDialog.h
+        Source/UI/UIConstants.h
+        Source/UI/WaveEditLookAndFeel.cpp
+        Source/UI/WaveEditLookAndFeel.h
         Source/Plugins/PluginManager.cpp
         Source/Plugins/PluginManager.h
         Source/Plugins/PluginChain.cpp

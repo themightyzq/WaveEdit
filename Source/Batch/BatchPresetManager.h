@@ -133,6 +133,26 @@ public:
     bool renamePreset(const juce::String& oldName, const juce::String& newName);
 
     // =========================================================================
+    // Import/Export
+    // =========================================================================
+
+    /**
+     * @brief Export a preset to a user-specified file
+     * @param name Preset name to export
+     * @param destinationFile Where to save the file
+     * @return true if exported successfully
+     */
+    bool exportPreset(const juce::String& name, const juce::File& destinationFile);
+
+    /**
+     * @brief Import a preset from a file
+     * @param sourceFile File to import from
+     * @param importedName Output parameter for the imported preset name
+     * @return true if imported successfully
+     */
+    bool importPreset(const juce::File& sourceFile, juce::String& importedName);
+
+    // =========================================================================
     // Factory Presets
     // =========================================================================
 

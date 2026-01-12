@@ -77,6 +77,7 @@
 #include "UI/CustomizableToolbar.h"
 #include "UI/ToolbarCustomizationDialog.h"
 #include "Batch/BatchProcessorDialog.h"
+#include "UI/WaveEditLookAndFeel.h"
 
 //==============================================================================
 // Progress Dialog Threshold
@@ -3739,7 +3740,7 @@ public:
 
     juce::StringArray getMenuBarNames() override
     {
-        return { "File", "Edit", "View", "Region", "Marker", "Process", "Plugins", "Playback", "Help" };
+        return { "File", "Edit", "View", "Region", "Marker", "Process", "Plugins", "Tools", "Playback", "Help" };
     }
 
     juce::PopupMenu getMenuForIndex(int menuIndex, const juce::String& /*menuName*/) override
@@ -3777,10 +3778,6 @@ public:
                 recentFilesMenu.addItem("Clear Recent Files", [] { Settings::getInstance().clearRecentFiles(); });
                 menu.addSubMenu("Recent Files", recentFilesMenu);
             }
-
-            // --- Batch Processing ---
-            menu.addSectionHeader("Batch Processing");
-            menu.addCommandItem(&m_commandManager, CommandIDs::fileBatchProcessor);
 
             // --- Application ---
             menu.addSectionHeader("Application");
@@ -3942,7 +3939,13 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::pluginShowSettings);
             menu.addCommandItem(&m_commandManager, CommandIDs::pluginClearCache);
         }
-        else if (menuIndex == 7) // Playback menu
+        else if (menuIndex == 7) // Tools menu
+        {
+            // --- Batch Processing ---
+            menu.addSectionHeader("Batch Processing");
+            menu.addCommandItem(&m_commandManager, CommandIDs::fileBatchProcessor);
+        }
+        else if (menuIndex == 8) // Playback menu
         {
             // --- Transport ---
             menu.addSectionHeader("Transport");
@@ -3959,7 +3962,7 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoop);
             menu.addCommandItem(&m_commandManager, CommandIDs::playbackLoopRegion);
         }
-        else if (menuIndex == 8) // Help menu
+        else if (menuIndex == 9) // Help menu
         {
             menu.addItem("About WaveEdit", [this] { showAbout(); });
         }
@@ -10325,6 +10328,10 @@ public:
 
     void initialise(const juce::String& /*commandLine*/) override
     {
+        // Set custom LookAndFeel with WCAG-compliant focus indicators
+        m_lookAndFeel = std::make_unique<waveedit::WaveEditLookAndFeel>();
+        juce::LookAndFeel::setDefaultLookAndFeel(m_lookAndFeel.get());
+
         // Initialize audio device manager
         juce::String audioError = m_audioDeviceManager.initialise(
             2,      // number of input channels
@@ -10448,6 +10455,7 @@ public:
     };
 
 private:
+    std::unique_ptr<waveedit::WaveEditLookAndFeel> m_lookAndFeel;
     juce::AudioDeviceManager m_audioDeviceManager;
     std::unique_ptr<MainWindow> mainWindow;
 };
