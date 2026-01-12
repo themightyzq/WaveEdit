@@ -28,6 +28,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Info labels on EQ band markers showing frequency/gain values
 - "Set Gain..." context menu option for precise gain input in Graphical EQ
 - Bypass button and loop toggle state persistence across dialog reopens for all DSP preview dialogs
+- **Multichannel Support**: Full support for audio files up to 8 channels (7.1 surround)
+  - ChannelLayout system with standard layouts: Mono, Stereo, LCR, Quad, 5.0, 5.1, 6.1, 7.1 Surround
+  - Film/SMPTE channel ordering (L, R, C, LFE, Ls, Rs, Lrs, Rrs)
+  - Proper channel labels in waveform display based on layout type
+  - Layout names displayed in File Properties dialog
+  - WAVEFORMATEXTENSIBLE speaker position mask support
+- **Channel Converter** (Cmd+Shift+U): Convert between channel layouts
+  - Intelligent upmix/downmix algorithms preserving audio quality
+  - Preset-based selection for common formats
+  - Warnings for downmix operations that combine channels
 
 ### Fixed
 - Graphical EQ preview now starts from selection start instead of file beginning

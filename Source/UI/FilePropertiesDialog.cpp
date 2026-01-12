@@ -16,6 +16,7 @@
 #include "FilePropertiesDialog.h"
 #include "BWFEditorDialog.h"
 #include "iXMLEditorDialog.h"
+#include "../Audio/ChannelLayout.h"
 
 // Dialog dimensions
 namespace
@@ -352,12 +353,9 @@ void FilePropertiesDialog::loadProperties()
     m_sampleRateValue.setText(juce::String(sampleRate, 1) + " Hz", juce::dontSendNotification);
     m_bitDepthValue.setText(juce::String(bitDepth) + " bit", juce::dontSendNotification);
 
-    // Format channels
-    juce::String channelsStr = juce::String(numChannels);
-    if (numChannels == 1)
-        channelsStr += " (Mono)";
-    else if (numChannels == 2)
-        channelsStr += " (Stereo)";
+    // Format channels with proper layout name
+    waveedit::ChannelLayout layout = waveedit::ChannelLayout::fromChannelCount(numChannels);
+    juce::String channelsStr = juce::String(numChannels) + " (" + layout.getLayoutName() + ")";
     m_channelsValue.setText(channelsStr, juce::dontSendNotification);
 
     // Calculate and format duration

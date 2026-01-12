@@ -14,6 +14,7 @@
 */
 
 #include "AudioBufferManager.h"
+#include "ChannelLayout.h"
 #include <cmath>
 #include <iostream>
 
@@ -365,10 +366,12 @@ bool AudioBufferManager::convertToStereo()
 {
     juce::ScopedLock sl(m_lock);
 
-    // No-op if already stereo or multi-channel
-    if (m_buffer.getNumChannels() != 1)
+    int currentChannels = m_buffer.getNumChannels();
+
+    // No-op if already stereo
+    if (currentChannels == 2)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Buffer is not mono, skipping stereo conversion");
+        juce::Logger::writeToLog("AudioBufferManager: Buffer is already stereo, skipping conversion");
         return false;
     }
 
@@ -378,20 +381,15 @@ bool AudioBufferManager::convertToStereo()
         return false;
     }
 
-    int numSamples = m_buffer.getNumSamples();
-
-    // Create new stereo buffer
-    juce::AudioBuffer<float> stereoBuffer(2, numSamples);
-
-    // Copy mono channel to both left and right channels
-    stereoBuffer.copyFrom(0, 0, m_buffer, 0, 0, numSamples);  // Left
-    stereoBuffer.copyFrom(1, 0, m_buffer, 0, 0, numSamples);  // Right
+    // Use ChannelConverter for generalized N-channel to stereo conversion
+    juce::AudioBuffer<float> stereoBuffer = waveedit::ChannelConverter::convert(
+        m_buffer, 2, waveedit::ChannelLayoutType::Stereo);
 
     // Replace buffer
-    m_buffer = stereoBuffer;
+    m_buffer = std::move(stereoBuffer);
 
-    juce::Logger::writeToLog("AudioBufferManager: Converted mono to stereo (" +
-                             juce::String(numSamples) + " samples)");
+    juce::Logger::writeToLog("AudioBufferManager: Converted " + juce::String(currentChannels) +
+                             " channels to stereo (" + juce::String(m_buffer.getNumSamples()) + " samples)");
 
     return true;
 }
@@ -400,10 +398,12 @@ bool AudioBufferManager::convertToMono()
 {
     juce::ScopedLock sl(m_lock);
 
+    int currentChannels = m_buffer.getNumChannels();
+
     // No-op if already mono
-    if (m_buffer.getNumChannels() != 2)
+    if (currentChannels == 1)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Buffer is not stereo, skipping mono conversion");
+        juce::Logger::writeToLog("AudioBufferManager: Buffer is already mono, skipping conversion");
         return false;
     }
 
@@ -413,26 +413,57 @@ bool AudioBufferManager::convertToMono()
         return false;
     }
 
-    int numSamples = m_buffer.getNumSamples();
-
-    // Create new mono buffer
-    juce::AudioBuffer<float> monoBuffer(1, numSamples);
-
-    // Average the stereo channels
-    const float* leftChannel = m_buffer.getReadPointer(0);
-    const float* rightChannel = m_buffer.getReadPointer(1);
-    float* monoChannel = monoBuffer.getWritePointer(0);
-
-    for (int i = 0; i < numSamples; ++i)
-    {
-        monoChannel[i] = (leftChannel[i] + rightChannel[i]) * 0.5f;
-    }
+    // Use ChannelConverter for generalized N-channel to mono mixdown
+    juce::AudioBuffer<float> monoBuffer = waveedit::ChannelConverter::convert(
+        m_buffer, 1, waveedit::ChannelLayoutType::Mono);
 
     // Replace buffer
-    m_buffer = monoBuffer;
+    m_buffer = std::move(monoBuffer);
 
-    juce::Logger::writeToLog("AudioBufferManager: Converted stereo to mono (" +
-                             juce::String(numSamples) + " samples)");
+    juce::Logger::writeToLog("AudioBufferManager: Converted " + juce::String(currentChannels) +
+                             " channels to mono (" + juce::String(m_buffer.getNumSamples()) + " samples)");
+
+    return true;
+}
+
+bool AudioBufferManager::convertToChannelCount(int targetChannels)
+{
+    juce::ScopedLock sl(m_lock);
+
+    // Validate target channel count
+    if (targetChannels < 1 || targetChannels > 8)
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Invalid target channel count: " +
+                                 juce::String(targetChannels) + " (must be 1-8)");
+        return false;
+    }
+
+    int currentChannels = m_buffer.getNumChannels();
+
+    // No-op if already at target count
+    if (currentChannels == targetChannels)
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Buffer already has " +
+                                 juce::String(targetChannels) + " channels, skipping conversion");
+        return false;
+    }
+
+    if (m_buffer.getNumSamples() == 0)
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Empty buffer, skipping channel conversion");
+        return false;
+    }
+
+    // Use ChannelConverter for generalized conversion
+    juce::AudioBuffer<float> convertedBuffer = waveedit::ChannelConverter::convert(
+        m_buffer, targetChannels);
+
+    // Replace buffer
+    m_buffer = std::move(convertedBuffer);
+
+    juce::Logger::writeToLog("AudioBufferManager: Converted " + juce::String(currentChannels) +
+                             " channels to " + juce::String(targetChannels) +
+                             " channels (" + juce::String(m_buffer.getNumSamples()) + " samples)");
 
     return true;
 }

@@ -344,6 +344,13 @@
         "shift"
       ]
     },
+    "processChannelConverter": {
+      "key": "U",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
     "regionAdd": {
       "key": "R",
       "modifiers": []
