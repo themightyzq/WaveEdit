@@ -32,6 +32,11 @@ BatchJob::BatchJob(const juce::File& inputFile,
 juce::File BatchJob::getOutputFile() const
 {
     juce::String outputName = m_settings.applyNamingPattern(m_inputFile, m_index, m_presetName);
+
+    // If "Same as Source" is enabled, use input file's parent directory
+    if (m_settings.sameAsSource)
+        return m_inputFile.getParentDirectory().getChildFile(outputName);
+
     return m_settings.outputDirectory.getChildFile(outputName);
 }
 

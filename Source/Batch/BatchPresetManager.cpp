@@ -262,6 +262,87 @@ bool BatchPresetManager::renamePreset(const juce::String& oldName, const juce::S
     return false;
 }
 
+bool BatchPresetManager::exportPreset(const juce::String& name, const juce::File& destinationFile)
+{
+    const BatchPreset* preset = getPreset(name);
+    if (!preset)
+    {
+        DBG("BatchPresetManager: Cannot export - preset not found: " + name);
+        return false;
+    }
+
+    juce::String json = juce::JSON::toString(preset->toVar(), true);
+    if (destinationFile.replaceWithText(json))
+    {
+        DBG("BatchPresetManager: Exported preset '" + name + "' to " + destinationFile.getFullPathName());
+        return true;
+    }
+
+    return false;
+}
+
+bool BatchPresetManager::importPreset(const juce::File& sourceFile, juce::String& importedName)
+{
+    if (!sourceFile.existsAsFile())
+    {
+        DBG("BatchPresetManager: Import file does not exist: " + sourceFile.getFullPathName());
+        return false;
+    }
+
+    juce::String content = sourceFile.loadFileAsString();
+    if (content.isEmpty())
+    {
+        DBG("BatchPresetManager: Import file is empty");
+        return false;
+    }
+
+    auto parsed = juce::JSON::parse(content);
+    if (parsed.isVoid())
+    {
+        DBG("BatchPresetManager: Import file is not valid JSON");
+        return false;
+    }
+
+    BatchPreset preset = BatchPreset::fromVar(parsed);
+    if (preset.name.isEmpty())
+    {
+        DBG("BatchPresetManager: Import file has no preset name");
+        return false;
+    }
+
+    // Generate unique name if preset already exists
+    juce::String baseName = preset.name;
+    int suffix = 1;
+    while (presetExists(preset.name))
+    {
+        preset.name = baseName + " (" + juce::String(suffix++) + ")";
+    }
+
+    // Mark as user preset, not factory
+    preset.isFactoryPreset = false;
+    preset.modifiedTime = juce::Time::getCurrentTime();
+
+    if (savePresetToFile(preset))
+    {
+        m_presets.push_back(preset);
+
+        // Sort the presets
+        std::sort(m_presets.begin(), m_presets.end(),
+            [](const BatchPreset& a, const BatchPreset& b)
+            {
+                if (a.isFactoryPreset != b.isFactoryPreset)
+                    return a.isFactoryPreset;
+                return a.name.compareIgnoreCase(b.name) < 0;
+            });
+
+        importedName = preset.name;
+        DBG("BatchPresetManager: Imported preset as '" + preset.name + "'");
+        return true;
+    }
+
+    return false;
+}
+
 void BatchPresetManager::createFactoryPresets()
 {
     juce::File presetDir = getPresetDirectory();

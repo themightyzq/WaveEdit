@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **UI/UX Accessibility Improvements**:
+  - Custom WaveEditLookAndFeel with WCAG-compliant focus indicators on buttons, toggles, combo boxes, sliders, and text editors
+  - Improved text contrast: secondary and muted text now meet WCAG 2.1 AA standards (~5:1 contrast ratio)
+  - UIConstants.h centralized design system with colors, fonts, and layout dimensions
+  - Focus ring visible on all focusable components for keyboard navigation
+- **Tools menu**: New menu category for utility tools (Batch Processor and future tools)
 - **Batch Processor** (Cmd+Alt+B): Process multiple audio files with identical settings
   - DSP chain support: Gain, Normalize, DC Offset, Fade In/Out, EQ presets
   - Plugin chain integration with VST3/AU effects
@@ -29,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - Dialog width standardized to 450px minimum for GainDialog and NormalizeDialog
 - All processing dialogs now use native macOS title bars for consistency
+- Batch Processor moved from File menu to new **Tools** menu
+- Batch Processor dialog now properly closes via title bar close button
 
 ### Removed
 - DCOffsetDialog removed - DC Offset now runs automatically from Process menu

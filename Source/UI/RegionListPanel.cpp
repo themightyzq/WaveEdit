@@ -22,6 +22,7 @@
 */
 
 #include "RegionListPanel.h"
+#include "UIConstants.h"
 
 //==============================================================================
 // NameEditor implementation
@@ -170,7 +171,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
 
     m_patternHelpLabel.setText("Use {n} for numbers, {N} for zero-padded, {original} for original name",
                                juce::dontSendNotification);
-    m_patternHelpLabel.setColour(juce::Label::textColourId, juce::Colour(0xff888888));
+    m_patternHelpLabel.setColour(juce::Label::textColourId, juce::Colour(waveedit::ui::kTextMuted));
     m_patternHelpLabel.setFont(juce::Font(11.0f));
     m_patternHelpLabel.setVisible(false);
     m_batchRenameSection.addAndMakeVisible(m_patternHelpLabel);

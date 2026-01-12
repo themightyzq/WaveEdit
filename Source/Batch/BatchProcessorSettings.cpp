@@ -92,6 +92,7 @@ juce::var BatchProcessorSettings::toVar() const
     // Output settings
     obj->setProperty("outputDirectory", outputDirectory.getFullPathName());
     obj->setProperty("outputPattern", outputPattern);
+    obj->setProperty("sameAsSource", sameAsSource);
     obj->setProperty("createSubfolders", createSubfolders);
     obj->setProperty("overwriteExisting", overwriteExisting);
 
@@ -136,6 +137,7 @@ BatchProcessorSettings BatchProcessorSettings::fromVar(const juce::var& v)
         // Output settings
         settings.outputDirectory = juce::File(obj->getProperty("outputDirectory").toString());
         settings.outputPattern = obj->getProperty("outputPattern").toString();
+        settings.sameAsSource = obj->getProperty("sameAsSource");
         settings.createSubfolders = obj->getProperty("createSubfolders");
         settings.overwriteExisting = obj->getProperty("overwriteExisting");
 
