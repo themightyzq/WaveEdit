@@ -821,7 +821,12 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
                                 juce::String(64 + quality * 25) + " kbps)");
     }
 
-    writer.reset(format->createWriterFor(outputStream.get(),
+    // IMPORTANT: Release ownership BEFORE createWriterFor
+    // JUCE's createWriterFor may delete the stream on failure,
+    // which would cause double-free if unique_ptr also tries to delete
+    auto* rawStream = outputStream.release();
+
+    writer.reset(format->createWriterFor(rawStream,
                                          sampleRate,
                                          static_cast<unsigned int>(buffer.getNumChannels()),
                                          24, // Use 24-bit for best quality with compressed formats
@@ -830,12 +835,10 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
 
     if (writer == nullptr)
     {
+        // Note: stream was deleted by createWriterFor on failure
         setError("Could not create audio writer for format: " + extension);
         return false;
     }
-
-    // Release ownership of output stream (writer now owns it)
-    outputStream.release();
 
     // Write audio data
     bool writeSuccess = writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());

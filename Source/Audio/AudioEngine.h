@@ -277,6 +277,58 @@ public:
     float getRMSLevel(int channel) const;
 
     //==============================================================================
+    // Channel Solo/Mute
+
+    /**
+     * Solos a specific channel for monitoring.
+     * When any channel is solo'd, only solo'd channels are audible.
+     * Thread-safe.
+     *
+     * @param channel Channel index (0-7)
+     * @param solo true to solo, false to unsolo
+     */
+    void setChannelSolo(int channel, bool solo);
+
+    /**
+     * Gets the solo state for a specific channel.
+     *
+     * @param channel Channel index (0-7)
+     * @return true if channel is solo'd
+     */
+    bool isChannelSolo(int channel) const;
+
+    /**
+     * Mutes a specific channel.
+     * Muted channels are always silent regardless of solo state.
+     * Thread-safe.
+     *
+     * @param channel Channel index (0-7)
+     * @param mute true to mute, false to unmute
+     */
+    void setChannelMute(int channel, bool mute);
+
+    /**
+     * Gets the mute state for a specific channel.
+     *
+     * @param channel Channel index (0-7)
+     * @return true if channel is muted
+     */
+    bool isChannelMute(int channel) const;
+
+    /**
+     * Checks if any channel is currently solo'd.
+     * Used to determine solo-mode behavior (only play solo'd channels).
+     *
+     * @return true if at least one channel is solo'd
+     */
+    bool hasAnySolo() const;
+
+    /**
+     * Clears all solo and mute states (reset to default).
+     */
+    void clearAllSoloMute();
+
+    //==============================================================================
     // Spectrum Analyzer Support
 
     /**
@@ -673,9 +725,13 @@ private:
 
     // Level monitoring state
     std::atomic<bool> m_levelMonitoringEnabled;
-    static constexpr int MAX_CHANNELS = 2;  // Stereo support for MVP
+    static constexpr int MAX_CHANNELS = 8;  // Up to 7.1 surround
     std::atomic<float> m_peakLevels[MAX_CHANNELS];
     std::atomic<float> m_rmsLevels[MAX_CHANNELS];
+
+    // Channel solo/mute state for monitoring
+    std::atomic<bool> m_channelSolo[MAX_CHANNELS];
+    std::atomic<bool> m_channelMute[MAX_CHANNELS];
 
     // Spectrum analyzer (not owned, just a pointer for data feeding)
     class SpectrumAnalyzer* m_spectrumAnalyzer;

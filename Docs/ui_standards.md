@@ -415,10 +415,73 @@ constexpr int kStandardButtonWidth      = 90;
 
 ---
 
-## 9. Revision History
+---
+
+## 9. Channel Selection & Focus
+
+### 9.1 Channel Label States
+
+Channel labels display different background colors based on state:
+
+| State | Background | Text | Priority |
+|-------|-----------|------|----------|
+| Solo | `#ddaa00` (Yellow) | White | 1 (Highest) |
+| Mute | `#dd3333` (Red) | White | 2 |
+| Focused | `#3a7dd4` (Blue) | White | 3 |
+| Unfocused (in focus mode) | Transparent | Grey 50% | 4 |
+| Default | Transparent | Grey | 5 (Lowest) |
+
+### 9.2 Per-Channel Interactions
+
+| Action | Result |
+|--------|--------|
+| Double-click waveform | Focus that channel + select entire duration |
+| Double-click already-focused channel | Unfocus (return to "all channels") |
+| Double-click channel label | Toggle focus for that channel |
+| Double-click gap between channels | Focus all channels + select all |
+
+### 9.3 Visual Feedback for Focus Mode
+
+When per-channel focus is active (not all channels focused):
+
+1. **Focused channels**:
+   - Cyan highlight border (2px)
+   - Full brightness waveform
+   - Blue background on label
+
+2. **Unfocused channels**:
+   - Dimmed background (#1a1a1a)
+   - 40% opacity waveform
+   - Dimmed label text
+
+### 9.4 Implementation Pattern
+
+```cpp
+// Check if in per-channel focus mode
+bool showFocusIndicator = (m_focusedChannels != -1);
+
+// Draw label based on state
+if (isSolo)
+    labelBgColor = juce::Colour(0xffddaa00);
+else if (isMute)
+    labelBgColor = juce::Colour(0xffdd3333);
+else if (showFocusIndicator && isChannelCurrentlyFocused)
+    labelBgColor = juce::Colour(0xff3a7dd4);
+
+// Toggle focus on double-click
+if (m_focusedChannels == (1 << channel))
+    focusChannel(-1);  // Already focused, unfocus all
+else
+    focusChannel(channel);  // Focus this channel
+```
+
+---
+
+## 10. Revision History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1.0 | 2026-01-13 | Added per-channel selection documentation |
 | 1.0.0 | 2026-01-12 | Initial documentation from UI/UX audit |
 
 ---

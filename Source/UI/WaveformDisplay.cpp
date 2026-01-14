@@ -50,6 +50,7 @@ WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
       m_selectionEnd(0.0),
       m_isDraggingSelection(false),
       m_dragStartTime(0.0),
+      m_focusedChannels(-1),  // All channels focused by default
       m_isExtendingSelection(false),
       m_selectionAnchor(0.0),
       m_hasEditCursor(false),
@@ -488,6 +489,79 @@ juce::String WaveformDisplay::getSelectionDurationString() const
     {
         return juce::String::formatted("%02d:%06.3f", minutes, seconds);
     }
+}
+
+//==============================================================================
+// Channel Focus (for per-channel editing)
+
+void WaveformDisplay::setFocusedChannels(int channelMask)
+{
+    if (m_focusedChannels != channelMask)
+    {
+        m_focusedChannels = channelMask;
+        repaint();
+
+        if (onChannelFocusChanged)
+            onChannelFocusChanged(channelMask);
+    }
+}
+
+bool WaveformDisplay::isChannelFocused(int channel) const
+{
+    if (m_focusedChannels == -1)
+        return true;  // All channels focused
+
+    return (m_focusedChannels & (1 << channel)) != 0;
+}
+
+void WaveformDisplay::focusChannel(int channel)
+{
+    if (channel < 0)
+        setFocusedChannels(-1);  // Focus all
+    else
+        setFocusedChannels(1 << channel);  // Focus single channel
+}
+
+int WaveformDisplay::getChannelAtY(int y) const
+{
+    // Check if y is in the waveform area
+    int waveformTop = RULER_HEIGHT;
+    int waveformBottom = getHeight() - SCROLLBAR_HEIGHT;
+
+    if (y < waveformTop || y >= waveformBottom)
+        return -1;  // Outside waveform area
+
+    if (m_numChannels <= 1)
+        return 0;  // Mono - always channel 0
+
+    // Calculate channel positions
+    int waveformHeight = waveformBottom - waveformTop;
+    int channelHeight = waveformHeight / m_numChannels;
+    int relativeY = y - waveformTop;
+
+    for (int ch = 0; ch < m_numChannels; ++ch)
+    {
+        int channelTop = ch * channelHeight;
+        int channelBottom = (ch + 1) * channelHeight;
+
+        // Account for gap between channels
+        if (ch < m_numChannels - 1)
+            channelBottom -= CHANNEL_GAP;
+
+        if (relativeY >= channelTop && relativeY < channelBottom)
+            return ch;
+
+        // Check if in the gap between this channel and the next
+        if (ch < m_numChannels - 1)
+        {
+            int gapTop = channelBottom;
+            int gapBottom = (ch + 1) * channelHeight;
+            if (relativeY >= gapTop && relativeY < gapBottom)
+                return -1;  // In gap - means "all channels"
+        }
+    }
+
+    return -1;  // Shouldn't reach here, but fallback to all channels
 }
 
 //==============================================================================
@@ -1438,6 +1512,42 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& event)
         return;
     }
 
+    // Check for channel label clicks (solo/mute/context menu)
+    juce::Point<int> clickPos(event.x, event.y);
+    for (int ch = 0; ch < m_numChannels && ch < 8; ++ch)
+    {
+        if (m_channelLabelBounds[static_cast<size_t>(ch)].contains(clickPos))
+        {
+            // Right-click (or Ctrl+click on Mac) = show context menu
+            if (event.mods.isPopupMenu())
+            {
+                showChannelContextMenu(ch, event.getScreenPosition());
+                return;
+            }
+            // Alt+click (Option on Mac) = toggle mute
+            else if (event.mods.isAltDown())
+            {
+                if (onChannelMuteChanged && getChannelMute)
+                {
+                    bool currentMute = getChannelMute(ch);
+                    onChannelMuteChanged(ch, !currentMute);
+                    repaint();
+                }
+            }
+            // Regular click = toggle solo
+            else
+            {
+                if (onChannelSoloChanged && getChannelSolo)
+                {
+                    bool currentSolo = getChannelSolo(ch);
+                    onChannelSoloChanged(ch, !currentSolo);
+                    repaint();
+                }
+            }
+            return; // Don't start selection on label click
+        }
+    }
+
     // Start selection drag
     m_isDraggingSelection = true;
     m_isExtendingSelection = false;  // Clear keyboard extension flag when mouse selecting
@@ -1460,6 +1570,85 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& event)
 
     // Set edit cursor on click (will be cleared if user drags)
     setEditCursor(m_dragStartTime);
+}
+
+void WaveformDisplay::mouseDoubleClick(const juce::MouseEvent& event)
+{
+    if (!m_fileLoaded)
+        return;
+
+    // Ignore double-clicks on scrollbar or ruler
+    if (event.y < RULER_HEIGHT || event.y > getHeight() - SCROLLBAR_HEIGHT)
+        return;
+
+    // Check for double-click on channel labels - toggle focus for that channel
+    juce::Point<int> clickPos(event.x, event.y);
+    for (int ch = 0; ch < m_numChannels && ch < 8; ++ch)
+    {
+        if (m_channelLabelBounds[static_cast<size_t>(ch)].contains(clickPos))
+        {
+            // Double-click on channel label toggles focus:
+            // - If this is the only focused channel, go back to "all channels"
+            // - Otherwise, focus only this channel
+            if (m_focusedChannels == (1 << ch))
+            {
+                // Already focused on just this channel - unfocus (return to all)
+                focusChannel(-1);
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "Double-click label: Unfocused channel %d, now ALL channels focused", ch));
+            }
+            else
+            {
+                // Focus only this channel
+                focusChannel(ch);
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "Double-click label: Focused channel %d only", ch));
+            }
+            repaint();
+            return;
+        }
+    }
+
+    // Determine which channel was double-clicked (in waveform area)
+    int channel = getChannelAtY(event.y);
+
+    if (channel >= 0)
+    {
+        // Double-clicked inside a specific channel waveform
+        // Toggle focus: if already focused on just this channel, unfocus
+        if (m_focusedChannels == (1 << channel))
+        {
+            // Already focused on just this channel - unfocus (return to all)
+            focusChannel(-1);
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Double-click waveform: Unfocused channel %d, now ALL channels focused, selected entire duration (%.3f sec)",
+                channel, m_totalDuration));
+        }
+        else
+        {
+            // Focus this channel
+            focusChannel(channel);
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Double-click waveform: Focused channel %d, selected entire duration (%.3f sec)",
+                channel, m_totalDuration));
+        }
+    }
+    else
+    {
+        // Double-clicked in gap between channels (or mono file)
+        // Focus all channels and select entire duration
+        focusChannel(-1);
+
+        juce::Logger::writeToLog(juce::String::formatted(
+            "Double-click: Focused ALL channels, selected entire duration (%.3f sec)",
+            m_totalDuration));
+    }
+
+    // Select entire duration
+    setSelection(0.0, m_totalDuration);
+
+    // Clear edit cursor since we have a selection
+    clearEditCursor();
 }
 
 void WaveformDisplay::mouseDrag(const juce::MouseEvent& event)
@@ -1816,9 +2005,27 @@ void WaveformDisplay::drawTimeRuler(juce::Graphics& g, juce::Rectangle<int> boun
 
 void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int> bounds, int channelNum)
 {
-    // Channel background
-    g.setColour(juce::Colour(0xff252525));
+    // Channel background - slightly different shade for unfocused channels
+    bool isFocused = isChannelFocused(channelNum);
+    bool showFocusIndicator = (m_focusedChannels != -1);  // Only show when not all focused
+
+    if (!isFocused && showFocusIndicator)
+    {
+        // Dimmer background for unfocused channels
+        g.setColour(juce::Colour(0xff1a1a1a));
+    }
+    else
+    {
+        g.setColour(juce::Colour(0xff252525));
+    }
     g.fillRect(bounds);
+
+    // Draw focus indicator border for focused channels (when not all are focused)
+    if (isFocused && showFocusIndicator)
+    {
+        g.setColour(juce::Colour(0xff00aaff).withAlpha(0.6f));  // Cyan highlight
+        g.drawRect(bounds.reduced(1), 2);
+    }
 
     // Center line
     g.setColour(juce::Colour(0xff3a3a3a));
@@ -1826,21 +2033,76 @@ void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int
                bounds.getRight(), bounds.getCentreY(), 1.0f);
 
     // Draw waveform - use fast direct rendering if enabled, otherwise use thumbnail
+    // Dim unfocused channels when single channel is focused
+    float waveformAlpha = (isFocused || !showFocusIndicator) ? 1.0f : 0.4f;
+
     if (m_useDirectRendering)
     {
+        // For direct rendering, we'll handle alpha in drawChannelWaveformDirect
         drawChannelWaveformDirect(g, bounds, channelNum);
+
+        // Apply dimming overlay for unfocused channels
+        if (!isFocused && showFocusIndicator)
+        {
+            g.setColour(juce::Colours::black.withAlpha(0.5f));
+            g.fillRect(bounds);
+        }
     }
     else
     {
-        g.setColour(juce::Colour(0xff00d4aa)); // JUCE brand color
+        juce::Colour waveformColor = juce::Colour(0xff00d4aa).withAlpha(waveformAlpha);
+        g.setColour(waveformColor);
         m_thumbnail.drawChannel(g, bounds, m_visibleStart, m_visibleEnd, channelNum, 1.0f);
     }
 
-    // Channel label (for all channel counts)
-    if (m_numChannels >= 1)
+    // Channel label with solo/mute indicators (for all channel counts)
+    if (m_numChannels >= 1 && channelNum < 8)
     {
-        g.setColour(juce::Colours::grey);
-        g.setFont(10.0f);
+        // Store label bounds for hit testing
+        juce::Rectangle<int> labelBounds(bounds.getX() + 2, bounds.getY() + 2,
+                                          CHANNEL_LABEL_WIDTH, CHANNEL_LABEL_HEIGHT);
+        m_channelLabelBounds[static_cast<size_t>(channelNum)] = labelBounds;
+
+        // Check solo/mute/focus state
+        bool isSolo = getChannelSolo ? getChannelSolo(channelNum) : false;
+        bool isMute = getChannelMute ? getChannelMute(channelNum) : false;
+        bool isChannelCurrentlyFocused = isChannelFocused(channelNum);
+        bool showingFocusMode = (m_focusedChannels != -1);  // In per-channel focus mode
+
+        // Draw background based on state priority: Solo > Mute > Focused > Default
+        juce::Colour labelBgColor(0x00000000);  // Transparent by default
+        juce::Colour labelTextColor = juce::Colours::grey;
+
+        if (isSolo)
+        {
+            // Yellow background for solo (highest priority)
+            labelBgColor = juce::Colour(0xffddaa00).withAlpha(0.9f);
+            labelTextColor = juce::Colours::white;
+        }
+        else if (isMute)
+        {
+            // Red background for mute
+            labelBgColor = juce::Colour(0xffdd3333).withAlpha(0.9f);
+            labelTextColor = juce::Colours::white;
+        }
+        else if (showingFocusMode && isChannelCurrentlyFocused)
+        {
+            // Blue background for focused channel (when in per-channel mode)
+            labelBgColor = juce::Colour(0xff3a7dd4).withAlpha(0.9f);
+            labelTextColor = juce::Colours::white;
+        }
+        else if (showingFocusMode && !isChannelCurrentlyFocused)
+        {
+            // Dimmed label for unfocused channels
+            labelTextColor = juce::Colours::grey.withAlpha(0.5f);
+        }
+
+        // Draw label background if not transparent
+        if (labelBgColor.getAlpha() > 0)
+        {
+            g.setColour(labelBgColor);
+            g.fillRoundedRectangle(labelBounds.toFloat(), 3.0f);
+        }
 
         // Use ChannelLayout for proper labels
         waveedit::ChannelLayout layout = waveedit::ChannelLayout::fromChannelCount(m_numChannels);
@@ -1850,7 +2112,14 @@ void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int
         if (label.isEmpty() || label == "?")
             label = "Ch " + juce::String(channelNum + 1);
 
-        g.drawText(label, bounds.getX() + 5, bounds.getY() + 5, 30, 20,
+        // Note: Channel state is indicated by background color:
+        // - Yellow = Solo, Red = Mute, Blue = Focused, None = Default
+        // No text suffix needed to avoid confusion with surround labels.
+
+        // Draw label text
+        g.setColour(labelTextColor);
+        g.setFont(10.0f);
+        g.drawText(label, labelBounds.reduced(3, 0),
                    juce::Justification::centredLeft, true);
     }
 }
@@ -2208,5 +2477,98 @@ void WaveformDisplay::constrainVisibleRange()
             m_visibleEnd = m_totalDuration;
             m_visibleStart = m_totalDuration - visibleDuration;
         }
+    }
+}
+
+//==============================================================================
+// Channel Context Menu
+//==============================================================================
+
+void WaveformDisplay::showChannelContextMenu(int channel, juce::Point<int> screenPos)
+{
+    juce::PopupMenu menu;
+
+    bool isSolo = getChannelSolo ? getChannelSolo(channel) : false;
+    bool isMute = getChannelMute ? getChannelMute(channel) : false;
+
+    // Get channel label for display
+    waveedit::ChannelLayout layout = waveedit::ChannelLayout::fromChannelCount(m_numChannels);
+    juce::String channelName = layout.getFullName(channel);
+    if (channelName.isEmpty())
+        channelName = "Channel " + juce::String(channel + 1);
+
+    // Solo/Mute toggles
+    menu.addItem(1, isSolo ? "Unsolo " + channelName : "Solo " + channelName, true, isSolo);
+    menu.addItem(2, isMute ? "Unmute " + channelName : "Mute " + channelName, true, isMute);
+    menu.addSeparator();
+
+    // Bulk operations
+    menu.addItem(3, "Solo This Only");
+    menu.addItem(4, "Unsolo All Channels");
+    menu.addItem(5, "Unmute All Channels");
+
+    menu.showMenuAsync(juce::PopupMenu::Options()
+        .withTargetScreenArea(juce::Rectangle<int>(screenPos.x, screenPos.y, 1, 1)),
+        [this, channel](int result) { handleChannelMenuResult(channel, result); });
+}
+
+void WaveformDisplay::handleChannelMenuResult(int channel, int menuResult)
+{
+    switch (menuResult)
+    {
+        case 1:  // Toggle Solo
+            if (onChannelSoloChanged && getChannelSolo)
+            {
+                bool currentSolo = getChannelSolo(channel);
+                onChannelSoloChanged(channel, !currentSolo);
+                repaint();
+            }
+            break;
+
+        case 2:  // Toggle Mute
+            if (onChannelMuteChanged && getChannelMute)
+            {
+                bool currentMute = getChannelMute(channel);
+                onChannelMuteChanged(channel, !currentMute);
+                repaint();
+            }
+            break;
+
+        case 3:  // Solo This Only
+            if (onChannelSoloChanged)
+            {
+                // Unsolo all others, solo this one
+                for (int ch = 0; ch < m_numChannels && ch < 8; ++ch)
+                {
+                    onChannelSoloChanged(ch, ch == channel);
+                }
+                repaint();
+            }
+            break;
+
+        case 4:  // Unsolo All
+            if (onChannelSoloChanged)
+            {
+                for (int ch = 0; ch < m_numChannels && ch < 8; ++ch)
+                {
+                    onChannelSoloChanged(ch, false);
+                }
+                repaint();
+            }
+            break;
+
+        case 5:  // Unmute All
+            if (onChannelMuteChanged)
+            {
+                for (int ch = 0; ch < m_numChannels && ch < 8; ++ch)
+                {
+                    onChannelMuteChanged(ch, false);
+                }
+                repaint();
+            }
+            break;
+
+        default:
+            break;
     }
 }

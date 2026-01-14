@@ -52,6 +52,18 @@ namespace SpeakerPosition
 }
 
 //==============================================================================
+// ITU-R BS.775 Standard Gain Coefficients for Downmix/Upmix
+// These constants are used throughout the channel conversion system.
+//==============================================================================
+
+namespace ITUCoefficients
+{
+    constexpr float kUnityGain = 1.0f;            // 0 dB (full level)
+    constexpr float kMinus3dB  = 0.70710678f;     // -3 dB = 1/sqrt(2)
+    constexpr float kMinus6dB  = 0.50118723f;     // -6 dB = 10^(-6/20)
+}
+
+//==============================================================================
 // Channel Layout Presets
 //==============================================================================
 
@@ -411,6 +423,41 @@ private:
 };
 
 //==============================================================================
+// Downmix preset types for professional workflows
+//==============================================================================
+
+enum class DownmixPreset
+{
+    ITU_Standard,    // ITU-R BS.775: Center -3dB, Surrounds -3dB, LFE muted
+    Professional,    // Center -3dB, Surrounds -6dB, LFE muted
+    FilmFoldDown,    // Center -3dB, Surrounds -3dB, LFE -6dB
+    Custom           // User-defined coefficients
+};
+
+//==============================================================================
+// LFE handling options
+//==============================================================================
+
+enum class LFEHandling
+{
+    Exclude,         // Do not include LFE in downmix (recommended)
+    IncludeMinus3dB, // Include at -3dB
+    IncludeMinus6dB  // Include at -6dB
+};
+
+//==============================================================================
+// Upmix strategy options
+//==============================================================================
+
+enum class UpmixStrategy
+{
+    FrontOnly,       // L/R to front speakers only, silence elsewhere (Recommended)
+    PhantomCenter,   // L/R front, derive center from L+R at -3dB
+    FullSurround,    // L/R front, C = (L+R)*0.707, Ls = L*0.5, Rs = R*0.5
+    Duplicate        // Current pan-based behavior, duplicate to all channels
+};
+
+//==============================================================================
 // Channel Converter utilities
 //==============================================================================
 
@@ -433,8 +480,38 @@ public:
                                              int targetChannels,
                                              ChannelLayoutType targetLayout = ChannelLayoutType::Unknown)
     {
+        // Default to ITU Standard preset with LFE excluded
+        return convert(source, targetChannels, targetLayout,
+                       DownmixPreset::ITU_Standard, LFEHandling::Exclude);
+    }
+
+    /**
+     * Convert audio buffer with custom downmix/upmix settings.
+     *
+     * @param source Source audio buffer
+     * @param targetChannels Target number of channels
+     * @param targetLayout Optional target layout for proper mapping
+     * @param preset Downmix preset (ITU_Standard, Professional, FilmFoldDown, Custom)
+     * @param lfeHandling How to handle LFE channel (Exclude, IncludeMinus3dB, IncludeMinus6dB)
+     * @param upmixStrategy How to handle upmixing (FrontOnly, PhantomCenter, FullSurround, Duplicate)
+     * @return Converted audio buffer
+     */
+    static juce::AudioBuffer<float> convert(const juce::AudioBuffer<float>& source,
+                                             int targetChannels,
+                                             ChannelLayoutType targetLayout,
+                                             DownmixPreset preset,
+                                             LFEHandling lfeHandling,
+                                             UpmixStrategy upmixStrategy = UpmixStrategy::FrontOnly)
+    {
         int sourceChannels = source.getNumChannels();
         int numSamples = source.getNumSamples();
+
+        // Guard: empty or invalid buffer
+        if (sourceChannels <= 0 || numSamples <= 0 || targetChannels <= 0)
+        {
+            // Return minimal valid buffer matching target channel count
+            return juce::AudioBuffer<float>(juce::jmax(1, targetChannels), 0);
+        }
 
         if (sourceChannels == targetChannels)
         {
@@ -450,8 +527,8 @@ public:
 
         if (targetChannels == 1)
         {
-            // Downmix to mono - average all channels
-            mixdownToMono(source, result);
+            // Downmix to mono using ITU coefficients
+            mixdownToMono(source, result, lfeHandling);
         }
         else if (sourceChannels == 1)
         {
@@ -460,13 +537,13 @@ public:
         }
         else if (targetChannels == 2)
         {
-            // Downmix to stereo
-            mixdownToStereo(source, result);
+            // Downmix to stereo using ITU-R BS.775 coefficients
+            mixdownToStereo(source, result, preset, lfeHandling);
         }
         else if (sourceChannels == 2)
         {
-            // Upmix from stereo
-            upmixFromStereo(source, result, targetChannels, targetLayout);
+            // Upmix from stereo with selected strategy
+            upmixFromStereo(source, result, targetChannels, targetLayout, upmixStrategy);
         }
         else
         {
@@ -477,28 +554,142 @@ public:
         return result;
     }
 
+    /**
+     * Extract specific channels from source buffer.
+     *
+     * @param source Source audio buffer
+     * @param channelIndices Vector of channel indices to extract (0-based)
+     * @return New buffer containing only the selected channels
+     */
+    static juce::AudioBuffer<float> extractChannels(const juce::AudioBuffer<float>& source,
+                                                     const std::vector<int>& channelIndices)
+    {
+        int numSamples = source.getNumSamples();
+        int outputChannels = static_cast<int>(channelIndices.size());
+
+        // Guard: empty buffer
+        if (numSamples <= 0 || source.getNumChannels() <= 0)
+        {
+            return juce::AudioBuffer<float>(juce::jmax(1, outputChannels), 0);
+        }
+
+        if (outputChannels == 0)
+            return juce::AudioBuffer<float>(0, 0); // Return empty buffer for empty channel list
+
+        juce::AudioBuffer<float> result(outputChannels, numSamples);
+
+        for (int destCh = 0; destCh < outputChannels; ++destCh)
+        {
+            int srcCh = channelIndices[static_cast<size_t>(destCh)];
+            if (srcCh >= 0 && srcCh < source.getNumChannels())
+            {
+                result.copyFrom(destCh, 0, source, srcCh, 0, numSamples);
+            }
+            else
+            {
+                result.clear(destCh, 0, numSamples);
+            }
+        }
+
+        return result;
+    }
+
     //==========================================================================
-    // Mixdown to mono
+    // Mixdown to mono using ITU-R BS.775 coefficients
     //==========================================================================
 
     static void mixdownToMono(const juce::AudioBuffer<float>& source,
-                               juce::AudioBuffer<float>& dest)
+                               juce::AudioBuffer<float>& dest,
+                               LFEHandling lfeHandling = LFEHandling::Exclude)
     {
         int numChannels = source.getNumChannels();
         int numSamples = source.getNumSamples();
-        float* monoData = dest.getWritePointer(0);
-        float scale = 1.0f / static_cast<float>(numChannels);
 
-        // Clear destination
+        // Guard: empty or invalid buffers
+        if (numChannels <= 0 || numSamples <= 0 || dest.getNumChannels() < 1 || dest.getNumSamples() < numSamples)
+        {
+            if (dest.getNumSamples() > 0)
+                dest.clear();
+            return;
+        }
+
+        // IMPORTANT: Clear destination FIRST, then get pointer
+        // Getting the pointer before clear() can result in an invalid pointer
         dest.clear();
+        float* monoData = dest.getWritePointer(0);
 
-        // Sum all channels with equal weighting
+        // LFE gain based on handling option
+        float lfeGain = 0.0f;
+        switch (lfeHandling)
+        {
+            case LFEHandling::Exclude:         lfeGain = 0.0f; break;
+            case LFEHandling::IncludeMinus3dB: lfeGain = ITUCoefficients::kMinus3dB; break;
+            case LFEHandling::IncludeMinus6dB: lfeGain = ITUCoefficients::kMinus6dB; break;
+        }
+
+        // Get layout for speaker position mapping
+        ChannelLayout layout = ChannelLayout::fromChannelCount(numChannels);
+
+        // For stereo, use ITU standard: M = 0.707*L + 0.707*R
+        // For multichannel, use speaker position-aware mixing
         for (int ch = 0; ch < numChannels; ++ch)
         {
             const float* channelData = source.getReadPointer(ch);
+            const ChannelInfo& info = layout.getChannelInfo(ch);
+
+            float gain = 0.0f;
+
+            switch (info.speakerPosition)
+            {
+                case SpeakerPosition::FRONT_LEFT:
+                case SpeakerPosition::FRONT_RIGHT:
+                    // L/R at -3dB each for stereo-to-mono
+                    gain = ITUCoefficients::kMinus3dB;
+                    break;
+
+                case SpeakerPosition::FRONT_CENTER:
+                    // Center at unity (full level) in mono
+                    gain = ITUCoefficients::kUnityGain;
+                    break;
+
+                case SpeakerPosition::LOW_FREQUENCY:
+                    gain = lfeGain;
+                    break;
+
+                case SpeakerPosition::BACK_LEFT:
+                case SpeakerPosition::BACK_RIGHT:
+                case SpeakerPosition::SIDE_LEFT:
+                case SpeakerPosition::SIDE_RIGHT:
+                case SpeakerPosition::BACK_CENTER:
+                    // Surrounds at -6dB in mono mix
+                    gain = ITUCoefficients::kMinus6dB;
+                    break;
+
+                default:
+                    // Unknown - use simple averaging fallback
+                    gain = 1.0f / static_cast<float>(numChannels);
+                    break;
+            }
+
             for (int i = 0; i < numSamples; ++i)
             {
-                monoData[i] += channelData[i] * scale;
+                monoData[i] += channelData[i] * gain;
+            }
+        }
+
+        // Normalize to prevent clipping
+        float maxLevel = 0.0f;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            maxLevel = juce::jmax(maxLevel, std::abs(monoData[i]));
+        }
+
+        if (maxLevel > 1.0f)
+        {
+            float scale = 1.0f / maxLevel;
+            for (int i = 0; i < numSamples; ++i)
+            {
+                monoData[i] *= scale;
             }
         }
     }
@@ -511,51 +702,132 @@ public:
                                juce::AudioBuffer<float>& dest,
                                int targetChannels)
     {
-        const float* monoData = source.getReadPointer(0);
         int numSamples = source.getNumSamples();
 
+        // Guard: empty or invalid buffers
+        if (source.getNumChannels() < 1 || numSamples <= 0 || targetChannels <= 0 || dest.getNumSamples() < numSamples)
+        {
+            if (dest.getNumSamples() > 0)
+                dest.clear();
+            return;
+        }
+
+        const float* monoData = source.getReadPointer(0);
+
         // Copy mono to all target channels
-        for (int ch = 0; ch < targetChannels; ++ch)
+        for (int ch = 0; ch < targetChannels && ch < dest.getNumChannels(); ++ch)
         {
             dest.copyFrom(ch, 0, monoData, numSamples);
         }
     }
 
     //==========================================================================
-    // Mixdown to stereo
+    // Mixdown to stereo using ITU-R BS.775 standard coefficients
     //==========================================================================
 
     static void mixdownToStereo(const juce::AudioBuffer<float>& source,
-                                 juce::AudioBuffer<float>& dest)
+                                 juce::AudioBuffer<float>& dest,
+                                 DownmixPreset preset = DownmixPreset::ITU_Standard,
+                                 LFEHandling lfeHandling = LFEHandling::Exclude)
     {
         int sourceChannels = source.getNumChannels();
         int numSamples = source.getNumSamples();
+
+        // Guard: empty or invalid buffers
+        if (sourceChannels <= 0 || numSamples <= 0 || dest.getNumChannels() < 2 || dest.getNumSamples() < numSamples)
+        {
+            if (dest.getNumSamples() > 0)
+                dest.clear();
+            return;
+        }
 
         dest.clear();
 
         float* leftData = dest.getWritePointer(0);
         float* rightData = dest.getWritePointer(1);
 
-        // Get source layout for proper mixing
+        // Select surround attenuation based on preset
+        float surroundGain = (preset == DownmixPreset::Professional)
+                             ? ITUCoefficients::kMinus6dB
+                             : ITUCoefficients::kMinus3dB;
+        float centerGain = ITUCoefficients::kMinus3dB;
+
+        // LFE gain based on handling option
+        float lfeGain = 0.0f;
+        switch (lfeHandling)
+        {
+            case LFEHandling::Exclude:         lfeGain = 0.0f; break;
+            case LFEHandling::IncludeMinus3dB: lfeGain = ITUCoefficients::kMinus3dB; break;
+            case LFEHandling::IncludeMinus6dB: lfeGain = ITUCoefficients::kMinus6dB; break;
+        }
+
+        // Override LFE for Film Fold-Down preset
+        if (preset == DownmixPreset::FilmFoldDown)
+            lfeGain = ITUCoefficients::kMinus6dB;
+
+        // Get source layout for speaker position mapping
         ChannelLayout layout = ChannelLayout::fromChannelCount(sourceChannels);
 
-        // Standard downmix coefficients
+        // Apply ITU-R BS.775 downmix coefficients based on speaker position
         for (int ch = 0; ch < sourceChannels; ++ch)
         {
             const float* channelData = source.getReadPointer(ch);
             const ChannelInfo& info = layout.getChannelInfo(ch);
 
-            // Pan position determines L/R contribution
-            float leftGain = (1.0f - info.defaultPanPosition) * 0.5f;
-            float rightGain = (1.0f + info.defaultPanPosition) * 0.5f;
+            float leftGain = 0.0f;
+            float rightGain = 0.0f;
 
-            // LFE gets reduced level in stereo downmix
-            if (info.speakerPosition == SpeakerPosition::LOW_FREQUENCY)
+            // Map speaker position to stereo using ITU coefficients
+            switch (info.speakerPosition)
             {
-                leftGain *= 0.707f;  // -3dB
-                rightGain *= 0.707f;
+                case SpeakerPosition::FRONT_LEFT:
+                    leftGain = ITUCoefficients::kUnityGain;
+                    rightGain = 0.0f;
+                    break;
+
+                case SpeakerPosition::FRONT_RIGHT:
+                    leftGain = 0.0f;
+                    rightGain = ITUCoefficients::kUnityGain;
+                    break;
+
+                case SpeakerPosition::FRONT_CENTER:
+                    // Center goes to both channels at -3dB
+                    leftGain = centerGain;
+                    rightGain = centerGain;
+                    break;
+
+                case SpeakerPosition::LOW_FREQUENCY:
+                    // LFE based on handling option (default: excluded)
+                    leftGain = lfeGain;
+                    rightGain = lfeGain;
+                    break;
+
+                case SpeakerPosition::BACK_LEFT:
+                case SpeakerPosition::SIDE_LEFT:
+                    // Left surround goes to left channel only
+                    leftGain = surroundGain;
+                    rightGain = 0.0f;
+                    break;
+
+                case SpeakerPosition::BACK_RIGHT:
+                case SpeakerPosition::SIDE_RIGHT:
+                    // Right surround goes to right channel only
+                    leftGain = 0.0f;
+                    rightGain = surroundGain;
+                    break;
+
+                case SpeakerPosition::BACK_CENTER:
+                    // Center surround splits to both at reduced level
+                    leftGain = surroundGain * ITUCoefficients::kMinus3dB;
+                    rightGain = surroundGain * ITUCoefficients::kMinus3dB;
+                    break;
+
+                default:
+                    // Unknown speaker position - ignore channel
+                    break;
             }
 
+            // Apply gains
             for (int i = 0; i < numSamples; ++i)
             {
                 leftData[i] += channelData[i] * leftGain;
@@ -563,7 +835,7 @@ public:
             }
         }
 
-        // Normalize to prevent clipping (simple limiting)
+        // Normalize to prevent clipping (simple peak limiting)
         float maxLevel = 0.0f;
         for (int i = 0; i < numSamples; ++i)
         {
@@ -582,34 +854,129 @@ public:
     }
 
     //==========================================================================
-    // Upmix from stereo
+    // Upmix from stereo with strategy selection
     //==========================================================================
 
     static void upmixFromStereo(const juce::AudioBuffer<float>& source,
                                  juce::AudioBuffer<float>& dest,
                                  int targetChannels,
-                                 ChannelLayoutType targetLayout)
+                                 ChannelLayoutType targetLayout,
+                                 UpmixStrategy strategy = UpmixStrategy::FrontOnly)
     {
+        int numSamples = source.getNumSamples();
+
+        // Guard: empty or invalid buffers
+        if (source.getNumChannels() < 2 || numSamples <= 0 || targetChannels <= 0 || dest.getNumSamples() < numSamples)
+        {
+            if (dest.getNumSamples() > 0)
+                dest.clear();
+            return;
+        }
+
         const float* leftData = source.getReadPointer(0);
         const float* rightData = source.getReadPointer(1);
-        int numSamples = source.getNumSamples();
 
         ChannelLayout layout(targetLayout != ChannelLayoutType::Unknown
                              ? targetLayout
                              : ChannelLayout::fromChannelCount(targetChannels).getType());
 
-        for (int ch = 0; ch < targetChannels && ch < layout.getNumChannels(); ++ch)
+        // Use centralized ITU coefficients
+        using ITUCoefficients::kMinus3dB;
+        using ITUCoefficients::kMinus6dB;
+
+        for (int ch = 0; ch < targetChannels && ch < layout.getNumChannels() && ch < dest.getNumChannels(); ++ch)
         {
             float* destData = dest.getWritePointer(ch);
             const ChannelInfo& info = layout.getChannelInfo(ch);
 
-            // Derive from stereo based on pan position
-            float leftContrib = (1.0f - info.defaultPanPosition) * 0.5f;
-            float rightContrib = (1.0f + info.defaultPanPosition) * 0.5f;
+            float leftGain = 0.0f;
+            float rightGain = 0.0f;
 
+            switch (strategy)
+            {
+                case UpmixStrategy::FrontOnly:
+                    // Only fill front L/R, silence everything else
+                    if (info.speakerPosition == SpeakerPosition::FRONT_LEFT)
+                    {
+                        leftGain = 1.0f;
+                        rightGain = 0.0f;
+                    }
+                    else if (info.speakerPosition == SpeakerPosition::FRONT_RIGHT)
+                    {
+                        leftGain = 0.0f;
+                        rightGain = 1.0f;
+                    }
+                    // All other channels remain silent (0, 0)
+                    break;
+
+                case UpmixStrategy::PhantomCenter:
+                    // L/R to front, derive center from L+R
+                    if (info.speakerPosition == SpeakerPosition::FRONT_LEFT)
+                    {
+                        leftGain = 1.0f;
+                        rightGain = 0.0f;
+                    }
+                    else if (info.speakerPosition == SpeakerPosition::FRONT_RIGHT)
+                    {
+                        leftGain = 0.0f;
+                        rightGain = 1.0f;
+                    }
+                    else if (info.speakerPosition == SpeakerPosition::FRONT_CENTER)
+                    {
+                        // Center derived from L+R at -3dB each
+                        leftGain = kMinus3dB;
+                        rightGain = kMinus3dB;
+                    }
+                    // LFE and surrounds remain silent
+                    break;
+
+                case UpmixStrategy::FullSurround:
+                    // L/R front, C from L+R, Ls/Rs derived from L/R
+                    if (info.speakerPosition == SpeakerPosition::FRONT_LEFT)
+                    {
+                        leftGain = 1.0f;
+                        rightGain = 0.0f;
+                    }
+                    else if (info.speakerPosition == SpeakerPosition::FRONT_RIGHT)
+                    {
+                        leftGain = 0.0f;
+                        rightGain = 1.0f;
+                    }
+                    else if (info.speakerPosition == SpeakerPosition::FRONT_CENTER)
+                    {
+                        // Center derived from L+R at -3dB
+                        leftGain = kMinus3dB;
+                        rightGain = kMinus3dB;
+                    }
+                    else if (info.speakerPosition == SpeakerPosition::BACK_LEFT ||
+                             info.speakerPosition == SpeakerPosition::SIDE_LEFT)
+                    {
+                        // Left surround derived from Left at -6dB
+                        leftGain = kMinus6dB;
+                        rightGain = 0.0f;
+                    }
+                    else if (info.speakerPosition == SpeakerPosition::BACK_RIGHT ||
+                             info.speakerPosition == SpeakerPosition::SIDE_RIGHT)
+                    {
+                        // Right surround derived from Right at -6dB
+                        leftGain = 0.0f;
+                        rightGain = kMinus6dB;
+                    }
+                    // LFE remains silent
+                    break;
+
+                case UpmixStrategy::Duplicate:
+                default:
+                    // Pan-based distribution to all channels (original behavior)
+                    leftGain = (1.0f - info.defaultPanPosition) * 0.5f;
+                    rightGain = (1.0f + info.defaultPanPosition) * 0.5f;
+                    break;
+            }
+
+            // Apply gains
             for (int i = 0; i < numSamples; ++i)
             {
-                destData[i] = leftData[i] * leftContrib + rightData[i] * rightContrib;
+                destData[i] = leftData[i] * leftGain + rightData[i] * rightGain;
             }
         }
     }
@@ -624,6 +991,14 @@ public:
         int sourceChannels = source.getNumChannels();
         int destChannels = dest.getNumChannels();
         int numSamples = source.getNumSamples();
+
+        // Guard: empty or invalid buffers
+        if (sourceChannels <= 0 || destChannels <= 0 || numSamples <= 0 || dest.getNumSamples() < numSamples)
+        {
+            if (dest.getNumSamples() > 0)
+                dest.clear();
+            return;
+        }
 
         // Copy matching channels
         int channelsToCopy = juce::jmin(sourceChannels, destChannels);

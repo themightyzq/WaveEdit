@@ -118,6 +118,15 @@ public:
     juce::AudioBuffer<float>& getMutableBuffer() { return m_buffer; }
 
     /**
+     * Replaces the entire buffer with a new buffer.
+     * Used for operations that change the channel count.
+     *
+     * @param newBuffer The new audio buffer
+     * @param sampleRate The sample rate for the new buffer
+     */
+    void setBuffer(const juce::AudioBuffer<float>& newBuffer, double sampleRate);
+
+    /**
      * Gets a copy of audio data for a specific range.
      *
      * @param startSample Start sample (inclusive)
@@ -166,6 +175,42 @@ public:
      * @return true if successful
      */
     bool silenceRange(int64_t startSample, int64_t numSamples);
+
+    /**
+     * Fills a range with digital silence for specific channels only.
+     * Used for per-channel editing when only some channels are focused.
+     *
+     * @param startSample Start sample (inclusive)
+     * @param numSamples Number of samples to silence
+     * @param channelMask Bitmask of channels to silence (bit N = channel N)
+     *                    Use -1 to silence all channels (same as silenceRange)
+     * @return true if successful
+     */
+    bool silenceRangeForChannels(int64_t startSample, int64_t numSamples, int channelMask);
+
+    /**
+     * Gets a copy of audio data for specific channels only.
+     * Used for per-channel copy operations.
+     *
+     * @param startSample Start sample (inclusive)
+     * @param numSamples Number of samples to copy
+     * @param channelMask Bitmask of channels to copy (bit N = channel N)
+     *                    Use -1 to copy all channels (same as getAudioRange)
+     * @return New buffer containing the requested range for specified channels
+     */
+    juce::AudioBuffer<float> getAudioRangeForChannels(int64_t startSample, int64_t numSamples, int channelMask) const;
+
+    /**
+     * Replaces audio data for specific channels only.
+     * Used for per-channel paste operations. Does not change buffer length.
+     *
+     * @param startSample Start sample (inclusive)
+     * @param sourceAudio Audio data to copy from
+     * @param channelMask Bitmask of channels to replace (bit N = channel N)
+     *                    Use -1 to replace all channels
+     * @return true if successful
+     */
+    bool replaceChannelsInRange(int64_t startSample, const juce::AudioBuffer<float>& sourceAudio, int channelMask);
 
     /**
      * Trims audio to keep only the specified range (deletes everything outside).

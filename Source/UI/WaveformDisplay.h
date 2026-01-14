@@ -26,6 +26,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <functional>
+#include <array>
 #include "../Utils/AudioUnits.h"
 #include "../Utils/NavigationPreferences.h"
 
@@ -123,6 +124,71 @@ public:
      * Parameters: (startTime, endTime) in seconds.
      */
     std::function<void(double, double)> onVisibleRangeChanged;
+
+    //==============================================================================
+    // Channel Solo/Mute callbacks
+
+    /**
+     * Callback for toggling channel solo state.
+     * Parameters: (channel index, solo state)
+     * Click on channel label toggles solo.
+     */
+    std::function<void(int, bool)> onChannelSoloChanged;
+
+    /**
+     * Callback for toggling channel mute state.
+     * Parameters: (channel index, mute state)
+     * Alt+click on channel label toggles mute.
+     */
+    std::function<void(int, bool)> onChannelMuteChanged;
+
+    /**
+     * Query function to get channel solo state.
+     * Returns true if channel is solo'd.
+     */
+    std::function<bool(int)> getChannelSolo;
+
+    /**
+     * Query function to get channel mute state.
+     * Returns true if channel is muted.
+     */
+    std::function<bool(int)> getChannelMute;
+
+    /**
+     * Callback when focused channels change.
+     * Parameter: bitmask of focused channels (1 << channel for each focused channel)
+     * -1 means all channels focused (default state)
+     */
+    std::function<void(int)> onChannelFocusChanged;
+
+    //==============================================================================
+    // Channel Focus (for per-channel editing)
+
+    /**
+     * Gets the focused channel bitmask.
+     * Returns -1 if all channels are focused (default).
+     * Otherwise returns bitmask where bit N = channel N is focused.
+     */
+    int getFocusedChannels() const { return m_focusedChannels; }
+
+    /**
+     * Sets which channels are focused for editing.
+     * @param channelMask -1 for all channels, or bitmask (1 << channel)
+     */
+    void setFocusedChannels(int channelMask);
+
+    /**
+     * Checks if a specific channel is focused.
+     * @param channel Channel index (0-based)
+     * @return true if channel is focused or all channels are focused
+     */
+    bool isChannelFocused(int channel) const;
+
+    /**
+     * Focuses a single channel for editing.
+     * @param channel Channel index, or -1 for all channels
+     */
+    void focusChannel(int channel);
 
     //==============================================================================
     // Selection
@@ -487,6 +553,7 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& event) override;
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
     void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
@@ -609,6 +676,7 @@ private:
     double m_selectionEnd;
     bool m_isDraggingSelection;
     double m_dragStartTime;
+    int m_focusedChannels;  // -1 = all channels, otherwise bitmask
 
     // Bidirectional selection extension (for Shift+Arrow navigation)
     bool m_isExtendingSelection;      // True when actively extending with Shift+arrows
@@ -644,9 +712,26 @@ private:
     static constexpr int RULER_HEIGHT = 30;
     static constexpr int SCROLLBAR_HEIGHT = 16;
     static constexpr int CHANNEL_GAP = 4;
+    static constexpr int CHANNEL_LABEL_WIDTH = 45;  // Width for channel label hit area
+    static constexpr int CHANNEL_LABEL_HEIGHT = 20; // Height for channel label hit area
+
+    // Channel label bounds for solo/mute click detection
+    // Indexed by channel number, stores the clickable rectangle for each label
+    std::array<juce::Rectangle<int>, 8> m_channelLabelBounds;
 
     // Time comparison epsilon (1ms for sample-accurate comparisons)
     static constexpr double TIME_EPSILON = 0.001;
+
+    // Channel context menu methods
+    void showChannelContextMenu(int channel, juce::Point<int> screenPos);
+    void handleChannelMenuResult(int channel, int menuResult);
+
+    /**
+     * Gets the channel index at a given Y coordinate.
+     * @param y Y coordinate in component space
+     * @return Channel index (0-based), or -1 if in gap between channels or outside waveform area
+     */
+    int getChannelAtY(int y) const;
 
     // Auto-scroll behavior constants
     static constexpr double SCROLL_TRIGGER_RIGHT = 0.75;  ///< Trigger scroll when cursor reaches 75% from left

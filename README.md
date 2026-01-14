@@ -66,6 +66,7 @@ No project files, no import wizards. Just open → edit → save.
 **Core Editing**:
 - ✅ Multi-file support with tab-based UI
 - ✅ Cut, copy, paste, delete
+- ✅ Per-channel editing (double-click to focus individual channels)
 - ✅ Undo/redo (100 levels per file)
 - ✅ Drag & drop multiple files
 - ✅ Save/Save As with error handling

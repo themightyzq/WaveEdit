@@ -76,6 +76,8 @@ target_sources(WaveEdit
         Source/UI/GainDialog.h
         Source/UI/ChannelConverterDialog.cpp
         Source/UI/ChannelConverterDialog.h
+        Source/UI/ChannelExtractorDialog.cpp
+        Source/UI/ChannelExtractorDialog.h
         Source/UI/NewFileDialog.cpp
         Source/UI/NewFileDialog.h
         Source/UI/NormalizeDialog.cpp
@@ -517,6 +519,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/GainDialog.h
         Source/UI/ChannelConverterDialog.cpp
         Source/UI/ChannelConverterDialog.h
+        Source/UI/ChannelExtractorDialog.cpp
+        Source/UI/ChannelExtractorDialog.h
         Source/UI/NewFileDialog.cpp
         Source/UI/NewFileDialog.h
         Source/UI/NormalizeDialog.cpp
@@ -711,6 +715,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Integration/SaveAsFormatsTests.cpp            # Phase 4 ✅ (Save As all formats)
             Tests/Integration/SaveAs8BitTests.cpp               # Phase 4 ✅ (8-bit Save Tests)
             Tests/Unit/BatchJobTests.cpp                        # Batch Processor tests
+            Tests/ChannelSystemTests.cpp                        # Channel system tests (ITU coefficients, extraction, upmix)
             # Tests/Integration/RegionListPanelTests.cpp        # Week 4 ⚠️ (Needs migration to Catch2)
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
