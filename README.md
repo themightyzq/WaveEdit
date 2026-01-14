@@ -7,7 +7,7 @@
 [![Build Status](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml/badge.svg)](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml)
 
 **Developer**: ZQ SFX
-**Copyright**: © 2025 ZQ SFX
+**Copyright**: © 2025-2026 ZQ SFX
 **License**: GPL v3
 
 ---
