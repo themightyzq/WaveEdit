@@ -483,7 +483,7 @@ private:
         if (saveSuccess)
         {
             // Get original file size
-            int64_t originalSize = testFile.getSize();
+            juce::int64 originalSize = testFile.getSize();
 
             // Try to overwrite with invalid data (should fail internally)
             // Create an empty buffer (invalid)
