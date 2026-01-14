@@ -168,7 +168,7 @@ Automated builds are available for macOS, Windows, and Linux. Download the lates
 
 **Quick build** (recommended):
 ```bash
-git clone https://github.com/yourusername/waveedit.git
+git clone https://github.com/themightyzq/WaveEdit.git
 cd waveedit
 ./build-and-run.command
 ```
@@ -184,7 +184,7 @@ cd waveedit
 
 **Manual build** (if you prefer CMake commands directly):
 ```bash
-git clone https://github.com/yourusername/waveedit.git
+git clone https://github.com/themightyzq/WaveEdit.git
 cd waveedit
 git submodule update --init --recursive
 
@@ -459,12 +459,12 @@ See [LICENSE](LICENSE) for full details.
 
 ## Contact
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/waveedit/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/waveedit/discussions)
+- **Issues**: [GitHub Issues](https://github.com/themightyzq/WaveEdit/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/themightyzq/WaveEdit/discussions)
 
 ---
 
 **Version**: 0.1.0-dev
-**Last Updated**: 2025-12-31
+**Last Updated**: 2026-01-14
 
 For detailed status and roadmap, see [TODO.md](TODO.md).
