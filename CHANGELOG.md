@@ -70,6 +70,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Root cause: JUCE's `createWriterFor` may delete the stream on failure, but unique_ptr was also trying to delete it
 - **FLAC bit depth** - Fixed bit depth clamping (JUCE FLAC only supports 16/24-bit, not 8-bit)
 - **Use-after-free in modal dialogs** - Fixed Channel Extractor and Channel Converter dialogs accessing freed memory after `runModal()` returns. Changed from heap allocation with `setOwned()` to stack allocation with `setNonOwned()` to prevent JUCE from deleting the dialog before results are retrieved
+- **Linux CI build failure** - Fixed type mismatch between `juce::int64` and `int64_t` in test assertions (different types on Linux)
 - Solo indicator no longer appends "S" suffix, avoiding confusion with surround channels like "Ls" and "Rs"; background color (yellow) now indicates solo state
 - Graphical EQ preview now starts from selection start instead of file beginning
 
@@ -349,5 +350,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## Links
 
 - [README.md](README.md) - User guide and keyboard shortcuts
-- [TODO.md](TODO.md) - Current priorities and roadmap
-- [CLAUDE.md](CLAUDE.md) - Architecture and coding standards
+- [GitHub Issues](https://github.com/themightyzq/WaveEdit/issues) - Bug reports and feature requests
