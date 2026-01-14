@@ -96,8 +96,9 @@ $RECYCLE.BIN/
 *.xlsx
 *.csv
 
-# Claude Code / AI session data (private)
+# Claude Code / AI development files (private)
 .claude/
+CLAUDE.md
 
 # AI-generated temporary documentation
 *_SUMMARY.md
