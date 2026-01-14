@@ -96,9 +96,10 @@ $RECYCLE.BIN/
 *.xlsx
 *.csv
 
-# Claude Code / AI development files
+# Claude Code / AI session data (private)
 .claude/
-# Note: CLAUDE.md is checked into the repo as project documentation
+
+# AI-generated temporary documentation
 *_SUMMARY.md
 *_GUIDE.md
 *_CHECKLIST.md
@@ -106,12 +107,6 @@ $RECYCLE.BIN/
 *_FIXES.md
 *_REPORT.md
 *_ANALYSIS.md
-WHERE_ARE_THE_FEATURES.md
-AUDIO_EDITING_INTEGRATION.md
-EDITING_WORKFLOW_FIXES.md
-SELECTION_VISIBILITY_FIX.md
-
-# Claude-generated testing and development documentation
 MANUAL_TESTING*.md
 TESTING_STATUS.md
 TEST_COVERAGE_GAPS.md
@@ -119,11 +114,12 @@ FIX_VERIFICATION.md
 REFACTORING_STATUS.md
 *_PHASE*.md
 
-# Test infrastructure (keep tests local, not in repo)
-Tests/
+# Internal development scripts and QA docs (not needed for building)
 scripts/
+QA_Plans/
+QA_TEST_PLAN_SUMMARY.txt
 
-# Test/development source files
+# Test source files that aren't part of main test suite
 Source/Test*.cpp
 Source/Test*.h
 
