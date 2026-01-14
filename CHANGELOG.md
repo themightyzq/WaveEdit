@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Channel Extractor Format Support**: Export extracted channels to WAV, FLAC, or OGG formats (previously WAV-only)
+- **Channel System Tests**: Comprehensive test suite (Tests/ChannelSystemTests.cpp) verifying:
+  - ITU-R BS.775 downmix coefficients for stereo and mono conversion
+  - Channel extraction buffer integrity
+  - Upmix strategy algorithms (FrontOnly, PhantomCenter, FullSurround, Duplicate)
+  - Downmix presets (ITU Standard, Professional, FilmFoldDown)
+- **ITUCoefficients Namespace**: Centralized gain constants (kUnityGain, kMinus3dB, kMinus6dB) in ChannelLayout.h
+- **Empty Buffer Guards**: All channel conversion functions now validate input buffers to prevent crashes on invalid/empty data
 - **UI/UX Accessibility Improvements**:
   - Custom WaveEditLookAndFeel with WCAG-compliant focus indicators on buttons, toggles, combo boxes, sliders, and text editors
   - Improved text contrast: secondary and muted text now meet WCAG 2.1 AA standards (~5:1 contrast ratio)
@@ -35,11 +43,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Layout names displayed in File Properties dialog
   - WAVEFORMATEXTENSIBLE speaker position mask support
 - **Channel Converter** (Cmd+Shift+U): Convert between channel layouts
-  - Intelligent upmix/downmix algorithms preserving audio quality
-  - Preset-based selection for common formats
-  - Warnings for downmix operations that combine channels
+  - **ITU-R BS.775 standard downmix coefficients** for professional-quality stereo downmix
+  - Downmix presets: ITU Standard, Professional, Film Fold-Down
+  - LFE handling options: Exclude (default), Include at -3dB, Include at -6dB
+  - Channel extraction mode: select specific channels to keep without mixing
+  - Formula preview showing exact mixing coefficients for each output channel
+  - Intelligent upmix algorithms preserving audio quality
+- **Per-Channel Editing**: Edit individual channels independently in multichannel files
+  - Double-click on channel waveform to focus that channel and select all
+  - Double-click on channel label to toggle focus for that channel
+  - Double-click on already-focused channel to return to "all channels" mode
+  - Focused channels indicated by blue background on label, cyan border on waveform
+  - Unfocused channels dimmed for clear visual hierarchy
+  - Cut/copy/paste/delete operations only affect focused channels
+  - Per-channel delete silences focused channels (preserves file length)
+  - Per-channel paste replaces in-place (no length change)
 
 ### Fixed
+- **CRITICAL: Mono downmix silence bug** - Fixed pointer/clear ordering in mixdownToMono that caused all mono downmixes to produce silence
+- **Channel Converter dialog cutoff** - Increased dialog height from 480px to 580px to fully display upmix options and buttons
+- **Heap corruption crash** - Fixed double-free bugs across multiple file writing code paths:
+  - Channel extractor FLAC/OGG export
+  - Auto-save background job
+  - AudioFileManager FLAC/OGG export
+  - Batch processor output
+  - Root cause: JUCE's `createWriterFor` may delete the stream on failure, but unique_ptr was also trying to delete it
+- **FLAC bit depth** - Fixed bit depth clamping (JUCE FLAC only supports 16/24-bit, not 8-bit)
+- **Use-after-free in modal dialogs** - Fixed Channel Extractor and Channel Converter dialogs accessing freed memory after `runModal()` returns. Changed from heap allocation with `setOwned()` to stack allocation with `setNonOwned()` to prevent JUCE from deleting the dialog before results are retrieved
+- Solo indicator no longer appends "S" suffix, avoiding confusion with surround channels like "Ls" and "Rs"; background color (yellow) now indicates solo state
 - Graphical EQ preview now starts from selection start instead of file beginning
 
 ### Changed

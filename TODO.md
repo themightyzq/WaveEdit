@@ -11,7 +11,19 @@ For completed work, see [CHANGELOG.md](CHANGELOG.md).
   - ChannelLayout system with Mono, Stereo, LCR, Quad, 5.0-7.1 Surround support
   - Film/SMPTE channel ordering, proper channel labels in waveform display
   - WAVEFORMATEXTENSIBLE speaker position masks
-  - Channel Converter dialog (Cmd+Shift+U) with intelligent upmix/downmix
+  - Channel Converter dialog (Cmd+Shift+U) with:
+    - ITU-R BS.775 standard downmix coefficients (professional quality)
+    - Downmix presets: ITU Standard, Professional, Film Fold-Down
+    - LFE handling options (Exclude, -3dB, -6dB)
+    - Channel extraction mode for selecting specific channels
+    - Formula preview showing exact mixing coefficients
+  - Solo/mute indicated by background color (no text suffix to avoid surround label confusion)
+- ✅ **Per-Channel Editing** - Edit individual channels independently
+  - Double-click channel waveform or label to focus that channel
+  - Double-click again on focused channel to return to "all channels" mode
+  - Focused channel shows blue label background + cyan waveform border
+  - Cut/copy/paste/delete only affect focused channels
+  - Per-channel delete silences (preserves length); per-channel paste replaces in-place
 - ✅ **Batch Processor** - Process multiple files with DSP chain, EQ presets, plugin chains
 - ✅ **Universal Preview System** (Phase 6 complete)
 - ✅ **VST3/AU Plugin Hosting** - Full implementation with scanning, chain, presets
@@ -146,7 +158,13 @@ For completed work, see [CHANGELOG.md](CHANGELOG.md).
   - `Tests/RegionManagerTests.cpp` (563 lines)
   - `Tests/RegionListPanelTests.cpp` (391 lines)
   - `Tests/MultiRegionDragTests.cpp`
-- **Unit tests**: `./build/WaveEditTests_artefacts/Debug/WaveEditTests`
+- **Channel System**: Comprehensive ITU coefficient and conversion tests
+  - `Tests/ChannelSystemTests.cpp` (650+ lines, 25 test groups)
+  - Verifies downmix coefficients (stereo→mono, 5.1→stereo)
+  - Tests upmix strategies (FrontOnly, PhantomCenter, FullSurround, Duplicate)
+  - Validates channel extraction buffer integrity
+  - Edge case handling (empty buffers, single sample, clipping prevention)
+- **Unit tests**: `./build/WaveEditTests_artefacts/Release/WaveEditTests`
 - Manual QA checklist in CLAUDE.md Section 10
 
 ### Areas Needing Tests

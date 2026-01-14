@@ -1065,3 +1065,77 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ApplyPluginChainAction)
 };
+
+//==============================================================================
+/**
+ * Undoable action for channel conversion (e.g., stereo to mono, mono to 5.1, etc.)
+ * Stores the entire original buffer since channel count changes.
+ */
+class ChannelConvertAction : public UndoableEditBase
+{
+public:
+    /**
+     * Creates a channel conversion action.
+     *
+     * @param bufferManager Reference to the document's buffer manager
+     * @param audioEngine Reference to the document's audio engine
+     * @param waveformDisplay Reference to the waveform display for updates
+     * @param convertedBuffer The new audio data with target channel count (already converted)
+     */
+    ChannelConvertAction(AudioBufferManager& bufferManager,
+                         AudioEngine& audioEngine,
+                         WaveformDisplay& waveformDisplay,
+                         const juce::AudioBuffer<float>& convertedBuffer)
+        : UndoableEditBase(bufferManager, audioEngine, waveformDisplay),
+          m_convertedBuffer(convertedBuffer.getNumChannels(), convertedBuffer.getNumSamples())
+    {
+        // Store the entire original buffer (needed because channel count changes)
+        const auto& buffer = m_bufferManager.getBuffer();
+        m_originalBuffer.setSize(buffer.getNumChannels(), buffer.getNumSamples());
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            m_originalBuffer.copyFrom(ch, 0, buffer, ch, 0, buffer.getNumSamples());
+        }
+
+        // Copy converted buffer
+        for (int ch = 0; ch < convertedBuffer.getNumChannels(); ++ch)
+        {
+            m_convertedBuffer.copyFrom(ch, 0, convertedBuffer, ch, 0, convertedBuffer.getNumSamples());
+        }
+
+        m_sampleRate = m_bufferManager.getSampleRate();
+    }
+
+    bool perform() override
+    {
+        // Replace entire buffer with converted version
+        m_bufferManager.setBuffer(m_convertedBuffer, m_sampleRate);
+        updatePlaybackAndDisplay();
+        return true;
+    }
+
+    bool undo() override
+    {
+        // Restore original buffer
+        m_bufferManager.setBuffer(m_originalBuffer, m_sampleRate);
+        updatePlaybackAndDisplay();
+        return true;
+    }
+
+    int getSizeInUnits() override
+    {
+        // Return approximate memory usage in bytes (both buffers)
+        size_t originalSize = static_cast<size_t>(m_originalBuffer.getNumSamples()) *
+                              static_cast<size_t>(m_originalBuffer.getNumChannels()) * sizeof(float);
+        size_t convertedSize = static_cast<size_t>(m_convertedBuffer.getNumSamples()) *
+                               static_cast<size_t>(m_convertedBuffer.getNumChannels()) * sizeof(float);
+        return static_cast<int>(originalSize + convertedSize);
+    }
+
+private:
+    juce::AudioBuffer<float> m_originalBuffer;
+    juce::AudioBuffer<float> m_convertedBuffer;
+    double m_sampleRate;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChannelConvertAction)
+};

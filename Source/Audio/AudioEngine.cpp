@@ -222,6 +222,8 @@ AudioEngine::AudioEngine()
     {
         m_peakLevels[ch].store(0.0f);
         m_rmsLevels[ch].store(0.0f);
+        m_channelSolo[ch].store(false);
+        m_channelMute[ch].store(false);
     }
 }
 
@@ -750,6 +752,67 @@ float AudioEngine::getRMSLevel(int channel) const
     return 0.0f;
 }
 
+//==============================================================================
+// Channel Solo/Mute
+
+void AudioEngine::setChannelSolo(int channel, bool solo)
+{
+    if (channel >= 0 && channel < MAX_CHANNELS)
+    {
+        m_channelSolo[channel].store(solo);
+        juce::Logger::writeToLog("AudioEngine: Channel " + juce::String(channel) +
+                                 (solo ? " solo ON" : " solo OFF"));
+    }
+}
+
+bool AudioEngine::isChannelSolo(int channel) const
+{
+    if (channel >= 0 && channel < MAX_CHANNELS)
+    {
+        return m_channelSolo[channel].load();
+    }
+    return false;
+}
+
+void AudioEngine::setChannelMute(int channel, bool mute)
+{
+    if (channel >= 0 && channel < MAX_CHANNELS)
+    {
+        m_channelMute[channel].store(mute);
+        juce::Logger::writeToLog("AudioEngine: Channel " + juce::String(channel) +
+                                 (mute ? " muted" : " unmuted"));
+    }
+}
+
+bool AudioEngine::isChannelMute(int channel) const
+{
+    if (channel >= 0 && channel < MAX_CHANNELS)
+    {
+        return m_channelMute[channel].load();
+    }
+    return false;
+}
+
+bool AudioEngine::hasAnySolo() const
+{
+    for (int ch = 0; ch < MAX_CHANNELS; ++ch)
+    {
+        if (m_channelSolo[ch].load())
+            return true;
+    }
+    return false;
+}
+
+void AudioEngine::clearAllSoloMute()
+{
+    for (int ch = 0; ch < MAX_CHANNELS; ++ch)
+    {
+        m_channelSolo[ch].store(false);
+        m_channelMute[ch].store(false);
+    }
+    juce::Logger::writeToLog("AudioEngine: All solo/mute cleared");
+}
+
 void AudioEngine::setSpectrumAnalyzer(SpectrumAnalyzer* spectrumAnalyzer)
 {
     m_spectrumAnalyzer = spectrumAnalyzer;
@@ -1008,6 +1071,32 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         if (previewPlugin != nullptr)
         {
             previewPlugin->processBlock(buffer, m_emptyMidiBuffer);
+        }
+    }
+
+    //==============================================================================
+    // CHANNEL SOLO/MUTE: Apply per-channel monitoring controls
+    // This runs after all DSP processing so users hear the final result with solo/mute applied
+    bool anySolo = hasAnySolo();
+    for (int ch = 0; ch < juce::jmin(numOutputChannels, MAX_CHANNELS); ++ch)
+    {
+        bool shouldMuteChannel = false;
+
+        // Check if channel should be silent
+        if (m_channelMute[ch].load())
+        {
+            // Explicit mute always silences the channel
+            shouldMuteChannel = true;
+        }
+        else if (anySolo && !m_channelSolo[ch].load())
+        {
+            // If any channel is solo'd, non-solo'd channels are silenced
+            shouldMuteChannel = true;
+        }
+
+        if (shouldMuteChannel)
+        {
+            buffer.clear(ch, 0, numSamples);
         }
     }
 

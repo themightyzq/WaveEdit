@@ -323,6 +323,134 @@ bool AudioBufferManager::silenceRange(int64_t startSample, int64_t numSamples)
     return true;
 }
 
+bool AudioBufferManager::silenceRangeForChannels(int64_t startSample, int64_t numSamples, int channelMask)
+{
+    juce::ScopedLock sl(m_lock);
+
+    // If channelMask is -1, silence all channels
+    if (channelMask == -1)
+    {
+        return silenceRange(startSample, numSamples);
+    }
+
+    // Validate range
+    if (startSample < 0 || numSamples <= 0 ||
+        startSample + numSamples > m_buffer.getNumSamples())
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Invalid range in silenceRangeForChannels");
+        return false;
+    }
+
+    // Silence only the specified channels
+    int numChannelsSilenced = 0;
+    for (int ch = 0; ch < m_buffer.getNumChannels(); ++ch)
+    {
+        if ((channelMask & (1 << ch)) != 0)
+        {
+            m_buffer.clear(ch, static_cast<int>(startSample), static_cast<int>(numSamples));
+            numChannelsSilenced++;
+        }
+    }
+
+    juce::Logger::writeToLog("AudioBufferManager: Silenced " + juce::String(numSamples) +
+                             " samples on " + juce::String(numChannelsSilenced) + " channels");
+
+    return true;
+}
+
+juce::AudioBuffer<float> AudioBufferManager::getAudioRangeForChannels(int64_t startSample, int64_t numSamples, int channelMask) const
+{
+    juce::ScopedLock sl(m_lock);
+
+    // If channelMask is -1, return all channels (same as getAudioRange)
+    if (channelMask == -1)
+    {
+        return getAudioRange(startSample, numSamples);
+    }
+
+    // Count the number of channels to copy
+    int outputChannelCount = 0;
+    for (int ch = 0; ch < m_buffer.getNumChannels(); ++ch)
+    {
+        if ((channelMask & (1 << ch)) != 0)
+            outputChannelCount++;
+    }
+
+    if (outputChannelCount == 0)
+    {
+        return juce::AudioBuffer<float>();
+    }
+
+    // Validate range
+    int64_t actualStart = juce::jmax((int64_t)0, startSample);
+    int64_t actualEnd = juce::jmin((int64_t)m_buffer.getNumSamples(), startSample + numSamples);
+    int64_t actualSamples = actualEnd - actualStart;
+
+    if (actualSamples <= 0)
+    {
+        return juce::AudioBuffer<float>();
+    }
+
+    // Create output buffer with only the requested channels
+    juce::AudioBuffer<float> result(outputChannelCount, static_cast<int>(actualSamples));
+
+    int outputCh = 0;
+    for (int ch = 0; ch < m_buffer.getNumChannels(); ++ch)
+    {
+        if ((channelMask & (1 << ch)) != 0)
+        {
+            result.copyFrom(outputCh, 0, m_buffer, ch, static_cast<int>(actualStart), static_cast<int>(actualSamples));
+            outputCh++;
+        }
+    }
+
+    return result;
+}
+
+bool AudioBufferManager::replaceChannelsInRange(int64_t startSample, const juce::AudioBuffer<float>& sourceAudio, int channelMask)
+{
+    juce::ScopedLock sl(m_lock);
+
+    // Validate range
+    if (startSample < 0 || sourceAudio.getNumSamples() <= 0 ||
+        startSample + sourceAudio.getNumSamples() > m_buffer.getNumSamples())
+    {
+        juce::Logger::writeToLog("AudioBufferManager: Invalid range in replaceChannelsInRange");
+        return false;
+    }
+
+    int numSamples = sourceAudio.getNumSamples();
+
+    // If channelMask is -1, replace all channels
+    if (channelMask == -1)
+    {
+        int channelsToReplace = juce::jmin(m_buffer.getNumChannels(), sourceAudio.getNumChannels());
+        for (int ch = 0; ch < channelsToReplace; ++ch)
+        {
+            m_buffer.copyFrom(ch, static_cast<int>(startSample), sourceAudio, ch, 0, numSamples);
+        }
+        return true;
+    }
+
+    // Count focused channels to determine source channel mapping
+    int sourceChIndex = 0;
+    for (int ch = 0; ch < m_buffer.getNumChannels(); ++ch)
+    {
+        if ((channelMask & (1 << ch)) != 0)
+        {
+            // Map source channel to destination channel
+            int srcCh = sourceChIndex % sourceAudio.getNumChannels();
+            m_buffer.copyFrom(ch, static_cast<int>(startSample), sourceAudio, srcCh, 0, numSamples);
+            sourceChIndex++;
+        }
+    }
+
+    juce::Logger::writeToLog("AudioBufferManager: Replaced " + juce::String(numSamples) +
+                             " samples on " + juce::String(sourceChIndex) + " channels");
+
+    return true;
+}
+
 bool AudioBufferManager::trimToRange(int64_t startSample, int64_t numSamples)
 {
     juce::ScopedLock sl(m_lock);
@@ -466,4 +594,20 @@ bool AudioBufferManager::convertToChannelCount(int targetChannels)
                              " channels (" + juce::String(m_buffer.getNumSamples()) + " samples)");
 
     return true;
+}
+
+void AudioBufferManager::setBuffer(const juce::AudioBuffer<float>& newBuffer, double sampleRate)
+{
+    juce::ScopedLock sl(m_lock);
+
+    m_buffer.setSize(newBuffer.getNumChannels(), newBuffer.getNumSamples());
+    for (int ch = 0; ch < newBuffer.getNumChannels(); ++ch)
+    {
+        m_buffer.copyFrom(ch, 0, newBuffer, ch, 0, newBuffer.getNumSamples());
+    }
+    m_sampleRate = sampleRate;
+
+    juce::Logger::writeToLog("AudioBufferManager: setBuffer with " +
+                             juce::String(m_buffer.getNumChannels()) + " channels, " +
+                             juce::String(m_buffer.getNumSamples()) + " samples");
 }

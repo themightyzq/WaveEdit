@@ -10,6 +10,14 @@
 
 WaveEdit demonstrates **strong UI consistency** in behavior and layout patterns but requires improvements in **WCAG accessibility standards** and **formalized visual constants**. The processing dialog footer pattern is well-standardized, and the dark theme provides good visual cohesion. Key recommendations focus on accessibility enhancements and maintainability improvements.
 
+### Recent Updates (2026-01-13)
+
+**Per-Channel Selection UX Improvements:**
+- Double-click on already-focused channel now toggles back to "all channels" mode
+- Double-click on channel label now toggles focus (previously ignored)
+- Channel labels now show blue background when focused in per-channel mode
+- Unfocused channels are dimmed visually for clear differentiation
+
 ---
 
 ## 1. Methodology
@@ -194,6 +202,24 @@ juce::FontOptions(18.0f).withStyle("Bold")  // Modern
 | Preview | Pass | Single-file preview |
 | Plugin chain | Pass | UI exposed |
 | Presets | Pass | Export/Import |
+
+### 6.4 Per-Channel Editing (WaveformDisplay)
+
+| Feature | Interaction | Visual Feedback | Status |
+|---------|-------------|-----------------|--------|
+| Focus single channel | Double-click waveform | Blue label bg, cyan border, dimmed others | Pass |
+| Focus via label | Double-click label | Blue label bg | Pass |
+| Toggle off focus | Double-click again | Returns to all-channels mode | Pass |
+| Visual hierarchy | - | Focused = bright, unfocused = dimmed | Pass |
+
+**Channel Label States:**
+| State | Background Color | Text Color |
+|-------|-----------------|------------|
+| Default | None | Grey |
+| Solo | Yellow (#ddaa00) | White |
+| Mute | Red (#dd3333) | White |
+| Focused | Blue (#3a7dd4) | White |
+| Unfocused (in focus mode) | None | Grey (50% opacity) |
 
 ---
 

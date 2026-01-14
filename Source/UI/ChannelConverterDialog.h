@@ -20,16 +20,18 @@
 #include "../Audio/ChannelLayout.h"
 
 /**
- * Modal dialog for converting audio channel count.
+ * Modal dialog for converting audio channel count (downmix/upmix).
  *
- * Provides a preset-based interface for common channel layouts:
- * - Mono (1 channel)
- * - Stereo (2 channels)
- * - 5.1 Surround (6 channels)
- * - 7.1 Surround (8 channels)
+ * Features:
+ * - Preset-based layout selection (Mono, Stereo, 5.1, 7.1, etc.)
+ * - Downmix presets: ITU Standard, Professional, Film Fold-Down
+ * - LFE handling options: Exclude, Include at -3dB, Include at -6dB
+ * - Upmix strategies: Front Only, Phantom Center, Full Surround, Duplicate
+ * - Plain language preview showing how channels will be mixed
  *
- * Displays current and target channel counts with layout names.
- * Shows warning when downmixing (potential quality loss).
+ * Uses ITU-R BS.775 standard coefficients for professional downmixing.
+ *
+ * For extracting channels to separate files, use ChannelExtractorDialog.
  */
 class ChannelConverterDialog : public juce::Component
 {
@@ -41,6 +43,9 @@ public:
     {
         int targetChannels;
         waveedit::ChannelLayoutType targetLayout;
+        waveedit::DownmixPreset downmixPreset;
+        waveedit::LFEHandling lfeHandling;
+        waveedit::UpmixStrategy upmixStrategy;
     };
 
     /**
@@ -66,17 +71,49 @@ public:
 private:
     void populatePresets();
     void onPresetChanged();
+    void onDownmixPresetChanged();
+    void onLFEHandlingChanged();
+    void onUpmixStrategyChanged();
     void onApplyClicked();
     void onCancelClicked();
     void updateInfoLabel();
+    void updateFormulaPreview();
 
-    // UI Components
+    // UI Components - Header
     juce::Label m_titleLabel;
     juce::Label m_currentLabel;
     juce::Label m_currentValueLabel;
+
+    // Target layout selector
     juce::Label m_targetLabel;
     juce::ComboBox m_targetCombo;
-    juce::Label m_infoLabel;        // Shows warnings/info about conversion
+
+    // Downmix options (visible when downmixing)
+    juce::GroupComponent m_downmixGroup;
+    juce::Label m_downmixPresetLabel;
+    juce::ToggleButton m_ituPresetButton;
+    juce::ToggleButton m_professionalPresetButton;
+    juce::ToggleButton m_customPresetButton;
+
+    juce::Label m_lfeLabel;
+    juce::ToggleButton m_lfeExcludeButton;
+    juce::ToggleButton m_lfeMinus3dBButton;
+    juce::ToggleButton m_lfeMinus6dBButton;
+
+    // Upmix options (visible when upmixing)
+    juce::GroupComponent m_upmixGroup;
+    juce::Label m_upmixStrategyLabel;
+    juce::ToggleButton m_frontOnlyButton;
+    juce::ToggleButton m_phantomCenterButton;
+    juce::ToggleButton m_fullSurroundButton;
+    juce::ToggleButton m_duplicateButton;
+
+    // Mix preview
+    juce::Label m_formulaLabel;
+    juce::TextEditor m_formulaPreview;
+
+    // Info and buttons
+    juce::Label m_infoLabel;
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
 

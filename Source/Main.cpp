@@ -26,6 +26,7 @@
 #include "Audio/AudioFileManager.h"
 #include "Audio/AudioBufferManager.h"
 #include "Audio/AudioProcessor.h"
+#include "Audio/ChannelLayout.h"
 #include "Commands/CommandIDs.h"
 #include "Utils/Settings.h"
 #include "Utils/AudioClipboard.h"
@@ -78,6 +79,7 @@
 #include "UI/ToolbarCustomizationDialog.h"
 #include "Batch/BatchProcessorDialog.h"
 #include "UI/ChannelConverterDialog.h"
+#include "UI/ChannelExtractorDialog.h"
 #include "UI/WaveEditLookAndFeel.h"
 
 //==============================================================================
@@ -604,6 +606,9 @@ public:
         // Wire up marker callbacks for this document (Phase 3.4)
         setupMarkerCallbacks(document);
 
+        // Wire up channel solo/mute callbacks for this document
+        setupSoloMuteCallbacks(document);
+
         // Update tab component to show new tab
         updateComponentVisibility();
     }
@@ -930,6 +935,7 @@ public:
 
     /**
      * Copy the current selection to the clipboard.
+     * Respects focused channels - if specific channels are focused, only copies those.
      */
     void copySelection()
     {
@@ -956,21 +962,40 @@ public:
         // Calculate number of samples in selection
         auto numSamples = endSample - startSample;
 
-        // Get the audio data for the selection
-        auto audioRange = doc->getBufferManager().getAudioRange(startSample, numSamples);
+        // Get focused channels for per-channel copy
+        int focusedChannels = doc->getWaveformDisplay().getFocusedChannels();
+
+        // Get the audio data for the selection (respecting focused channels)
+        auto audioRange = doc->getBufferManager().getAudioRangeForChannels(startSample, numSamples, focusedChannels);
 
         if (audioRange.getNumSamples() > 0)
         {
             AudioClipboard::getInstance().copyAudio(audioRange, doc->getBufferManager().getSampleRate());
 
-            juce::Logger::writeToLog(juce::String::formatted(
-                "Copied %.2f seconds to clipboard", selectionEnd - selectionStart));
+            if (focusedChannels != -1)
+            {
+                // Count focused channels for log message
+                int focusedCount = 0;
+                for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
+                    if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
+
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "Copied %.2f seconds (%d channel%s) to clipboard",
+                    selectionEnd - selectionStart, focusedCount, focusedCount != 1 ? "s" : ""));
+            }
+            else
+            {
+                juce::Logger::writeToLog(juce::String::formatted(
+                    "Copied %.2f seconds to clipboard", selectionEnd - selectionStart));
+            }
             repaint(); // Update status bar to show clipboard info
         }
     }
 
     /**
      * Cut the current selection to the clipboard.
+     * Respects focused channels - if specific channels are focused, copies those
+     * and then silences them (rather than deleting samples).
      */
     void cutSelection()
     {
@@ -986,17 +1011,34 @@ public:
             return;
         }
 
-        // First copy to clipboard
+        // Get focused channels before any operations
+        int focusedChannels = doc->getWaveformDisplay().getFocusedChannels();
+
+        // First copy to clipboard (will respect focused channels)
         copySelection();
 
-        // Then delete the selection
+        // Then delete/silence the selection (will respect focused channels)
         deleteSelection();
 
-        juce::Logger::writeToLog("Cut selection to clipboard");
+        if (focusedChannels != -1)
+        {
+            int focusedCount = 0;
+            for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
+                if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Cut %d channel%s to clipboard (silenced)", focusedCount, focusedCount != 1 ? "s" : ""));
+        }
+        else
+        {
+            juce::Logger::writeToLog("Cut selection to clipboard");
+        }
     }
 
     /**
      * Paste from the clipboard at the current cursor position.
+     * When specific channels are focused, replaces only those channels (no length change).
+     * When all channels are focused (normal mode), inserts or replaces as usual.
      */
     void pasteAtCursor()
     {
@@ -1005,9 +1047,6 @@ public:
         {
             return;
         }
-
-        // CRITICAL FIX (BLOCKER #3): Begin new transaction for each edit operation
-        doc->getUndoManager().beginNewTransaction("Paste");
 
         // Use edit cursor position if available, otherwise use playback position
         double cursorPos;
@@ -1048,14 +1087,95 @@ public:
         // Get clipboard audio
         auto clipboardAudio = AudioClipboard::getInstance().getAudio();
 
-        if (clipboardAudio.getNumSamples() > 0)
+        if (clipboardAudio.getNumSamples() <= 0)
         {
+            return;
+        }
+
+        // Check if we're in per-channel edit mode
+        int focusedChannels = doc->getWaveformDisplay().getFocusedChannels();
+
+        if (focusedChannels != -1)
+        {
+            // Per-channel mode: replace focused channels only (no length change)
+            doc->getUndoManager().beginNewTransaction("Paste to Channels");
+
+            // Determine paste location and length
+            int64_t startSample = insertSample;
+            int numSamples = clipboardAudio.getNumSamples();
+
+            // If there's a selection, use selection start
+            if (doc->getWaveformDisplay().hasSelection() && validateSelection())
+            {
+                startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
+            }
+
+            // Clamp to buffer length
+            int64_t maxSamples = doc->getBufferManager().getNumSamples() - startSample;
+            if (numSamples > maxSamples)
+            {
+                numSamples = static_cast<int>(maxSamples);
+            }
+
+            if (numSamples <= 0)
+            {
+                juce::Logger::writeToLog("Paste: No room at cursor position");
+                return;
+            }
+
+            // Truncate clipboard if necessary
+            juce::AudioBuffer<float> pasteAudio;
+            if (numSamples < clipboardAudio.getNumSamples())
+            {
+                pasteAudio.setSize(clipboardAudio.getNumChannels(), numSamples);
+                for (int ch = 0; ch < clipboardAudio.getNumChannels(); ++ch)
+                {
+                    pasteAudio.copyFrom(ch, 0, clipboardAudio, ch, 0, numSamples);
+                }
+            }
+            else
+            {
+                pasteAudio = clipboardAudio;
+            }
+
+            // Get the before state for the focused channels
+            auto beforeBuffer = doc->getBufferManager().getAudioRangeForChannels(
+                startSample, pasteAudio.getNumSamples(), focusedChannels);
+
+            // Create undoable action for channel replacement
+            auto replaceAction = new ReplaceChannelsAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                static_cast<int>(startSample),
+                beforeBuffer,
+                pasteAudio,
+                focusedChannels
+            );
+
+            // Perform the replace and add to undo manager
+            doc->getUndoManager().perform(replaceAction);
+
+            // Count focused channels for log message
+            int focusedCount = 0;
+            for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
+                if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Pasted %.2f seconds to %d channel%s (per-channel paste)",
+                pasteAudio.getNumSamples() / currentSampleRate,
+                focusedCount, focusedCount != 1 ? "s" : ""));
+        }
+        else
+        {
+            // Normal mode: insert or replace selection
+            doc->getUndoManager().beginNewTransaction("Paste");
+
             // If there's a selection, replace it; otherwise insert at cursor
             if (doc->getWaveformDisplay().hasSelection() && validateSelection())
             {
                 auto selectionStart = doc->getWaveformDisplay().getSelectionStart();
                 auto selectionEnd = doc->getWaveformDisplay().getSelectionEnd();
-                // CRITICAL FIX (2025-10-07): Convert to samples (now safe - validated above)
                 auto startSample = doc->getBufferManager().timeToSample(selectionStart);
                 auto endSample = doc->getBufferManager().timeToSample(selectionEnd);
 
@@ -1094,22 +1214,22 @@ public:
                     "Pasted %.2f seconds from clipboard (undoable)",
                     clipboardAudio.getNumSamples() / currentSampleRate));
             }
-
-            // Mark as modified
-            doc->setModified(true);
-
-            // Clear selection after paste
-            doc->getWaveformDisplay().clearSelection();
-
-            // NOTE: Waveform display already updated by undo action's updatePlaybackAndDisplay()
-            // Removed redundant reloadFromBuffer() call for performance
-
-            repaint();
         }
+
+        // Mark as modified
+        doc->setModified(true);
+
+        // Clear selection after paste
+        doc->getWaveformDisplay().clearSelection();
+
+        // NOTE: Waveform display already updated by undo action's updatePlaybackAndDisplay()
+        repaint();
     }
 
     /**
      * Delete the current selection.
+     * When specific channels are focused, silences those channels instead of deleting.
+     * When all channels are focused (normal mode), performs a full delete.
      */
     void deleteSelection()
     {
@@ -1122,29 +1242,72 @@ public:
             return;
         }
 
-        // CRITICAL FIX (BLOCKER #3): Begin new transaction for each edit operation
-        doc->getUndoManager().beginNewTransaction("Delete");
-
         auto selectionStart = doc->getWaveformDisplay().getSelectionStart();
         auto selectionEnd = doc->getWaveformDisplay().getSelectionEnd();
 
         // Convert time to samples (now safe - selection is validated)
         auto startSample = doc->getBufferManager().timeToSample(selectionStart);
         auto endSample = doc->getBufferManager().timeToSample(selectionEnd);
+        auto numSamples = endSample - startSample;
 
-        // Create undoable delete action (with region manager and display for undo support)
-        auto deleteAction = new DeleteAction(
-            doc->getBufferManager(),
-            doc->getAudioEngine(),
-            doc->getWaveformDisplay(),
-            startSample,
-            endSample - startSample,
-            &doc->getRegionManager(),  // Pass region manager for undo support
-            &doc->getRegionDisplay()   // Pass region display to update visuals after undo
-        );
+        // Check if we're in per-channel edit mode
+        int focusedChannels = doc->getWaveformDisplay().getFocusedChannels();
 
-        // Perform the delete and add to undo manager
-        doc->getUndoManager().perform(deleteAction);
+        if (focusedChannels != -1)
+        {
+            // Per-channel mode: silence focused channels instead of deleting
+            // (Can't delete samples from specific channels - would make channels different lengths)
+            doc->getUndoManager().beginNewTransaction("Silence Channels");
+
+            // Get the before state for the focused channels
+            auto beforeBuffer = doc->getBufferManager().getAudioRangeForChannels(startSample, numSamples, focusedChannels);
+
+            // Create undoable silence action for specific channels
+            auto silenceAction = new SilenceChannelsUndoAction(
+                doc->getBufferManager(),
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                beforeBuffer,
+                static_cast<int>(startSample),
+                static_cast<int>(numSamples),
+                focusedChannels
+            );
+
+            // Perform the silence and add to undo manager
+            doc->getUndoManager().perform(silenceAction);
+
+            // Count focused channels for log message
+            int focusedCount = 0;
+            for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
+                if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Silenced %.2f seconds on %d channel%s (per-channel delete)",
+                selectionEnd - selectionStart, focusedCount, focusedCount != 1 ? "s" : ""));
+        }
+        else
+        {
+            // Normal mode: delete all channels (removes samples, changes file length)
+            doc->getUndoManager().beginNewTransaction("Delete");
+
+            // Create undoable delete action (with region manager and display for undo support)
+            auto deleteAction = new DeleteAction(
+                doc->getBufferManager(),
+                doc->getAudioEngine(),
+                doc->getWaveformDisplay(),
+                startSample,
+                endSample - startSample,
+                &doc->getRegionManager(),  // Pass region manager for undo support
+                &doc->getRegionDisplay()   // Pass region display to update visuals after undo
+            );
+
+            // Perform the delete and add to undo manager
+            doc->getUndoManager().perform(deleteAction);
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Deleted %.2f seconds (undoable), cursor set at %.2f",
+                selectionEnd - selectionStart, selectionStart));
+        }
 
         // Mark as modified
         doc->setModified(true);
@@ -1154,15 +1317,7 @@ public:
 
         // CRITICAL FIX (Phase 1.4 - Edit Cursor Preservation):
         // Set edit cursor at the deletion point for professional workflow
-        // This enables cursor preservation during subsequent operations
         doc->getWaveformDisplay().setEditCursor(selectionStart);
-
-        // NOTE: Waveform display already updated by undo action's updatePlaybackAndDisplay()
-        // Removed redundant reloadFromBuffer() call for performance
-
-        juce::Logger::writeToLog(juce::String::formatted(
-            "Deleted %.2f seconds (undoable), cursor set at %.2f",
-            selectionEnd - selectionStart, selectionStart));
 
         repaint();
     }
@@ -1587,7 +1742,9 @@ public:
             CommandIDs::processFadeIn,
             CommandIDs::processFadeOut,
             CommandIDs::processDCOffset,
-            CommandIDs::processChannelConverter,
+            // Tools commands
+            CommandIDs::toolsChannelConverter,
+            CommandIDs::toolsChannelExtractor,
             // Region commands (Phase 3 Tier 2)
             CommandIDs::regionAdd,
             CommandIDs::regionDelete,
@@ -2226,8 +2383,15 @@ public:
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
-            case CommandIDs::processChannelConverter:
-                result.setInfo("Channel Converter...", "Convert between mono, stereo, and surround formats", "Process", 0);
+            case CommandIDs::toolsChannelConverter:
+                result.setInfo("Channel Converter...", "Convert between mono, stereo, and surround formats", "Tools", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::toolsChannelExtractor:
+                result.setInfo("Channel Extractor...", "Extract individual channels to separate files", "Tools", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
@@ -3596,9 +3760,14 @@ public:
                 showGraphicalEQDialog();
                 return true;
 
-            case CommandIDs::processChannelConverter:
+            case CommandIDs::toolsChannelConverter:
                 if (!doc) return false;
                 showChannelConverterDialog();
+                return true;
+
+            case CommandIDs::toolsChannelExtractor:
+                if (!doc) return false;
+                showChannelExtractorDialog();
                 return true;
 
             case CommandIDs::processNormalize:
@@ -3926,10 +4095,6 @@ public:
             menu.addCommandItem(&m_commandManager, CommandIDs::processParametricEQ);
             menu.addCommandItem(&m_commandManager, CommandIDs::processGraphicalEQ);
 
-            // --- Channels ---
-            menu.addSectionHeader("Channels");
-            menu.addCommandItem(&m_commandManager, CommandIDs::processChannelConverter);
-
             // --- Repair ---
             menu.addSectionHeader("Repair");
             menu.addCommandItem(&m_commandManager, CommandIDs::processDCOffset);
@@ -3959,6 +4124,11 @@ public:
         }
         else if (menuIndex == 7) // Tools menu
         {
+            // --- Channel Tools ---
+            menu.addSectionHeader("Channel Tools");
+            menu.addCommandItem(&m_commandManager, CommandIDs::toolsChannelConverter);
+            menu.addCommandItem(&m_commandManager, CommandIDs::toolsChannelExtractor);
+
             // --- Batch Processing ---
             menu.addSectionHeader("Batch Processing");
             menu.addCommandItem(&m_commandManager, CommandIDs::fileBatchProcessor);
@@ -6524,25 +6694,58 @@ public:
                 return;
             }
 
-            juce::Logger::writeToLog("Converting from " + juce::String(currentChannels) +
-                                     " to " + juce::String(targetChannels) + " channels");
-
-            // Create undo transaction
-            doc->getUndoManager().beginNewTransaction("Channel Converter");
-
-            // Perform conversion
-            if (bufferManager.convertToChannelCount(targetChannels))
+            // Log conversion details
+            juce::String presetName;
+            switch (result->downmixPreset)
             {
-                // Reload the audio engine with the new buffer
-                auto& engine = doc->getAudioEngine();
-                const auto& buffer = bufferManager.getBuffer();
-                engine.reloadBufferPreservingPlayback(buffer, bufferManager.getSampleRate(), buffer.getNumChannels());
+                case waveedit::DownmixPreset::ITU_Standard: presetName = "ITU Standard"; break;
+                case waveedit::DownmixPreset::Professional: presetName = "Professional"; break;
+                case waveedit::DownmixPreset::FilmFoldDown: presetName = "Film Fold-Down"; break;
+                case waveedit::DownmixPreset::Custom: presetName = "Custom"; break;
+            }
 
-                // Reload waveform display with new channel count
-                doc->getWaveformDisplay().reloadFromBuffer(buffer, bufferManager.getSampleRate(), true, true);
+            juce::String lfeName;
+            switch (result->lfeHandling)
+            {
+                case waveedit::LFEHandling::Exclude: lfeName = "Exclude"; break;
+                case waveedit::LFEHandling::IncludeMinus3dB: lfeName = "-3dB"; break;
+                case waveedit::LFEHandling::IncludeMinus6dB: lfeName = "-6dB"; break;
+            }
 
+            juce::String upmixName;
+            switch (result->upmixStrategy)
+            {
+                case waveedit::UpmixStrategy::FrontOnly: upmixName = "Front Only"; break;
+                case waveedit::UpmixStrategy::PhantomCenter: upmixName = "Phantom Center"; break;
+                case waveedit::UpmixStrategy::FullSurround: upmixName = "Full Surround"; break;
+                case waveedit::UpmixStrategy::Duplicate: upmixName = "Duplicate"; break;
+            }
+
+            juce::Logger::writeToLog("Converting from " + juce::String(currentChannels) +
+                                     " to " + juce::String(targetChannels) + " channels" +
+                                     " (Preset: " + presetName + ", LFE: " + lfeName +
+                                     ", Upmix: " + upmixName + ")");
+
+            juce::AudioBuffer<float> convertedBuffer = waveedit::ChannelConverter::convert(
+                bufferManager.getBuffer(),
+                targetChannels,
+                result->targetLayout,
+                result->downmixPreset,
+                result->lfeHandling,
+                result->upmixStrategy);
+
+            // Create undoable action with converted buffer
+            auto* action = new ChannelConvertAction(
+                bufferManager,
+                doc->getAudioEngine(),
+                doc->getWaveformDisplay(),
+                convertedBuffer);
+
+            // Perform via undo manager for full undo support
+            doc->getUndoManager().beginNewTransaction("Channel Converter");
+            if (doc->getUndoManager().perform(action))
+            {
                 doc->setModified(true);
-
                 juce::Logger::writeToLog("Channel conversion completed successfully");
             }
             else
@@ -6553,6 +6756,183 @@ public:
         else
         {
             juce::Logger::writeToLog("Channel converter dialog cancelled");
+        }
+    }
+
+    /**
+     * Show channel extractor dialog and export channels to files.
+     */
+    void showChannelExtractorDialog()
+    {
+        Document* doc = m_documentManager.getCurrentDocument();
+        if (!doc || !doc->getAudioEngine().isFileLoaded())
+            return;
+
+        auto& bufferManager = doc->getBufferManager();
+        int currentChannels = bufferManager.getNumChannels();
+        juce::File sourceFile = doc->getAudioEngine().getCurrentFile();
+        juce::String sourceFileName = sourceFile.getFileName();
+
+        auto result = ChannelExtractorDialog::showDialog(currentChannels, sourceFileName);
+
+        if (result.has_value())
+        {
+            juce::String baseName = sourceFile.getFileNameWithoutExtension();
+            double sampleRate = bufferManager.getSampleRate();
+            int bitDepth = bufferManager.getBitDepth();
+            if (bitDepth <= 0) bitDepth = 16;  // Default to 16-bit
+
+            waveedit::ChannelLayout layout(currentChannels);
+
+            // Determine file extension and create appropriate format
+            juce::String extension;
+            std::unique_ptr<juce::AudioFormat> audioFormat;
+
+            switch (result->exportFormat)
+            {
+                case ChannelExtractorDialog::ExportFormat::FLAC:
+                    extension = ".flac";
+                    audioFormat = std::make_unique<juce::FlacAudioFormat>();
+                    // JUCE's FlacAudioFormat only supports 16 and 24 bit (not 8-bit)
+                    if (bitDepth < 16) bitDepth = 16;
+                    else if (bitDepth > 24) bitDepth = 24;
+                    break;
+
+                case ChannelExtractorDialog::ExportFormat::OGG:
+                    extension = ".ogg";
+                    audioFormat = std::make_unique<juce::OggVorbisAudioFormat>();
+                    // OGG is always 32-bit float internally, but we specify quality
+                    break;
+
+                case ChannelExtractorDialog::ExportFormat::WAV:
+                default:
+                    extension = ".wav";
+                    audioFormat = std::make_unique<juce::WavAudioFormat>();
+                    break;
+            }
+
+            // Helper lambda to create writer for the selected format
+            auto createWriter = [&](juce::OutputStream* stream, int numChannels) -> std::unique_ptr<juce::AudioFormatWriter>
+            {
+                if (result->exportFormat == ChannelExtractorDialog::ExportFormat::OGG)
+                {
+                    // OGG uses quality setting (0.0-1.0), not bit depth
+                    // Quality 0.5 is good balance of size/quality
+                    return std::unique_ptr<juce::AudioFormatWriter>(
+                        audioFormat->createWriterFor(stream, sampleRate,
+                            static_cast<unsigned int>(numChannels), 16, {}, 5));  // Quality level 5 (0-10)
+                }
+                else
+                {
+                    return std::unique_ptr<juce::AudioFormatWriter>(
+                        audioFormat->createWriterFor(stream, sampleRate,
+                            static_cast<unsigned int>(numChannels), bitDepth, {}, 0));
+                }
+            };
+
+            if (result->exportMode == ChannelExtractorDialog::ExportMode::IndividualMono)
+            {
+                // Export each channel as a separate mono file
+                int successCount = 0;
+                for (int srcChannel : result->channels)
+                {
+                    juce::String channelLabel = layout.getShortLabel(srcChannel);
+                    juce::String filename = baseName + "_Ch" + juce::String(srcChannel + 1) +
+                                            "_" + channelLabel + extension;
+                    juce::File outFile = result->outputDirectory.getChildFile(filename);
+
+                    // Create mono buffer with this channel
+                    juce::AudioBuffer<float> monoBuffer(1, bufferManager.getNumSamples());
+                    monoBuffer.copyFrom(0, 0, bufferManager.getBuffer(), srcChannel, 0,
+                                        bufferManager.getNumSamples());
+
+                    // Write to file
+                    auto outputStream = outFile.createOutputStream();
+                    if (outputStream)
+                    {
+                        // IMPORTANT: Release ownership BEFORE createWriterFor
+                        // JUCE's createWriterFor may delete the stream on failure,
+                        // which would cause double-free if unique_ptr also tries to delete
+                        auto* rawStream = outputStream.release();
+                        auto writer = createWriter(rawStream, 1);
+
+                        if (writer)
+                        {
+                            if (writer->writeFromAudioSampleBuffer(monoBuffer, 0, monoBuffer.getNumSamples()))
+                            {
+                                successCount++;
+                                juce::Logger::writeToLog("Exported: " + outFile.getFullPathName());
+                            }
+                        }
+                        // Note: if writer is null, stream was deleted by createWriterFor
+                    }
+                }
+
+                juce::AlertWindow::showMessageBox(juce::AlertWindow::InfoIcon,
+                    "Export Complete",
+                    "Successfully exported " + juce::String(successCount) + " of " +
+                    juce::String(static_cast<int>(result->channels.size())) + " channel(s) to:\n" +
+                    result->outputDirectory.getFullPathName());
+            }
+            else  // CombinedMulti
+            {
+                // Export selected channels as single multi-channel file
+                juce::String channelSuffix;
+                for (size_t i = 0; i < result->channels.size(); ++i)
+                {
+                    if (i > 0) channelSuffix += "-";
+                    channelSuffix += layout.getShortLabel(result->channels[i]);
+                }
+                juce::String filename = baseName + "_" + channelSuffix + "_extracted" + extension;
+                juce::File outFile = result->outputDirectory.getChildFile(filename);
+
+                // Create combined buffer
+                juce::AudioBuffer<float> combinedBuffer = waveedit::ChannelConverter::extractChannels(
+                    bufferManager.getBuffer(), result->channels);
+
+                // Write to file
+                auto outputStream = outFile.createOutputStream();
+                if (outputStream)
+                {
+                    // IMPORTANT: Release ownership BEFORE createWriterFor
+                    // JUCE's createWriterFor may delete the stream on failure,
+                    // which would cause double-free if unique_ptr also tries to delete
+                    auto* rawStream = outputStream.release();
+                    auto writer = createWriter(rawStream, combinedBuffer.getNumChannels());
+
+                    if (writer)
+                    {
+                        if (writer->writeFromAudioSampleBuffer(combinedBuffer, 0, combinedBuffer.getNumSamples()))
+                        {
+                            juce::Logger::writeToLog("Exported: " + outFile.getFullPathName());
+                            juce::AlertWindow::showMessageBox(juce::AlertWindow::InfoIcon,
+                                "Export Complete",
+                                "Successfully exported " + juce::String(combinedBuffer.getNumChannels()) +
+                                " channel(s) to:\n" + outFile.getFullPathName());
+                        }
+                        else
+                        {
+                            juce::AlertWindow::showMessageBox(juce::AlertWindow::WarningIcon,
+                                "Export Error", "Failed to write audio data to file.");
+                        }
+                    }
+                    else
+                    {
+                        // Note: stream was deleted by createWriterFor on failure
+                        juce::AlertWindow::showMessageBox(juce::AlertWindow::WarningIcon,
+                            "Export Error", "Failed to create audio writer. Check format compatibility.");
+                    }
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBox(juce::AlertWindow::WarningIcon,
+                        "Export Error", "Failed to create output file.");
+                }
+            }
+        }
+        else
+        {
+            juce::Logger::writeToLog("Channel extractor dialog cancelled");
         }
     }
 
@@ -8430,6 +8810,195 @@ public:
     };
 
     /**
+     * Undo action for silencing specific channels.
+     * Used for per-channel delete operations.
+     * Stores the original audio data only for the affected channels.
+     */
+    class SilenceChannelsUndoAction : public juce::UndoableAction
+    {
+    public:
+        SilenceChannelsUndoAction(AudioBufferManager& bufferManager,
+                                  WaveformDisplay& waveform,
+                                  AudioEngine& audioEngine,
+                                  const juce::AudioBuffer<float>& beforeBuffer,
+                                  int startSample,
+                                  int numSamples,
+                                  int channelMask)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_beforeBuffer(),
+              m_startSample(startSample),
+              m_numSamples(numSamples),
+              m_channelMask(channelMask)
+        {
+            // Store only the affected region for the affected channels
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+        }
+
+        bool perform() override
+        {
+            // Silence only the specified channels
+            bool success = m_bufferManager.silenceRangeForChannels(m_startSample, m_numSamples, m_channelMask);
+
+            if (!success)
+            {
+                juce::Logger::writeToLog("SilenceChannelsUndoAction::perform - Failed to silence channels");
+                return false;
+            }
+
+            // Get the updated buffer
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            // Log the operation
+            int channelCount = 0;
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                if ((m_channelMask & (1 << ch)) != 0) channelCount++;
+
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Applied silence to %d channel(s) in selection", channelCount));
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the before state for the affected channels
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Map the stored channels back to their original positions
+            int storedCh = 0;
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                if ((m_channelMask & (1 << ch)) != 0 && storedCh < m_beforeBuffer.getNumChannels())
+                {
+                    buffer.copyFrom(ch, m_startSample, m_beforeBuffer, storedCh, 0, m_numSamples);
+                    storedCh++;
+                }
+            }
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display - preserve view and selection
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true); // preserveView=true, preserveEditCursor=true
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        juce::AudioBuffer<float> m_beforeBuffer;
+        int m_startSample;
+        int m_numSamples;
+        int m_channelMask;
+    };
+
+    /**
+     * Undo action for replacing/pasting audio to specific channels.
+     * Used for per-channel paste operations.
+     * Does not change buffer length - replaces data in-place.
+     */
+    class ReplaceChannelsAction : public juce::UndoableAction
+    {
+    public:
+        ReplaceChannelsAction(AudioBufferManager& bufferManager,
+                              WaveformDisplay& waveform,
+                              AudioEngine& audioEngine,
+                              int startSample,
+                              const juce::AudioBuffer<float>& beforeBuffer,
+                              const juce::AudioBuffer<float>& newAudio,
+                              int channelMask)
+            : m_bufferManager(bufferManager),
+              m_waveformDisplay(waveform),
+              m_audioEngine(audioEngine),
+              m_startSample(startSample),
+              m_beforeBuffer(),
+              m_newAudio(),
+              m_channelMask(channelMask)
+        {
+            // Store the before state for undo
+            m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
+            m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+
+            // Store the new audio for redo
+            m_newAudio.setSize(newAudio.getNumChannels(), newAudio.getNumSamples());
+            m_newAudio.makeCopyOf(newAudio, true);
+        }
+
+        bool perform() override
+        {
+            // Replace the specified channels with new audio
+            bool success = m_bufferManager.replaceChannelsInRange(m_startSample, m_newAudio, m_channelMask);
+
+            if (!success)
+            {
+                juce::Logger::writeToLog("ReplaceChannelsAction::perform - Failed to replace channels");
+                return false;
+            }
+
+            // Get the updated buffer
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Reload buffer in AudioEngine - preserve playback if active
+            m_audioEngine.reloadBufferPreservingPlayback(
+                buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
+
+            // Update waveform display - preserve view
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true);
+
+            return true;
+        }
+
+        bool undo() override
+        {
+            // Restore the before state
+            bool success = m_bufferManager.replaceChannelsInRange(m_startSample, m_beforeBuffer, m_channelMask);
+
+            if (!success)
+            {
+                juce::Logger::writeToLog("ReplaceChannelsAction::undo - Failed to restore channels");
+                return false;
+            }
+
+            auto& buffer = m_bufferManager.getMutableBuffer();
+
+            // Reload buffer in AudioEngine
+            m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
+                                                        buffer.getNumChannels());
+
+            // Update waveform display
+            m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
+                                              true, true);
+
+            return true;
+        }
+
+    private:
+        AudioBufferManager& m_bufferManager;
+        WaveformDisplay& m_waveformDisplay;
+        AudioEngine& m_audioEngine;
+        int m_startSample;
+        juce::AudioBuffer<float> m_beforeBuffer;
+        juce::AudioBuffer<float> m_newAudio;
+        int m_channelMask;
+    };
+
+    /**
      * Undo action for trim.
      * Stores the entire buffer before trimming since trim changes the file length.
      */
@@ -10076,6 +10645,47 @@ private:
         doc->getWaveformDisplay().addMouseListener(new WaveformClickTracker(this, doc), false);
     }
 
+    /**
+     * Sets up channel solo/mute callbacks for a document.
+     * Wires WaveformDisplay callbacks to AudioEngine solo/mute state.
+     */
+    void setupSoloMuteCallbacks(Document* doc)
+    {
+        if (!doc)
+            return;
+
+        auto& waveform = doc->getWaveformDisplay();
+        auto& engine = doc->getAudioEngine();
+
+        // onChannelSoloChanged: Toggle solo state for a channel
+        waveform.onChannelSoloChanged = [&engine](int channel, bool solo)
+        {
+            engine.setChannelSolo(channel, solo);
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Channel %d solo: %s", channel + 1, solo ? "ON" : "OFF"));
+        };
+
+        // onChannelMuteChanged: Toggle mute state for a channel
+        waveform.onChannelMuteChanged = [&engine](int channel, bool mute)
+        {
+            engine.setChannelMute(channel, mute);
+            juce::Logger::writeToLog(juce::String::formatted(
+                "Channel %d mute: %s", channel + 1, mute ? "ON" : "OFF"));
+        };
+
+        // getChannelSolo: Query solo state from engine
+        waveform.getChannelSolo = [&engine](int channel) -> bool
+        {
+            return engine.isChannelSolo(channel);
+        };
+
+        // getChannelMute: Query mute state from engine
+        waveform.getChannelMute = [&engine](int channel) -> bool
+        {
+            return engine.isChannelMute(channel);
+        };
+    }
+
     Document* getCurrentDocument() const
     {
         return m_documentManager.getCurrentDocument();
@@ -10207,24 +10817,34 @@ private:
                     return jobHasFinished;
                 }
 
+                // Ensure valid bit depth (WAV supports 8, 16, 24, 32)
+                int safeBitDepth = bitDepth;
+                if (safeBitDepth <= 0) safeBitDepth = 16;
+                else if (safeBitDepth > 32) safeBitDepth = 32;
+
+                // IMPORTANT: Release ownership BEFORE createWriterFor
+                // JUCE's createWriterFor may delete the stream on failure,
+                // which would cause double-free if unique_ptr also tries to delete
+                auto* rawStream = outputStream.release();
+
                 // Create WAV writer
                 juce::WavAudioFormat wavFormat;
                 std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
-                    outputStream.get(),
+                    rawStream,
                     sampleRate,
-                    bufferCopy.getNumChannels(),
-                    bitDepth,
+                    static_cast<unsigned int>(bufferCopy.getNumChannels()),
+                    safeBitDepth,
                     {},
                     0));
 
                 if (!writer)
                 {
+                    // Note: stream was deleted by createWriterFor on failure
                     logFailure("Could not create audio writer");
                     return jobHasFinished;
                 }
 
                 // Write buffer to file
-                outputStream.release();  // Writer takes ownership
                 bool success = writer->writeFromAudioSampleBuffer(bufferCopy, 0, bufferCopy.getNumSamples());
                 writer.reset();  // Flush and close
 

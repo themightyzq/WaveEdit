@@ -176,6 +176,10 @@ namespace CommandIDs
         toolbarReset        = 0xE001,  // Reset toolbar to default layout
 
         // Batch Operations (0xF000 - 0xF0FF)
-        fileBatchProcessor  = 0xF000   // Cmd+Alt+B - Batch Processor dialog
+        fileBatchProcessor  = 0xF000,  // Cmd+Alt+B - Batch Processor dialog
+
+        // Tools Operations (0xF100 - 0xF1FF)
+        toolsChannelConverter = 0xF100,  // Cmd+Shift+U - Channel Converter dialog (moved from Process menu)
+        toolsChannelExtractor = 0xF101   // Cmd+Shift+X - Channel Extractor dialog (export channels to files)
     };
 }
