@@ -100,6 +100,11 @@ $RECYCLE.BIN/
 .claude/
 CLAUDE.md
 
+# Internal development documentation
+TODO.md
+Docs/
+REPO_CLEANUP_REPORT.md
+
 # AI-generated temporary documentation
 *_SUMMARY.md
 *_GUIDE.md

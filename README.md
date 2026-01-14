@@ -119,7 +119,7 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Sub-1 second startup, 60fps rendering
 - ✅ <10ms waveform updates, <10ms playback latency
 
-> **Status**: Production-quality for core editing workflows. See [TODO.md](TODO.md) for current development priorities.
+> **Status**: Production-quality for core editing workflows.
 
 **Spectrum Analyzer** 🆕:
 - ✅ Real-time FFT visualization during playback
@@ -140,10 +140,10 @@ No project files, no import wizards. Just open → edit → save.
 
 ### What's Next
 
-See [TODO.md](TODO.md) for detailed roadmap. Highlights include:
-- ✅ Recording from input (COMPLETE - Cmd+R or Playback → Record)
-- ✅ Batch processing (COMPLETE - Cmd+Alt+B)
-- Additional DSP operations (reverb, EQ, compressor)
+Planned features:
+- Additional DSP operations (reverb, compressor, noise reduction)
+- More export formats
+- Plugin preset management improvements
 
 ---
 
@@ -381,11 +381,10 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 
 ### Contributing
 
-1. Check [TODO.md](TODO.md) for priorities
-2. Follow coding standards in [CLAUDE.md](CLAUDE.md)
+1. Open an issue before major work
+2. Follow coding standards below
 3. Write tests for new features
 4. Update documentation
-5. Open an issue before major work
 
 **Coding standards**:
 - C++17 or later
@@ -466,5 +465,3 @@ See [LICENSE](LICENSE) for full details.
 
 **Version**: 0.1.0-dev
 **Last Updated**: 2026-01-14
-
-For detailed status and roadmap, see [TODO.md](TODO.md).
