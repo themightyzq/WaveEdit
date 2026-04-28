@@ -357,6 +357,13 @@
         "cmd"
       ]
     },
+    "helpCommandPalette": {
+      "key": "A",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
     "_comment_tabs": "=== TAB OPERATIONS (15 commands) - Standard macOS shortcuts ===",
     "tabClose": {
       "key": "W",
@@ -474,7 +481,7 @@
       "key": "A",
       "modifiers": [
         "cmd",
-        "shift"
+        "alt"
       ]
     },
     "regionStripSilence": {

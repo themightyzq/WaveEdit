@@ -139,14 +139,14 @@ bool WaveformDisplay::reloadFromBuffer(const juce::AudioBuffer<float>& buffer,
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
         m_lastError = "Cannot reload from empty buffer";
-        juce::Logger::writeToLog("WaveformDisplay::reloadFromBuffer - Empty buffer");
+        DBG("WaveformDisplay::reloadFromBuffer - Empty buffer");
         return false;
     }
 
     if (sampleRate <= 0.0)
     {
         m_lastError = "Invalid sample rate";
-        juce::Logger::writeToLog("WaveformDisplay::reloadFromBuffer - Invalid sample rate: " + juce::String(sampleRate));
+        DBG("WaveformDisplay::reloadFromBuffer - Invalid sample rate: " + juce::String(sampleRate));
         return false;
     }
 
@@ -157,7 +157,7 @@ bool WaveformDisplay::reloadFromBuffer(const juce::AudioBuffer<float>& buffer,
     bool savedHasEditCursor = m_hasEditCursor;
     double savedEditCursorPos = m_editCursorPosition;
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "reloadFromBuffer BEFORE - view: %.2f-%.2f, cursor: %s at %.2f, preserveView=%d, preserveEditCursor=%d",
         savedVisibleStart, savedVisibleEnd,
         savedHasEditCursor ? "YES" : "NO", savedEditCursorPos,
@@ -184,7 +184,7 @@ bool WaveformDisplay::reloadFromBuffer(const juce::AudioBuffer<float>& buffer,
         // Enable fast direct rendering mode - STAY in this mode permanently after edits
         m_useDirectRendering = true;
 
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "PERFORMANCE: Fast rendering enabled - %d samples cached",
             buffer.getNumSamples()));
     }
@@ -206,7 +206,7 @@ bool WaveformDisplay::reloadFromBuffer(const juce::AudioBuffer<float>& buffer,
         m_visibleEnd = juce::jlimit(m_visibleStart, m_totalDuration, savedVisibleEnd);
         m_zoomLevel = savedZoomLevel;
 
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "WaveformDisplay::reloadFromBuffer - View preserved: %.2f-%.2f, zoom: %.2f",
             m_visibleStart, m_visibleEnd, m_zoomLevel));
     }
@@ -227,14 +227,14 @@ bool WaveformDisplay::reloadFromBuffer(const juce::AudioBuffer<float>& buffer,
         {
             m_editCursorPosition = savedEditCursorPos;
             m_hasEditCursor = true;
-            juce::Logger::writeToLog(juce::String::formatted(
+            DBG(juce::String::formatted(
                 "Edit cursor RESTORED at %.2f", m_editCursorPosition));
         }
         else
         {
             m_editCursorPosition = m_totalDuration;
             m_hasEditCursor = true;
-            juce::Logger::writeToLog(juce::String::formatted(
+            DBG(juce::String::formatted(
                 "Edit cursor MOVED to file end: %.2f", m_editCursorPosition));
         }
     }
@@ -244,14 +244,14 @@ bool WaveformDisplay::reloadFromBuffer(const juce::AudioBuffer<float>& buffer,
         clearSelection();
         m_hasEditCursor = false;
         m_playbackPosition = 0.0;
-        juce::Logger::writeToLog("Edit cursor CLEARED (not preserving)");
+        DBG("Edit cursor CLEARED (not preserving)");
     }
     else
     {
-        juce::Logger::writeToLog("Edit cursor NOT restored (savedHasEditCursor=false)");
+        DBG("Edit cursor NOT restored (savedHasEditCursor=false)");
     }
 
-    juce::Logger::writeToLog("WaveformDisplay: Reloaded from buffer - " +
+    DBG("WaveformDisplay: Reloaded from buffer - " +
                              juce::String(buffer.getNumSamples()) + " samples, " +
                              juce::String(m_numChannels) + " channels, " +
                              juce::String(m_totalDuration, 2) + " seconds");
@@ -1594,14 +1594,14 @@ void WaveformDisplay::mouseDoubleClick(const juce::MouseEvent& event)
             {
                 // Already focused on just this channel - unfocus (return to all)
                 focusChannel(-1);
-                juce::Logger::writeToLog(juce::String::formatted(
+                DBG(juce::String::formatted(
                     "Double-click label: Unfocused channel %d, now ALL channels focused", ch));
             }
             else
             {
                 // Focus only this channel
                 focusChannel(ch);
-                juce::Logger::writeToLog(juce::String::formatted(
+                DBG(juce::String::formatted(
                     "Double-click label: Focused channel %d only", ch));
             }
             repaint();
@@ -1620,7 +1620,7 @@ void WaveformDisplay::mouseDoubleClick(const juce::MouseEvent& event)
         {
             // Already focused on just this channel - unfocus (return to all)
             focusChannel(-1);
-            juce::Logger::writeToLog(juce::String::formatted(
+            DBG(juce::String::formatted(
                 "Double-click waveform: Unfocused channel %d, now ALL channels focused, selected entire duration (%.3f sec)",
                 channel, m_totalDuration));
         }
@@ -1628,7 +1628,7 @@ void WaveformDisplay::mouseDoubleClick(const juce::MouseEvent& event)
         {
             // Focus this channel
             focusChannel(channel);
-            juce::Logger::writeToLog(juce::String::formatted(
+            DBG(juce::String::formatted(
                 "Double-click waveform: Focused channel %d, selected entire duration (%.3f sec)",
                 channel, m_totalDuration));
         }
@@ -1639,7 +1639,7 @@ void WaveformDisplay::mouseDoubleClick(const juce::MouseEvent& event)
         // Focus all channels and select entire duration
         focusChannel(-1);
 
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "Double-click: Focused ALL channels, selected entire duration (%.3f sec)",
             m_totalDuration));
     }
@@ -1712,7 +1712,7 @@ void WaveformDisplay::mouseWheelMove(const juce::MouseEvent& event, const juce::
     double mouseTime = xToTime(event.x);
     double visibleDuration = m_visibleEnd - m_visibleStart;
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "Mouse wheel: deltaY=%.3f, current view: %.2f-%.2f",
         wheel.deltaY, m_visibleStart, m_visibleEnd));
 
@@ -1720,13 +1720,13 @@ void WaveformDisplay::mouseWheelMove(const juce::MouseEvent& event, const juce::
     {
         // Zoom in
         visibleDuration *= 0.8;
-        juce::Logger::writeToLog("Zooming IN");
+        DBG("Zooming IN");
     }
     else if (wheel.deltaY < 0.0f)
     {
         // Zoom out
         visibleDuration *= 1.25;
-        juce::Logger::writeToLog("Zooming OUT");
+        DBG("Zooming OUT");
         if (visibleDuration >= m_totalDuration)
         {
             zoomToFit();
@@ -1747,7 +1747,7 @@ void WaveformDisplay::mouseWheelMove(const juce::MouseEvent& event, const juce::
     if (onVisibleRangeChanged)
         onVisibleRangeChanged(m_visibleStart, m_visibleEnd);
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "After zoom: view: %.2f-%.2f",
         m_visibleStart, m_visibleEnd));
 }

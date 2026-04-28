@@ -307,15 +307,15 @@ juce::StringArray KeymapManager::getAvailableTemplates() const
 {
     juce::StringArray templates;
 
-    juce::Logger::writeToLog("KeymapManager::getAvailableTemplates() called");
-    juce::Logger::writeToLog("  Built-in templates: " + juce::String(m_builtInTemplates.size()));
-    juce::Logger::writeToLog("  User templates: " + juce::String(m_userTemplates.size()));
+    DBG("KeymapManager::getAvailableTemplates() called");
+    DBG("  Built-in templates: " + juce::String(m_builtInTemplates.size()));
+    DBG("  User templates: " + juce::String(m_userTemplates.size()));
 
     // Add built-in templates
     for (const auto& pair : m_builtInTemplates)
     {
         templates.add(pair.first);
-        juce::Logger::writeToLog("  Added built-in: " + pair.first);
+        DBG("  Added built-in: " + pair.first);
     }
 
     // Add user templates (only if not already in the list from built-ins)
@@ -328,7 +328,7 @@ juce::StringArray KeymapManager::getAvailableTemplates() const
             if (existingTemplate.equalsIgnoreCase(pair.first))
             {
                 isDuplicate = true;
-                juce::Logger::writeToLog("  Skipping user template (duplicate): " + pair.first);
+                DBG("  Skipping user template (duplicate): " + pair.first);
                 break;
             }
         }
@@ -336,11 +336,11 @@ juce::StringArray KeymapManager::getAvailableTemplates() const
         if (!isDuplicate)
         {
             templates.add(pair.first);
-            juce::Logger::writeToLog("  Added user: " + pair.first);
+            DBG("  Added user: " + pair.first);
         }
     }
 
-    juce::Logger::writeToLog("  Total templates to return: " + juce::String(templates.size()));
+    DBG("  Total templates to return: " + juce::String(templates.size()));
     return templates;
 }
 
@@ -379,7 +379,7 @@ bool KeymapManager::loadTemplate(const juce::String& templateName)
         return true;
     }
 
-    juce::Logger::writeToLog("KeymapManager: Template not found: " + templateName);
+    DBG("KeymapManager: Template not found: " + templateName);
     return false;
 }
 
@@ -400,7 +400,7 @@ bool KeymapManager::importTemplate(const juce::File& file, bool makeActive)
 
     if (templ.name.isEmpty())
     {
-        juce::Logger::writeToLog("KeymapManager: Failed to import template - invalid JSON");
+        DBG("KeymapManager: Failed to import template - invalid JSON");
         return false;
     }
 
@@ -408,9 +408,9 @@ bool KeymapManager::importTemplate(const juce::File& file, bool makeActive)
     juce::StringArray errors;
     if (!templ.validate(errors))
     {
-        juce::Logger::writeToLog("KeymapManager: Template validation failed:");
+        DBG("KeymapManager: Template validation failed:");
         for (const auto& error : errors)
-            juce::Logger::writeToLog("  " + error);
+            DBG("  " + error);
         return false;
     }
 
@@ -418,7 +418,7 @@ bool KeymapManager::importTemplate(const juce::File& file, bool makeActive)
     juce::File destFile = getTemplatesDirectory().getChildFile(file.getFileName());
     if (!file.copyFileTo(destFile))
     {
-        juce::Logger::writeToLog("KeymapManager: Failed to copy template file");
+        DBG("KeymapManager: Failed to copy template file");
         return false;
     }
 
@@ -428,7 +428,7 @@ bool KeymapManager::importTemplate(const juce::File& file, bool makeActive)
     if (makeActive)
         loadTemplate(templ.name);
 
-    juce::Logger::writeToLog("KeymapManager: Successfully imported template: " + templ.name);
+    DBG("KeymapManager: Successfully imported template: " + templ.name);
     return true;
 }
 
@@ -532,12 +532,12 @@ void KeymapManager::loadBuiltInTemplates()
 
     if (!bundledKeymapsDir.exists())
     {
-        juce::Logger::writeToLog("KeymapManager: Bundled keymaps directory not found at: " + bundledKeymapsDir.getFullPathName());
-        juce::Logger::writeToLog("KeymapManager: No built-in templates available");
+        DBG("KeymapManager: Bundled keymaps directory not found at: " + bundledKeymapsDir.getFullPathName());
+        DBG("KeymapManager: No built-in templates available");
         return;
     }
 
-    juce::Logger::writeToLog("KeymapManager: Loading built-in templates from: " + bundledKeymapsDir.getFullPathName());
+    DBG("KeymapManager: Loading built-in templates from: " + bundledKeymapsDir.getFullPathName());
 
     // Load all .json template files from the bundled directory
     auto files = bundledKeymapsDir.findChildFiles(juce::File::findFiles, false, "*.json");
@@ -548,7 +548,7 @@ void KeymapManager::loadBuiltInTemplates()
         if (!templ.name.isEmpty())
         {
             m_builtInTemplates[templ.name] = templ;
-            juce::Logger::writeToLog("  Loaded built-in template: " + templ.name);
+            DBG("  Loaded built-in template: " + templ.name);
 
             // On first run, copy built-in templates to user directory so they can be customized
             juce::File userTemplateFile = getTemplatesDirectory().getChildFile(file.getFileName());
@@ -556,21 +556,21 @@ void KeymapManager::loadBuiltInTemplates()
             {
                 if (file.copyFileTo(userTemplateFile))
                 {
-                    juce::Logger::writeToLog("  Installed template to user directory: " + templ.name);
+                    DBG("  Installed template to user directory: " + templ.name);
                 }
                 else
                 {
-                    juce::Logger::writeToLog("  WARNING: Failed to copy template to user directory: " + templ.name);
+                    DBG("  WARNING: Failed to copy template to user directory: " + templ.name);
                 }
             }
         }
         else
         {
-            juce::Logger::writeToLog("  WARNING: Failed to load template from: " + file.getFileName());
+            DBG("  WARNING: Failed to load template from: " + file.getFileName());
         }
     }
 
-    juce::Logger::writeToLog("KeymapManager: Loaded " + juce::String(m_builtInTemplates.size()) + " built-in templates");
+    DBG("KeymapManager: Loaded " + juce::String(m_builtInTemplates.size()) + " built-in templates");
 }
 
 void KeymapManager::scanUserTemplates()
@@ -677,6 +677,7 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         // Help operations
         commandNameMap[CommandIDs::helpAbout] = "helpAbout";
         commandNameMap[CommandIDs::helpShortcuts] = "helpShortcuts";
+        commandNameMap[CommandIDs::helpCommandPalette] = "helpCommandPalette";
 
         // Tab operations
         commandNameMap[CommandIDs::tabClose] = "tabClose";
@@ -795,7 +796,7 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::snapPreferences,
 
             // Help operations (0x9000-0x90FF)
-            CommandIDs::helpAbout, CommandIDs::helpShortcuts,
+            CommandIDs::helpAbout, CommandIDs::helpShortcuts, CommandIDs::helpCommandPalette,
 
             // Tab operations (0xA000-0xA0FF)
             CommandIDs::tabClose, CommandIDs::tabCloseAll,
@@ -848,11 +849,11 @@ void KeymapManager::applyTemplateToCommandManager()
     auto* keyMappings = m_commandManager.getKeyMappings();
     if (keyMappings == nullptr)
     {
-        juce::Logger::writeToLog("KeymapManager: ERROR - Could not get KeyPressMappingSet from ApplicationCommandManager");
+        DBG("KeymapManager: ERROR - Could not get KeyPressMappingSet from ApplicationCommandManager");
         return;
     }
 
-    juce::Logger::writeToLog("KeymapManager: Applying template '" + m_currentTemplateName + "' to ApplicationCommandManager");
+    DBG("KeymapManager: Applying template '" + m_currentTemplateName + "' to ApplicationCommandManager");
 
     int shortcutsApplied = 0;
     int shortcutsFailed = 0;
@@ -871,7 +872,7 @@ void KeymapManager::applyTemplateToCommandManager()
         juce::CommandID commandID = getCommandID(commandName);
         if (commandID == 0)
         {
-            juce::Logger::writeToLog("  WARNING: Unknown command name: " + commandName);
+            DBG("  WARNING: Unknown command name: " + commandName);
             shortcutsFailed++;
             continue;
         }
@@ -890,7 +891,7 @@ void KeymapManager::applyTemplateToCommandManager()
             }
             else
             {
-                juce::Logger::writeToLog("  WARNING: Invalid KeyPress for command: " + commandName);
+                DBG("  WARNING: Invalid KeyPress for command: " + commandName);
                 shortcutsFailed++;
             }
         }
@@ -899,6 +900,6 @@ void KeymapManager::applyTemplateToCommandManager()
     // Notify the command manager that shortcuts have changed
     m_commandManager.commandStatusChanged();
 
-    juce::Logger::writeToLog("KeymapManager: Applied " + juce::String(shortcutsApplied) +
+    DBG("KeymapManager: Applied " + juce::String(shortcutsApplied) +
                             " shortcuts (" + juce::String(shortcutsFailed) + " failed)");
 }

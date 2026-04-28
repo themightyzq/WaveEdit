@@ -51,7 +51,7 @@ Document* DocumentManager::createDocument()
         setCurrentDocumentIndex(0);
     }
 
-    juce::Logger::writeToLog("Created new document");
+    DBG("Created new document");
     return document;
 }
 
@@ -70,7 +70,7 @@ Document* DocumentManager::openDocument(const juce::File& file)
         {
             // File already open - just switch to it
             setCurrentDocument(doc);
-            juce::Logger::writeToLog("File already open, switched to existing document: " + file.getFullPathName());
+            DBG("File already open, switched to existing document: " + file.getFullPathName());
             return doc;
         }
     }
@@ -93,7 +93,7 @@ Document* DocumentManager::openDocument(const juce::File& file)
     // Make this the current document
     setCurrentDocumentIndex(newIndex);
 
-    juce::Logger::writeToLog("Opened document: " + file.getFullPathName());
+    DBG("Opened document: " + file.getFullPathName());
     return document;
 }
 
@@ -149,7 +149,7 @@ bool DocumentManager::closeDocumentAt(int index)
         m_currentDocumentIndex--;
     }
 
-    juce::Logger::writeToLog("Closed document at index " + juce::String(index));
+    DBG("Closed document at index " + juce::String(index));
     return true;
 }
 
@@ -168,7 +168,7 @@ void DocumentManager::closeAllDocuments()
         closeDocumentAt(0);
     }
 
-    juce::Logger::writeToLog("Closed all documents");
+    DBG("Closed all documents");
 }
 
 //==============================================================================
@@ -202,7 +202,7 @@ bool DocumentManager::setCurrentDocumentIndex(int index)
     m_currentDocumentIndex = index;
     notifyCurrentDocumentChanged();
 
-    juce::Logger::writeToLog("Switched to document at index " + juce::String(index));
+    DBG("Switched to document at index " + juce::String(index));
     return true;
 }
 
@@ -241,7 +241,7 @@ void DocumentManager::selectNextDocument()
     int nextIndex = (m_currentDocumentIndex + 1) % m_documents.size();
     setCurrentDocumentIndex(nextIndex);
 
-    juce::Logger::writeToLog("Switched to next document");
+    DBG("Switched to next document");
 }
 
 void DocumentManager::selectPreviousDocument()
@@ -255,7 +255,7 @@ void DocumentManager::selectPreviousDocument()
 
     setCurrentDocumentIndex(prevIndex);
 
-    juce::Logger::writeToLog("Switched to previous document");
+    DBG("Switched to previous document");
 }
 
 bool DocumentManager::selectDocumentByNumber(int number)
@@ -285,7 +285,7 @@ void DocumentManager::copyToInterFileClipboard(const juce::AudioBuffer<float>& b
     m_interFileClipboardSampleRate = sampleRate;
     m_hasInterFileClipboard = true;
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "Copied to inter-file clipboard: %.2f seconds at %.0f Hz",
         buffer.getNumSamples() / sampleRate, sampleRate));
 }
@@ -425,7 +425,7 @@ bool DocumentManager::pasteFromInterFileClipboard(Document* targetDoc, double po
     const auto& updatedBuffer = bufferManager.getBuffer();
     audioEngine.loadFromBuffer(updatedBuffer, targetSampleRate, updatedBuffer.getNumChannels());
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "Pasted %.2f seconds of audio at position %.2f seconds (sample rate conversion: %.0f Hz → %.0f Hz)",
         m_interFileClipboard.getNumSamples() / m_interFileClipboardSampleRate,
         position,
@@ -462,7 +462,7 @@ void DocumentManager::muteAllDocumentsExcept(const Document* exceptDocument)
         const_cast<Document*>(exceptDocument)->getAudioEngine().setMuted(false);
     }
 
-    juce::Logger::writeToLog("Muted all documents except current for preview");
+    DBG("Muted all documents except current for preview");
 }
 
 void DocumentManager::unmuteAllDocuments()
@@ -475,7 +475,7 @@ void DocumentManager::unmuteAllDocuments()
         }
     }
 
-    juce::Logger::writeToLog("Unmuted all documents after preview");
+    DBG("Unmuted all documents after preview");
 }
 
 //==============================================================================

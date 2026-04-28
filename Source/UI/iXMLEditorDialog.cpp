@@ -454,7 +454,7 @@ void iXMLEditorDialog::suggestCategory()
                 // Update CategoryFull display
                 textEditorTextChanged(m_categoryEditor);
 
-                juce::Logger::writeToLog("Applied UCS category suggestion: " +
+                DBG("Applied UCS category suggestion: " +
                                         suggestions[0].category + " - " +
                                         suggestions[0].subcategory);
             }

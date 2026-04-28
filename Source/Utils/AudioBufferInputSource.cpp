@@ -35,7 +35,7 @@ AudioBufferInputSource::AudioBufferInputSource(const juce::AudioBuffer<float>& b
 
     if (estimatedSize > 0x7FFFFFFF)
     {
-        juce::Logger::writeToLog("ERROR: Buffer too large for WAV format conversion");
+        DBG("ERROR: Buffer too large for WAV format conversion");
         // Set to empty state - caller should check for failure
         m_buffer.setSize(0, 0);
         m_hashCode = 0;
@@ -75,7 +75,7 @@ AudioBufferInputSource::AudioBufferInputSource(const juce::AudioBuffer<float>& b
     // Create the WAV data
     createWavData();
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "AudioBufferInputSource created: %d samples, %.1f Hz, %d channels, WAV size: %d bytes",
         buffer.getNumSamples(), sampleRate, numChannels, static_cast<int>(m_wavData.getSize())));
 }
@@ -114,7 +114,7 @@ void AudioBufferInputSource::createWavData()
         }
     }
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "WAV data created: %d samples, %d channels, %d bytes",
         numSamples, m_numChannels, static_cast<int>(m_wavData.getSize())));
 }

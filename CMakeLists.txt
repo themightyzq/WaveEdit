@@ -26,6 +26,16 @@ juce_add_gui_app(WaveEdit
 target_sources(WaveEdit
     PRIVATE
         Source/Main.cpp
+        Source/Controllers/FileController.cpp
+        Source/Controllers/FileController.h
+        Source/Controllers/DSPController.cpp
+        Source/Controllers/DSPController.h
+        Source/Controllers/RegionController.cpp
+        Source/Controllers/RegionController.h
+        Source/Controllers/MarkerController.cpp
+        Source/Controllers/MarkerController.h
+        Source/Controllers/ClipboardController.cpp
+        Source/Controllers/ClipboardController.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
@@ -43,7 +53,17 @@ target_sources(WaveEdit
         Source/DSP/DynamicParametricEQ.h
         Source/DSP/EQPresetManager.cpp
         Source/DSP/EQPresetManager.h
+        Source/DSP/HeadTailRecipe.h
+        Source/DSP/HeadTailEngine.cpp
+        Source/DSP/HeadTailEngine.h
+        Source/DSP/LoopRecipe.h
+        Source/DSP/LoopEngine.cpp
+        Source/DSP/LoopEngine.h
         Source/Commands/CommandIDs.h
+        Source/Commands/CommandHandler.cpp
+        Source/Commands/CommandHandler.h
+        Source/Commands/MenuBuilder.cpp
+        Source/Commands/MenuBuilder.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h
         Source/Utils/BWFMetadata.cpp
@@ -82,10 +102,8 @@ target_sources(WaveEdit
         Source/UI/NewFileDialog.h
         Source/UI/NormalizeDialog.cpp
         Source/UI/NormalizeDialog.h
-        Source/UI/FadeInDialog.cpp
-        Source/UI/FadeInDialog.h
-        Source/UI/FadeOutDialog.cpp
-        Source/UI/FadeOutDialog.h
+        Source/UI/FadeDialog.cpp
+        Source/UI/FadeDialog.h
         Source/UI/FadeCurvePreview.cpp
         Source/UI/FadeCurvePreview.h
         Source/UI/RecordingDialog.cpp
@@ -114,6 +132,12 @@ target_sources(WaveEdit
         Source/UI/EditRegionBoundariesDialog.h
         Source/UI/StripSilenceDialog.cpp
         Source/UI/StripSilenceDialog.h
+        Source/UI/HeadTailDialog.cpp
+        Source/UI/HeadTailDialog.h
+        Source/UI/LoopingToolsDialog.cpp
+        Source/UI/LoopingToolsDialog.h
+        Source/UI/CommandPalette.cpp
+        Source/UI/CommandPalette.h
         Source/UI/BatchExportDialog.cpp
         Source/UI/BatchExportDialog.h
         Source/UI/SaveAsOptionsPanel.cpp
@@ -141,6 +165,9 @@ target_sources(WaveEdit
         Source/Utils/KeymapManager.h
         Source/Utils/UCSCategorySuggester.cpp
         Source/Utils/UCSCategorySuggester.h
+        Source/Utils/UndoActions/AudioUndoActions.h
+        Source/Utils/UndoActions/RegionUndoActions.h
+        Source/Utils/UndoActions/MarkerUndoActions.h
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
         Source/UI/RegionListPanel.cpp
@@ -184,6 +211,9 @@ target_sources(WaveEdit
         Source/Plugins/PluginPathsPanel.h
         Source/Plugins/PluginChainRenderer.cpp
         Source/Plugins/PluginChainRenderer.h
+        Source/Automation/AutomationData.h
+        Source/Automation/AutomationManager.cpp
+        Source/Automation/AutomationManager.h
         Source/Batch/BatchProcessorSettings.cpp
         Source/Batch/BatchProcessorSettings.h
         Source/Batch/BatchJob.cpp
@@ -471,6 +501,10 @@ if(WAVEEDIT_BUILD_TESTS)
     # Create a static library from Source/ files for test linking
     # This avoids having Main.cpp's main() function conflict with test runner
     add_library(WaveEditCore STATIC
+        Source/Controllers/FileController.cpp
+        Source/Controllers/FileController.h
+        Source/Controllers/DSPController.cpp
+        Source/Controllers/DSPController.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
@@ -486,7 +520,17 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/DSP/DynamicParametricEQ.h
         Source/DSP/EQPresetManager.cpp
         Source/DSP/EQPresetManager.h
+        Source/DSP/HeadTailRecipe.h
+        Source/DSP/HeadTailEngine.cpp
+        Source/DSP/HeadTailEngine.h
+        Source/DSP/LoopRecipe.h
+        Source/DSP/LoopEngine.cpp
+        Source/DSP/LoopEngine.h
         Source/Commands/CommandIDs.h
+        Source/Commands/CommandHandler.cpp
+        Source/Commands/CommandHandler.h
+        Source/Commands/MenuBuilder.cpp
+        Source/Commands/MenuBuilder.h
         Source/Utils/Settings.cpp
         Source/Utils/Settings.h
         Source/Utils/BWFMetadata.cpp
@@ -525,10 +569,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/NewFileDialog.h
         Source/UI/NormalizeDialog.cpp
         Source/UI/NormalizeDialog.h
-        Source/UI/FadeInDialog.cpp
-        Source/UI/FadeInDialog.h
-        Source/UI/FadeOutDialog.cpp
-        Source/UI/FadeOutDialog.h
+        Source/UI/FadeDialog.cpp
+        Source/UI/FadeDialog.h
         Source/UI/FadeCurvePreview.cpp
         Source/UI/FadeCurvePreview.h
         Source/UI/RecordingDialog.cpp
@@ -557,6 +599,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/EditRegionBoundariesDialog.h
         Source/UI/StripSilenceDialog.cpp
         Source/UI/StripSilenceDialog.h
+        Source/UI/HeadTailDialog.cpp
+        Source/UI/HeadTailDialog.h
         Source/Utils/Document.cpp
         Source/Utils/Document.h
         Source/Utils/DocumentManager.cpp
@@ -573,6 +617,9 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/MarkerManager.h
         Source/Utils/UCSCategorySuggester.cpp
         Source/Utils/UCSCategorySuggester.h
+        Source/Utils/UndoActions/AudioUndoActions.h
+        Source/Utils/UndoActions/RegionUndoActions.h
+        Source/Utils/UndoActions/MarkerUndoActions.h
         Source/UI/MarkerDisplay.cpp
         Source/UI/MarkerDisplay.h
         Source/UI/SpectrumAnalyzer.cpp
@@ -610,6 +657,9 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Plugins/PluginChainRenderer.h
         Source/Plugins/PluginPresetManager.cpp
         Source/Plugins/PluginPresetManager.h
+        Source/Automation/AutomationData.h
+        Source/Automation/AutomationManager.cpp
+        Source/Automation/AutomationManager.h
         Source/Batch/BatchProcessorSettings.cpp
         Source/Batch/BatchProcessorSettings.h
         Source/Batch/BatchJob.cpp
@@ -654,6 +704,8 @@ if(WAVEEDIT_BUILD_TESTS)
             JUCE_USE_MP3AUDIOFORMAT=1  # Enable MP3 encoding with LAME
             JUCE_APPLICATION_NAME_STRING="WaveEdit"
             JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
+            # Enable modal loops for dialogs (required for DSPController dialog methods)
+            JUCE_MODAL_LOOPS_PERMITTED=1
             # VST3 Plugin Hosting Support
             JUCE_PLUGINHOST_VST3=1
             # AudioUnit Plugin Hosting Support (macOS only)
@@ -701,6 +753,8 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/AudioBufferManagerTests.cpp              # Week 2 ✅
             Tests/Unit/AudioProcessorTests.cpp                  # Week 2 ✅
             Tests/Unit/FadeCurveTypesTests.cpp                  # Phase 4 ✅ (Fade Curve Types)
+            Tests/Unit/HeadTailEngineTests.cpp                  # Head & Tail Engine Tests
+            Tests/Unit/LoopEngineTests.cpp                      # Loop Engine Tests
             Tests/Unit/BWFMetadataTests.cpp                     # Phase 4 ✅ (BWF Metadata System)
             Tests/Unit/BWFEditorDialogTests.cpp                 # Phase 4 ✅ (BWF Editor Dialog)
             Tests/Integration/FileIOTests.cpp                   # Week 3 ✅ (File I/O Integration)

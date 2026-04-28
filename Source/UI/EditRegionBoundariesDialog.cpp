@@ -468,7 +468,7 @@ void EditRegionBoundariesDialog::confirmDialog()
 {
     if (m_areBothValid && m_callback)
     {
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "EditRegionBoundariesDialog: Confirming new boundaries: start=%lld, end=%lld",
             m_cachedStartSample, m_cachedEndSample));
 

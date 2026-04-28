@@ -14,6 +14,7 @@
 */
 
 #include "AudioEngine.h"
+#include "../Automation/AutomationManager.h"
 #include "../UI/SpectrumAnalyzer.h"
 #include "../UI/GraphicalEQEditor.h"
 
@@ -760,7 +761,7 @@ void AudioEngine::setChannelSolo(int channel, bool solo)
     if (channel >= 0 && channel < MAX_CHANNELS)
     {
         m_channelSolo[channel].store(solo);
-        juce::Logger::writeToLog("AudioEngine: Channel " + juce::String(channel) +
+        DBG("AudioEngine: Channel " + juce::String(channel) +
                                  (solo ? " solo ON" : " solo OFF"));
     }
 }
@@ -779,7 +780,7 @@ void AudioEngine::setChannelMute(int channel, bool mute)
     if (channel >= 0 && channel < MAX_CHANNELS)
     {
         m_channelMute[channel].store(mute);
-        juce::Logger::writeToLog("AudioEngine: Channel " + juce::String(channel) +
+        DBG("AudioEngine: Channel " + juce::String(channel) +
                                  (mute ? " muted" : " unmuted"));
     }
 }
@@ -810,7 +811,7 @@ void AudioEngine::clearAllSoloMute()
         m_channelSolo[ch].store(false);
         m_channelMute[ch].store(false);
     }
-    juce::Logger::writeToLog("AudioEngine: All solo/mute cleared");
+    DBG("AudioEngine: All solo/mute cleared");
 }
 
 void AudioEngine::setSpectrumAnalyzer(SpectrumAnalyzer* spectrumAnalyzer)
@@ -984,6 +985,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // Duplicate mono (channel 0) to right channel (channel 1)
         // The transport source already filled channel 0, now copy it to channel 1
         buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+    }
+
+    //==============================================================================
+    // PLUGIN PARAMETER AUTOMATION: Apply automation curves before plugin processing
+    // Lock-free: reads from each AutomationCurve's atomic point list.
+    if (m_automationManager != nullptr && m_pluginChainEnabled.load())
+    {
+        double currentPos = m_transportSource.getCurrentPosition();
+        m_automationManager->applyAutomation(m_pluginChain, currentPos);
     }
 
     //==============================================================================

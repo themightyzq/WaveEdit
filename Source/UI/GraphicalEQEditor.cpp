@@ -111,12 +111,12 @@ GraphicalEQEditor::GraphicalEQEditor(const DynamicParametricEQ::Parameters& init
     {
         m_result = m_params;
 
-        juce::Logger::writeToLog("GraphicalEQ Apply clicked:");
-        juce::Logger::writeToLog("  " + juce::String(m_params.bands.size()) + " bands");
+        DBG("GraphicalEQ Apply clicked:");
+        DBG("  " + juce::String(m_params.bands.size()) + " bands");
         for (size_t i = 0; i < m_params.bands.size(); ++i)
         {
             const auto& band = m_params.bands[i];
-            juce::Logger::writeToLog("  Band " + juce::String(i) + ": " +
+            DBG("  Band " + juce::String(i) + ": " +
                 juce::String(band.frequency) + " Hz, " +
                 juce::String(band.gain) + " dB, Q=" + juce::String(band.q) +
                 ", Type=" + DynamicParametricEQ::getFilterTypeName(band.filterType));
@@ -1123,7 +1123,11 @@ void GraphicalEQEditor::showBandContextMenu(int bandIndex)
 
 void GraphicalEQEditor::processPreviewAudio()
 {
-    // TODO: Implement preview audio processing
+    // Preview audio processing is handled by AudioEngine's real-time DSP mode.
+    // When PreviewMode::REALTIME_DSP is active, the audio engine applies the
+    // current EQ parameters (set via setDynamicEQPreview) to the playback stream.
+    // This method is kept for consistency with the dialog framework but the actual
+    // processing happens in the audio callback via the DSP pipeline.
 }
 
 void GraphicalEQEditor::togglePreview()

@@ -115,11 +115,17 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Import/export custom templates
 
 **Quality**:
-- ✅ Automated test suite (47 assertions, 100% pass rate)
+- ✅ Automated test suite (22 groups / 90 assertions, 100% pass rate as of
+  2026-04-28). Runs locally via `./build-and-run.command`. CI currently
+  builds artifacts only — adding test execution to CI is on the roadmap.
 - ✅ Sub-1 second startup, 60fps rendering
 - ✅ <10ms waveform updates, <10ms playback latency
 
-> **Status**: Production-quality for core editing workflows.
+> **Status**: Core editing workflows are production-quality. Several
+> menu-routed features (Graphical EQ, Channel Converter, Channel Extractor,
+> Apply Plugin Chain, Offline Plugin) currently land on placeholder dialogs
+> after a recent architecture refactor — repair tracked in
+> [TODO.md](TODO.md) under "Active P0 Regressions".
 
 **Spectrum Analyzer** 🆕:
 - ✅ Real-time FFT visualization during playback
@@ -242,9 +248,9 @@ cmake --build build --target WaveEditTests
 ║         WaveEdit Automated Test Suite by ZQ SFX             ║
 ╚══════════════════════════════════════════════════════════════╝
 
-Total test groups: 13
-Total assertions: 47
-Passed: 47
+Total test groups: 22
+Total assertions: 90
+Passed: 90
 Failed: 0
 
 ✅ All tests PASSED
@@ -464,4 +470,4 @@ See [LICENSE](LICENSE) for full details.
 ---
 
 **Version**: 0.1.0-dev
-**Last Updated**: 2026-01-14
+**Last Updated**: 2026-04-28

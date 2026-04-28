@@ -36,6 +36,9 @@ Document::Document(const juce::File& file)
     // minTransactions set to 90 to allow headroom for complex multi-unit transactions
     m_undoManager.setMaxNumberOfStoredUnits(100, 90);
 
+    // Wire automation manager to audio engine for real-time parameter automation
+    m_audioEngine.setAutomationManager(&m_automationManager);
+
     // Connect WaveformDisplay to RegionManager for region overlay rendering
     m_waveformDisplay.setRegionManager(&m_regionManager);
 
@@ -85,8 +88,7 @@ void Document::setModified(bool modified)
     {
         m_isModified = modified;
 
-        // Log state change
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "Document '%s' modified state: %s",
             getFilename().toRawUTF8(),
             modified ? "true" : "false"));
@@ -151,11 +153,11 @@ bool Document::loadFile(const juce::File& file)
     // Load BWF metadata (Phase 4 Tier 1)
     if (m_bwfMetadata.loadFromFile(file))
     {
-        juce::Logger::writeToLog("Loaded BWF metadata for: " + file.getFullPathName());
+        DBG("Loaded BWF metadata for: " + file.getFullPathName());
     }
     else
     {
-        juce::Logger::writeToLog("No BWF metadata found in: " + file.getFullPathName());
+        DBG("No BWF metadata found in: " + file.getFullPathName());
         // Not an error - create default metadata for WaveEdit files
         m_bwfMetadata = BWFMetadata::createDefault(file.getFileNameWithoutExtension());
     }
@@ -163,7 +165,7 @@ bool Document::loadFile(const juce::File& file)
     // Load iXML metadata (Phase 4 Tier 1 - UCS/SoundMiner compatibility)
     if (m_ixmlMetadata.loadFromFile(file))
     {
-        juce::Logger::writeToLog("Loaded iXML metadata for: " + file.getFullPathName());
+        DBG("Loaded iXML metadata for: " + file.getFullPathName());
     }
     else
     {
@@ -171,11 +173,11 @@ bool Document::loadFile(const juce::File& file)
         m_ixmlMetadata = iXMLMetadata::fromUCSFilename(file.getFileName());
         if (m_ixmlMetadata.hasMetadata())
         {
-            juce::Logger::writeToLog("Parsed UCS metadata from filename: " + file.getFileName());
+            DBG("Loaded iXML metadata for: " + file.getFileName());
         }
         else
         {
-            juce::Logger::writeToLog("No iXML or UCS metadata found in: " + file.getFullPathName());
+            DBG("No iXML or UCS metadata found in: " + file.getFullPathName());
         }
     }
 
@@ -185,7 +187,7 @@ bool Document::loadFile(const juce::File& file)
     // Clear undo history for new file
     m_undoManager.clearUndoHistory();
 
-    juce::Logger::writeToLog("Document loaded: " + file.getFullPathName());
+    DBG("Document loaded: " + file.getFullPathName());
     return true;
 }
 
@@ -201,7 +203,7 @@ void Document::closeFile()
     m_isModified = false;
     m_savedPlaybackPosition = 0.0;
 
-    juce::Logger::writeToLog("Document closed");
+    DBG("Document closed");
 }
 
 bool Document::saveFile(const juce::File& file, int bitDepth, int quality, double targetSampleRate)
@@ -242,7 +244,7 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
     juce::AudioBuffer<float> bufferToSave;
     if (targetSampleRate > 0.0 && std::abs(targetSampleRate - sourceSampleRate) > 0.01)
     {
-        juce::Logger::writeToLog("Resampling from " + juce::String(sourceSampleRate, 0) +
+        DBG("Resampling from " + juce::String(sourceSampleRate, 0) +
                                  " Hz to " + juce::String(targetSampleRate, 0) + " Hz");
         bufferToSave = AudioFileManager::resampleBuffer(buffer, sourceSampleRate, targetSampleRate);
     }
@@ -270,7 +272,7 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
     if (m_ixmlMetadata.hasMetadata())
     {
         metadata.set("iXML", m_ixmlMetadata.toXMLString());
-        juce::Logger::writeToLog("Embedding iXML metadata in file");
+        DBG("Embedding iXML metadata in file");
     }
 
     // Save using AudioFileManager
@@ -297,7 +299,7 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         }
         else if (m_ixmlMetadata.hasMetadata() && !file.hasFileExtension(".wav"))
         {
-            juce::Logger::writeToLog("Note: iXML metadata not saved (not supported for " +
+            DBG("Note: iXML metadata not saved (not supported for " +
                                     file.getFileExtension() + " format)");
         }
 
@@ -311,7 +313,7 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         // Save marker data as sidecar JSON
         m_markerManager.saveToFile(file);
 
-        juce::Logger::writeToLog("Document saved: " + file.getFullPathName());
+        DBG("Document saved: " + file.getFullPathName());
         return true;
     }
     else

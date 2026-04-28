@@ -80,7 +80,7 @@ bool Settings::load()
 {
     if (!m_settingsFile.existsAsFile())
     {
-        juce::Logger::writeToLog("Settings file does not exist: " + m_settingsFile.getFullPathName());
+        DBG("Settings file does not exist: " + m_settingsFile.getFullPathName());
         return false;
     }
 
@@ -89,7 +89,7 @@ bool Settings::load()
 
     if (fileContent.isEmpty())
     {
-        juce::Logger::writeToLog("Settings file is empty");
+        DBG("Settings file is empty");
         return false;
     }
 
@@ -141,7 +141,7 @@ bool Settings::load()
         }
     }
 
-    juce::Logger::writeToLog("Settings loaded from: " + m_settingsFile.getFullPathName());
+    DBG("Settings loaded from: " + m_settingsFile.getFullPathName());
     return true;
 }
 
@@ -182,7 +182,7 @@ bool Settings::save()
         return false;
     }
 
-    juce::Logger::writeToLog("Settings saved to: " + m_settingsFile.getFullPathName());
+    DBG("Settings saved to: " + m_settingsFile.getFullPathName());
     return true;
 }
 
@@ -232,7 +232,7 @@ void Settings::addRecentFile(const juce::File& file)
     // Save immediately
     save();
 
-    juce::Logger::writeToLog("Added to recent files: " + filePath);
+    DBG("Added to recent files: " + filePath);
 }
 
 juce::StringArray Settings::getRecentFiles() const
@@ -268,7 +268,7 @@ void Settings::clearRecentFiles()
     }
 
     save();
-    juce::Logger::writeToLog("Recent files list cleared");
+    DBG("Recent files list cleared");
 }
 
 int Settings::cleanupRecentFiles()
@@ -298,7 +298,7 @@ int Settings::cleanupRecentFiles()
     if (removedCount > 0)
     {
         save();
-        juce::Logger::writeToLog("Removed " + juce::String(removedCount) + " invalid files from recent list");
+        DBG("Removed " + juce::String(removedCount) + " invalid files from recent list");
     }
 
     return removedCount;
@@ -375,7 +375,7 @@ bool Settings::getSnapRegionsToZeroCrossings() const
 void Settings::setSnapRegionsToZeroCrossings(bool enabled)
 {
     setSetting("region.snapToZeroCrossings", enabled);
-    juce::Logger::writeToLog("Region zero-crossing snap: " + juce::String(enabled ? "enabled" : "disabled"));
+    DBG("Region zero-crossing snap: " + juce::String(enabled ? "enabled" : "disabled"));
 }
 
 bool Settings::getAutoPreviewRegions() const
@@ -387,7 +387,7 @@ bool Settings::getAutoPreviewRegions() const
 void Settings::setAutoPreviewRegions(bool enabled)
 {
     setSetting("region.autoPreview", enabled);
-    juce::Logger::writeToLog("Region auto-preview: " + juce::String(enabled ? "enabled" : "disabled"));
+    DBG("Region auto-preview: " + juce::String(enabled ? "enabled" : "disabled"));
 }
 
 bool Settings::getRegionsVisible() const
@@ -399,7 +399,7 @@ bool Settings::getRegionsVisible() const
 void Settings::setRegionsVisible(bool visible)
 {
     setSetting("view.showRegions", visible);
-    juce::Logger::writeToLog("Regions visibility: " + juce::String(visible ? "visible" : "hidden"));
+    DBG("Regions visibility: " + juce::String(visible ? "visible" : "hidden"));
 }
 
 //==============================================================================
@@ -414,7 +414,7 @@ void Settings::createDefaultSettings()
     auto recentFilesTree = juce::ValueTree("recentFiles");
     m_settingsTree.appendChild(recentFilesTree, nullptr);
 
-    juce::Logger::writeToLog("Created default settings");
+    DBG("Created default settings");
 }
 
 juce::ValueTree Settings::getTreeByPath(const juce::String& path, bool createIfMissing)

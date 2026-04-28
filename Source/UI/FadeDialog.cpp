@@ -1,7 +1,7 @@
 /*
   ==============================================================================
 
-    FadeOutDialog.cpp
+    FadeDialog.cpp
     WaveEdit - Professional Audio Editor
     Copyright (C) 2025 ZQ SFX
 
@@ -13,35 +13,55 @@
   ==============================================================================
 */
 
-#include "FadeOutDialog.h"
+#include "FadeDialog.h"
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
 #include "../Audio/AudioProcessor.h"
 #include "../Utils/Settings.h"
 
-// Static state persistence for dialog reopens (Phase 6 finalization)
+// Static state persistence for dialog reopens
 // These persist bypass and loop toggle states across dialog instances
 static bool s_lastBypassState = false;
 static bool s_lastLoopState = true;  // Default ON per CLAUDE.md Protocol
 
-FadeOutDialog::FadeOutDialog(AudioEngine* audioEngine,
-                             AudioBufferManager* bufferManager,
-                             int64_t selectionStart,
-                             int64_t selectionEnd)
-    : m_audioEngine(audioEngine)
+FadeDialog::FadeDialog(FadeDirection direction,
+                       AudioEngine* audioEngine,
+                       AudioBufferManager* bufferManager,
+                       int64_t selectionStart,
+                       int64_t selectionEnd)
+    : m_direction(direction)
+    , m_audioEngine(audioEngine)
     , m_bufferManager(bufferManager)
     , m_selectionStart(selectionStart)
     , m_selectionEnd(selectionEnd)
+    , m_curvePreview(direction == FadeDirection::FadeIn)
 {
+    // Determine title and instruction based on direction
+    juce::String title;
+    juce::String instruction;
+    juce::String settingKey;
+
+    if (m_direction == FadeDirection::FadeIn)
+    {
+        title = "Fade In";
+        instruction = "Apply fade from 0% to 100% amplitude over the selection.";
+        settingKey = "dsp.lastFadeInCurve";
+    }
+    else
+    {
+        title = "Fade Out";
+        instruction = "Apply fade from 100% to 0% amplitude over the selection.";
+        settingKey = "dsp.lastFadeOutCurve";
+    }
+
     // Title
-    m_titleLabel.setText("Fade Out", juce::dontSendNotification);
+    m_titleLabel.setText(title, juce::dontSendNotification);
     m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
     // Instruction
-    m_instructionLabel.setText("Apply fade from 100% to 0% amplitude over the selection.",
-                              juce::dontSendNotification);
+    m_instructionLabel.setText(instruction, juce::dontSendNotification);
     m_instructionLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(m_instructionLabel);
 
@@ -55,8 +75,8 @@ FadeOutDialog::FadeOutDialog(AudioEngine* audioEngine,
     m_curveTypeBox.addItem("Logarithmic", 3);
     m_curveTypeBox.addItem("S-Curve", 4);
 
-    // Load last-used curve from settings (separate preference from FadeIn)
-    int lastCurve = Settings::getInstance().getSetting("dsp.lastFadeOutCurve", 0);
+    // Load last-used curve from settings (separate preference for in/out)
+    int lastCurve = Settings::getInstance().getSetting(settingKey, 0);
     m_curveTypeBox.setSelectedId(lastCurve + 1, juce::dontSendNotification);
 
     m_curveTypeBox.onChange = [this]() { onCurveTypeChanged(); };
@@ -96,7 +116,7 @@ FadeOutDialog::FadeOutDialog(AudioEngine* audioEngine,
     setSize(520, 270);  // Increased width to accommodate curve preview
 }
 
-FadeOutDialog::~FadeOutDialog()
+FadeDialog::~FadeDialog()
 {
     // Stop any preview playback and reset bypass
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
@@ -107,12 +127,12 @@ FadeOutDialog::~FadeOutDialog()
     }
 }
 
-void FadeOutDialog::paint(juce::Graphics& g)
+void FadeDialog::paint(juce::Graphics& g)
 {
     g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 }
 
-void FadeOutDialog::resized()
+void FadeDialog::resized()
 {
     auto bounds = getLocalBounds().reduced(20);
 
@@ -140,8 +160,8 @@ void FadeOutDialog::resized()
 
     bounds.removeFromTop(15); // Spacing
 
-    // Buttons (bottom) - standardized layout
-    // Left: Preview + Loop + Bypass | Right: Cancel + Apply
+    // Buttons (bottom) - standardized layout per CLAUDE.md Section 6.8
+    // Left: Preview + Bypass + Loop | Right: Cancel + Apply
     bounds.removeFromTop(bounds.getHeight() - 40); // Push to bottom
     auto buttonRow = bounds.removeFromTop(40);
     const int buttonWidth = 90;
@@ -160,7 +180,7 @@ void FadeOutDialog::resized()
     m_cancelButton.setBounds(buttonRow.removeFromRight(buttonWidth));
 }
 
-void FadeOutDialog::visibilityChanged()
+void FadeDialog::visibilityChanged()
 {
     if (!isVisible())
     {
@@ -173,7 +193,7 @@ void FadeOutDialog::visibilityChanged()
     }
 }
 
-void FadeOutDialog::onPreviewClicked()
+void FadeDialog::onPreviewClicked()
 {
     if (!m_audioEngine || !m_bufferManager)
         return;
@@ -183,7 +203,7 @@ void FadeOutDialog::onPreviewClicked()
     {
         m_audioEngine->stop();
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setFadePreview(false, 0, 0.0f, false);  // Disable fade processor
+        m_audioEngine->setFadePreview(m_direction == FadeDirection::FadeIn, 0, 0.0f, false);  // Disable fade processor
         m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
@@ -195,7 +215,7 @@ void FadeOutDialog::onPreviewClicked()
         return;
     }
 
-    // Following GainDialog/NormalizeDialog/FadeInDialog pattern
+    // Following GainDialog/NormalizeDialog pattern
 
     // 0. Stop any current playback FIRST
     if (m_audioEngine->isPlaying())
@@ -219,8 +239,9 @@ void FadeOutDialog::onPreviewClicked()
     // 4. Set preview mode to REALTIME_DSP for instant parameter changes
     m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
 
-    // 5. Set fade parameters (false = fade out)
-    m_audioEngine->setFadePreview(false, curveIndex, durationMs, true);
+    // 5. Set fade parameters - direction determines fade in/out
+    bool isFadeIn = (m_direction == FadeDirection::FadeIn);
+    m_audioEngine->setFadePreview(isFadeIn, curveIndex, durationMs, true);
 
     // 6. Set preview selection offset for accurate cursor positioning
     m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
@@ -248,7 +269,7 @@ void FadeOutDialog::onPreviewClicked()
     m_bypassButton.setEnabled(true);
 }
 
-void FadeOutDialog::onApplyClicked()
+void FadeDialog::onApplyClicked()
 {
     // Stop any preview playback
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
@@ -263,7 +284,7 @@ void FadeOutDialog::onApplyClicked()
     }
 }
 
-void FadeOutDialog::onCancelClicked()
+void FadeDialog::onCancelClicked()
 {
     // Stop any preview playback
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
@@ -278,11 +299,16 @@ void FadeOutDialog::onCancelClicked()
     }
 }
 
-void FadeOutDialog::onCurveTypeChanged()
+void FadeDialog::onCurveTypeChanged()
 {
+    // Determine the settings key based on direction
+    juce::String settingKey = (m_direction == FadeDirection::FadeIn)
+        ? "dsp.lastFadeInCurve"
+        : "dsp.lastFadeOutCurve";
+
     // Save preference
     int curveIndex = m_curveTypeBox.getSelectedId() - 1;
-    Settings::getInstance().setSetting("dsp.lastFadeOutCurve", curveIndex);
+    Settings::getInstance().setSetting(settingKey, curveIndex);
 
     // Update the curve preview
     m_curvePreview.setCurveType(static_cast<FadeCurveType>(curveIndex));
@@ -296,11 +322,12 @@ void FadeOutDialog::onCurveTypeChanged()
         float durationMs = static_cast<float>((numSamples / sampleRate) * 1000.0);
 
         // Update fade parameters atomically - instant response!
-        m_audioEngine->setFadePreview(false, curveIndex, durationMs, true);
+        bool isFadeIn = (m_direction == FadeDirection::FadeIn);
+        m_audioEngine->setFadePreview(isFadeIn, curveIndex, durationMs, true);
     }
 }
 
-void FadeOutDialog::onBypassClicked()
+void FadeDialog::onBypassClicked()
 {
     if (!m_audioEngine)
         return;

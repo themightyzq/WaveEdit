@@ -35,7 +35,7 @@ void AudioClipboard::copyAudio(const juce::AudioBuffer<float>& buffer, double sa
     m_buffer.makeCopyOf(buffer);
     m_sampleRate = sampleRate;
 
-    juce::Logger::writeToLog("AudioClipboard: Copied " + juce::String(buffer.getNumSamples()) +
+    DBG("AudioClipboard: Copied " + juce::String(buffer.getNumSamples()) +
                              " samples, " + juce::String(buffer.getNumChannels()) + " channels, " +
                              juce::String(sampleRate) + " Hz");
 }
@@ -63,7 +63,7 @@ void AudioClipboard::clear()
     m_buffer.setSize(0, 0);
     m_sampleRate = 44100.0;
 
-    juce::Logger::writeToLog("AudioClipboard: Cleared");
+    DBG("AudioClipboard: Cleared");
 }
 
 int AudioClipboard::getNumChannels() const

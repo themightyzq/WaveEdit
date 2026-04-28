@@ -316,7 +316,7 @@ int StripSilenceDialog::applyStripSilence(bool previewOnly)
 
         int numRegionsCreated = m_regionManager.getNumRegions();
 
-        juce::Logger::writeToLog("Auto Region: Created " + juce::String(numRegionsCreated) + " regions");
+        DBG("Auto Region: Created " + juce::String(numRegionsCreated) + " regions");
 
         return numRegionsCreated;
     }
@@ -364,7 +364,7 @@ bool StripSilenceDialog::validateParameters()
     {
         // For now, just log a warning instead of blocking
         // In a full implementation, this would use an async dialog
-        juce::Logger::writeToLog("Warning: Min Silence Length is very short (" +
+        DBG("Warning: Min Silence Length is very short (" +
                                   juce::String(minSilenceLengthMs, 1) +
                                   " ms). This may create many regions.");
     }

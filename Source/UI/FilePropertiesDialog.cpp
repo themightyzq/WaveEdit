@@ -261,7 +261,7 @@ void FilePropertiesDialog::buttonClicked(juce::Button* button)
             m_document.setModified(true);
             // Reload properties to show updated values
             loadProperties();
-            juce::Logger::writeToLog("BWF metadata updated from File Properties dialog");
+            DBG("BWF metadata updated from File Properties dialog");
         });
     }
     else if (button == &m_editiXMLButton)
@@ -274,7 +274,7 @@ void FilePropertiesDialog::buttonClicked(juce::Button* button)
             m_document.setModified(true);
             // Reload properties to show updated values
             loadProperties();
-            juce::Logger::writeToLog("iXML metadata updated from File Properties dialog");
+            DBG("iXML metadata updated from File Properties dialog");
         });
     }
     else if (button == &m_closeButton)

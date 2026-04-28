@@ -215,14 +215,14 @@ void TransportControls::timerCallback()
             {
                 // Loop: restart from selection start
                 m_audioEngine.setPosition(selectionStart);
-                juce::Logger::writeToLog(juce::String::formatted(
+                DBG(juce::String::formatted(
                     "Selection loop: Restarting from %.3f s", selectionStart));
             }
             else
             {
                 // No loop: stop at selection end
                 m_audioEngine.stop();
-                juce::Logger::writeToLog("Selection playback complete, stopped at end");
+                DBG("Selection playback complete, stopped at end");
             }
         }
     }
@@ -234,7 +234,7 @@ void TransportControls::timerCallback()
         {
             // Restart playback from the beginning
             m_audioEngine.setPosition(0.0);
-            juce::Logger::writeToLog("Loop: Restarting playback from beginning");
+            DBG("Loop: Restarting playback from beginning");
         }
     }
 
@@ -412,7 +412,7 @@ void TransportControls::onLoopClicked()
     updateButtonStates();
 
     // Log loop state for debugging
-    juce::Logger::writeToLog("Loop " + juce::String(m_loopEnabled ? "enabled" : "disabled"));
+    DBG("Loop " + juce::String(m_loopEnabled ? "enabled" : "disabled"));
 
     // Note: Loop state is connected to AudioEngine in Main.cpp via setLooping() callback
 }

@@ -289,7 +289,7 @@ void RegionDisplay::mouseDrag(const juce::MouseEvent& event)
         // Guard against invalid sample rate
         if (m_sampleRate <= 0.0)
         {
-            juce::Logger::writeToLog("Warning: RegionDisplay sample rate not set during resize");
+            DBG("Warning: RegionDisplay sample rate not set during resize");
             return;
         }
 
@@ -439,7 +439,7 @@ void RegionDisplay::mouseUp(const juce::MouseEvent& event)
                     region->setStartSample(snappedStart);
                     region->setEndSample(snappedEnd);
 
-                    juce::Logger::writeToLog(juce::String::formatted(
+                    DBG(juce::String::formatted(
                         "Zero-crossing snap on resize: start %lld -> %lld, end %lld -> %lld",
                         startSample, snappedStart, endSample, snappedEnd));
 

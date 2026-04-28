@@ -88,6 +88,9 @@ namespace CommandIDs
         processParametricEQ = 0x5007,  // Shift+E - 3-band Parametric EQ dialog
         processGraphicalEQ = 0x5008,  // Cmd+E - Graphical Parametric EQ editor
         processChannelConverter = 0x5009,  // Cmd+Shift+U - Channel Converter dialog
+        processReverse          = 0x500A,  // Ctrl+R - Reverse audio
+        processInvert           = 0x500B,  // Ctrl+I - Invert polarity
+        processResample         = 0x500C,  // Resample to different sample rate
 
         // Navigation Operations (0x6000 - 0x60FF)
         navigateLeft         = 0x6000,  // Arrow left (uses current snap increment)
@@ -117,6 +120,7 @@ namespace CommandIDs
         // Help Operations (0x9000 - 0x90FF)
         helpAbout       = 0x9000,
         helpShortcuts   = 0x9001,
+        helpCommandPalette = 0x9002,  // Cmd+Shift+A - Command Palette
 
         // Tab Operations (0xA000 - 0xA0FF) - Phase 3 Multi-file support
         tabClose        = 0xA000,  // Cmd+W - Close current tab
@@ -139,7 +143,7 @@ namespace CommandIDs
         regionNext      = 0xB002,  // ] - Jump to and select next region
         regionPrevious  = 0xB003,  // [ - Jump to and select previous region
         regionSelectInverse = 0xB004,  // Cmd+Shift+I - Select everything NOT in regions
-        regionSelectAll = 0xB005,  // Cmd+Shift+A - Select union of all regions
+        regionSelectAll = 0xB005,  // Cmd+Alt+A - Select union of all regions (moved from Cmd+Shift+A)
         regionStripSilence = 0xB006,  // Cmd+Shift+R - Auto-create regions from non-silent sections (Strip Silence)
         regionExportAll = 0xB007,  // Cmd+Shift+E - Export each region as separate file (Batch Export)
         regionShowList  = 0xB008,  // Cmd+Shift+M - Show/hide Region List Panel
@@ -161,6 +165,10 @@ namespace CommandIDs
         markerPrevious  = 0xC003,  // Shift+[ - Jump to previous marker
         markerShowList  = 0xC004,  // Cmd+Shift+K - Show/hide Marker List Panel (moved from Cmd+M to avoid macOS Minimize Window conflict)
 
+        // Marker-Region Conversion
+        markerConvertToRegions  = 0xC100,  // Convert markers to regions
+        regionConvertToMarkers  = 0xC101,  // Convert regions to markers
+
         // Plugin Operations (0xD000 - 0xD0FF) - VST3/AU plugin chain support
         pluginShowChain     = 0xD000,  // Cmd+Shift+P - Show Plugin Chain panel
         pluginAddPlugin     = 0xD001,  // Cmd+Alt+P - Open Plugin Manager dialog
@@ -180,6 +188,8 @@ namespace CommandIDs
 
         // Tools Operations (0xF100 - 0xF1FF)
         toolsChannelConverter = 0xF100,  // Cmd+Shift+U - Channel Converter dialog (moved from Process menu)
-        toolsChannelExtractor = 0xF101   // Cmd+Shift+X - Channel Extractor dialog (export channels to files)
+        toolsChannelExtractor = 0xF101,  // Cmd+Shift+X - Channel Extractor dialog (export channels to files)
+        toolsHeadTail         = 0xF102,  // Head & Tail processing (trim, pad, fade)
+        toolsLoopingTools     = 0xF103   // Cmd+L - Looping Tools
     };
 }

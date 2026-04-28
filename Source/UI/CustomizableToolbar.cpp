@@ -34,7 +34,7 @@ CustomizableToolbar::CustomizableToolbar(juce::ApplicationCommandManager& comman
     // Load current layout
     loadLayout(m_toolbarManager.getCurrentLayout());
 
-    juce::Logger::writeToLog("CustomizableToolbar: Initialized");
+    DBG("CustomizableToolbar: Initialized");
 }
 
 CustomizableToolbar::~CustomizableToolbar()
@@ -154,7 +154,7 @@ void CustomizableToolbar::itemDropped(const SourceDetails& details)
         // Rebuild toolbar with new order
         rebuildToolbar();
 
-        juce::Logger::writeToLog("CustomizableToolbar: Reordered button '" + buttonId +
+        DBG("CustomizableToolbar: Reordered button '" + buttonId +
                                  "' from " + juce::String(sourceIndex) +
                                  " to " + juce::String(adjustedInsertIndex));
     }
@@ -179,7 +179,7 @@ void CustomizableToolbar::loadLayout(const ToolbarLayout& layout)
     // Force immediate visual update
     repaint();
 
-    juce::Logger::writeToLog("CustomizableToolbar: Loaded layout '" + layout.name + "'");
+    DBG("CustomizableToolbar: Loaded layout '" + layout.name + "'");
 }
 
 void CustomizableToolbar::setDocument(Document* doc)
@@ -442,7 +442,7 @@ void CustomizableToolbar::handlePluginButtonClick(const juce::String& pluginId)
     }
     else
     {
-        juce::Logger::writeToLog("CustomizableToolbar: Plugin button clicked: " + pluginId +
+        DBG("CustomizableToolbar: Plugin button clicked: " + pluginId +
                                  " (no handler registered)");
     }
 }

@@ -72,7 +72,7 @@ bool ToolbarManager::loadLayout(const juce::String& layoutName)
         m_currentLayoutName = layoutName;
         saveToSettings();
         notifyListeners();
-        juce::Logger::writeToLog("ToolbarManager: Loaded built-in layout: " + layoutName);
+        DBG("ToolbarManager: Loaded built-in layout: " + layoutName);
         return true;
     }
 
@@ -84,11 +84,11 @@ bool ToolbarManager::loadLayout(const juce::String& layoutName)
         m_currentLayoutName = layoutName;
         saveToSettings();
         notifyListeners();
-        juce::Logger::writeToLog("ToolbarManager: Loaded user layout: " + layoutName);
+        DBG("ToolbarManager: Loaded user layout: " + layoutName);
         return true;
     }
 
-    juce::Logger::writeToLog("ToolbarManager: Layout not found: " + layoutName);
+    DBG("ToolbarManager: Layout not found: " + layoutName);
     return false;
 }
 
@@ -110,7 +110,7 @@ bool ToolbarManager::importLayout(const juce::File& file, bool makeActive)
 
     if (layout.name.isEmpty())
     {
-        juce::Logger::writeToLog("ToolbarManager: Failed to import layout - invalid JSON");
+        DBG("ToolbarManager: Failed to import layout - invalid JSON");
         return false;
     }
 
@@ -118,9 +118,9 @@ bool ToolbarManager::importLayout(const juce::File& file, bool makeActive)
     juce::StringArray errors;
     if (!layout.validate(errors))
     {
-        juce::Logger::writeToLog("ToolbarManager: Layout validation failed:");
+        DBG("ToolbarManager: Layout validation failed:");
         for (const auto& error : errors)
-            juce::Logger::writeToLog("  " + error);
+            DBG("  " + error);
         return false;
     }
 
@@ -128,7 +128,7 @@ bool ToolbarManager::importLayout(const juce::File& file, bool makeActive)
     juce::File destFile = getToolbarsDirectory().getChildFile(file.getFileName());
     if (!file.copyFileTo(destFile))
     {
-        juce::Logger::writeToLog("ToolbarManager: Failed to copy layout file");
+        DBG("ToolbarManager: Failed to copy layout file");
         return false;
     }
 
@@ -138,7 +138,7 @@ bool ToolbarManager::importLayout(const juce::File& file, bool makeActive)
     if (makeActive)
         loadLayout(layout.name);
 
-    juce::Logger::writeToLog("ToolbarManager: Successfully imported layout: " + layout.name);
+    DBG("ToolbarManager: Successfully imported layout: " + layout.name);
     return true;
 }
 
@@ -177,14 +177,14 @@ bool ToolbarManager::saveCurrentLayoutAs(const juce::String& newName)
     juce::File destFile = getToolbarsDirectory().getChildFile(newName + ".json");
     if (!newLayout.saveToJSON(destFile))
     {
-        juce::Logger::writeToLog("ToolbarManager: Failed to save layout: " + newName);
+        DBG("ToolbarManager: Failed to save layout: " + newName);
         return false;
     }
 
     // Add to user layouts map
     m_userLayouts[newName] = destFile;
 
-    juce::Logger::writeToLog("ToolbarManager: Saved layout as: " + newName);
+    DBG("ToolbarManager: Saved layout as: " + newName);
     return true;
 }
 
@@ -199,7 +199,7 @@ void ToolbarManager::updateCurrentLayout(const ToolbarLayout& layout)
     if (layout.saveToJSON(destFile))
     {
         m_userLayouts[layout.name] = destFile;
-        juce::Logger::writeToLog("ToolbarManager: Updated and saved layout: " + layout.name);
+        DBG("ToolbarManager: Updated and saved layout: " + layout.name);
     }
 
     // Notify listeners so the toolbar updates
@@ -211,14 +211,14 @@ bool ToolbarManager::deleteLayout(const juce::String& layoutName)
     // Cannot delete built-in layouts
     if (isBuiltInLayout(layoutName))
     {
-        juce::Logger::writeToLog("ToolbarManager: Cannot delete built-in layout: " + layoutName);
+        DBG("ToolbarManager: Cannot delete built-in layout: " + layoutName);
         return false;
     }
 
     auto userIt = m_userLayouts.find(layoutName);
     if (userIt == m_userLayouts.end())
     {
-        juce::Logger::writeToLog("ToolbarManager: Layout not found: " + layoutName);
+        DBG("ToolbarManager: Layout not found: " + layoutName);
         return false;
     }
 
@@ -226,7 +226,7 @@ bool ToolbarManager::deleteLayout(const juce::String& layoutName)
     juce::File layoutFile = userIt->second;
     if (!layoutFile.deleteFile())
     {
-        juce::Logger::writeToLog("ToolbarManager: Failed to delete layout file: " + layoutName);
+        DBG("ToolbarManager: Failed to delete layout file: " + layoutName);
         return false;
     }
 
@@ -237,7 +237,7 @@ bool ToolbarManager::deleteLayout(const juce::String& layoutName)
     if (m_currentLayoutName == layoutName)
         loadLayout("Default");
 
-    juce::Logger::writeToLog("ToolbarManager: Deleted layout: " + layoutName);
+    DBG("ToolbarManager: Deleted layout: " + layoutName);
     return true;
 }
 
@@ -310,7 +310,7 @@ void ToolbarManager::createBuiltInLayouts()
     m_builtInLayouts["DSP Focused"] = createDSPFocusedLayout();
     m_builtInLayouts["Sound Forge"] = createSoundForgeLayout();
 
-    juce::Logger::writeToLog("ToolbarManager: Created " +
+    DBG("ToolbarManager: Created " +
                              juce::String(m_builtInLayouts.size()) + " built-in layouts");
 }
 
@@ -329,12 +329,12 @@ void ToolbarManager::loadBuiltInTemplates()
 
     if (!bundledToolbarsDir.exists())
     {
-        juce::Logger::writeToLog("ToolbarManager: Bundled toolbars directory not found at: " +
+        DBG("ToolbarManager: Bundled toolbars directory not found at: " +
                                  bundledToolbarsDir.getFullPathName());
         return;
     }
 
-    juce::Logger::writeToLog("ToolbarManager: Loading bundled templates from: " +
+    DBG("ToolbarManager: Loading bundled templates from: " +
                              bundledToolbarsDir.getFullPathName());
 
     auto files = bundledToolbarsDir.findChildFiles(juce::File::findFiles, false, "*.json");
@@ -346,14 +346,14 @@ void ToolbarManager::loadBuiltInTemplates()
         {
             // Override programmatic layout with bundled one
             m_builtInLayouts[layout.name] = layout;
-            juce::Logger::writeToLog("  Loaded bundled template: " + layout.name);
+            DBG("  Loaded bundled template: " + layout.name);
 
             // Copy to user directory on first run
             juce::File userLayoutFile = getToolbarsDirectory().getChildFile(file.getFileName());
             if (!userLayoutFile.exists())
             {
                 if (file.copyFileTo(userLayoutFile))
-                    juce::Logger::writeToLog("  Installed to user directory: " + layout.name);
+                    DBG("  Installed to user directory: " + layout.name);
             }
         }
     }
@@ -371,7 +371,7 @@ void ToolbarManager::scanUserLayouts()
             m_userLayouts[layout.name] = file;
     }
 
-    juce::Logger::writeToLog("ToolbarManager: Scanned " +
+    DBG("ToolbarManager: Scanned " +
                              juce::String(m_userLayouts.size()) + " user layouts");
 }
 

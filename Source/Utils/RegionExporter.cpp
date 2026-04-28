@@ -26,13 +26,13 @@ int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
 
     if (numRegions == 0)
     {
-        juce::Logger::writeToLog("RegionExporter: No regions to export");
+        DBG("RegionExporter: No regions to export");
         return 0;
     }
 
     if (!settings.outputDirectory.exists() || !settings.outputDirectory.isDirectory())
     {
-        juce::Logger::writeToLog("RegionExporter: Invalid output directory");
+        DBG("RegionExporter: Invalid output directory");
         return -1;
     }
 
@@ -52,7 +52,7 @@ int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
             bool shouldContinue = progressCallback(i, numRegions, region->getName());
             if (!shouldContinue)
             {
-                juce::Logger::writeToLog("RegionExporter: Export cancelled by user");
+                DBG("RegionExporter: Export cancelled by user");
                 break;
             }
         }
@@ -71,13 +71,13 @@ int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
         if (success)
         {
             ++successCount;
-            juce::Logger::writeToLog("RegionExporter: Exported region " +
+            DBG("RegionExporter: Exported region " +
                                      juce::String(i + 1) + "/" + juce::String(numRegions) +
                                      " - " + outputFile.getFileName());
         }
         else
         {
-            juce::Logger::writeToLog("RegionExporter: Failed to export region " +
+            DBG("RegionExporter: Failed to export region " +
                                      juce::String(i + 1) + ": " + errorMessage);
         }
     }
@@ -246,7 +246,7 @@ std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWavWriter(
     std::unique_ptr<juce::OutputStream> outputStream(outputFile.createOutputStream());
     if (outputStream == nullptr)
     {
-        juce::Logger::writeToLog("RegionExporter: Failed to create output stream for " +
+        DBG("RegionExporter: Failed to create output stream for " +
                                  outputFile.getFullPathName());
         return nullptr;
     }
@@ -255,7 +255,7 @@ std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWavWriter(
     int bitsPerSample = bitDepth;
     if (bitsPerSample != 8 && bitsPerSample != 16 && bitsPerSample != 24 && bitsPerSample != 32)
     {
-        juce::Logger::writeToLog("RegionExporter: Invalid bit depth " +
+        DBG("RegionExporter: Invalid bit depth " +
                                  juce::String(bitDepth) + ", using 24-bit");
         bitsPerSample = 24;
     }

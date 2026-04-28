@@ -10,7 +10,7 @@ bool BWFMetadata::loadFromFile(const juce::File& file)
 {
     if (!file.existsAsFile())
     {
-        juce::Logger::writeToLog("BWFMetadata::loadFromFile() - File does not exist: " + file.getFullPathName());
+        DBG("BWFMetadata::loadFromFile() - File does not exist: " + file.getFullPathName());
         return false;
     }
 
@@ -23,7 +23,7 @@ bool BWFMetadata::loadFromFile(const juce::File& file)
 
     if (reader == nullptr)
     {
-        juce::Logger::writeToLog("BWFMetadata::loadFromFile() - Failed to create reader for: " + file.getFullPathName());
+        DBG("BWFMetadata::loadFromFile() - Failed to create reader for: " + file.getFullPathName());
         return false;
     }
 
@@ -33,7 +33,7 @@ bool BWFMetadata::loadFromFile(const juce::File& file)
     bool hasAnyMetadata = hasMetadata();
     if (hasAnyMetadata)
     {
-        juce::Logger::writeToLog("BWFMetadata::loadFromFile() - Successfully loaded BWF metadata from: " + file.getFullPathName());
+        DBG("BWFMetadata::loadFromFile() - Successfully loaded BWF metadata from: " + file.getFullPathName());
     }
 
     return hasAnyMetadata;
