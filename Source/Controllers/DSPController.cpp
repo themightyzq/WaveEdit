@@ -24,12 +24,14 @@
 #include "DSPController.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_devices/juce_audio_devices.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioFileManager.h"
 #include "../Audio/AudioBufferManager.h"
 #include "../Audio/AudioProcessor.h"
 #include "../Audio/ChannelLayout.h"
 #include "../Utils/UndoActions/AudioUndoActions.h"
+#include "../Utils/UndoableEdits.h"
 #include "../UI/GainDialog.h"
 #include "../UI/NormalizeDialog.h"
 #include "../UI/FadeDialog.h"
@@ -44,6 +46,7 @@
 #include "../UI/HeadTailDialog.h"
 #include "../UI/LoopingToolsDialog.h"
 #include "../Plugins/PluginManager.h"
+#include "../Plugins/PluginChainRenderer.h"
 
 //==============================================================================
 
@@ -844,46 +847,245 @@ void DSPController::showParametricEQDialog(Document* doc, juce::Component* paren
     options.runModal();
 }
 
-void DSPController::showGraphicalEQDialog(Document* doc, juce::Component* parent)
+void DSPController::showGraphicalEQDialog(Document* doc, juce::Component* /*parent*/)
 {
     if (!doc || !doc->getAudioEngine().isFileLoaded())
         return;
 
-    // TODO: Implement graphical EQ dialog in DSPController
-    // This requires review of GraphicalEQEditor constructor and integration
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "Graphical EQ",
-        "Graphical EQ is not yet fully implemented in DSPController.",
-        "OK");
+    auto& waveform = doc->getWaveformDisplay();
+    auto& engine = doc->getAudioEngine();
+    const bool hasSelection = waveform.hasSelection();
+    const double sampleRate = engine.getSampleRate();
+
+    const int64_t startSample = hasSelection
+        ? static_cast<int64_t>(waveform.getSelectionStart() * sampleRate)
+        : 0;
+    const int64_t endSample = hasSelection
+        ? static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate)
+        : static_cast<int64_t>(engine.getTotalLength() * sampleRate);
+    const int64_t numSamples = endSample - startSample;
+
+    auto eqParams = DynamicParametricEQ::createDefaultPreset();
+    auto result = GraphicalEQEditor::showDialog(&engine, eqParams, startSample, endSample);
+    if (!result.has_value())
+        return;
+
+    try
+    {
+        doc->getUndoManager().beginNewTransaction("Graphical EQ");
+        doc->getUndoManager().perform(new ApplyDynamicParametricEQAction(
+            doc->getBufferManager(),
+            doc->getAudioEngine(),
+            doc->getWaveformDisplay(),
+            startSample,
+            numSamples,
+            result.value()));
+        doc->setModified(true);
+    }
+    catch (const std::exception& e)
+    {
+        juce::Logger::writeToLog("DSPController::showGraphicalEQDialog - "
+                                 + juce::String(e.what()));
+        ErrorDialog::show("Error",
+                          "Graphical EQ failed: " + juce::String(e.what()));
+    }
 }
 
-void DSPController::showChannelConverterDialog(Document* doc, juce::Component* parent)
+void DSPController::showChannelConverterDialog(Document* doc, juce::Component* /*parent*/)
 {
     if (!doc || !doc->getAudioEngine().isFileLoaded())
         return;
 
-    // TODO: Implement channel converter dialog
-    // This requires proper integration with ChannelConverterDialog and ChannelConvertUndoAction
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "Channel Converter",
-        "Channel converter is not yet fully implemented in DSPController.",
-        "OK");
+    const int currentChannels = doc->getBufferManager().getBuffer().getNumChannels();
+
+    auto result = ChannelConverterDialog::showDialog(currentChannels);
+    if (!result.has_value())
+        return;
+
+    if (result->targetChannels == currentChannels)
+        return;
+
+    try
+    {
+        const auto& source = doc->getBufferManager().getBuffer();
+        auto converted = waveedit::ChannelConverter::convert(
+            source,
+            result->targetChannels,
+            result->targetLayout,
+            result->downmixPreset,
+            result->lfeHandling,
+            result->upmixStrategy);
+
+        doc->getUndoManager().beginNewTransaction("Channel Conversion");
+        doc->getUndoManager().perform(new ChannelConvertAction(
+            doc->getBufferManager(),
+            doc->getAudioEngine(),
+            doc->getWaveformDisplay(),
+            converted));
+        doc->setModified(true);
+    }
+    catch (const std::exception& e)
+    {
+        juce::Logger::writeToLog("DSPController::showChannelConverterDialog - "
+                                 + juce::String(e.what()));
+        ErrorDialog::show("Error",
+                          "Channel conversion failed: " + juce::String(e.what()));
+    }
 }
 
-void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* parent)
+void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /*parent*/)
 {
     if (!doc || !doc->getAudioEngine().isFileLoaded())
         return;
 
-    // TODO: Implement channel extractor dialog
-    // This requires proper integration with ChannelExtractorDialog and ChannelExtractUndoAction
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "Channel Extractor",
-        "Channel extractor is not yet fully implemented in DSPController.",
-        "OK");
+    auto& bufferManager = doc->getBufferManager();
+    const int currentChannels = bufferManager.getNumChannels();
+    const juce::File sourceFile = doc->getAudioEngine().getCurrentFile();
+    const juce::String sourceFileName = sourceFile.getFileName();
+
+    auto result = ChannelExtractorDialog::showDialog(currentChannels, sourceFileName);
+    if (!result.has_value())
+        return;
+
+    const juce::String baseName = sourceFile.getFileNameWithoutExtension();
+    const double sampleRate = bufferManager.getSampleRate();
+    int bitDepth = bufferManager.getBitDepth();
+    if (bitDepth <= 0) bitDepth = 16;
+
+    waveedit::ChannelLayout layout(currentChannels);
+
+    juce::String extension;
+    std::unique_ptr<juce::AudioFormat> audioFormat;
+
+    switch (result->exportFormat)
+    {
+        case ChannelExtractorDialog::ExportFormat::FLAC:
+            extension = ".flac";
+            audioFormat = std::make_unique<juce::FlacAudioFormat>();
+            // JUCE FLAC supports 16/24-bit only
+            bitDepth = juce::jlimit(16, 24, bitDepth);
+            break;
+
+        case ChannelExtractorDialog::ExportFormat::OGG:
+            extension = ".ogg";
+            audioFormat = std::make_unique<juce::OggVorbisAudioFormat>();
+            break;
+
+        case ChannelExtractorDialog::ExportFormat::WAV:
+        default:
+            extension = ".wav";
+            audioFormat = std::make_unique<juce::WavAudioFormat>();
+            break;
+    }
+
+    // createWriterFor takes ownership of the stream and may delete it on
+    // failure — release the unique_ptr BEFORE calling to avoid double-free.
+    auto createWriter = [&](juce::OutputStream* stream, int numChannels)
+        -> std::unique_ptr<juce::AudioFormatWriter>
+    {
+        const int writerBitDepth =
+            (result->exportFormat == ChannelExtractorDialog::ExportFormat::OGG)
+                ? 16 : bitDepth;
+        const int qualityIndex =
+            (result->exportFormat == ChannelExtractorDialog::ExportFormat::OGG)
+                ? 5 : 0;
+
+        return std::unique_ptr<juce::AudioFormatWriter>(
+            audioFormat->createWriterFor(stream, sampleRate,
+                                         static_cast<unsigned int>(numChannels),
+                                         writerBitDepth, {}, qualityIndex));
+    };
+
+    try
+    {
+        if (result->exportMode == ChannelExtractorDialog::ExportMode::IndividualMono)
+        {
+            int successCount = 0;
+            for (int srcChannel : result->channels)
+            {
+                const juce::String channelLabel = layout.getShortLabel(srcChannel);
+                const juce::String filename = baseName + "_Ch"
+                    + juce::String(srcChannel + 1) + "_"
+                    + channelLabel + extension;
+                const juce::File outFile = result->outputDirectory.getChildFile(filename);
+
+                juce::AudioBuffer<float> monoBuffer(1, bufferManager.getNumSamples());
+                monoBuffer.copyFrom(0, 0, bufferManager.getBuffer(),
+                                    srcChannel, 0, bufferManager.getNumSamples());
+
+                auto outputStream = outFile.createOutputStream();
+                if (!outputStream) continue;
+
+                auto* rawStream = outputStream.release();
+                auto writer = createWriter(rawStream, 1);
+                if (!writer) continue; // stream deleted by createWriterFor on failure
+
+                if (writer->writeFromAudioSampleBuffer(monoBuffer, 0, monoBuffer.getNumSamples()))
+                    ++successCount;
+            }
+
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Export Complete",
+                "Successfully exported " + juce::String(successCount) + " of "
+                + juce::String(static_cast<int>(result->channels.size()))
+                + " channel(s) to:\n" + result->outputDirectory.getFullPathName());
+        }
+        else // CombinedMulti
+        {
+            juce::String channelSuffix;
+            for (size_t i = 0; i < result->channels.size(); ++i)
+            {
+                if (i > 0) channelSuffix += "-";
+                channelSuffix += layout.getShortLabel(result->channels[i]);
+            }
+            const juce::String filename = baseName + "_" + channelSuffix
+                + "_extracted" + extension;
+            const juce::File outFile = result->outputDirectory.getChildFile(filename);
+
+            auto combinedBuffer = waveedit::ChannelConverter::extractChannels(
+                bufferManager.getBuffer(), result->channels);
+
+            auto outputStream = outFile.createOutputStream();
+            if (!outputStream)
+            {
+                ErrorDialog::show("Export Error", "Failed to create output file.");
+                return;
+            }
+
+            auto* rawStream = outputStream.release();
+            auto writer = createWriter(rawStream, combinedBuffer.getNumChannels());
+            if (!writer)
+            {
+                ErrorDialog::show("Export Error",
+                    "Failed to create audio writer. Check format compatibility.");
+                return;
+            }
+
+            if (writer->writeFromAudioSampleBuffer(combinedBuffer, 0,
+                                                   combinedBuffer.getNumSamples()))
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::InfoIcon,
+                    "Export Complete",
+                    "Successfully exported "
+                    + juce::String(combinedBuffer.getNumChannels())
+                    + " channel(s) to:\n" + outFile.getFullPathName());
+            }
+            else
+            {
+                ErrorDialog::show("Export Error",
+                                  "Failed to write audio data to file.");
+            }
+        }
+    }
+    catch (const std::exception& e)
+    {
+        juce::Logger::writeToLog("DSPController::showChannelExtractorDialog - "
+                                 + juce::String(e.what()));
+        ErrorDialog::show("Error",
+                          "Channel extraction failed: " + juce::String(e.what()));
+    }
 }
 
 //==============================================================================
@@ -899,46 +1101,412 @@ void DSPController::applyPluginChainToSelection(Document* doc)
     applyPluginChainToSelectionInternal(doc, false, false, 0.0);
 }
 
-void DSPController::applyPluginChainToSelectionInternal(Document* doc, bool convertToStereo, bool includeTail, double tailLengthSeconds)
+void DSPController::applyPluginChainToSelectionInternal(Document* doc,
+                                                         bool convertToStereo,
+                                                         bool includeTail,
+                                                         double tailLengthSeconds)
 {
     if (!doc || !doc->getAudioEngine().isFileLoaded())
         return;
 
-    try
+    auto& engine = doc->getAudioEngine();
+    auto& chain  = engine.getPluginChain();
+
+    if (chain.isEmpty())
     {
-        // TODO: Implement plugin chain application in DSPController
-        // This requires integration with the PluginChain system and off-line rendering
-        DBG("Plugin chain application not yet fully implemented in DSPController");
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "Apply Plugin Chain",
+            "The plugin chain is empty. Add plugins first.",
+            "OK");
+        return;
     }
-    catch (const std::exception& e)
+
+    if (chain.areAllBypassed())
     {
-        juce::Logger::writeToLog("DSPController::applyPluginChainToSelectionInternal - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Plugin chain application failed: " + juce::String(e.what()));
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "Apply Plugin Chain",
+            "All plugins are bypassed. Un-bypass at least one plugin to apply effects.",
+            "OK");
+        return;
+    }
+
+    auto& bufferManager = doc->getBufferManager();
+    auto& buffer = bufferManager.getMutableBuffer();
+    if (buffer.getNumSamples() == 0)
+        return;
+
+    int64_t startSample = 0;
+    int64_t numSamples  = buffer.getNumSamples();
+    const bool hasSelection = doc->getWaveformDisplay().hasSelection();
+
+    if (hasSelection)
+    {
+        startSample = bufferManager.timeToSample(doc->getWaveformDisplay().getSelectionStart());
+        const int64_t endSample = bufferManager.timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+        numSamples = endSample - startSample;
+        if (numSamples <= 0)
+            return;
+    }
+
+    const juce::String chainDescription = PluginChainRenderer::buildChainDescription(chain);
+    const juce::String transactionName  = "Apply Plugin Chain: " + chainDescription;
+    const double sampleRate = bufferManager.getSampleRate();
+
+    int outputChannels = 0; // 0 = match source
+    if (convertToStereo && buffer.getNumChannels() == 1)
+    {
+        // Convert to stereo BEFORE processing so display + engine update properly.
+        doc->getUndoManager().beginNewTransaction("Convert to Stereo");
+        doc->getUndoManager().perform(new ConvertToStereoAction(
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine()));
+        doc->setModified(true);
+        outputChannels = 2;
+    }
+
+    int64_t tailSamples = 0;
+    if (includeTail && tailLengthSeconds > 0.0)
+        tailSamples = static_cast<int64_t>(tailLengthSeconds * sampleRate);
+
+    auto renderer = std::make_shared<PluginChainRenderer>();
+    auto offlineChain = std::make_shared<PluginChainRenderer::OfflineChain>(
+        PluginChainRenderer::createOfflineChain(chain, sampleRate, renderer->getBlockSize()));
+
+    if (!offlineChain->isValid())
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Apply Plugin Chain",
+            "Failed to create offline plugin instances. Some plugins may not "
+            "support offline rendering.",
+            "OK");
+        return;
+    }
+
+    // Apply the rendered buffer to the document (message thread).
+    auto applyProcessed = [doc, startSample, numSamples, transactionName, chainDescription]
+        (const juce::AudioBuffer<float>& processed)
+    {
+        if (processed.getNumSamples() <= 0)
+            return;
+
+        try
+        {
+            doc->getUndoManager().beginNewTransaction(transactionName);
+            auto* undoAction = new ApplyPluginChainAction(
+                doc->getBufferManager(),
+                doc->getAudioEngine(),
+                doc->getWaveformDisplay(),
+                startSample,
+                numSamples,
+                processed,
+                chainDescription);
+
+            const bool replaced = doc->getBufferManager().replaceRange(
+                startSample, numSamples, processed);
+            if (!replaced)
+            {
+                delete undoAction;
+                ErrorDialog::show("Apply Plugin Chain",
+                                  "Failed to replace audio range with processed buffer.");
+                return;
+            }
+
+            undoAction->markAsAlreadyPerformed();
+            doc->getUndoManager().perform(undoAction);
+            doc->setModified(true);
+
+            doc->getWaveformDisplay().reloadFromBuffer(
+                doc->getBufferManager().getBuffer(),
+                doc->getBufferManager().getSampleRate(),
+                true, true);
+
+            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                doc->getBufferManager().getBuffer(),
+                doc->getBufferManager().getSampleRate(),
+                doc->getBufferManager().getBuffer().getNumChannels());
+        }
+        catch (const std::exception& e)
+        {
+            juce::Logger::writeToLog(
+                "DSPController::applyPluginChainToSelectionInternal apply - "
+                + juce::String(e.what()));
+            ErrorDialog::show("Error",
+                              "Plugin chain application failed: "
+                              + juce::String(e.what()));
+        }
+    };
+
+    if (numSamples > kProgressDialogThreshold)
+    {
+        // Async path with progress dialog
+        auto processedBuffer = std::make_shared<juce::AudioBuffer<float>>();
+
+        ProgressDialog::runWithProgress(
+            transactionName,
+            [doc, renderer, offlineChain, processedBuffer, startSample, numSamples,
+             sampleRate, outputChannels, tailSamples]
+            (std::function<bool(float, const juce::String&)> progress) -> bool
+            {
+                auto result = renderer->renderWithOfflineChain(
+                    doc->getBufferManager().getBuffer(),
+                    *offlineChain,
+                    sampleRate,
+                    startSample,
+                    numSamples,
+                    progress,
+                    outputChannels,
+                    tailSamples);
+
+                if (!result.success)
+                    return false;
+
+                processedBuffer->setSize(result.processedBuffer.getNumChannels(),
+                                         result.processedBuffer.getNumSamples());
+                for (int ch = 0; ch < result.processedBuffer.getNumChannels(); ++ch)
+                {
+                    processedBuffer->copyFrom(ch, 0, result.processedBuffer,
+                                              ch, 0, result.processedBuffer.getNumSamples());
+                }
+                return true;
+            },
+            [processedBuffer, applyProcessed](bool success)
+            {
+                if (success)
+                    applyProcessed(*processedBuffer);
+            });
+    }
+    else
+    {
+        // Synchronous small-selection path
+        auto result = renderer->renderWithOfflineChain(
+            buffer, *offlineChain, sampleRate,
+            startSample, numSamples, nullptr,
+            outputChannels, tailSamples);
+
+        if (result.success)
+        {
+            applyProcessed(result.processedBuffer);
+        }
+        else if (!result.cancelled)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Apply Plugin Chain",
+                "Failed to apply plugin chain:\n" + result.errorMessage,
+                "OK");
+        }
     }
 }
 
-void DSPController::showOfflinePluginDialog(Document* doc, juce::Component* parent)
+void DSPController::showOfflinePluginDialog(Document* doc, juce::Component* /*parent*/)
 {
     if (!doc || !doc->getAudioEngine().isFileLoaded())
         return;
 
-    // TODO: Implement offline plugin dialog in DSPController
-    // This requires integration with OfflinePluginDialog and plugin processing
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "Offline Plugin",
-        "Offline plugin processing is not yet fully implemented in DSPController.",
-        "OK");
+    auto& engine = doc->getAudioEngine();
+    auto& bufferManager = doc->getBufferManager();
+
+    int64_t selectionStart = 0;
+    int64_t selectionEnd   = bufferManager.getBuffer().getNumSamples();
+
+    if (doc->getWaveformDisplay().hasSelection())
+    {
+        selectionStart = bufferManager.timeToSample(doc->getWaveformDisplay().getSelectionStart());
+        selectionEnd   = bufferManager.timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+    }
+
+    auto result = OfflinePluginDialog::showDialog(&engine, &bufferManager,
+                                                  selectionStart, selectionEnd);
+    if (!result || !result->applied)
+        return;
+
+    applyOfflinePluginToSelection(
+        doc,
+        result->pluginDescription,
+        result->pluginState,
+        selectionStart,
+        selectionEnd - selectionStart,
+        result->renderOptions.convertToStereo,
+        result->renderOptions.includeTail,
+        result->renderOptions.tailLengthSeconds);
 }
 
-void DSPController::applyOfflinePlugin(Document* doc, const juce::PluginDescription& pluginDesc, juce::Component* parent)
+void DSPController::applyOfflinePluginToSelection(Document* doc,
+                                                  const juce::PluginDescription& pluginDesc,
+                                                  const juce::MemoryBlock& pluginState,
+                                                  int64_t startSample,
+                                                  int64_t numSamples,
+                                                  bool convertToStereo,
+                                                  bool includeTail,
+                                                  double tailLengthSeconds)
 {
-    if (!doc || !doc->getAudioEngine().isFileLoaded())
+    if (!doc || numSamples <= 0)
         return;
 
-    // TODO: Implement offline plugin application in DSPController
-    // This requires integration with the plugin system and off-line rendering
-    DBG("Offline plugin application not yet fully implemented in DSPController");
+    auto& bufferManager = doc->getBufferManager();
+    auto& buffer = bufferManager.getMutableBuffer();
+    const double sampleRate = bufferManager.getSampleRate();
+
+    int outputChannels = 0;
+    if (convertToStereo && buffer.getNumChannels() == 1)
+    {
+        doc->getUndoManager().beginNewTransaction("Convert to Stereo");
+        doc->getUndoManager().perform(new ConvertToStereoAction(
+            doc->getBufferManager(),
+            doc->getWaveformDisplay(),
+            doc->getAudioEngine()));
+        doc->setModified(true);
+        outputChannels = 2;
+    }
+
+    int64_t tailSamples = 0;
+    if (includeTail && tailLengthSeconds > 0.0)
+        tailSamples = static_cast<int64_t>(tailLengthSeconds * sampleRate);
+
+    PluginChain tempChain;
+    const int nodeIndex = tempChain.addPlugin(pluginDesc);
+    if (nodeIndex < 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Offline Plugin",
+            "Failed to load plugin: " + pluginDesc.name,
+            "OK");
+        return;
+    }
+
+    if (auto* node = tempChain.getPlugin(nodeIndex); node && pluginState.getSize() > 0)
+        node->setState(pluginState);
+
+    auto renderer = std::make_shared<PluginChainRenderer>();
+    auto offlineChain = std::make_shared<PluginChainRenderer::OfflineChain>(
+        PluginChainRenderer::createOfflineChain(tempChain, sampleRate, renderer->getBlockSize()));
+
+    if (!offlineChain->isValid())
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Offline Plugin",
+            "Failed to create offline plugin instance.",
+            "OK");
+        return;
+    }
+
+    const juce::String transactionName = "Apply Plugin: " + pluginDesc.name;
+
+    auto applyProcessed = [doc, startSample, numSamples, transactionName, pluginDesc]
+        (const juce::AudioBuffer<float>& processed)
+    {
+        if (processed.getNumSamples() <= 0)
+            return;
+
+        try
+        {
+            doc->getUndoManager().beginNewTransaction(transactionName);
+            auto* undoAction = new ApplyPluginChainAction(
+                doc->getBufferManager(),
+                doc->getAudioEngine(),
+                doc->getWaveformDisplay(),
+                startSample,
+                numSamples,
+                processed,
+                pluginDesc.name);
+
+            const bool replaced = doc->getBufferManager().replaceRange(
+                startSample, numSamples, processed);
+            if (!replaced)
+            {
+                delete undoAction;
+                ErrorDialog::show("Offline Plugin",
+                                  "Failed to replace audio range with processed buffer.");
+                return;
+            }
+
+            undoAction->markAsAlreadyPerformed();
+            doc->getUndoManager().perform(undoAction);
+            doc->setModified(true);
+
+            doc->getWaveformDisplay().reloadFromBuffer(
+                doc->getBufferManager().getBuffer(),
+                doc->getBufferManager().getSampleRate(),
+                true, true);
+
+            doc->getAudioEngine().reloadBufferPreservingPlayback(
+                doc->getBufferManager().getBuffer(),
+                doc->getBufferManager().getSampleRate(),
+                doc->getBufferManager().getBuffer().getNumChannels());
+        }
+        catch (const std::exception& e)
+        {
+            juce::Logger::writeToLog("DSPController::applyOfflinePluginToSelection - "
+                                     + juce::String(e.what()));
+            ErrorDialog::show("Error",
+                              "Offline plugin failed: " + juce::String(e.what()));
+        }
+    };
+
+    if (numSamples > kProgressDialogThreshold)
+    {
+        auto processedBuffer = std::make_shared<juce::AudioBuffer<float>>();
+
+        ProgressDialog::runWithProgress(
+            transactionName,
+            [doc, renderer, offlineChain, processedBuffer, startSample, numSamples,
+             sampleRate, outputChannels, tailSamples]
+            (std::function<bool(float, const juce::String&)> progress) -> bool
+            {
+                auto result = renderer->renderWithOfflineChain(
+                    doc->getBufferManager().getBuffer(),
+                    *offlineChain,
+                    sampleRate,
+                    startSample,
+                    numSamples,
+                    progress,
+                    outputChannels,
+                    tailSamples);
+
+                if (!result.success)
+                    return false;
+
+                processedBuffer->setSize(result.processedBuffer.getNumChannels(),
+                                         result.processedBuffer.getNumSamples());
+                for (int ch = 0; ch < result.processedBuffer.getNumChannels(); ++ch)
+                {
+                    processedBuffer->copyFrom(ch, 0, result.processedBuffer,
+                                              ch, 0, result.processedBuffer.getNumSamples());
+                }
+                return true;
+            },
+            [processedBuffer, applyProcessed](bool success)
+            {
+                if (success)
+                    applyProcessed(*processedBuffer);
+            });
+    }
+    else
+    {
+        auto result = renderer->renderWithOfflineChain(
+            buffer, *offlineChain, sampleRate,
+            startSample, numSamples, nullptr,
+            outputChannels, tailSamples);
+
+        if (result.success)
+        {
+            applyProcessed(result.processedBuffer);
+        }
+        else if (!result.cancelled)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Offline Plugin",
+                "Failed to apply plugin:\n" + result.errorMessage,
+                "OK");
+        }
+    }
 }
 
 //==============================================================================

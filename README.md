@@ -121,11 +121,7 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Sub-1 second startup, 60fps rendering
 - ✅ <10ms waveform updates, <10ms playback latency
 
-> **Status**: Core editing workflows are production-quality. Several
-> menu-routed features (Graphical EQ, Channel Converter, Channel Extractor,
-> Apply Plugin Chain, Offline Plugin) currently land on placeholder dialogs
-> after a recent architecture refactor — repair tracked in
-> [TODO.md](TODO.md) under "Active P0 Regressions".
+> **Status**: Production-quality for core editing workflows.
 
 **Spectrum Analyzer** 🆕:
 - ✅ Real-time FFT visualization during playback
