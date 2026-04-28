@@ -8,20 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Restored five post-refactor regressions**: After the controller
+  migration, five menu commands routed to `DSPController` stubs that
+  showed an "AlertWindow: not yet fully implemented" message. All paths
+  are now reconnected to their real implementations:
+  - Graphical EQ — wired to `GraphicalEQEditor::showDialog` +
+    `ApplyDynamicParametricEQAction`.
+  - Channel Converter (Cmd+Shift+U) — wired to
+    `ChannelConverterDialog::showDialog` +
+    `waveedit::ChannelConverter::convert` + `ChannelConvertAction`.
+  - Channel Extractor — wired to `ChannelExtractorDialog::showDialog`
+    with WAV/FLAC/OGG export and individual-mono / combined-multi modes.
+    Preserves the post-bug-fix createWriterFor stream-ownership pattern.
+  - Apply Plugin Chain (Cmd+P) — wired to `PluginChainRenderer` with
+    progress dialog for large selections, sync path for small ones,
+    `ConvertToStereoAction` for mono-to-stereo, tail-sample support, and
+    `ApplyPluginChainAction` for undo.
+  - Offline Plugin Dialog — wired to `OfflinePluginDialog::showDialog`
+    with a private `applyOfflinePluginToSelection` helper sharing the
+    plugin-chain pattern.
+
 ### Known Issues
-- **Post-refactor regressions**: After the Phase 1+2 controller migration,
-  five menu-routed features land in placeholder `DSPController` stubs that
-  show an "AlertWindow: not yet fully implemented" message or silently
-  exit. The underlying dialog/renderer classes (`GraphicalEQEditor`,
-  `ChannelConverterDialog`, `ChannelExtractorDialog`,
-  `OfflinePluginDialog`, `PluginChainRenderer`) still exist; only the
-  controller wiring is missing. Restoration tracked in TODO.md "Active P0
-  Regressions".
-  - Graphical EQ
-  - Channel Converter (Cmd+Shift+U)
-  - Channel Extractor
-  - Apply Plugin Chain (Cmd+P)
-  - Offline Plugin Dialog
 - `perform()` in `Main.cpp` is a dispatcher but 21 cases still exceed the
   CLAUDE.md §6.7 ≤5-line rule.
 - `Source/Utils/UndoableEdits.h` (1,141 lines) still hosts region/plugin/

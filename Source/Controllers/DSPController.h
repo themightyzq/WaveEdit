@@ -77,12 +77,19 @@ public:
 
     // Plugin operations
     void showOfflinePluginDialog(Document* doc, juce::Component* parent);
-    void applyOfflinePlugin(Document* doc, const juce::PluginDescription& pluginDesc, juce::Component* parent);
     void applyPluginChainToSelection(Document* doc);
     void applyPluginChainToSelectionWithOptions(Document* doc, bool convertToStereo, bool includeTail, double tailLengthSeconds);
 
 private:
     void applyPluginChainToSelectionInternal(Document* doc, bool convertToStereo, bool includeTail, double tailLengthSeconds);
+    void applyOfflinePluginToSelection(Document* doc,
+                                       const juce::PluginDescription& pluginDesc,
+                                       const juce::MemoryBlock& pluginState,
+                                       int64_t startSample,
+                                       int64_t numSamples,
+                                       bool convertToStereo,
+                                       bool includeTail,
+                                       double tailLengthSeconds);
 
     // Progress dialog threshold for async operations
     static constexpr int64_t kProgressDialogThreshold = 500000;
