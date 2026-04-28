@@ -101,6 +101,12 @@ public:
     void timerCallback() override;
 
     //==============================================================================
+    // Callbacks
+
+    /** Called when the record button is clicked. Set by the parent component. */
+    std::function<void()> onRecordRequested;
+
+    //==============================================================================
     // Loop Control
 
     bool isLoopEnabled() const;

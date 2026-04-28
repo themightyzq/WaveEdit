@@ -215,14 +215,14 @@ std::optional<BatchExportDialog::ExportSettings> BatchExportDialog::showDialog(
     int result = 0;
     #if JUCE_MODAL_LOOPS_PERMITTED
         // Use modal loop for synchronous behavior (JUCE 6+ style)
-        juce::Logger::writeToLog("BatchExportDialog: Using modal loops (JUCE_MODAL_LOOPS_PERMITTED=1)");
+        DBG("BatchExportDialog: Using modal loops (JUCE_MODAL_LOOPS_PERMITTED=1)");
         result = dlg.runModalLoop();
-        juce::Logger::writeToLog("BatchExportDialog: Modal loop returned with result: " + juce::String(result));
+        DBG("BatchExportDialog: Modal loop returned with result: " + juce::String(result));
     #else
         // For JUCE 7+ without modal loops, we need to use launchAsync pattern
         // This is a limitation - should be refactored to async in future
         juce::Logger::writeToLog("ERROR: BatchExportDialog - JUCE_MODAL_LOOPS_PERMITTED is not defined! Dialog cannot be shown.");
-        juce::Logger::writeToLog("       Modal loops are required for this dialog. Check CMakeLists.txt configuration.");
+        DBG("       Modal loops are required for this dialog. Check CMakeLists.txt configuration.");
         jassert(false && "Modal loops not permitted in this JUCE build");
         return std::nullopt;
     #endif

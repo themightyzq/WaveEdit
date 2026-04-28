@@ -9,6 +9,7 @@
 */
 
 #include "BatchJob.h"
+#include "../Audio/AudioProcessor.h"
 #include "../DSP/DynamicParametricEQ.h"
 #include "../DSP/EQPresetManager.h"
 #include "../Plugins/PluginChain.h"
@@ -241,6 +242,18 @@ bool BatchJob::applyDSPChain(std::function<bool(float, const juce::String&)>& pr
                 if (!progress(currentProgress, "Applying EQ..."))
                     return false;
                 applyEQPreset(dsp.eqPresetName);
+                break;
+
+            case BatchDSPOperation::REVERSE:
+                if (!progress(currentProgress, "Reversing..."))
+                    return false;
+                AudioProcessor::reverse(m_buffer);
+                break;
+
+            case BatchDSPOperation::INVERT:
+                if (!progress(currentProgress, "Inverting..."))
+                    return false;
+                AudioProcessor::invert(m_buffer);
                 break;
 
             case BatchDSPOperation::NONE:

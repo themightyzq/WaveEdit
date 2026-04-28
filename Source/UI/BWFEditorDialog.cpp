@@ -278,7 +278,7 @@ void BWFEditorDialog::saveMetadata()
     m_metadata.setTimeReference(m_timeReferenceEditor.getText().getLargeIntValue());
     m_metadata.setCodingHistory(m_codingHistoryEditor.getText());
 
-    juce::Logger::writeToLog("BWFEditorDialog::saveMetadata() - BWF metadata updated");
+    DBG("BWFEditorDialog::saveMetadata() - BWF metadata updated");
 }
 
 void BWFEditorDialog::setCurrentDateTime()
@@ -300,7 +300,7 @@ void BWFEditorDialog::setCurrentDateTime()
     m_originationDateEditor.setText(date, true);
     m_originationTimeEditor.setText(time, true);
 
-    juce::Logger::writeToLog("BWFEditorDialog::setCurrentDateTime() - Set to current date/time");
+    DBG("BWFEditorDialog::setCurrentDateTime() - Set to current date/time");
 }
 
 void BWFEditorDialog::updateCharacterCounts()

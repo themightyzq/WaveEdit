@@ -58,10 +58,9 @@ bool AudioBufferManager::loadFromFile(const juce::File& file, juce::AudioFormatM
     // Read entire file into buffer
     reader->read(&m_buffer, 0, static_cast<int>(numSamples), 0, true, true);
 
-    juce::Logger::writeToLog("AudioBufferManager: Loaded " + juce::String(numSamples) +
-                             " samples, " + juce::String(numChannels) + " channels, " +
-                             juce::String(m_sampleRate) + " Hz, " +
-                             juce::String(m_bitDepth) + " bits");
+    DBG("AudioBufferManager: Loaded " + juce::String(numSamples) +
+        " samples, " + juce::String(numChannels) + " channels, " +
+        juce::String(m_sampleRate) + " Hz, " + juce::String(m_bitDepth) + " bits");
 
     return true;
 }
@@ -124,18 +123,18 @@ juce::AudioBuffer<float> AudioBufferManager::getAudioRange(int64_t startSample, 
     juce::ScopedLock sl(m_lock);
 
     // DEBUG: Log the extraction request
-    juce::Logger::writeToLog("AudioBufferManager::getAudioRange called:");
-    juce::Logger::writeToLog("  Start sample: " + juce::String(startSample));
-    juce::Logger::writeToLog("  Num samples requested: " + juce::String(numSamples));
-    juce::Logger::writeToLog("  Total buffer samples: " + juce::String(m_buffer.getNumSamples()));
-    juce::Logger::writeToLog("  Buffer channels: " + juce::String(m_buffer.getNumChannels()));
+    DBG("AudioBufferManager::getAudioRange called:");
+    DBG("  Start sample: " + juce::String(startSample));
+    DBG("  Num samples requested: " + juce::String(numSamples));
+    DBG("  Total buffer samples: " + juce::String(m_buffer.getNumSamples()));
+    DBG("  Buffer channels: " + juce::String(m_buffer.getNumChannels()));
 
     // Validate range
     if (startSample < 0 || numSamples <= 0 ||
         startSample + numSamples > m_buffer.getNumSamples())
     {
-        juce::Logger::writeToLog("AudioBufferManager: Invalid range in getAudioRange");
-        juce::Logger::writeToLog("  Range check failed: startSample=" + juce::String(startSample) +
+        DBG("AudioBufferManager: Invalid range in getAudioRange");
+        DBG("  Range check failed: startSample=" + juce::String(startSample) +
                                 " numSamples=" + juce::String(numSamples) +
                                 " totalSamples=" + juce::String(m_buffer.getNumSamples()));
         return juce::AudioBuffer<float>();
@@ -149,7 +148,7 @@ juce::AudioBuffer<float> AudioBufferManager::getAudioRange(int64_t startSample, 
         rangeBuff.copyFrom(ch, 0, m_buffer, ch, static_cast<int>(startSample), static_cast<int>(numSamples));
     }
 
-    juce::Logger::writeToLog("  Successfully extracted " + juce::String(rangeBuff.getNumSamples()) +
+    DBG("  Successfully extracted " + juce::String(rangeBuff.getNumSamples()) +
                             " samples from position " + juce::String(startSample));
 
     return rangeBuff;
@@ -166,7 +165,7 @@ bool AudioBufferManager::deleteRange(int64_t startSample, int64_t numSamples)
     if (startSample < 0 || numSamples <= 0 ||
         startSample + numSamples > m_buffer.getNumSamples())
     {
-        juce::Logger::writeToLog("AudioBufferManager: Invalid range in deleteRange");
+        DBG("AudioBufferManager: Invalid range in deleteRange");
         return false;
     }
 
@@ -205,7 +204,7 @@ bool AudioBufferManager::deleteRange(int64_t startSample, int64_t numSamples)
     // Replace buffer
     m_buffer = newBuffer;
 
-    juce::Logger::writeToLog("AudioBufferManager: Deleted " + juce::String(numSamples) +
+    DBG("AudioBufferManager: Deleted " + juce::String(numSamples) +
                              " samples starting at " + juce::String(startSample));
 
     return true;
@@ -218,14 +217,14 @@ bool AudioBufferManager::insertAudio(int64_t insertPosition, const juce::AudioBu
     // Validate insert position
     if (insertPosition < 0 || insertPosition > m_buffer.getNumSamples())
     {
-        juce::Logger::writeToLog("AudioBufferManager: Invalid insert position");
+        DBG("AudioBufferManager: Invalid insert position");
         return false;
     }
 
     // Check channel compatibility
     if (m_buffer.getNumChannels() != audioToInsert.getNumChannels())
     {
-        juce::Logger::writeToLog("AudioBufferManager: Channel count mismatch in insertAudio");
+        DBG("AudioBufferManager: Channel count mismatch in insertAudio");
         return false;
     }
 
@@ -262,7 +261,7 @@ bool AudioBufferManager::insertAudio(int64_t insertPosition, const juce::AudioBu
     // Replace buffer
     m_buffer = newBuffer;
 
-    juce::Logger::writeToLog("AudioBufferManager: Inserted " + juce::String(insertNumSamples) +
+    DBG("AudioBufferManager: Inserted " + juce::String(insertNumSamples) +
                              " samples at position " + juce::String(insertPosition));
 
     return true;
@@ -307,7 +306,7 @@ bool AudioBufferManager::silenceRange(int64_t startSample, int64_t numSamples)
     if (startSample < 0 || numSamples <= 0 ||
         startSample + numSamples > m_buffer.getNumSamples())
     {
-        juce::Logger::writeToLog("AudioBufferManager: Invalid range in silenceRange");
+        DBG("AudioBufferManager: Invalid range in silenceRange");
         return false;
     }
 
@@ -317,7 +316,7 @@ bool AudioBufferManager::silenceRange(int64_t startSample, int64_t numSamples)
         m_buffer.clear(ch, static_cast<int>(startSample), static_cast<int>(numSamples));
     }
 
-    juce::Logger::writeToLog("AudioBufferManager: Silenced " + juce::String(numSamples) +
+    DBG("AudioBufferManager: Silenced " + juce::String(numSamples) +
                              " samples starting at " + juce::String(startSample));
 
     return true;
@@ -337,7 +336,7 @@ bool AudioBufferManager::silenceRangeForChannels(int64_t startSample, int64_t nu
     if (startSample < 0 || numSamples <= 0 ||
         startSample + numSamples > m_buffer.getNumSamples())
     {
-        juce::Logger::writeToLog("AudioBufferManager: Invalid range in silenceRangeForChannels");
+        DBG("AudioBufferManager: Invalid range in silenceRangeForChannels");
         return false;
     }
 
@@ -352,7 +351,7 @@ bool AudioBufferManager::silenceRangeForChannels(int64_t startSample, int64_t nu
         }
     }
 
-    juce::Logger::writeToLog("AudioBufferManager: Silenced " + juce::String(numSamples) +
+    DBG("AudioBufferManager: Silenced " + juce::String(numSamples) +
                              " samples on " + juce::String(numChannelsSilenced) + " channels");
 
     return true;
@@ -415,7 +414,7 @@ bool AudioBufferManager::replaceChannelsInRange(int64_t startSample, const juce:
     if (startSample < 0 || sourceAudio.getNumSamples() <= 0 ||
         startSample + sourceAudio.getNumSamples() > m_buffer.getNumSamples())
     {
-        juce::Logger::writeToLog("AudioBufferManager: Invalid range in replaceChannelsInRange");
+        DBG("AudioBufferManager: Invalid range in replaceChannelsInRange");
         return false;
     }
 
@@ -445,7 +444,7 @@ bool AudioBufferManager::replaceChannelsInRange(int64_t startSample, const juce:
         }
     }
 
-    juce::Logger::writeToLog("AudioBufferManager: Replaced " + juce::String(numSamples) +
+    DBG("AudioBufferManager: Replaced " + juce::String(numSamples) +
                              " samples on " + juce::String(sourceChIndex) + " channels");
 
     return true;
@@ -459,7 +458,7 @@ bool AudioBufferManager::trimToRange(int64_t startSample, int64_t numSamples)
     if (startSample < 0 || numSamples <= 0 ||
         startSample + numSamples > m_buffer.getNumSamples())
     {
-        juce::Logger::writeToLog("AudioBufferManager: Invalid range in trimToRange");
+        DBG("AudioBufferManager: Invalid range in trimToRange");
         return false;
     }
 
@@ -481,7 +480,7 @@ bool AudioBufferManager::trimToRange(int64_t startSample, int64_t numSamples)
     // Replace buffer
     m_buffer = newBuffer;
 
-    juce::Logger::writeToLog("AudioBufferManager: Trimmed to " + juce::String(numSamples) +
+    DBG("AudioBufferManager: Trimmed to " + juce::String(numSamples) +
                              " samples starting at " + juce::String(startSample));
 
     return true;
@@ -499,13 +498,13 @@ bool AudioBufferManager::convertToStereo()
     // No-op if already stereo
     if (currentChannels == 2)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Buffer is already stereo, skipping conversion");
+        DBG("AudioBufferManager: Buffer is already stereo, skipping conversion");
         return false;
     }
 
     if (m_buffer.getNumSamples() == 0)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Empty buffer, skipping stereo conversion");
+        DBG("AudioBufferManager: Empty buffer, skipping stereo conversion");
         return false;
     }
 
@@ -516,7 +515,7 @@ bool AudioBufferManager::convertToStereo()
     // Replace buffer
     m_buffer = std::move(stereoBuffer);
 
-    juce::Logger::writeToLog("AudioBufferManager: Converted " + juce::String(currentChannels) +
+    DBG("AudioBufferManager: Converted " + juce::String(currentChannels) +
                              " channels to stereo (" + juce::String(m_buffer.getNumSamples()) + " samples)");
 
     return true;
@@ -531,13 +530,13 @@ bool AudioBufferManager::convertToMono()
     // No-op if already mono
     if (currentChannels == 1)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Buffer is already mono, skipping conversion");
+        DBG("AudioBufferManager: Buffer is already mono, skipping conversion");
         return false;
     }
 
     if (m_buffer.getNumSamples() == 0)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Empty buffer, skipping mono conversion");
+        DBG("AudioBufferManager: Empty buffer, skipping mono conversion");
         return false;
     }
 
@@ -548,7 +547,7 @@ bool AudioBufferManager::convertToMono()
     // Replace buffer
     m_buffer = std::move(monoBuffer);
 
-    juce::Logger::writeToLog("AudioBufferManager: Converted " + juce::String(currentChannels) +
+    DBG("AudioBufferManager: Converted " + juce::String(currentChannels) +
                              " channels to mono (" + juce::String(m_buffer.getNumSamples()) + " samples)");
 
     return true;
@@ -561,7 +560,7 @@ bool AudioBufferManager::convertToChannelCount(int targetChannels)
     // Validate target channel count
     if (targetChannels < 1 || targetChannels > 8)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Invalid target channel count: " +
+        DBG("AudioBufferManager: Invalid target channel count: " +
                                  juce::String(targetChannels) + " (must be 1-8)");
         return false;
     }
@@ -571,14 +570,14 @@ bool AudioBufferManager::convertToChannelCount(int targetChannels)
     // No-op if already at target count
     if (currentChannels == targetChannels)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Buffer already has " +
+        DBG("AudioBufferManager: Buffer already has " +
                                  juce::String(targetChannels) + " channels, skipping conversion");
         return false;
     }
 
     if (m_buffer.getNumSamples() == 0)
     {
-        juce::Logger::writeToLog("AudioBufferManager: Empty buffer, skipping channel conversion");
+        DBG("AudioBufferManager: Empty buffer, skipping channel conversion");
         return false;
     }
 
@@ -589,7 +588,7 @@ bool AudioBufferManager::convertToChannelCount(int targetChannels)
     // Replace buffer
     m_buffer = std::move(convertedBuffer);
 
-    juce::Logger::writeToLog("AudioBufferManager: Converted " + juce::String(currentChannels) +
+    DBG("AudioBufferManager: Converted " + juce::String(currentChannels) +
                              " channels to " + juce::String(targetChannels) +
                              " channels (" + juce::String(m_buffer.getNumSamples()) + " samples)");
 
@@ -607,7 +606,7 @@ void AudioBufferManager::setBuffer(const juce::AudioBuffer<float>& newBuffer, do
     }
     m_sampleRate = sampleRate;
 
-    juce::Logger::writeToLog("AudioBufferManager: setBuffer with " +
+    DBG("AudioBufferManager: setBuffer with " +
                              juce::String(m_buffer.getNumChannels()) + " channels, " +
                              juce::String(m_buffer.getNumSamples()) + " samples");
 }

@@ -178,7 +178,7 @@ void SettingsPanel::buttonClicked(juce::Button* button)
                         }
                     }
 
-                    juce::Logger::writeToLog("Imported keyboard template: " + importedName);
+                    DBG("Imported keyboard template: " + importedName);
                 }
                 else
                 {
@@ -210,7 +210,7 @@ void SettingsPanel::buttonClicked(juce::Button* button)
             {
                 if (m_keymapManager.exportCurrentTemplate(file))
                 {
-                    juce::Logger::writeToLog("Exported keyboard template: " + file.getFullPathName());
+                    DBG("Exported keyboard template: " + file.getFullPathName());
 
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::MessageBoxIconType::InfoIcon,
@@ -241,7 +241,7 @@ void SettingsPanel::comboBoxChanged(juce::ComboBox* comboBox)
 
         if (m_keymapManager.loadTemplate(selectedTemplate))
         {
-            juce::Logger::writeToLog("Switched to keyboard template: " + selectedTemplate);
+            DBG("Switched to keyboard template: " + selectedTemplate);
 
             // Update the shortcut editor to reflect the new template
             if (m_shortcutEditor)
@@ -251,7 +251,7 @@ void SettingsPanel::comboBoxChanged(juce::ComboBox* comboBox)
         }
         else
         {
-            juce::Logger::writeToLog("ERROR: Failed to load keyboard template: " + selectedTemplate);
+            DBG("ERROR: Failed to load keyboard template: " + selectedTemplate);
 
             juce::AlertWindow::showMessageBoxAsync(
                 juce::MessageBoxIconType::WarningIcon,
@@ -325,11 +325,11 @@ void SettingsPanel::saveSettings()
     // Persist to disk
     if (settings.save())
     {
-        juce::Logger::writeToLog("Settings saved successfully");
+        DBG("Settings saved successfully");
     }
     else
     {
-        juce::Logger::writeToLog("ERROR: Failed to save settings");
+        DBG("ERROR: Failed to save settings");
         juce::AlertWindow::showMessageBoxAsync(
             juce::MessageBoxIconType::WarningIcon,
             "Settings Error",
@@ -575,13 +575,13 @@ juce::Component* SettingsPanel::createKeyboardShortcutsTab()
         // Template selector combo box
         auto availableTemplates = m_keymapManager.getAvailableTemplates();
 
-        juce::Logger::writeToLog("SettingsPanel: Populating template selector dropdown");
-        juce::Logger::writeToLog("SettingsPanel: KeymapManager returned " +
+        DBG("SettingsPanel: Populating template selector dropdown");
+        DBG("SettingsPanel: KeymapManager returned " +
                                 juce::String(availableTemplates.size()) + " templates");
 
         if (availableTemplates.isEmpty())
         {
-            juce::Logger::writeToLog("WARNING: No templates found - adding fallback entry");
+            DBG("WARNING: No templates found - adding fallback entry");
             m_templateSelector.addItem("Default", 1);
         }
         else
@@ -589,12 +589,12 @@ juce::Component* SettingsPanel::createKeyboardShortcutsTab()
             int itemId = 1;
             for (const auto& templateName : availableTemplates)
             {
-                juce::Logger::writeToLog("  Adding template to dropdown: " + templateName);
+                DBG("  Adding template to dropdown: " + templateName);
                 m_templateSelector.addItem(templateName, itemId++);
             }
         }
 
-        juce::Logger::writeToLog("SettingsPanel: Template selector now has " +
+        DBG("SettingsPanel: Template selector now has " +
                                 juce::String(m_templateSelector.getNumItems()) + " items");
 
         // Set current template
@@ -618,9 +618,9 @@ juce::Component* SettingsPanel::createKeyboardShortcutsTab()
         m_exportTemplateButton.addListener(this);
 
         // Create shortcut editor panel
-        juce::Logger::writeToLog("Creating ShortcutEditorPanel...");
+        DBG("Creating ShortcutEditorPanel...");
         m_shortcutEditor = std::make_unique<ShortcutEditorPanel>(m_commandManager);
-        juce::Logger::writeToLog("ShortcutEditorPanel created successfully");
+        DBG("ShortcutEditorPanel created successfully");
 
         auto* container = new KeyboardShortcutsTab(m_templateLabel, m_templateSelector,
                                                    m_importTemplateButton, m_exportTemplateButton,
@@ -630,7 +630,7 @@ juce::Component* SettingsPanel::createKeyboardShortcutsTab()
     }
     catch (const std::exception& e)
     {
-        juce::Logger::writeToLog("EXCEPTION in createKeyboardShortcutsTab(): " + juce::String(e.what()));
+        DBG("EXCEPTION in createKeyboardShortcutsTab(): " + juce::String(e.what()));
 
         // Return a simple error message component
         auto* errorLabel = new juce::Label();
@@ -641,7 +641,7 @@ juce::Component* SettingsPanel::createKeyboardShortcutsTab()
     }
     catch (...)
     {
-        juce::Logger::writeToLog("UNKNOWN EXCEPTION in createKeyboardShortcutsTab()");
+        DBG("UNKNOWN EXCEPTION in createKeyboardShortcutsTab()");
 
         // Return a simple error message component
         auto* errorLabel = new juce::Label();

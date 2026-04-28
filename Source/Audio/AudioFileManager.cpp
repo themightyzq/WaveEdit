@@ -171,7 +171,7 @@ bool AudioFileManager::loadIntoBuffer(const juce::File& file, juce::AudioBuffer<
         return false;
     }
 
-    juce::Logger::writeToLog("Loaded audio buffer: " + juce::String(reader->numChannels) +
+    DBG("Loaded audio buffer: " + juce::String(reader->numChannels) +
                              " channels, " + juce::String(reader->lengthInSamples) + " samples");
 
     return true;
@@ -277,7 +277,7 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
     // Verify 8-bit files are written correctly (unsigned PCM format validation)
     if (bitDepth == 8)
     {
-        juce::Logger::writeToLog("Verifying 8-bit PCM format...");
+        DBG("Verifying 8-bit PCM format...");
 
         // Read back the file to verify format
         std::unique_ptr<juce::AudioFormatReader> verifyReader(m_formatManager.createReaderFor(file));
@@ -329,7 +329,7 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
         juce::Logger::writeToLog("8-bit PCM format verified successfully");
     }
 
-    juce::Logger::writeToLog("Saved WAV file: " + file.getFullPathName());
+    DBG("Saved WAV file: " + file.getFullPathName());
     juce::Logger::writeToLog("Sample rate: " + juce::String(sampleRate) + " Hz, Bit depth: " +
                              juce::String(bitDepth) + " bits");
 
@@ -374,7 +374,7 @@ void AudioFileManager::clearError()
 void AudioFileManager::setError(const juce::String& errorMessage)
 {
     m_lastError = errorMessage;
-    juce::Logger::writeToLog("AudioFileManager error: " + errorMessage);
+    DBG("AudioFileManager error: " + errorMessage);
 }
 
 bool AudioFileManager::validateBufferForSaving(const juce::AudioBuffer<float>& buffer,
@@ -595,7 +595,7 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
                                 " bytes, got " + juce::String((int)actualFileSize) + " bytes");
     }
 
-    juce::Logger::writeToLog("iXML chunk appended successfully (" +
+    DBG("iXML chunk appended successfully (" +
                             juce::String(chunkSize) + " bytes, total file size: " +
                             juce::String((int)cleanFile.getDataSize()) + " bytes)");
 
@@ -643,7 +643,7 @@ bool AudioFileManager::readiXMLChunk(const juce::File& file, juce::String& outDa
     size_t offset = 12;  // Skip RIFF header
     size_t fileSize = fileData.getSize();
 
-    juce::Logger::writeToLog("Searching for iXML chunk in file of size " + juce::String((int)fileSize) + " bytes");
+    DBG("Searching for iXML chunk in file of size " + juce::String((int)fileSize) + " bytes");
 
     while (offset + 8 <= fileSize)
     {
@@ -657,7 +657,7 @@ bool AudioFileManager::readiXMLChunk(const juce::File& file, juce::String& outDa
         memcpy(&chunkSize, data + offset, 4);
         offset += 4;
 
-        juce::Logger::writeToLog("Found chunk: '" + juce::String(chunkID) + "' size=" + juce::String((int)chunkSize) + " at offset=" + juce::String((int)(offset - 8)));
+        DBG("Found chunk: '" + juce::String(chunkID) + "' size=" + juce::String((int)chunkSize) + " at offset=" + juce::String((int)(offset - 8)));
 
         // Check if this is the iXML chunk
         if (memcmp(chunkID, "iXML", 4) == 0)
@@ -672,7 +672,7 @@ bool AudioFileManager::readiXMLChunk(const juce::File& file, juce::String& outDa
             // Convert chunk data to string
             outData = juce::String::fromUTF8(data + offset, static_cast<int>(chunkSize));
 
-            juce::Logger::writeToLog("iXML chunk read successfully (" +
+            DBG("iXML chunk read successfully (" +
                                     juce::String(chunkSize) + " bytes)");
             return true;
         }
@@ -683,7 +683,7 @@ bool AudioFileManager::readiXMLChunk(const juce::File& file, juce::String& outDa
             offset += 1;
     }
 
-    juce::Logger::writeToLog("No iXML chunk found after parsing all chunks");
+    DBG("No iXML chunk found after parsing all chunks");
     // No iXML chunk found
     return false;
 }
@@ -721,7 +721,7 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
     juce::String extension = file.getFileExtension().toLowerCase();
 
     juce::Logger::writeToLog("Saving audio file: " + file.getFullPathName());
-    juce::Logger::writeToLog("Format: " + extension + ", Sample rate: " + juce::String(sampleRate) +
+    DBG("Format: " + extension + ", Sample rate: " + juce::String(sampleRate) +
                             "Hz, Channels: " + juce::String(buffer.getNumChannels()) +
                             ", Samples: " + juce::String(buffer.getNumSamples()));
 
@@ -810,13 +810,13 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
     // Clamp quality to valid range
     int quality = juce::jlimit(0, 10, qualityOptionIndex);
 
-    juce::Logger::writeToLog("Using quality setting: " + juce::String(quality) + " for " + extension);
+    DBG("Using quality setting: " + juce::String(quality) + " for " + extension);
 
     // For MP3, quality maps to bitrate (approximate):
     // 0 = ~64kbps, 5 = ~128kbps (default), 10 = ~320kbps
     if (extension == ".mp3")
     {
-        juce::Logger::writeToLog("MP3 quality " + juce::String(quality) +
+        DBG("MP3 quality " + juce::String(quality) +
                                 " (approximate bitrate: " +
                                 juce::String(64 + quality * 25) + " kbps)");
     }
@@ -852,7 +852,7 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
         return false;
     }
 
-    juce::Logger::writeToLog("Successfully saved audio file: " + file.getFullPathName());
+    DBG("Successfully saved audio file: " + file.getFullPathName());
     return true;
 }
 
@@ -921,7 +921,7 @@ juce::AudioBuffer<float> AudioFileManager::resampleBuffer(const juce::AudioBuffe
         }
     }
 
-    juce::Logger::writeToLog("Resampled audio: " + juce::String(sourceSampleRate, 0) +
+    DBG("Resampled audio: " + juce::String(sourceSampleRate, 0) +
                              " Hz → " + juce::String(targetSampleRate, 0) + " Hz (" +
                              juce::String(sourceBuffer.getNumSamples()) + " → " +
                              juce::String(targetNumSamples) + " samples)");

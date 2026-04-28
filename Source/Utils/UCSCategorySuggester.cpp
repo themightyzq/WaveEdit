@@ -1823,6 +1823,6 @@ void UCSCategorySuggester::initializeKeywordMappings()
     m_mappings.push_back({"WOOD", "TONAL",
         {"wood", "2x4", "beam", "board", "bowed", "dowel", "frequency", "hardwood", "harmonic", "joist", "log", "lumber", "melodic", "melodious", "musical", "ping", "pitch", "plank", "plywood", "rafter", "resonance", "resonant", "ring", "shing", "softwood", "sonorous", "sound", "stud", "timber", "timbre", "tonal", "tone"}});
 
-    juce::Logger::writeToLog("UCSCategorySuggester initialized with " +
+    DBG("UCSCategorySuggester initialized with " +
                             juce::String(m_mappings.size()) + " official UCS v8.2.1 category mappings");
 }

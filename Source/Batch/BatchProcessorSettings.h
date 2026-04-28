@@ -53,7 +53,9 @@ enum class BatchDSPOperation
     FADE_IN,
     FADE_OUT,
     PARAMETRIC_EQ,
-    GRAPHICAL_EQ
+    GRAPHICAL_EQ,
+    REVERSE,
+    INVERT
 };
 
 /**

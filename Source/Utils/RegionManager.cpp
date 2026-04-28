@@ -729,7 +729,7 @@ bool RegionManager::mergeSelectedRegions()
 
     if (m_selectedRegionIndices.empty())
     {
-        juce::Logger::writeToLog("Cannot merge: No regions selected");
+        DBG("Cannot merge: No regions selected");
         return false;
     }
 
@@ -739,7 +739,7 @@ bool RegionManager::mergeSelectedRegions()
         int index = *m_selectedRegionIndices.begin();
         if (index >= m_regions.size() - 1)
         {
-            juce::Logger::writeToLog("Cannot merge: No next region to merge with");
+            DBG("Cannot merge: No next region to merge with");
             return false;
         }
 
@@ -776,7 +776,7 @@ bool RegionManager::mergeSelectedRegions()
     // Perform merge
     performMerge(m_selectedRegionIndices, mergedRegion);
 
-    juce::Logger::writeToLog("Successfully merged " + juce::String(m_selectedRegionIndices.size()) + " regions: " + combinedName);
+    DBG("Successfully merged " + juce::String(m_selectedRegionIndices.size()) + " regions: " + combinedName);
     return true;
 }
 
@@ -817,7 +817,7 @@ bool RegionManager::mergeRegions(int firstIndex, int secondIndex)
         secondIndex < 0 || secondIndex >= m_regions.size() ||
         firstIndex == secondIndex)
     {
-        juce::Logger::writeToLog("Merge failed: Invalid region indices");
+        DBG("Merge failed: Invalid region indices");
         return false;
     }
 
@@ -876,7 +876,7 @@ bool RegionManager::mergeRegions(int firstIndex, int secondIndex)
     else if (m_primarySelectionIndex > secondIndex)
         m_primarySelectionIndex--;
 
-    juce::Logger::writeToLog("Successfully merged regions: " + mergedName);
+    DBG("Successfully merged regions: " + mergedName);
     return true;
 }
 
@@ -889,7 +889,7 @@ bool RegionManager::splitRegion(int regionIndex, int64_t splitSample)
 
     if (regionIndex < 0 || regionIndex >= m_regions.size())
     {
-        juce::Logger::writeToLog("Split failed: Invalid region index");
+        DBG("Split failed: Invalid region index");
         return false;
     }
 
@@ -898,7 +898,7 @@ bool RegionManager::splitRegion(int regionIndex, int64_t splitSample)
     // Validate split position is within region bounds (not at boundaries)
     if (splitSample <= region.getStartSample() || splitSample >= region.getEndSample())
     {
-        juce::Logger::writeToLog("Split failed: Split position outside region bounds or at boundary");
+        DBG("Split failed: Split position outside region bounds or at boundary");
         return false;
     }
 
@@ -936,6 +936,6 @@ bool RegionManager::splitRegion(int regionIndex, int64_t splitSample)
     if (m_primarySelectionIndex > regionIndex)
         m_primarySelectionIndex++;
 
-    juce::Logger::writeToLog("Successfully split region '" + originalName + "' into two parts");
+    DBG("Successfully split region '" + originalName + "' into two parts");
     return true;
 }

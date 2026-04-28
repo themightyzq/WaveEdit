@@ -8,6 +8,117 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Known Issues
+- **Post-refactor regressions**: After the Phase 1+2 controller migration,
+  five menu-routed features land in placeholder `DSPController` stubs that
+  show an "AlertWindow: not yet fully implemented" message or silently
+  exit. The underlying dialog/renderer classes (`GraphicalEQEditor`,
+  `ChannelConverterDialog`, `ChannelExtractorDialog`,
+  `OfflinePluginDialog`, `PluginChainRenderer`) still exist; only the
+  controller wiring is missing. Restoration tracked in TODO.md "Active P0
+  Regressions".
+  - Graphical EQ
+  - Channel Converter (Cmd+Shift+U)
+  - Channel Extractor
+  - Apply Plugin Chain (Cmd+P)
+  - Offline Plugin Dialog
+- `perform()` in `Main.cpp` is a dispatcher but 21 cases still exceed the
+  CLAUDE.md §6.7 ≤5-line rule.
+- `Source/Utils/UndoableEdits.h` (1,141 lines) still hosts region/plugin/
+  channel undo classes that CLAUDE.md §8.1 requires under
+  `Utils/UndoActions/`.
+- 4 region/keymap test files exist but are not wired into CMake; CI builds
+  artifacts but does not run `WaveEditTests`.
+
+### Added
+- **Plugin Parameter Automation** (Phases 1-3): Core data model and real-time playback engine.
+  - AutomationPoint with 4 curve types (Linear, Step, S-Curve, Exponential).
+  - AutomationCurve: copy-on-write with SpinLock for real-time-safe reads from audio thread.
+  - AutomationLane: per-parameter-per-plugin automation with enable/record state.
+  - AutomationManager: lane management, plugin index tracking, JSON serialization, listener pattern.
+  - Integrated into AudioEngine: automation applied before plugin chain processing each audio block.
+  - Integrated into Document: each open file has its own AutomationManager.
+- **Command Palette** (Cmd+Shift+A): VS Code-style fuzzy command search overlay.
+  - Floating overlay at top-center with search field and scrollable command list.
+  - Fuzzy matching with priority: exact prefix > substring > word-start > character match.
+  - Shows category badges with per-category colors, keyboard shortcuts, and disabled state.
+  - Keyboard-driven: arrow keys to navigate, Enter to execute, Escape to dismiss.
+  - Filters 133+ commands across 13 categories in real-time.
+  - Added to Help menu. Moved regionSelectAll shortcut from Cmd+Shift+A to Cmd+Alt+A.
+- **Looping Tools Dialog** (Tools menu, Cmd+L): Selection-driven seamless loop creation
+  and export.
+  - Section "Loop Settings": Loop Count (1-100), Crossfade Length with ms/% mode toggle,
+    Max Crossfade cap, Crossfade Curve (Linear / Equal Power / S-Curve), and Zero-Crossing
+    Snap with configurable search window.
+  - Section "Variation Settings": Offset Step and Shuffle Seed for multi-variation export
+    (grayed out when Loop Count is 1).
+  - Section "Output": directory chooser, filename suffix editor, bit depth selector
+    (16/24/32-bit), and a live filename preview showing the generated file name(s).
+  - Waveform preview (140px) renders the loop buffer with a semi-transparent blue overlay
+    highlighting the crossfade zone; blue vertical line marks the loop point.
+  - Diagnostics label shows loop length (seconds + samples), crossfade sample count,
+    discontinuity before/after, and percentage reduction.
+  - Export button writes one WAV (single loop) or N numbered WAVs (variations) to the
+    chosen output directory, then closes the dialog.
+  - Cancel button closes without writing files.
+  - Dialog is self-contained: export logic lives in LoopingToolsDialog, using
+    LoopEngine::createLoop() / createVariations() from Source/DSP/.
+  - Command wired through DSPController::showLoopingToolsDialog() per controller pattern.
+  - Active only when a file is loaded and a selection exists.
+  - Real-time preview playback: toggle button builds loop, loads into AudioEngine via
+    loadPreviewBuffer(), sets loop points, and plays with looping enabled. Slider changes
+    during playback trigger debounced rebuild (200ms timer).
+  - Enhanced diagnostics panel with detailed metrics: loop length (seconds + samples),
+    crossfade (ms + samples + curve type), zero-crossing shift amounts, discontinuity
+    before/after with quality rating (Excellent/Good/Acceptable/Click warning), and
+    Shepard tone info when enabled.
+  - Color-coded diagnostics: green (<0.001), yellow (<0.01), orange (<0.05), red (>=0.05).
+  - Comprehensive unit tests (10 test cases): basic loop, zero-crossing refinement,
+    crossfade curves, equal power level preservation, multiple variations, Shepard loop,
+    short selection, empty buffer, mono/stereo, crossfade modes.
+  - Documentation: `docs/looping_tools.md` with settings reference, best practices,
+    diagnostics guide, and export instructions.
+- **Head & Tail Dialog**: Replaced the placeholder AlertWindow-based dialog with a full
+  professional UI (700x680) for the Head & Tail processing pipeline.
+  - Section 1 "Intelligent Trim": enable checkbox, Peak/RMS detection mode combo, and
+    slider rows for Threshold, Hold Time, Leading Pad, Trailing Pad, Min Kept, and Max Trim.
+    All detection controls are disabled when the Enable checkbox is unchecked.
+  - Section 2 "Time-Based Edits": slider rows for Head Trim, Tail Trim, Prepend Silence,
+    Append Silence, Fade In (with curve combo), and Fade Out (with curve combo).
+  - Waveform preview (140px) shows grayed-out overlay on trimmed head/tail regions and
+    green vertical lines at detected content boundaries after clicking Preview.
+  - Recipe summary text editor (80px, read-only) lists all active operations and the
+    source duration; updates live as controls change.
+  - Preview button runs HeadTailEngine::detectBoundaries() and updates the waveform
+    overlay without modifying the audio buffer.
+  - Apply/Cancel buttons call onApply/onCancel callbacks; dialog closes via DialogWindow.
+  - Dialog is pure UI — no buffer modification; all processing stays in
+    DSPController::applyHeadTail() per the controller pattern.
+
+### Changed
+- **Major Architecture Refactoring**: Reduced Main.cpp from 11,251 to 3,344 lines (70% reduction)
+  - Created Source/Controllers/ with 5 controller classes (4,689 lines total):
+    - FileController: open, save, save-as, close, drag-drop, auto-save
+    - DSPController: gain, normalize, fade, EQ, DC offset, plugins
+    - RegionController: add, delete, merge, split, copy, paste, navigate, batch rename
+    - MarkerController: add, delete, navigate, rename
+    - ClipboardController: select all, copy, cut, paste, delete
+  - Created Source/Utils/UndoActions/ with 3 domain-organized headers (1,812 lines)
+  - Extracted command routing to Source/Commands/CommandHandler (1,073 lines)
+  - Extracted menu construction to Source/Commands/MenuBuilder (264 lines)
+  - Deleted 1,527 lines of dead duplicate undo action classes from Main.cpp
+  - Made perform() a thin dispatcher: every case ≤5 lines, delegates to controllers
+  - Removed all file operation duplication between Main.cpp and FileController
+  - Merged FadeInDialog/FadeOutDialog into unified FadeDialog with FadeDirection enum
+  - Migrated window/panel ownership to std::unique_ptr, plugin listeners to OwnedArray
+  - Added try/catch error handling to all DSP buffer operations
+  - Reduced Logger::writeToLog from 517 to 40 calls (routine messages use DBG())
+  - Wired CompactTransport record button to command system via callback
+
+### Fixed
+- Marker rename dialog now properly captures text input (was broken with AlertWindow::showAsync)
+- Memory safety: window lifecycles managed by smart pointers instead of raw delete
+
 ### Added
 - **Channel Extractor Format Support**: Export extracted channels to WAV, FLAC, or OGG formats (previously WAV-only)
 - **Channel System Tests**: Comprehensive test suite (Tests/ChannelSystemTests.cpp) verifying:

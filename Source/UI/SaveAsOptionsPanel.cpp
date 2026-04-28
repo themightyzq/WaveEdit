@@ -268,7 +268,7 @@ bool SaveAsOptionsPanel::isMP3EncoderAvailable()
     auto* mp3Format = manager.findFormatForFileExtension(".mp3");
     if (mp3Format == nullptr)
     {
-        juce::Logger::writeToLog("MP3 format not found in AudioFormatManager after manual registration");
+        DBG("MP3 format not found in AudioFormatManager after manual registration");
         return false;
     }
 
@@ -286,11 +286,11 @@ bool SaveAsOptionsPanel::isMP3EncoderAvailable()
 
     if (writer == nullptr)
     {
-        juce::Logger::writeToLog("MP3 format found but writer creation failed (LAME not available)");
+        DBG("MP3 format found but writer creation failed (LAME not available)");
         return false;
     }
 
-    juce::Logger::writeToLog("MP3 encoder available and functional: " + mp3Format->getFormatName());
+    DBG("MP3 encoder available and functional: " + mp3Format->getFormatName());
     return true;
 }
 

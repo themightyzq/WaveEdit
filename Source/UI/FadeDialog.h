@@ -1,7 +1,7 @@
 /*
   ==============================================================================
 
-    FadeOutDialog.h
+    FadeDialog.h
     WaveEdit - Professional Audio Editor
     Copyright (C) 2025 ZQ SFX
 
@@ -24,33 +24,45 @@ class AudioEngine;
 class AudioBufferManager;
 
 /**
- * Dialog for applying fade-out effect to selection.
+ * Direction for fade effect.
+ */
+enum class FadeDirection
+{
+    FadeIn,
+    FadeOut
+};
+
+/**
+ * Dialog for applying fade effects to selection.
  *
  * Features:
- * - Linear fade from 100% to 0% amplitude
+ * - Linear/Exponential/Logarithmic/S-Curve fade
  * - Preview button for non-destructive audition
  * - Apply button for permanent edit with undo support
  * - Requires selection (won't work on entire file)
+ * - Parameterized by FadeDirection
  *
  * Threading: All operations run on message thread.
- * Preview uses AudioEngine::PreviewMode::OFFLINE_BUFFER.
+ * Preview uses AudioEngine::PreviewMode::REALTIME_DSP.
  */
-class FadeOutDialog : public juce::Component
+class FadeDialog : public juce::Component
 {
 public:
     /**
      * Constructor.
      *
+     * @param direction FadeDirection::FadeIn or FadeDirection::FadeOut
      * @param audioEngine Pointer to the audio engine for preview playback
      * @param bufferManager Pointer to buffer manager for audio extraction
      * @param selectionStart Start sample of selection
      * @param selectionEnd End sample of selection
      */
-    FadeOutDialog(AudioEngine* audioEngine,
-                  AudioBufferManager* bufferManager,
-                  int64_t selectionStart,
-                  int64_t selectionEnd);
-    ~FadeOutDialog() override;
+    FadeDialog(FadeDirection direction,
+               AudioEngine* audioEngine,
+               AudioBufferManager* bufferManager,
+               int64_t selectionStart,
+               int64_t selectionEnd);
+    ~FadeDialog() override;
 
     /**
      * Set a callback to be invoked when Apply is clicked.
@@ -113,12 +125,15 @@ private:
      */
     void onBypassClicked();
 
+    // Configuration
+    FadeDirection m_direction;
+
     // UI Components
     juce::Label m_titleLabel;
     juce::Label m_instructionLabel;
     juce::Label m_curveTypeLabel;
     juce::ComboBox m_curveTypeBox;
-    FadeCurvePreview m_curvePreview { false };  // false = fade out mode
+    FadeCurvePreview m_curvePreview { true };  // Will be set based on direction
     juce::ToggleButton m_loopToggle;
     juce::TextButton m_previewButton;
     juce::TextButton m_bypassButton;      // Toggle bypass for A/B comparison
@@ -138,5 +153,5 @@ private:
     std::function<void()> m_applyCallback;
     std::function<void()> m_cancelCallback;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FadeOutDialog)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FadeDialog)
 };

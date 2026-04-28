@@ -380,7 +380,7 @@
       "key": "A",
       "modifiers": [
         "cmd",
-        "shift"
+        "alt"
       ]
     },
     "regionStripSilence": {
@@ -498,6 +498,13 @@
       "key": "/",
       "modifiers": [
         "cmd"
+      ]
+    },
+    "helpCommandPalette": {
+      "key": "A",
+      "modifiers": [
+        "cmd",
+        "shift"
       ]
     },
     "tabClose": {

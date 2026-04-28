@@ -248,13 +248,8 @@ void CompactTransport::paint(juce::Graphics& g)
     g.drawLine(0.0f, static_cast<float>(getHeight() - 1),
                static_cast<float>(getWidth()), static_cast<float>(getHeight() - 1), 1.0f);
 
-    // Pulsing record indicator when recording
-    // Note: Recording integration with RecordingEngine is TODO
-    // if (m_audioEngine != nullptr && m_audioEngine->isRecording() && m_recordPulse)
-    // {
-    //     g.setColour(juce::Colours::red.withAlpha(0.3f));
-    //     g.fillRect(m_recordButton->getBounds().expanded(2));
-    // }
+    // Pulsing record indicator (recording state managed by command system)
+    // Visual recording indicator would go here if AudioEngine exposes isRecording()
 }
 
 void CompactTransport::resized()
@@ -311,10 +306,7 @@ void CompactTransport::timerCallback()
     double currentPosition = m_audioEngine->getCurrentPosition();
     double totalLength = m_audioEngine->getTotalLength();
 
-    // Toggle record pulse for animation
-    // Note: Recording integration with RecordingEngine is TODO
-    // if (m_audioEngine->isRecording())
-    //     m_recordPulse = !m_recordPulse;
+    // Record pulse animation (recording state managed by command system)
 
     // Selection-bounded playback handling
     if (m_audioEngine->isPlaying() && m_waveformDisplay != nullptr && m_waveformDisplay->hasSelection() &&
@@ -509,9 +501,8 @@ juce::String CompactTransport::formatSamples(int64_t samples) const
 //==============================================================================
 void CompactTransport::onRecordClicked()
 {
-    // Trigger record command (handled by command system)
-    juce::Logger::writeToLog("CompactTransport: Record clicked");
-    // Note: Recording is handled by the main application's command system
+    if (onRecordRequested)
+        onRecordRequested();
 }
 
 void CompactTransport::onRewindClicked()
@@ -567,7 +558,7 @@ void CompactTransport::onLoopClicked()
 {
     toggleLoop();
     updateButtonStates();
-    juce::Logger::writeToLog("Loop " + juce::String(m_loopEnabled ? "enabled" : "disabled"));
+    DBG("Loop " + juce::String(m_loopEnabled ? "enabled" : "disabled"));
 }
 
 void CompactTransport::onTimeLabelClicked()

@@ -34,6 +34,7 @@
 #include "../UI/MarkerDisplay.h"
 #include "BWFMetadata.h"
 #include "iXMLMetadata.h"
+#include "../Automation/AutomationManager.h"
 
 /**
  * Document class represents a single audio file with all associated state.
@@ -197,6 +198,10 @@ public:
     MarkerDisplay& getMarkerDisplay() { return m_markerDisplay; }
     const MarkerDisplay& getMarkerDisplay() const { return m_markerDisplay; }
 
+    /** Gets the automation manager for this document. */
+    AutomationManager& getAutomationManager() { return m_automationManager; }
+    const AutomationManager& getAutomationManager() const { return m_automationManager; }
+
     /**
      * Gets the BWF metadata for this document.
      * BWF (Broadcast Wave Format) metadata includes description, originator,
@@ -281,6 +286,9 @@ private:
     // Marker system (Phase 3.4)
     MarkerManager m_markerManager;
     MarkerDisplay m_markerDisplay;
+
+    // Plugin parameter automation
+    AutomationManager m_automationManager;
 
     // BWF metadata (Phase 4 Tier 1)
     BWFMetadata m_bwfMetadata;

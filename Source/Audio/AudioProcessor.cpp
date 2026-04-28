@@ -23,14 +23,14 @@ bool AudioProcessor::applyGain(juce::AudioBuffer<float>& buffer, float gainDB)
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
-        juce::Logger::writeToLog("AudioProcessor::applyGain - Empty buffer");
+        DBG("AudioProcessor::applyGain - Empty buffer");
         return false;
     }
 
     // Warn on extreme values but don't limit (per user requirement: unlimited range)
     if (gainDB < -100.0f || gainDB > 40.0f)
     {
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "AudioProcessor::applyGain - WARNING: Extreme gain value: %.2f dB", gainDB));
         // Continue processing - don't return false
     }
@@ -44,7 +44,7 @@ bool AudioProcessor::applyGain(juce::AudioBuffer<float>& buffer, float gainDB)
         buffer.applyGain(ch, 0, buffer.getNumSamples(), linearGain);
     }
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "AudioProcessor::applyGain - Applied %.2f dB gain (%.2fx linear) to %d channels",
         gainDB, linearGain, buffer.getNumChannels()));
 
@@ -57,7 +57,7 @@ bool AudioProcessor::applyGainToRange(juce::AudioBuffer<float>& buffer, float ga
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
-        juce::Logger::writeToLog("AudioProcessor::applyGainToRange - Empty buffer");
+        DBG("AudioProcessor::applyGainToRange - Empty buffer");
         return false;
     }
 
@@ -71,7 +71,7 @@ bool AudioProcessor::applyGainToRange(juce::AudioBuffer<float>& buffer, float ga
     // Validate range
     if (startSample < 0 || startSample >= buffer.getNumSamples() || actualNumSamples <= 0)
     {
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "AudioProcessor::applyGainToRange - Invalid range: start=%d, num=%d, bufferSize=%d",
             startSample, actualNumSamples, buffer.getNumSamples()));
         return false;
@@ -80,7 +80,7 @@ bool AudioProcessor::applyGainToRange(juce::AudioBuffer<float>& buffer, float ga
     // Warn on extreme values but don't limit (per user requirement: unlimited range)
     if (gainDB < -100.0f || gainDB > 40.0f)
     {
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "AudioProcessor::applyGainToRange - WARNING: Extreme gain value: %.2f dB", gainDB));
         // Continue processing - don't return false
     }
@@ -94,7 +94,7 @@ bool AudioProcessor::applyGainToRange(juce::AudioBuffer<float>& buffer, float ga
         buffer.applyGain(ch, startSample, actualNumSamples, linearGain);
     }
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "AudioProcessor::applyGainToRange - Applied %.2f dB gain (%.2fx linear) to samples %d-%d (%d channels)",
         gainDB, linearGain, startSample, startSample + actualNumSamples - 1, buffer.getNumChannels()));
 
@@ -106,14 +106,14 @@ bool AudioProcessor::normalize(juce::AudioBuffer<float>& buffer, float targetDB)
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
-        juce::Logger::writeToLog("AudioProcessor::normalize - Empty buffer");
+        DBG("AudioProcessor::normalize - Empty buffer");
         return false;
     }
 
     // Validate target level
     if (targetDB > 0.0f || targetDB < -60.0f)
     {
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "AudioProcessor::normalize - Target level out of range: %.2f dB (valid: -60 to 0)",
             targetDB));
         return false;
@@ -130,7 +130,7 @@ bool AudioProcessor::normalize(juce::AudioBuffer<float>& buffer, float targetDB)
     // Check if buffer is silent
     if (peak < 1e-6f) // -120dB threshold
     {
-        juce::Logger::writeToLog("AudioProcessor::normalize - Buffer is silent (peak < -120dB)");
+        DBG("AudioProcessor::normalize - Buffer is silent (peak < -120dB)");
         return false;
     }
 
@@ -145,7 +145,7 @@ bool AudioProcessor::normalize(juce::AudioBuffer<float>& buffer, float targetDB)
         buffer.applyGain(ch, 0, buffer.getNumSamples(), requiredGain);
     }
 
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "AudioProcessor::normalize - Peak: %.2f (%.2f dB), Applied: %.2f dB gain, Target: %.2f dB",
         peak, linearToDB(peak), requiredGainDB, targetDB));
 
@@ -214,7 +214,7 @@ bool AudioProcessor::fadeIn(juce::AudioBuffer<float>& buffer, int numSamples, Fa
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
-        juce::Logger::writeToLog("AudioProcessor::fadeIn - Empty buffer");
+        DBG("AudioProcessor::fadeIn - Empty buffer");
         return false;
     }
 
@@ -265,7 +265,7 @@ bool AudioProcessor::fadeIn(juce::AudioBuffer<float>& buffer, int numSamples, Fa
     }
 
     const char* curveNames[] = { "LINEAR", "EXPONENTIAL", "LOGARITHMIC", "S_CURVE" };
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "AudioProcessor::fadeIn - Applied %d sample %s fade to %d channels",
         fadeSamples, curveNames[static_cast<int>(curve)], buffer.getNumChannels()));
 
@@ -277,7 +277,7 @@ bool AudioProcessor::fadeOut(juce::AudioBuffer<float>& buffer, int numSamples, F
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
-        juce::Logger::writeToLog("AudioProcessor::fadeOut - Empty buffer");
+        DBG("AudioProcessor::fadeOut - Empty buffer");
         return false;
     }
 
@@ -335,7 +335,7 @@ bool AudioProcessor::fadeOut(juce::AudioBuffer<float>& buffer, int numSamples, F
     }
 
     const char* curveNames[] = { "LINEAR", "EXPONENTIAL", "LOGARITHMIC", "S_CURVE" };
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "AudioProcessor::fadeOut - Applied %d sample %s fade to %d channels",
         fadeSamples, curveNames[static_cast<int>(curve)], buffer.getNumChannels()));
 
@@ -350,7 +350,7 @@ bool AudioProcessor::removeDCOffset(juce::AudioBuffer<float>& buffer)
     // Validate buffer
     if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
     {
-        juce::Logger::writeToLog("AudioProcessor::removeDCOffset - Empty buffer");
+        DBG("AudioProcessor::removeDCOffset - Empty buffer");
         return false;
     }
 
@@ -374,7 +374,7 @@ bool AudioProcessor::removeDCOffset(juce::AudioBuffer<float>& buffer)
             channelData[i] -= dcOffset;
         }
 
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "AudioProcessor::removeDCOffset - Channel %d: removed %.6f DC offset",
             ch, dcOffset));
     }
@@ -417,7 +417,7 @@ int AudioProcessor::clampToValidRange(juce::AudioBuffer<float>& buffer)
 
     if (clippedSamples > 0)
     {
-        juce::Logger::writeToLog(juce::String::formatted(
+        DBG(juce::String::formatted(
             "AudioProcessor::clampToValidRange - Clamped %d samples (%.2f%%)",
             clippedSamples,
             100.0f * clippedSamples / (buffer.getNumSamples() * buffer.getNumChannels())));
@@ -718,6 +718,66 @@ bool AudioProcessor::fadeOutWithProgress(juce::AudioBuffer<float>& buffer, int n
 
     return true;
 }
+
+//==============================================================================
+// Transform Operations
+
+bool AudioProcessor::reverse(juce::AudioBuffer<float>& buffer)
+{
+    if (buffer.getNumSamples() == 0) return false;
+    return reverseRange(buffer, 0, buffer.getNumSamples());
+}
+
+bool AudioProcessor::reverseRange(juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
+{
+    if (buffer.getNumSamples() == 0 || numSamples <= 0) return false;
+    if (startSample < 0 || startSample + numSamples > buffer.getNumSamples()) return false;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* data = buffer.getWritePointer(ch);
+        int left = startSample;
+        int right = startSample + numSamples - 1;
+        while (left < right)
+        {
+            std::swap(data[left], data[right]);
+            ++left;
+            --right;
+        }
+    }
+
+    DBG(juce::String::formatted(
+        "AudioProcessor::reverseRange - Reversed samples %d-%d (%d channels)",
+        startSample, startSample + numSamples - 1, buffer.getNumChannels()));
+
+    return true;
+}
+
+bool AudioProcessor::invert(juce::AudioBuffer<float>& buffer)
+{
+    if (buffer.getNumSamples() == 0) return false;
+    return invertRange(buffer, 0, buffer.getNumSamples());
+}
+
+bool AudioProcessor::invertRange(juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
+{
+    if (buffer.getNumSamples() == 0 || numSamples <= 0) return false;
+    if (startSample < 0 || startSample + numSamples > buffer.getNumSamples()) return false;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        buffer.applyGain(ch, startSample, numSamples, -1.0f);
+    }
+
+    DBG(juce::String::formatted(
+        "AudioProcessor::invertRange - Inverted polarity for samples %d-%d (%d channels)",
+        startSample, startSample + numSamples - 1, buffer.getNumChannels()));
+
+    return true;
+}
+
+//==============================================================================
+// Progress-Enabled Operations
 
 bool AudioProcessor::removeDCOffsetWithProgress(juce::AudioBuffer<float>& buffer,
                                                 const ProgressCallback& progress)

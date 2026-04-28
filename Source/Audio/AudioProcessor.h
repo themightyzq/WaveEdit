@@ -241,6 +241,57 @@ public:
     static bool removeDCOffset(juce::AudioBuffer<float>& buffer);
 
     //==============================================================================
+    // Transform Operations
+
+    /**
+     * Reverses all channels in-place (entire buffer).
+     *
+     * @param buffer Audio buffer to process (modified in place)
+     * @return true if successful, false if buffer is empty
+     *
+     * Thread Safety: Safe to call from any thread
+     * Performance: O(n/2) swaps per channel
+     */
+    static bool reverse(juce::AudioBuffer<float>& buffer);
+
+    /**
+     * Reverses a range within each channel in-place.
+     *
+     * @param buffer Audio buffer to process (modified in place)
+     * @param startSample Starting sample index (0-based)
+     * @param numSamples Number of samples to reverse
+     * @return true if successful, false if buffer is empty or range is invalid
+     *
+     * Thread Safety: Safe to call from any thread
+     * Performance: O(n/2) swaps per channel
+     */
+    static bool reverseRange(juce::AudioBuffer<float>& buffer, int startSample, int numSamples);
+
+    /**
+     * Inverts polarity (multiplies all samples by -1) for entire buffer.
+     *
+     * @param buffer Audio buffer to process (modified in place)
+     * @return true if successful, false if buffer is empty
+     *
+     * Thread Safety: Safe to call from any thread
+     * Performance: O(n) per channel
+     */
+    static bool invert(juce::AudioBuffer<float>& buffer);
+
+    /**
+     * Inverts polarity for a range within each channel.
+     *
+     * @param buffer Audio buffer to process (modified in place)
+     * @param startSample Starting sample index (0-based)
+     * @param numSamples Number of samples to invert
+     * @return true if successful, false if buffer is empty or range is invalid
+     *
+     * Thread Safety: Safe to call from any thread
+     * Performance: O(n) per channel
+     */
+    static bool invertRange(juce::AudioBuffer<float>& buffer, int startSample, int numSamples);
+
+    //==============================================================================
     // Utility Functions
 
     /**

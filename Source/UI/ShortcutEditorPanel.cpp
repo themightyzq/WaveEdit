@@ -395,7 +395,7 @@ void ShortcutEditorPanel::applyChanges()
     m_originalCommands = m_allCommands;
     m_hasUnsavedChanges = false;
 
-    juce::Logger::writeToLog("Keyboard shortcuts applied successfully");
+    DBG("Keyboard shortcuts applied successfully");
 }
 
 void ShortcutEditorPanel::revertChanges()
@@ -409,7 +409,7 @@ void ShortcutEditorPanel::revertChanges()
 
     m_hasUnsavedChanges = false;
 
-    juce::Logger::writeToLog("Keyboard shortcuts reverted to saved state");
+    DBG("Keyboard shortcuts reverted to saved state");
 }
 
 void ShortcutEditorPanel::resetToDefaults()
@@ -428,7 +428,7 @@ void ShortcutEditorPanel::resetToDefaults()
 
     m_hasUnsavedChanges = true;
 
-    juce::Logger::writeToLog("Keyboard shortcuts reset to Sound Forge Pro defaults");
+    DBG("Keyboard shortcuts reset to Sound Forge Pro defaults");
 }
 
 bool ShortcutEditorPanel::exportKeybindings()
@@ -471,7 +471,7 @@ bool ShortcutEditorPanel::exportKeybindings()
 
         if (file.replaceWithText(json))
         {
-            juce::Logger::writeToLog("Keyboard shortcuts exported to: " + file.getFullPathName());
+            DBG("Keyboard shortcuts exported to: " + file.getFullPathName());
 
             juce::AlertWindow::showMessageBox(
                 juce::AlertWindow::InfoIcon,
@@ -483,7 +483,7 @@ bool ShortcutEditorPanel::exportKeybindings()
         }
         else
         {
-            juce::Logger::writeToLog("Failed to export keyboard shortcuts to: " + file.getFullPathName());
+            DBG("Failed to export keyboard shortcuts to: " + file.getFullPathName());
 
             juce::AlertWindow::showMessageBox(
                 juce::AlertWindow::WarningIcon,
@@ -594,7 +594,7 @@ bool ShortcutEditorPanel::importKeybindings()
 
         m_hasUnsavedChanges = true;
 
-        juce::Logger::writeToLog("Imported " + juce::String(importedCount) +
+        DBG("Imported " + juce::String(importedCount) +
                                 " keyboard shortcuts from: " + file.getFullPathName());
 
         juce::AlertWindow::showMessageBox(
@@ -780,7 +780,7 @@ void ShortcutEditorPanel::loadCommandsFromManager()
         m_allCommands.add(cmd);
     }
 
-    juce::Logger::writeToLog("Loaded " + juce::String(m_allCommands.size()) + " commands from ApplicationCommandManager");
+    DBG("Loaded " + juce::String(m_allCommands.size()) + " commands from ApplicationCommandManager");
 }
 
 juce::KeyPress ShortcutEditorPanel::getDefaultKeypressForCommand(juce::CommandID commandID)
@@ -1052,7 +1052,7 @@ void ShortcutEditorPanel::detectConflicts()
 
     if (conflictCount > 0)
     {
-        juce::Logger::writeToLog("Detected " + juce::String(conflictCount / 2) +
+        DBG("Detected " + juce::String(conflictCount / 2) +
                                 " keyboard shortcut conflicts");
     }
 }
@@ -1098,7 +1098,7 @@ void ShortcutEditorPanel::showKeypressCaptureDialog(int rowNumber)
                 detectConflicts();
                 m_table.repaint();
 
-                juce::Logger::writeToLog("Assigned shortcut '" + newKey.getTextDescription() +
+                DBG("Assigned shortcut '" + newKey.getTextDescription() +
                                         "' to command '" + cmd.commandName + "'");
             }
         }
@@ -1129,5 +1129,5 @@ void ShortcutEditorPanel::clearShortcut(int rowNumber)
     detectConflicts();
     m_table.repaint();
 
-    juce::Logger::writeToLog("Cleared shortcut for command '" + cmd.commandName + "'");
+    DBG("Cleared shortcut for command '" + cmd.commandName + "'");
 }

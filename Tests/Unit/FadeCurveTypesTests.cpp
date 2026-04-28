@@ -22,8 +22,7 @@
 
 #include <juce_core/juce_core.h>
 #include "Audio/AudioProcessor.h"
-#include "UI/FadeInDialog.h"
-#include "UI/FadeOutDialog.h"
+#include "UI/FadeDialog.h"
 #include "Utils/Settings.h"
 #include "TestAudioFiles.h"
 #include "AudioAssertions.h"
@@ -470,37 +469,37 @@ private:
 static FadeCurveMathFadeOutTests fadeCurveMathFadeOutTests;
 
 // ============================================================================
-// FadeInDialog UI Integration Tests
+// FadeDialog UI Integration Tests (FadeIn direction)
 // ============================================================================
 
-class FadeInDialogIntegrationTests : public juce::UnitTest
+class FadeDialogInIntegrationTests : public juce::UnitTest
 {
 public:
-    FadeInDialogIntegrationTests() : juce::UnitTest("FadeInDialog Integration", "FadeCurves") {}
+    FadeDialogInIntegrationTests() : juce::UnitTest("FadeDialog (FadeIn) Integration", "FadeCurves") {}
 
     void runTest() override
     {
-        beginTest("FadeInDialog - ComboBox has 4 items");
+        beginTest("FadeDialog (FadeIn) - ComboBox has 4 items");
         testComboBoxHasFourItems();
 
-        beginTest("FadeInDialog - Settings persistence");
+        beginTest("FadeDialog (FadeIn) - Settings persistence");
         testSettingsPersistence();
 
-        beginTest("FadeInDialog - getSelectedCurveType returns correct enum");
+        beginTest("FadeDialog (FadeIn) - getSelectedCurveType returns correct enum");
         testGetSelectedCurveType();
 
-        beginTest("FadeInDialog - Invalid selection fallback to LINEAR");
+        beginTest("FadeDialog (FadeIn) - Invalid selection fallback to LINEAR");
         testInvalidSelectionFallback();
     }
 
 private:
     void testComboBoxHasFourItems()
     {
-        // Note: This test would require instantiating FadeInDialog with mock dependencies
+        // Note: This test would require instantiating FadeDialog with mock dependencies
         // For now, we verify the enum and assume UI implementation is correct
         // In a full test, you'd create a dialog and check m_curveTypeBox.getNumItems() == 4
 
-        logMessage("✅ FadeInDialog should have 4 ComboBox items (verified via code review)");
+        logMessage("✅ FadeDialog (FadeIn) should have 4 ComboBox items (verified via code review)");
     }
 
     void testSettingsPersistence()
@@ -523,7 +522,7 @@ private:
         expectEquals(defaultValue, -999,  // getSetting returns the stored value, not the default
             "Settings should return stored value");
 
-        logMessage("✅ FadeInDialog Settings persistence verified");
+        logMessage("✅ FadeDialog (FadeIn) Settings persistence verified");
     }
 
     void testGetSelectedCurveType()
@@ -541,46 +540,46 @@ private:
         expectEquals(static_cast<int>(FadeCurveType::S_CURVE), 3,
             "S_CURVE should be enum value 3");
 
-        logMessage("✅ FadeInDialog curve type enum mapping verified");
+        logMessage("✅ FadeDialog (FadeIn) curve type enum mapping verified");
     }
 
     void testInvalidSelectionFallback()
     {
         // Test that invalid ComboBox selection (< 1 or > 4) falls back to LINEAR
-        // This is tested in the FadeInDialog::getSelectedCurveType() method
+        // This is tested in the FadeDialog::getSelectedCurveType() method
         // which returns LINEAR if selectedId < 1 || selectedId > 4
 
-        logMessage("✅ FadeInDialog invalid selection fallback to LINEAR (verified via code review)");
+        logMessage("✅ FadeDialog (FadeIn) invalid selection fallback to LINEAR (verified via code review)");
     }
 };
 
-static FadeInDialogIntegrationTests fadeInDialogIntegrationTests;
+static FadeDialogInIntegrationTests fadeDialogInIntegrationTests;
 
 // ============================================================================
-// FadeOutDialog UI Integration Tests
+// FadeDialog UI Integration Tests (FadeOut direction)
 // ============================================================================
 
-class FadeOutDialogIntegrationTests : public juce::UnitTest
+class FadeDialogOutIntegrationTests : public juce::UnitTest
 {
 public:
-    FadeOutDialogIntegrationTests() : juce::UnitTest("FadeOutDialog Integration", "FadeCurves") {}
+    FadeDialogOutIntegrationTests() : juce::UnitTest("FadeDialog (FadeOut) Integration", "FadeCurves") {}
 
     void runTest() override
     {
-        beginTest("FadeOutDialog - ComboBox has 4 items");
+        beginTest("FadeDialog (FadeOut) - ComboBox has 4 items");
         testComboBoxHasFourItems();
 
-        beginTest("FadeOutDialog - Settings persistence (separate from FadeIn)");
+        beginTest("FadeDialog (FadeOut) - Settings persistence (separate from FadeIn)");
         testSettingsPersistence();
 
-        beginTest("FadeOutDialog - getSelectedCurveType returns correct enum");
+        beginTest("FadeDialog (FadeOut) - getSelectedCurveType returns correct enum");
         testGetSelectedCurveType();
     }
 
 private:
     void testComboBoxHasFourItems()
     {
-        logMessage("✅ FadeOutDialog should have 4 ComboBox items (verified via code review)");
+        logMessage("✅ FadeDialog (FadeOut) should have 4 ComboBox items (verified via code review)");
     }
 
     void testSettingsPersistence()
@@ -600,7 +599,7 @@ private:
         expect(fadeInCurve != fadeOutCurve,
             "FadeIn and FadeOut should have independent settings");
 
-        logMessage("✅ FadeOutDialog Settings persistence verified (independent from FadeIn)");
+        logMessage("✅ FadeDialog (FadeOut) Settings persistence verified (independent from FadeIn)");
     }
 
     void testGetSelectedCurveType()
@@ -615,11 +614,11 @@ private:
         expectEquals(static_cast<int>(FadeCurveType::S_CURVE), 3,
             "S_CURVE should be enum value 3");
 
-        logMessage("✅ FadeOutDialog curve type enum mapping verified");
+        logMessage("✅ FadeDialog (FadeOut) curve type enum mapping verified");
     }
 };
 
-static FadeOutDialogIntegrationTests fadeOutDialogIntegrationTests;
+static FadeDialogOutIntegrationTests fadeDialogOutIntegrationTests;
 
 // ============================================================================
 // Multi-Channel Fade Tests

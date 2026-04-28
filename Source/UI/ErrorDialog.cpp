@@ -27,7 +27,7 @@ void ErrorDialog::show(const juce::String& title,
     );
 
     // Also log to console for developers
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "[%s] %s: %s",
         severity == Severity::Error ? "ERROR" :
         severity == Severity::Warning ? "WARNING" : "INFO",
@@ -59,7 +59,7 @@ void ErrorDialog::showWithDetails(const juce::String& title,
     );
 
     // Log full details
-    juce::Logger::writeToLog(juce::String::formatted(
+    DBG(juce::String::formatted(
         "[%s] %s: %s\nDetails: %s",
         severity == Severity::Error ? "ERROR" :
         severity == Severity::Warning ? "WARNING" : "INFO",

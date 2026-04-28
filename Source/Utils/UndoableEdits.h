@@ -76,7 +76,7 @@ protected:
             m_bufferManager.getSampleRate(),
             m_bufferManager.getNumChannels()))
         {
-            juce::Logger::writeToLog("ERROR: Failed to update audio engine after undo/redo");
+            DBG("ERROR: Failed to update audio engine after undo/redo");
         }
 
         // CRITICAL FIX: Use reloadFromBuffer() with preserve flags
@@ -87,7 +87,7 @@ protected:
             true,  // preserveView = true
             true)) // preserveEditCursor = true
         {
-            juce::Logger::writeToLog("Warning: Failed to update waveform display after undo/redo");
+            DBG("Warning: Failed to update waveform display after undo/redo");
         }
 
         // REGION FIX: Update RegionDisplay to synchronize with waveform changes
@@ -193,7 +193,7 @@ public:
                     // Case 2: Region is completely within deletion - remove it
                     else if (regionStart >= m_startSample && regionEnd <= deleteEnd)
                     {
-                        juce::Logger::writeToLog(juce::String::formatted(
+                        DBG(juce::String::formatted(
                             "Region '%s' deleted (was within deleted range)",
                             region->getName().toRawUTF8()));
                         m_regionManager->removeRegion(i);
@@ -201,7 +201,7 @@ public:
                     // Case 3: Region starts within deletion but ends after - partial overlap (remove for simplicity)
                     else if (regionStart >= m_startSample && regionStart < deleteEnd && regionEnd > deleteEnd)
                     {
-                        juce::Logger::writeToLog(juce::String::formatted(
+                        DBG(juce::String::formatted(
                             "Region '%s' deleted (partially overlapped deletion)",
                             region->getName().toRawUTF8()));
                         m_regionManager->removeRegion(i);
@@ -209,7 +209,7 @@ public:
                     // Case 4: Region starts before deletion but ends within - partial overlap (remove for simplicity)
                     else if (regionStart < m_startSample && regionEnd > m_startSample && regionEnd <= deleteEnd)
                     {
-                        juce::Logger::writeToLog(juce::String::formatted(
+                        DBG(juce::String::formatted(
                             "Region '%s' deleted (partially overlapped deletion)",
                             region->getName().toRawUTF8()));
                         m_regionManager->removeRegion(i);
@@ -217,7 +217,7 @@ public:
                     // Case 5: Region completely spans deletion (starts before, ends after) - remove for simplicity
                     else if (regionStart < m_startSample && regionEnd > deleteEnd)
                     {
-                        juce::Logger::writeToLog(juce::String::formatted(
+                        DBG(juce::String::formatted(
                             "Region '%s' deleted (completely spanned deletion)",
                             region->getName().toRawUTF8()));
                         m_regionManager->removeRegion(i);
@@ -227,7 +227,7 @@ public:
                     {
                         region->setStartSample(regionStart - m_numSamples);
                         region->setEndSample(regionEnd - m_numSamples);
-                        juce::Logger::writeToLog(juce::String::formatted(
+                        DBG(juce::String::formatted(
                             "Region '%s' shifted back by %lld samples",
                             region->getName().toRawUTF8(),
                             m_numSamples));
@@ -670,7 +670,7 @@ public:
         // Verify index is still valid before insertion
         if (m_secondIndex > m_regionManager.getNumRegions())
         {
-            juce::Logger::writeToLog("Warning: Cannot undo merge - region index out of bounds");
+            DBG("Warning: Cannot undo merge - region index out of bounds");
             return false;
         }
 

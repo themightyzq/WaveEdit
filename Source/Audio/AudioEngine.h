@@ -554,6 +554,13 @@ public:
     bool isPluginChainEnabled() const { return m_pluginChainEnabled.load(); }
 
     /**
+     * Set the automation manager for real-time parameter automation.
+     * The manager is owned by Document; AudioEngine just holds a pointer.
+     * Must be called from the message thread.
+     */
+    void setAutomationManager(class AutomationManager* manager) { m_automationManager = manager; }
+
+    /**
      * Sets a single preview plugin instance for real-time offline plugin preview.
      * This is used by OfflinePluginDialog to enable real-time preview with
      * plugin visualization (e.g., FabFilter Pro-Q 4 spectrum display).
@@ -945,6 +952,9 @@ private:
     PluginChain m_pluginChain;
     std::atomic<bool> m_pluginChainEnabled{false};
     juce::MidiBuffer m_emptyMidiBuffer;  // Empty MIDI buffer for processBlock (effects-only)
+
+    // Plugin parameter automation (owned by Document, just a pointer here)
+    class AutomationManager* m_automationManager = nullptr;
 
     // Mute flag to prevent audio output during other document's preview
     std::atomic<bool> m_isMuted{false};

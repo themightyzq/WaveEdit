@@ -37,6 +37,8 @@ DSPOperationComponent::DSPOperationComponent(int index)
     m_operationCombo.addItem("DC Offset", static_cast<int>(BatchDSPOperation::DC_OFFSET) + 1);
     m_operationCombo.addItem("Fade In", static_cast<int>(BatchDSPOperation::FADE_IN) + 1);
     m_operationCombo.addItem("Fade Out", static_cast<int>(BatchDSPOperation::FADE_OUT) + 1);
+    m_operationCombo.addItem("Reverse", static_cast<int>(BatchDSPOperation::REVERSE) + 1);
+    m_operationCombo.addItem("Invert", static_cast<int>(BatchDSPOperation::INVERT) + 1);
     m_operationCombo.setSelectedId(1);
     m_operationCombo.addListener(this);
     addAndMakeVisible(m_operationCombo);
