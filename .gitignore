@@ -102,7 +102,11 @@ CLAUDE.md
 
 # Internal development documentation
 TODO.md
-Docs/
+# Ignore Docs/ contents but keep the directory traversable so screenshots
+# (referenced from README) can be tracked via the negation below.
+Docs/*
+!Docs/screenshots/
+!Docs/screenshots/**
 REPO_CLEANUP_REPORT.md
 
 # AI-generated temporary documentation
@@ -121,7 +125,8 @@ REFACTORING_STATUS.md
 *_PHASE*.md
 
 # Internal development scripts and QA docs (not needed for building)
-scripts/
+# Anchored to repo root — does NOT match .github/scripts/
+/scripts/
 QA_Plans/
 QA_TEST_PLAN_SUMMARY.txt
 

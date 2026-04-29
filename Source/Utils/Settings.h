@@ -22,15 +22,18 @@
  * Manages application settings and persistent state.
  *
  * Settings are stored as JSON in platform-specific locations:
- * - macOS: ~/Library/Application Support/WaveEdit/
+ * - macOS: ~/Library/WaveEdit/   (see Settings.cpp note on macOS path)
  * - Windows: %APPDATA%/WaveEdit/
  * - Linux: ~/.config/WaveEdit/
  *
  * Manages:
  * - Recent files list
  * - Auto-save settings
- * - Keyboard bindings
  * - UI preferences
+ *
+ * Note: keyboard shortcut templates live separately under
+ * (~/Library/)Application Support/WaveEdit/Keymaps/, managed by
+ * KeymapManager. There is no single "keybindings.json" file.
  */
 class Settings
 {

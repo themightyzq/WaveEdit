@@ -53,6 +53,12 @@
         "alt"
       ]
     },
+    "fileBatchProcessor": {
+      "key": "B",
+      "modifiers": [
+        "cmd"
+      ]
+    },
     "editUndo": {
       "key": "Z",
       "modifiers": [
@@ -96,7 +102,10 @@
     },
     "editSilence": {
       "key": "S",
-      "modifiers": []
+      "modifiers": [
+        "alt",
+        "shift"
+      ]
     },
     "editTrim": {
       "key": "T",

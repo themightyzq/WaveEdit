@@ -29,6 +29,19 @@
 
 ---
 
+## Screenshots
+
+![Main window with selection](Docs/screenshots/01-main-window.png)
+
+WaveEdit's main view: waveform, transport controls, selection markers
+with duration readout, and the status bar showing sample rate, channel
+count, bit depth, length, snap mode, time format, and zoom.
+
+> More screenshots (region list panel, Parametric EQ, Spectrum
+> Analyzer, Batch Processor) will be added — tracked in TODO.md.
+
+---
+
 ## Quick Start
 
 ### Launch the App
@@ -111,7 +124,7 @@ No project files, no import wizards. Just open → edit → save.
 **Keyboard Shortcuts**:
 - ✅ Sound Forge Pro compatibility (default)
 - ✅ Fully customizable with GUI editor
-- ✅ 4 built-in templates (Default, Classic, Sound Forge, Pro Tools)
+- ✅ 3 built-in templates (Default, Sound Forge, Pro Tools)
 - ✅ Import/export custom templates
 
 **Quality**:
@@ -152,14 +165,32 @@ Planned features:
 
 ## Installation
 
-### Pre-Built Binaries (Recommended for End Users)
+### Pre-built binaries
 
-Automated builds are available for macOS, Windows, and Linux. Download the latest release from the [Actions](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml) page (artifacts available for 30 days).
+Tagged Releases are published automatically by GitHub Actions when a
+`v*` tag is pushed. Grab the latest from the
+[Releases page](https://github.com/themightyzq/WaveEdit/releases) —
+download the archive for your platform, extract, and run.
 
-**Pre-built binaries include**:
-- ✅ All audio codecs (WAV, FLAC, OGG, MP3)
-- ✅ LAME MP3 encoder bundled (no installation required)
-- ✅ Ready to run - just extract and launch
+The binaries are **unsigned**. WaveEdit is a personal-scale project and
+does not currently ship signed binaries; to launch on macOS or Windows
+you'll have to bypass the OS's first-run warning once:
+
+- **macOS**: right-click `WaveEdit.app` → **Open** → **Open**. macOS
+  remembers the choice; subsequent launches behave normally. (Or:
+  `xattr -dr com.apple.quarantine /Applications/WaveEdit.app` from a
+  terminal.)
+- **Windows**: SmartScreen will say "Windows protected your PC". Click
+  **More info** → **Run anyway**.
+- **Linux**: `chmod +x WaveEdit` and run.
+
+All builds bundle the LAME MP3 encoder, libFLAC, and Ogg Vorbis. No
+extra install steps are required.
+
+If you'd rather build from source (or you want to grab the
+work-in-progress build between releases, available as a 30-day
+artifact under [Actions](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml)),
+follow the developer steps below.
 
 ### Build from Source (For Developers)
 
@@ -172,7 +203,7 @@ Automated builds are available for macOS, Windows, and Linux. Download the lates
 **Quick build** (recommended):
 ```bash
 git clone https://github.com/themightyzq/WaveEdit.git
-cd waveedit
+cd WaveEdit
 ./build-and-run.command
 ```
 
@@ -188,7 +219,7 @@ cd waveedit
 **Manual build** (if you prefer CMake commands directly):
 ```bash
 git clone https://github.com/themightyzq/WaveEdit.git
-cd waveedit
+cd WaveEdit
 git submodule update --init --recursive
 
 mkdir build && cd build
@@ -262,34 +293,33 @@ Failed: 0
 
 ## Keyboard Shortcuts
 
-All shortcuts are customizable. Default layout matches Sound Forge Pro.
+All shortcuts are customizable. The default layout (`Default.json`) is
+the source of truth; the table below is generated from it. On
+Windows/Linux, replace `Cmd` with `Ctrl`.
 
-### File Operations
+To see, search, or remap shortcuts inside the app: `Cmd+/` opens the
+shortcut reference and `Cmd+,` → Keyboard Shortcuts tab opens the
+editor.
+
+### File
 | Action | Shortcut |
 |--------|----------|
 | New File | `Cmd+N` |
 | Open File | `Cmd+O` |
 | Save | `Cmd+S` |
 | Save As | `Cmd+Shift+S` |
-| Close Window | `Cmd+W` |
-| File Properties | `Cmd+Enter` |
+| File Properties | `Alt+Enter` |
 | Edit BWF Metadata | `Cmd+Alt+B` |
 | Preferences | `Cmd+,` |
-
-### Navigation
-| Action | Shortcut |
-|--------|----------|
-| Move cursor | `Left/Right` (honors snap mode) |
-| Jump to start/end | `Cmd+Left/Right` |
-| Center cursor | `.` |
-| Go to position | `Cmd+G` |
-| Cycle snap mode | `G` |
+| Quit | `Cmd+Q` |
 
 ### Selection
 | Action | Shortcut |
 |--------|----------|
-| Select all | `Cmd+A` |
-| Extend selection | `Shift+Left/Right` |
+| Select All | `Cmd+A` |
+| Extend selection (by snap) | `Shift+Left/Right` |
+| Extend to visible start/end | `Shift+Home/End` |
+| Extend by page | `Shift+PageUp/PageDown` |
 
 ### Editing
 | Action | Shortcut |
@@ -298,38 +328,74 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 | Copy | `Cmd+C` |
 | Paste | `Cmd+V` |
 | Delete | `Delete` |
-| Silence | `Ctrl+L` |
-| Trim | `Ctrl+T` |
+| Silence Selection | `Shift+Alt+S` |
+| Trim (delete outside selection) | `Cmd+T` |
 | Undo | `Cmd+Z` |
 | Redo | `Cmd+Shift+Z` |
 
 ### Playback
 | Action | Shortcut |
 |--------|----------|
-| Play/Stop | `Space` |
-| Play/Pause | `Enter` |
+| Play | `Space` |
+| Pause | `Enter` |
+| Stop | `Escape` |
 | Toggle Loop | `L` |
 | Loop Region | `Cmd+Shift+L` |
 | Record | `Cmd+R` |
-| Auto-scroll | `Cmd+Shift+F` |
 
-### Processing
+### Navigation
 | Action | Shortcut |
 |--------|----------|
-| Batch Processor | `Cmd+Alt+B` |
-| Parametric EQ | `Shift+E` |
-| Gain Dialog | `Cmd+Shift+G` |
-| Increase Gain | `Shift+Up` |
-| Decrease Gain | `Shift+Down` |
-| Normalize | `Ctrl+Shift+N` |
-| Fade In | `Ctrl+Shift+I` |
-| Fade Out | `Ctrl+Shift+O` |
+| Move cursor (honors snap) | `Left/Right` |
+| Jump to start/end | `Cmd+Left/Right` |
+| Jump to visible start/end | `Home/End` |
+| Page left/right | `PageUp/PageDown` |
+| Center view on cursor | `.` |
+| Go to Position | `Cmd+Shift+G` |
+
+### Zoom
+| Action | Shortcut |
+|--------|----------|
+| Zoom In | `Cmd+=` |
+| Zoom Out | `Cmd+-` |
+| Zoom to Selection | `Cmd+E` |
+| Zoom to Region | `Cmd+Alt+Z` |
+| Zoom to Fit | `Cmd+Shift+0` |
+| Zoom 1:1 | `Cmd+0` |
+
+### Snap & Time
+| Action | Shortcut |
+|--------|----------|
+| Cycle Snap Mode | `T` |
+| Toggle Zero-Crossing Snap | `Z` |
+| Cycle Time Format | `Shift+T` |
+
+### Processing (DSP)
+| Action | Shortcut |
+|--------|----------|
+| Gain Dialog | `G` |
+| Increase Gain (+1 dB) | `Shift+Up` |
+| Decrease Gain (-1 dB) | `Shift+Down` |
+| Normalize | `Cmd+G` |
+| Fade In | `Cmd+F` |
+| Fade Out | `Cmd+Shift+O` |
 | DC Offset Removal | `Cmd+Shift+D` |
+| Parametric EQ | `Shift+E` |
+| Graphical EQ | `Cmd+Alt+E` |
+| Channel Converter | `Cmd+Shift+U` |
+| Batch Processor | `Cmd+B` |
+
+### Plugins
+| Action | Shortcut |
+|--------|----------|
+| Show Plugin Chain | `Cmd+Shift+P` |
+| Apply Plugin Chain | `Cmd+P` |
 
 ### Regions
 | Action | Shortcut |
 |--------|----------|
 | Add Region | `R` |
+| Strip Silence to Regions | `Shift+R` |
 | Region List Panel | `Cmd+Shift+R` |
 | Batch Rename | `Cmd+Shift+B` |
 | Batch Export | `Cmd+Alt+R` |
@@ -337,6 +403,12 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 | Split Region | `Cmd+K` |
 | Copy Regions | `Cmd+Alt+C` |
 | Paste Regions | `Cmd+Alt+V` |
+| Delete Region | `Cmd+Delete` |
+| Next / Previous Region | `]` / `[` |
+| Select All Regions | `Cmd+Alt+A` |
+| Invert Region Selection | `Cmd+Shift+I` |
+| Nudge Region Start | `Cmd+Alt+Left/Right` |
+| Nudge Region End | `Shift+Alt+Left/Right` |
 | Edit Boundaries | Right-click → Edit Boundaries |
 
 ### Markers
@@ -346,6 +418,14 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 | Marker List Panel | `Cmd+Shift+K` |
 | Next Marker | `Shift+]` |
 | Previous Marker | `Shift+[` |
+| Delete Marker | `Cmd+Shift+Delete` |
+
+### View
+| Action | Shortcut |
+|--------|----------|
+| Auto-Scroll | `Cmd+Shift+F` |
+| Auto-Preview Regions | `Cmd+Alt+P` |
+| Spectrum Analyzer | `Cmd+Alt+S` |
 
 ### Tabs
 | Action | Shortcut |
@@ -353,23 +433,68 @@ All shortcuts are customizable. Default layout matches Sound Forge Pro.
 | Next Tab | `Ctrl+Tab` |
 | Previous Tab | `Ctrl+Shift+Tab` |
 | Close Tab | `Cmd+W` |
-| Select Tab 1-9 | `Cmd+1` to `Cmd+9` |
+| Close All Tabs | `Cmd+Shift+W` |
+| Select Tab 1-9 | `Cmd+1` … `Cmd+9` |
 
-> **Note**: `Cmd` key on macOS = `Ctrl` key on Windows/Linux
+### Help
+| Action | Shortcut |
+|--------|----------|
+| Keyboard Shortcuts Reference | `Cmd+/` |
+| Command Palette | `Cmd+Shift+A` |
+
+> **Note**: `Cmd` key on macOS = `Ctrl` key on Windows/Linux.
 
 ---
 
 ## Configuration
 
-**Settings location**:
+WaveEdit currently splits user state across two parent directories on
+macOS (this is a known minor inconsistency we plan to consolidate):
+
+**`settings.json` and plugin scan data**:
+- macOS: `~/Library/WaveEdit/`
+- Windows: `%APPDATA%/WaveEdit/`
+- Linux: `~/.config/WaveEdit/`
+
+Files: `settings.json` (recent files, audio device, auto-save),
+`autosave/`, `plugins.xml`, `plugin_blacklist.txt`,
+`custom_plugin_paths.txt`, `scan_log.txt`.
+
+**Keymaps, toolbars, batch presets**:
 - macOS: `~/Library/Application Support/WaveEdit/`
 - Windows: `%APPDATA%/WaveEdit/`
 - Linux: `~/.config/WaveEdit/`
 
-**Configuration files**:
-- `settings.json` - User preferences (audio device, display, auto-save)
-- `keybindings.json` - Keyboard shortcuts
-- `Keymaps/` - Custom keyboard templates
+Subfolders: `Keymaps/` (built-in + user templates),
+`Toolbars/` (toolbar layouts), `Presets/Batch/` (batch processor
+presets).
+
+**UI preferences (window size, dB scale, refresh rate)**:
+- macOS: `~/Library/Preferences/com.waveedit.app.plist` (managed by
+  the system; use `defaults read com.waveedit.app` to inspect).
+- Windows / Linux: stored alongside `settings.json` above.
+
+**Application log** — useful when reporting bugs:
+- macOS: `~/Library/Logs/WaveEdit/WaveEdit.log`
+- Windows: `%APPDATA%\WaveEdit\WaveEdit.log`
+- Linux: `~/.config/WaveEdit/WaveEdit.log`
+
+The log records startup, audio-device init, errors, and unsaved-changes
+events. Attach it when filing an issue.
+
+**To uninstall completely (macOS)**:
+```bash
+# Quit WaveEdit first, then:
+rm -rf ~/Library/WaveEdit
+rm -rf "~/Library/Application Support/WaveEdit"
+defaults delete com.waveedit.app
+# Optional: remove the app bundle itself
+rm -rf /Applications/WaveEdit.app
+```
+
+> Customizing keyboard shortcuts? Open Preferences (`Cmd+,`) →
+> Keyboard Shortcuts tab. There is no `keybindings.json` — keymap
+> templates live as named JSON files inside `Keymaps/`.
 
 ---
 

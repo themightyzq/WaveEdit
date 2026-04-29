@@ -1020,8 +1020,12 @@ public:
         {
             g.setColour(juce::Colours::grey);
             g.setFont(12.0f);
-            g.drawText("No file loaded - Press Ctrl+O to open or drag & drop a WAV file",
-                      statusBar.reduced(10, 0), juce::Justification::centredLeft, true);
+           #if JUCE_MAC
+            const char* openHint = "No file loaded - Press Cmd+O to open or drag & drop a WAV file";
+           #else
+            const char* openHint = "No file loaded - Press Ctrl+O to open or drag & drop a WAV file";
+           #endif
+            g.drawText(openHint, statusBar.reduced(10, 0), juce::Justification::centredLeft, true);
         }
     }
 

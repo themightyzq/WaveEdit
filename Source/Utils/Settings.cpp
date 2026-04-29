@@ -58,7 +58,11 @@ juce::File Settings::getSettingsDirectory() const
     auto appDataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
 
    #if JUCE_MAC
-    // macOS: ~/Library/Application Support/WaveEdit/
+    // macOS: ~/Library/WaveEdit/  (JUCE's userApplicationDataDirectory
+    // resolves to ~/Library/, not ~/Library/Application Support/. The
+    // Keymaps/Toolbars/Presets directories live under
+    // ~/Library/Application Support/WaveEdit/ — this split is tracked
+    // in TODO.md and will be consolidated.)
     return appDataDir.getChildFile("WaveEdit");
    #elif JUCE_WINDOWS
     // Windows: %APPDATA%/WaveEdit/
