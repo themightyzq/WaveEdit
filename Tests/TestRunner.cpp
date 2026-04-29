@@ -96,6 +96,7 @@ int main(int, char**)
     testRunner.runTestsInCategory("Batch");             // Batch processor tests
     testRunner.runTestsInCategory("ChannelSystem");     // Channel system tests
     testRunner.runTestsInCategory("DSP");               // DSP engine tests (HeadTailEngine)
+    testRunner.runTestsInCategory("RegionManager");     // Region/auto-region/multi-drag tests
 
     // Print results
     std::cout << "\n";

@@ -29,14 +29,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     with a private `applyOfflinePluginToSelection` helper sharing the
     plugin-chain pattern.
 
+### Changed
+- **CI now runs the test suite** on macOS, Windows, and Linux (Linux uses
+  `xvfb-run` for headless display). A failing test fails the build job.
+- **Re-enabled three orphan test files**: `RegionManagerTests`,
+  `MultiRegionDragTests`, and a rewritten
+  `KeyboardShortcutConflictTests` (now a proper `juce::UnitTest` that
+  parses each `Templates/Keymaps/*.json` and reports duplicate
+  key+modifier bindings — the previous standalone version registered
+  commands against a `nullptr` target so it could not detect any
+  conflicts).
+- Local test run: 30 groups / 104 assertions / 0 failures (was 22 / 90).
+
 ### Known Issues
 - `perform()` in `Main.cpp` is a dispatcher but 21 cases still exceed the
   CLAUDE.md §6.7 ≤5-line rule.
 - `Source/Utils/UndoableEdits.h` (1,141 lines) still hosts region/plugin/
   channel undo classes that CLAUDE.md §8.1 requires under
   `Utils/UndoActions/`.
-- 4 region/keymap test files exist but are not wired into CMake; CI builds
-  artifacts but does not run `WaveEditTests`.
+- `Tests/Integration/RegionListPanelTests.cpp` remains disabled: uses
+  non-existent `juce::UnitTest::getInstance()` and a stale Listener
+  interface. Needs a rewrite as a proper `UnitTest` subclass.
 
 ### Added
 - **Plugin Parameter Automation** (Phases 1-3): Core data model and real-time playback engine.

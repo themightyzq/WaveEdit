@@ -770,11 +770,24 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Integration/SaveAs8BitTests.cpp               # Phase 4 ✅ (8-bit Save Tests)
             Tests/Unit/BatchJobTests.cpp                        # Batch Processor tests
             Tests/ChannelSystemTests.cpp                        # Channel system tests (ITU coefficients, extraction, upmix)
-            # Tests/Integration/RegionListPanelTests.cpp        # Week 4 ⚠️ (Needs migration to Catch2)
+            Tests/Unit/RegionManagerTests.cpp                   # Region/Auto Region tests
+            Tests/Unit/KeyboardShortcutConflictTests.cpp        # Keymap binding conflicts (JSON-based)
+            Tests/Integration/MultiRegionDragTests.cpp          # Multi-region drag/move
+            # Tests/Integration/RegionListPanelTests.cpp        # Disabled: uses non-existent
+            #                                                   # juce::UnitTest::getInstance() and a
+            #                                                   # Listener interface that has since
+            #                                                   # gained pure virtual methods. Needs
+            #                                                   # rewrite as a proper UnitTest.
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6
             # Tests/Performance/PlaybackLatencyBenchmarks.cpp   # Week 6
+    )
+
+    # Templates directory path for tests that need to load keymap JSON
+    target_compile_definitions(WaveEditTests
+        PRIVATE
+            WAVEEDIT_TEMPLATES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Templates/Keymaps"
     )
 
     # Link test executable to WaveEditCore and JUCE test utilities
