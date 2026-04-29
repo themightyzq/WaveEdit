@@ -26,6 +26,7 @@ juce_add_gui_app(WaveEdit
 target_sources(WaveEdit
     PRIVATE
         Source/Main.cpp
+        Source/MainComponent.h
         Source/Controllers/FileController.cpp
         Source/Controllers/FileController.h
         Source/Controllers/DSPController.cpp
