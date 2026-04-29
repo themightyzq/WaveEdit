@@ -31,6 +31,8 @@
 #include "../Audio/AudioProcessor.h"
 #include "../Audio/ChannelLayout.h"
 #include "../Utils/UndoActions/AudioUndoActions.h"
+#include "../Utils/UndoActions/PluginUndoActions.h"
+#include "../Utils/UndoActions/ChannelUndoActions.h"
 #include "../Utils/UndoableEdits.h"
 #include "../UI/GainDialog.h"
 #include "../UI/NormalizeDialog.h"
