@@ -36,6 +36,14 @@ target_sources(WaveEdit
         Source/Controllers/MarkerController.h
         Source/Controllers/ClipboardController.cpp
         Source/Controllers/ClipboardController.h
+        Source/Controllers/PlaybackController.cpp
+        Source/Controllers/PlaybackController.h
+        Source/Controllers/RecordingController.cpp
+        Source/Controllers/RecordingController.h
+        Source/Controllers/DialogController.cpp
+        Source/Controllers/DialogController.h
+        Source/Controllers/PluginController.cpp
+        Source/Controllers/PluginController.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
