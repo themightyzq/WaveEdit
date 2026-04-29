@@ -25,6 +25,42 @@
 
 
 //==============================================================================
+// Crash handler — installed via juce::SystemStats::setApplicationCrashHandler.
+// On a fatal signal/SEH exception JUCE invokes this with a platform-specific
+// payload. We append a single record to ~/Library/Logs/WaveEdit/crashes/ so
+// the user has something concrete to attach when filing an issue.
+//
+// Caveat: a crash handler runs in a constrained signal context. JUCE's own
+// example uses high-level juce::String/File code, which technically may
+// allocate; in practice the OS still produces its own crash report if our
+// handler itself fails, so this is best-effort logging on top of the system
+// crash dialog.
+static void waveeditCrashHandler(void* /*platformData*/) noexcept
+{
+    auto crashesDir = juce::FileLogger::getSystemLogFileFolder()
+                         .getChildFile("WaveEdit")
+                         .getChildFile("crashes");
+    crashesDir.createDirectory();
+
+    auto stamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S");
+    auto crashFile = crashesDir.getChildFile("crash-" + stamp + ".txt");
+
+    juce::String body;
+    body << "WaveEdit crash report\n";
+    body << "=====================\n";
+    body << "Time:        " << juce::Time::getCurrentTime().toString(true, true, true) << "\n";
+    body << "Version:     0.1.0\n";
+    body << "OS:          " << juce::SystemStats::getOperatingSystemName() << "\n";
+    body << "CPU:         " << juce::SystemStats::getCpuVendor() << " ("
+         << juce::SystemStats::getNumCpus() << " cores)\n";
+    body << "\nStack backtrace:\n";
+    body << juce::SystemStats::getStackBacktrace();
+    body << "\n";
+
+    crashFile.replaceWithText(body);
+}
+
+//==============================================================================
 /**
  * Main application class.
  * Handles application lifecycle and main window creation.
@@ -63,6 +99,10 @@ public:
             "WaveEdit " + getApplicationVersion() + " session log"));
         juce::Logger::setCurrentLogger(m_fileLogger.get());
         juce::Logger::writeToLog("WaveEdit " + getApplicationVersion() + " starting up");
+
+        // Install crash handler so we capture a backtrace alongside the
+        // session log when the OS terminates the process.
+        juce::SystemStats::setApplicationCrashHandler(&waveeditCrashHandler);
 
         // Set custom LookAndFeel with WCAG-compliant focus indicators
         m_lookAndFeel = std::make_unique<waveedit::WaveEditLookAndFeel>();

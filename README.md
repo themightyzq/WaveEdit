@@ -512,6 +512,12 @@ plugin list look right.
 The log records startup, audio-device init, errors, and unsaved-changes
 events. Attach it when filing an issue.
 
+**Crash reports**: if WaveEdit hits a fatal signal, a single
+timestamped report (time, version, OS, stack backtrace) is written
+next to the session log under a `crashes/` subfolder
+(e.g. `~/Library/Logs/WaveEdit/crashes/crash-YYYY-MM-DD_HH-MM-SS.txt`).
+Attach the most recent one when reporting a crash.
+
 **To uninstall completely (macOS)**:
 ```bash
 # Quit WaveEdit first, then:
