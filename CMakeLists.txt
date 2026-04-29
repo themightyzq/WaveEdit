@@ -622,6 +622,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/RegionManager.h
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
+        Source/UI/RegionListPanel.cpp
+        Source/UI/RegionListPanel.h
         Source/Utils/Marker.cpp
         Source/Utils/Marker.h
         Source/Utils/MarkerManager.cpp
@@ -788,11 +790,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/KeyboardShortcutConflictTests.cpp        # Keymap binding conflicts (JSON-based)
             Tests/Unit/MarkerManagerTests.cpp                   # Marker basic ops + manager + sidecar
             Tests/Integration/MultiRegionDragTests.cpp          # Multi-region drag/move
-            # Tests/Integration/RegionListPanelTests.cpp        # Disabled: uses non-existent
-            #                                                   # juce::UnitTest::getInstance() and a
-            #                                                   # Listener interface that has since
-            #                                                   # gained pure virtual methods. Needs
-            #                                                   # rewrite as a proper UnitTest.
+            Tests/Integration/RegionListPanelTests.cpp          # RegionListPanel state-side contract
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6
