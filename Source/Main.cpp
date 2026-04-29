@@ -41,6 +41,10 @@
 #include "Controllers/RegionController.h"
 #include "Controllers/MarkerController.h"
 #include "Controllers/ClipboardController.h"
+#include "Controllers/PlaybackController.h"
+#include "Controllers/RecordingController.h"
+#include "Controllers/DialogController.h"
+#include "Controllers/PluginController.h"
 #include "Controllers/ChainWindowListener.h"
 #include "UI/WaveformDisplay.h"
 #include "UI/TransportControls.h"
@@ -639,23 +643,9 @@ public:
         updateComponentVisibility();
     }
 
-    void documentRemoved(Document* document, int index) override
+    void documentRemoved(Document* document, int /*index*/) override
     {
-        // Close any Plugin Chain windows for this document before it's destroyed
-        if (document != nullptr)
-        {
-            auto* chain = &document->getAudioEngine().getPluginChain();
-            for (int i = m_pluginChainListeners.size() - 1; i >= 0; --i)
-            {
-                if (m_pluginChainListeners[i] != nullptr && m_pluginChainListeners[i]->isForChain(chain))
-                {
-                    m_pluginChainListeners[i]->documentClosed();
-                    m_pluginChainListeners.remove(i);
-                }
-            }
-        }
-
-        // Update tab component to remove tab
+        m_pluginController.notifyDocumentClosed(document);
         updateComponentVisibility();
     }
 
@@ -1286,81 +1276,22 @@ public:
 
             case CommandIDs::fileEditBWFMetadata:
                 if (!doc) return false;
-                BWFEditorDialog::showDialog(this, doc->getBWFMetadata(), [this, doc]()
-                {
-                    // Mark document as modified when BWF metadata changes
-                    doc->setModified(true);
-                    DBG("BWF metadata updated - document marked as modified");
-                });
+                showBWFMetadataDialog(doc);
                 return true;
 
             case CommandIDs::fileEditiXMLMetadata:
                 if (!doc) return false;
-                iXMLEditorDialog::showDialog(this, doc->getiXMLMetadata(),
-                                            doc->getFilename(), [this, doc]()
-                {
-                    // Mark document as modified when iXML metadata changes
-                    doc->setModified(true);
-                    DBG("iXML metadata updated - document marked as modified");
-                });
+                showiXMLMetadataDialog(doc);
                 return true;
 
             case CommandIDs::editUndo:
                 if (!doc) return false;
-                if (doc->getUndoManager().canUndo())
-                {
-                    DBG(juce::String::formatted(
-                        "Undo: %s (stack depth before: %d)",
-                        doc->getUndoManager().getUndoDescription().toRawUTF8(),
-                        doc->getUndoManager().getNumberOfUnitsTakenUpByStoredCommands()));
-
-                    doc->getUndoManager().undo();
-                    doc->setModified(true);
-
-                    DBG(juce::String::formatted(
-                        "After undo - Can undo: %s, Can redo: %s",
-                        doc->getUndoManager().canUndo() ? "yes" : "no",
-                        doc->getUndoManager().canRedo() ? "yes" : "no"));
-
-                    // Refresh RegionListPanel if open
-                    if (m_regionListPanel)
-                        m_regionListPanel->refresh();
-
-                    // Refresh MarkerListPanel if open
-                    if (m_markerListPanel)
-                        m_markerListPanel->refresh();
-
-                    repaint();
-                }
+                handleUndo(doc);
                 return true;
 
             case CommandIDs::editRedo:
                 if (!doc) return false;
-                if (doc->getUndoManager().canRedo())
-                {
-                    DBG(juce::String::formatted(
-                        "Redo: %s (stack depth before: %d)",
-                        doc->getUndoManager().getRedoDescription().toRawUTF8(),
-                        doc->getUndoManager().getNumberOfUnitsTakenUpByStoredCommands()));
-
-                    doc->getUndoManager().redo();
-                    doc->setModified(true);
-
-                    DBG(juce::String::formatted(
-                        "After redo - Can undo: %s, Can redo: %s",
-                        doc->getUndoManager().canUndo() ? "yes" : "no",
-                        doc->getUndoManager().canRedo() ? "yes" : "no"));
-
-                    // Refresh RegionListPanel if open
-                    if (m_regionListPanel)
-                        m_regionListPanel->refresh();
-
-                    // Refresh MarkerListPanel if open
-                    if (m_markerListPanel)
-                        m_markerListPanel->refresh();
-
-                    repaint();
-                }
+                handleRedo(doc);
                 return true;
 
             case CommandIDs::editSelectAll:
@@ -1444,13 +1375,7 @@ public:
                 return true;
 
             case CommandIDs::viewCycleTimeFormat:
-                // Cycle to next time format
-                m_timeFormat = AudioUnits::getNextTimeFormat(m_timeFormat);
-                // Save to settings
-                Settings::getInstance().setSetting("display.timeFormat", static_cast<int>(m_timeFormat));
-                Settings::getInstance().save();
-                // Force UI update
-                repaint();
+                cycleTimeFormat();
                 return true;
 
             case CommandIDs::viewAutoScroll:
@@ -1470,24 +1395,8 @@ public:
                 return true;
 
             case CommandIDs::viewToggleRegions:
-            {
-                // Toggle region visibility setting (global, not per-document)
-                bool currentlyVisible = Settings::getInstance().getRegionsVisible();
-                Settings::getInstance().setRegionsVisible(!currentlyVisible);
-
-                // Repaint all documents to update region visibility
-                for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
-                {
-                    auto* document = m_documentManager.getDocument(i);
-                    if (document)
-                    {
-                        document->getRegionDisplay().setVisible(!currentlyVisible);
-                        document->getWaveformDisplay().repaint();
-                    }
-                }
-
+                toggleRegionVisibility();
                 return true;
-            }
 
             case CommandIDs::viewSpectrumAnalyzer:
                 toggleSpectrumAnalyzer();
@@ -1495,76 +1404,40 @@ public:
 
             // Spectrum Analyzer FFT Size Commands
             case CommandIDs::viewSpectrumFFTSize512:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_512);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumFFTSize(SpectrumAnalyzer::FFTSize::SIZE_512);
                 return true;
 
             case CommandIDs::viewSpectrumFFTSize1024:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_1024);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumFFTSize(SpectrumAnalyzer::FFTSize::SIZE_1024);
                 return true;
 
             case CommandIDs::viewSpectrumFFTSize2048:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_2048);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumFFTSize(SpectrumAnalyzer::FFTSize::SIZE_2048);
                 return true;
 
             case CommandIDs::viewSpectrumFFTSize4096:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_4096);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumFFTSize(SpectrumAnalyzer::FFTSize::SIZE_4096);
                 return true;
 
             case CommandIDs::viewSpectrumFFTSize8192:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setFFTSize(SpectrumAnalyzer::FFTSize::SIZE_8192);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumFFTSize(SpectrumAnalyzer::FFTSize::SIZE_8192);
                 return true;
 
             // Spectrum Analyzer Window Function Commands
             case CommandIDs::viewSpectrumWindowHann:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setWindowFunction(SpectrumAnalyzer::WindowFunction::HANN);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumWindow(SpectrumAnalyzer::WindowFunction::HANN);
                 return true;
 
             case CommandIDs::viewSpectrumWindowHamming:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setWindowFunction(SpectrumAnalyzer::WindowFunction::HAMMING);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumWindow(SpectrumAnalyzer::WindowFunction::HAMMING);
                 return true;
 
             case CommandIDs::viewSpectrumWindowBlackman:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setWindowFunction(SpectrumAnalyzer::WindowFunction::BLACKMAN);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumWindow(SpectrumAnalyzer::WindowFunction::BLACKMAN);
                 return true;
 
             case CommandIDs::viewSpectrumWindowRectangular:
-                if (m_spectrumAnalyzer)
-                {
-                    m_spectrumAnalyzer->setWindowFunction(SpectrumAnalyzer::WindowFunction::RECTANGULAR);
-                    m_commandManager.commandStatusChanged();
-                }
+                setSpectrumWindow(SpectrumAnalyzer::WindowFunction::RECTANGULAR);
                 return true;
 
             // Navigation operations (simple movement)
@@ -1614,32 +1487,9 @@ public:
                 return true;
 
             case CommandIDs::navigateGoToPosition:
-            {
                 if (!doc) return false;
-                // Show Go To Position dialog
-                auto& engine = doc->getAudioEngine();
-                GoToPositionDialog::showDialog(
-                    this,
-                    m_timeFormat,
-                    engine.getSampleRate(),
-                    30.0,  // Default FPS (future: user-configurable via settings)
-                    static_cast<int64_t>(engine.getTotalLength() * engine.getSampleRate()),
-                    [this](int64_t positionInSamples)
-                    {
-                        // Callback when user confirms position
-                        auto* doc = m_documentManager.getCurrentDocument();
-                        if (doc)
-                        {
-                            double positionInSeconds = AudioUnits::samplesToSeconds(
-                                positionInSamples,
-                                doc->getAudioEngine().getSampleRate());
-                            doc->getWaveformDisplay().setEditCursor(positionInSeconds);
-                            doc->getWaveformDisplay().clearSelection();  // Clear selection, just move cursor
-                            doc->getWaveformDisplay().centerViewOnCursor();  // Scroll to position
-                        }
-                    });
+                showGoToPositionDialog(doc);
                 return true;
-            }
 
             // Selection extension operations
             case CommandIDs::selectExtendLeft:
@@ -1757,16 +1607,8 @@ public:
                 return true;
 
             case CommandIDs::regionSnapToZeroCrossing:
-            {
-                // Toggle the preference setting
-                bool currentValue = Settings::getInstance().getSnapRegionsToZeroCrossings();
-                Settings::getInstance().setSnapRegionsToZeroCrossings(!currentValue);
-
-                // Update menu checkmark by invalidating command info
-                m_commandManager.commandStatusChanged();
-
+                toggleSnapRegionsToZeroCrossings();
                 return true;
-            }
 
             // Region nudge commands (Phase 3.3 - Feature #6)
             case CommandIDs::regionNudgeStartLeft:
@@ -1947,10 +1789,7 @@ public:
 
             case CommandIDs::pluginBypassAll:
                 if (!doc) return false;
-                {
-                    auto& chain = doc->getAudioEngine().getPluginChain();
-                    chain.setAllBypassed(!chain.areAllBypassed());
-                }
+                togglePluginChainBypass(doc);
                 return true;
 
             case CommandIDs::pluginRescan:
@@ -1963,75 +1802,22 @@ public:
                 return true;
 
             case CommandIDs::pluginClearCache:
-            {
-                // Ask user for confirmation before clearing cache
-                auto result = juce::AlertWindow::showOkCancelBox(
-                    juce::AlertWindow::QuestionIcon,
-                    "Clear Plugin Cache",
-                    "This will delete all cached plugin data and perform a fresh scan.\n\n"
-                    "This is useful if:\n"
-                    "- You've installed or removed plugins\n"
-                    "- A plugin is not showing up\n"
-                    "- You want to fix scan-related issues\n\n"
-                    "Continue?",
-                    "Clear & Rescan",
-                    "Cancel"
-                );
-
-                if (result)
-                {
-                    bool success = PluginManager::getInstance().clearCache();
-
-                    if (!success)
-                    {
-                        juce::AlertWindow::showMessageBoxAsync(
-                            juce::AlertWindow::WarningIcon,
-                            "Cache Clear Warning",
-                            "Some cache files could not be deleted.\n\n"
-                            "This may happen if:\n"
-                            "- Files are in use by another application\n"
-                            "- Antivirus is blocking file deletion\n\n"
-                            "The rescan will continue, but you may need to manually delete "
-                            "the WaveEdit folder in your config directory for a complete reset."
-                        );
-                    }
-
-                    startPluginScan(true);  // Force rescan after clearing
-                }
+                handlePluginClearCache();
                 return true;
-            }
 
             //==============================================================================
             // Toolbar commands
             case CommandIDs::toolbarCustomize:
-            {
-                // Show the toolbar customization dialog
-                if (ToolbarCustomizationDialog::showDialog(m_toolbarManager, m_commandManager))
-                {
-                    // Layout was changed - reload toolbar
-                    m_toolbar->loadLayout(m_toolbarManager.getCurrentLayout());
-                    m_toolbar->resized();
-                    resized();  // May need to re-layout if toolbar height changed
-                }
+                showToolbarCustomization();
                 return true;
-            }
 
             case CommandIDs::toolbarReset:
-            {
-                // Reset toolbar to default layout
-                m_toolbarManager.loadLayout("Default");
-                m_toolbar->loadLayout(m_toolbarManager.getCurrentLayout());
-                m_toolbar->resized();
-                resized();
+                resetToolbarToDefault();
                 return true;
-            }
 
             case CommandIDs::fileBatchProcessor:
-            {
-                // Show batch processor dialog
-                waveedit::BatchProcessorDialog::showDialog();
+                m_dialogController.showBatchProcessorDialog();
                 return true;
-            }
 
             default:
                 return false;
@@ -2082,139 +1868,9 @@ public:
         }
     }
 
-    /**
-     * Handle Playback → Record command: show recording dialog and handle recorded audio.
-     * Supports both append-to-existing and create-new-document modes.
-     */
     void handleRecordCommand()
     {
-        auto* currentDoc = m_documentManager.getCurrentDocument();
-        bool appendToExisting = false;
-
-        if (currentDoc != nullptr)
-        {
-            int choice = juce::AlertWindow::showYesNoCancelBox(
-                juce::AlertWindow::QuestionIcon,
-                "Recording Destination",
-                "A file is currently open. Where would you like to place the recording?\n\n"
-                "• YES: Insert at cursor position (punch-in)\n"
-                "• NO: Create new file with recording\n"
-                "• CANCEL: Don't record",
-                "Insert at Cursor",
-                "Create New File",
-                "Cancel"
-            );
-
-            if (choice == 0) return;
-            appendToExisting = (choice == 1);
-        }
-
-        class RecordingListener : public RecordingDialog::Listener
-        {
-        public:
-            RecordingListener(DocumentManager* docMgr, Document* targetDoc, bool append)
-                : m_documentManager(docMgr), m_targetDocument(targetDoc), m_appendMode(append) {}
-
-            void recordingCompleted(const juce::AudioBuffer<float>& audioBuffer,
-                                   double sampleRate,
-                                   int numChannels) override
-            {
-                if (m_appendMode && m_targetDocument != nullptr)
-                    appendToDocument(m_targetDocument, audioBuffer, sampleRate, numChannels);
-                else
-                    createNewDocument(audioBuffer, sampleRate, numChannels);
-            }
-
-        private:
-            void appendToDocument(Document* targetDoc, const juce::AudioBuffer<float>& audioBuffer,
-                                 double sampleRate, int numChannels)
-            {
-                double cursorPositionSeconds = targetDoc->getWaveformDisplay().getPlaybackPosition();
-                auto& currentBuffer = targetDoc->getBufferManager().getMutableBuffer();
-                double currentSampleRate = targetDoc->getAudioEngine().getSampleRate();
-                int insertPositionSamples = static_cast<int>(cursorPositionSeconds * currentSampleRate);
-                insertPositionSamples = juce::jlimit(0, currentBuffer.getNumSamples(), insertPositionSamples);
-
-                int currentSamples = currentBuffer.getNumSamples();
-                int newSamples = audioBuffer.getNumSamples();
-                int totalSamples = currentSamples + newSamples;
-
-                juce::AudioBuffer<float> combinedBuffer(
-                    juce::jmax(currentBuffer.getNumChannels(), audioBuffer.getNumChannels()),
-                    totalSamples
-                );
-
-                for (int ch = 0; ch < currentBuffer.getNumChannels(); ++ch)
-                    combinedBuffer.copyFrom(ch, 0, currentBuffer, ch, 0, insertPositionSamples);
-
-                for (int ch = 0; ch < audioBuffer.getNumChannels(); ++ch)
-                    combinedBuffer.copyFrom(ch, insertPositionSamples, audioBuffer, ch, 0, newSamples);
-
-                int remainingSamples = currentSamples - insertPositionSamples;
-                if (remainingSamples > 0)
-                {
-                    for (int ch = 0; ch < currentBuffer.getNumChannels(); ++ch)
-                    {
-                        combinedBuffer.copyFrom(ch, insertPositionSamples + newSamples,
-                                               currentBuffer, ch, insertPositionSamples, remainingSamples);
-                    }
-                }
-
-                currentBuffer.makeCopyOf(combinedBuffer, true);
-                targetDoc->getAudioEngine().loadFromBuffer(combinedBuffer, sampleRate,
-                                                           combinedBuffer.getNumChannels());
-                targetDoc->getWaveformDisplay().reloadFromBuffer(combinedBuffer, sampleRate, false, false);
-                targetDoc->getRegionDisplay().setTotalDuration(totalSamples / sampleRate);
-                targetDoc->getMarkerDisplay().setTotalDuration(totalSamples / sampleRate);
-                targetDoc->setModified(true);
-
-                DBG("Recording inserted at cursor position (" +
-                    juce::String(cursorPositionSeconds, 3) + "s): " +
-                    juce::String(newSamples) + " samples added");
-            }
-
-            void createNewDocument(const juce::AudioBuffer<float>& audioBuffer,
-                                  double sampleRate, int numChannels)
-            {
-                auto* newDoc = m_documentManager->createDocument();
-                if (newDoc != nullptr)
-                {
-                    auto& buffer = newDoc->getBufferManager().getMutableBuffer();
-                    buffer.setSize(audioBuffer.getNumChannels(), audioBuffer.getNumSamples());
-                    buffer.makeCopyOf(audioBuffer, true);
-
-                    newDoc->getAudioEngine().loadFromBuffer(audioBuffer, sampleRate, numChannels);
-                    newDoc->getWaveformDisplay().reloadFromBuffer(audioBuffer, sampleRate, false, false);
-
-                    newDoc->getRegionDisplay().setSampleRate(sampleRate);
-                    newDoc->getRegionDisplay().setTotalDuration(audioBuffer.getNumSamples() / sampleRate);
-                    newDoc->getRegionDisplay().setVisibleRange(0.0, audioBuffer.getNumSamples() / sampleRate);
-                    newDoc->getRegionDisplay().setAudioBuffer(&buffer);
-
-                    newDoc->getMarkerDisplay().setSampleRate(sampleRate);
-                    newDoc->getMarkerDisplay().setTotalDuration(audioBuffer.getNumSamples() / sampleRate);
-
-                    newDoc->setModified(true);
-
-                    DBG("Recording completed: " +
-                        juce::String(audioBuffer.getNumSamples()) + " samples, " +
-                        juce::String(sampleRate) + " Hz, " +
-                        juce::String(numChannels) + " channels");
-                }
-                else
-                {
-                    juce::Logger::writeToLog("ERROR: Failed to create new document for recording");
-                }
-            }
-
-            DocumentManager* m_documentManager;
-            Document* m_targetDocument;
-            bool m_appendMode;
-            JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RecordingListener)
-        };
-
-        RecordingDialog::showDialog(this, m_audioDeviceManager,
-                                   new RecordingListener(&m_documentManager, currentDoc, appendToExisting));
+        m_recordingController.handleRecordCommand(this, m_documentManager, m_audioDeviceManager);
     }
 
     /**
@@ -2269,40 +1925,165 @@ public:
         }
     }
 
-    /**
-     * Handle Playback → Loop Region: set selection to region bounds and start looping playback.
-     */
-    void handleLoopRegion(Document* doc)
+    void handleLoopRegion(Document* doc) { m_playbackController.loopRegion(doc); }
+
+    //==============================================================================
+    // perform() helpers — keep individual cases at ≤5 lines per CLAUDE.md §6.7
+
+    void handleUndo(Document* doc)
     {
-        auto& regionMgr = doc->getRegionManager();
-        int selectedIndex = regionMgr.getSelectedRegionIndex();
+        auto& undoMgr = doc->getUndoManager();
+        if (! undoMgr.canUndo()) return;
 
-        if (selectedIndex < 0 || selectedIndex >= regionMgr.getNumRegions())
+        undoMgr.undo();
+        doc->setModified(true);
+        if (m_regionListPanel) m_regionListPanel->refresh();
+        if (m_markerListPanel) m_markerListPanel->refresh();
+        repaint();
+    }
+
+    void handleRedo(Document* doc)
+    {
+        auto& undoMgr = doc->getUndoManager();
+        if (! undoMgr.canRedo()) return;
+
+        undoMgr.redo();
+        doc->setModified(true);
+        if (m_regionListPanel) m_regionListPanel->refresh();
+        if (m_markerListPanel) m_markerListPanel->refresh();
+        repaint();
+    }
+
+    void showBWFMetadataDialog(Document* doc)
+    {
+        BWFEditorDialog::showDialog(this, doc->getBWFMetadata(),
+                                    [doc]() { doc->setModified(true); });
+    }
+
+    void showiXMLMetadataDialog(Document* doc)
+    {
+        iXMLEditorDialog::showDialog(this, doc->getiXMLMetadata(), doc->getFilename(),
+                                     [doc]() { doc->setModified(true); });
+    }
+
+    void cycleTimeFormat()
+    {
+        m_timeFormat = AudioUnits::getNextTimeFormat(m_timeFormat);
+        Settings::getInstance().setSetting("display.timeFormat",
+                                           static_cast<int>(m_timeFormat));
+        Settings::getInstance().save();
+        repaint();
+    }
+
+    void toggleRegionVisibility()
+    {
+        const bool currentlyVisible = Settings::getInstance().getRegionsVisible();
+        Settings::getInstance().setRegionsVisible(! currentlyVisible);
+
+        for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
         {
-            DBG("No region selected for loop playback");
-            return;
+            if (auto* document = m_documentManager.getDocument(i))
+            {
+                document->getRegionDisplay().setVisible(! currentlyVisible);
+                document->getWaveformDisplay().repaint();
+            }
         }
+    }
 
-        auto* region = regionMgr.getRegion(selectedIndex);
-        if (!region)
+    void setSpectrumFFTSize(SpectrumAnalyzer::FFTSize size)
+    {
+        if (m_spectrumAnalyzer)
         {
-            DBG("Invalid region for loop playback");
-            return;
+            m_spectrumAnalyzer->setFFTSize(size);
+            m_commandManager.commandStatusChanged();
         }
+    }
 
-        auto& audioEngine = doc->getAudioEngine();
-        double sampleRate = audioEngine.getSampleRate();
-        double startTime = region->getStartSample() / sampleRate;
-        double endTime = region->getEndSample() / sampleRate;
+    void setSpectrumWindow(SpectrumAnalyzer::WindowFunction fn)
+    {
+        if (m_spectrumAnalyzer)
+        {
+            m_spectrumAnalyzer->setWindowFunction(fn);
+            m_commandManager.commandStatusChanged();
+        }
+    }
 
-        doc->getWaveformDisplay().setSelection(region->getStartSample(), region->getEndSample());
-        audioEngine.setLooping(true);
-        audioEngine.setPosition(startTime);
-        audioEngine.play();
+    void showGoToPositionDialog(Document* doc)
+    {
+        auto& engine = doc->getAudioEngine();
+        GoToPositionDialog::showDialog(
+            this,
+            m_timeFormat,
+            engine.getSampleRate(),
+            30.0,
+            static_cast<int64_t>(engine.getTotalLength() * engine.getSampleRate()),
+            [this](int64_t positionInSamples)
+            {
+                if (auto* d = m_documentManager.getCurrentDocument())
+                {
+                    const double seconds = AudioUnits::samplesToSeconds(
+                        positionInSamples, d->getAudioEngine().getSampleRate());
+                    d->getWaveformDisplay().setEditCursor(seconds);
+                    d->getWaveformDisplay().clearSelection();
+                    d->getWaveformDisplay().centerViewOnCursor();
+                }
+            });
+    }
 
-        DBG("Loop region: " + region->getName() +
-            " (" + juce::String(startTime, 3) + "s - " +
-            juce::String(endTime, 3) + "s)");
+    void toggleSnapRegionsToZeroCrossings()
+    {
+        const bool current = Settings::getInstance().getSnapRegionsToZeroCrossings();
+        Settings::getInstance().setSnapRegionsToZeroCrossings(! current);
+        m_commandManager.commandStatusChanged();
+    }
+
+    void togglePluginChainBypass(Document* doc)
+    {
+        auto& chain = doc->getAudioEngine().getPluginChain();
+        chain.setAllBypassed(! chain.areAllBypassed());
+    }
+
+    void handlePluginClearCache()
+    {
+        const bool ok = juce::AlertWindow::showOkCancelBox(
+            juce::AlertWindow::QuestionIcon,
+            "Clear Plugin Cache",
+            "This will delete all cached plugin data and perform a fresh scan.\n\n"
+            "Useful when plugins have been added/removed or scan is misbehaving.\n\n"
+            "Continue?",
+            "Clear & Rescan",
+            "Cancel");
+
+        if (! ok) return;
+
+        if (! PluginManager::getInstance().clearCache())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Cache Clear Warning",
+                "Some cache files could not be deleted. The rescan will still run; "
+                "manual deletion of the WaveEdit config folder may be needed for "
+                "a complete reset.");
+        }
+        startPluginScan(true);
+    }
+
+    void showToolbarCustomization()
+    {
+        if (! ToolbarCustomizationDialog::showDialog(m_toolbarManager, m_commandManager))
+            return;
+
+        m_toolbar->loadLayout(m_toolbarManager.getCurrentLayout());
+        m_toolbar->resized();
+        resized();
+    }
+
+    void resetToolbarToDefault()
+    {
+        m_toolbarManager.loadLayout("Default");
+        m_toolbar->loadLayout(m_toolbarManager.getCurrentLayout());
+        m_toolbar->resized();
+        resized();
     }
 
     /**
@@ -2456,120 +2237,12 @@ public:
     bool confirmDiscardChanges() { return m_fileController.confirmDiscardChanges(); }
 
     //==============================================================================
-    // Playback Control
+    // Playback Control (delegated to PlaybackController)
 
-    void togglePlayback()
-    {
-        auto* doc = getCurrentDocument();
-        if (!doc) return;
-
-        if (!doc->getAudioEngine().isFileLoaded())
-        {
-            return;
-        }
-
-        if (doc->getAudioEngine().isPlaying())
-        {
-            doc->getAudioEngine().stop();
-        }
-        else
-        {
-            // CRITICAL: Always clear stale loop points before starting new playback
-            // This prevents loop points from previous sessions affecting current playback
-            doc->getAudioEngine().clearLoopPoints();
-            doc->getAudioEngine().setLooping(false);
-
-            // Prioritize selection playback (professional audio editor behavior)
-            // If selection exists, play selection once, then stop
-            if (doc->getWaveformDisplay().hasSelection())
-            {
-                double selStart = doc->getWaveformDisplay().getSelectionStart();
-                double selEnd = doc->getWaveformDisplay().getSelectionEnd();
-
-                // Set playback to start at selection start
-                doc->getAudioEngine().setPosition(selStart);
-
-                // Set loop points to constrain playback to selection
-                // looping=false means stop at selEnd (don't loop back)
-                doc->getAudioEngine().setLoopPoints(selStart, selEnd);
-                doc->getAudioEngine().setLooping(false);
-            }
-            else if (doc->getWaveformDisplay().hasEditCursor())
-            {
-                // No selection: play from edit cursor to end of file
-                double startPos = doc->getWaveformDisplay().getEditCursorPosition();
-                doc->getAudioEngine().setPosition(startPos);
-                // Loop points already cleared above
-            }
-            else
-            {
-                // No selection or cursor: play from beginning
-                doc->getAudioEngine().setPosition(0.0);
-                // Loop points already cleared above
-            }
-
-            doc->getAudioEngine().play();
-        }
-
-        repaint();
-    }
-
-    void stopPlayback()
-    {
-        auto* doc = getCurrentDocument();
-        if (!doc) return;
-
-        if (!doc->getAudioEngine().isFileLoaded())
-        {
-            return;
-        }
-
-        doc->getAudioEngine().stop();
-        repaint();
-    }
-
-    void pausePlayback()
-    {
-        auto* doc = getCurrentDocument();
-        if (!doc) return;
-
-        if (!doc->getAudioEngine().isFileLoaded())
-        {
-            return;
-        }
-
-        auto state = doc->getAudioEngine().getPlaybackState();
-
-        if (state == PlaybackState::PLAYING)
-        {
-            doc->getAudioEngine().pause();
-        }
-        else if (state == PlaybackState::PAUSED)
-        {
-            doc->getAudioEngine().play();
-        }
-
-        repaint();
-    }
-
-    void toggleLoop()
-    {
-        auto* doc = getCurrentDocument();
-        if (!doc) return;
-
-        if (!doc->getAudioEngine().isFileLoaded())
-        {
-            return;
-        }
-
-        // PRIORITY 5g: Fix loop mode - wire up to AudioEngine
-        doc->getTransportControls().toggleLoop();
-        bool loopEnabled = doc->getTransportControls().isLoopEnabled();
-        doc->getAudioEngine().setLooping(loopEnabled);
-
-        DBG(juce::String("Loop mode: ") + (loopEnabled ? "ON" : "OFF"));
-        repaint();
-    }
+    void togglePlayback() { m_playbackController.togglePlayback(getCurrentDocument()); repaint(); }
+    void stopPlayback()   { m_playbackController.stopPlayback(getCurrentDocument());   repaint(); }
+    void pausePlayback()  { m_playbackController.pausePlayback(getCurrentDocument());  repaint(); }
+    void toggleLoop()     { m_playbackController.toggleLoop(getCurrentDocument());     repaint(); }
 
     //==============================================================================
     // Utility
@@ -2691,127 +2364,28 @@ public:
     /**
      * Show About WaveEdit dialog.
      */
-    void showAboutDialog()
-    {
-        juce::String aboutText =
-            "WaveEdit - Professional Audio Editor\n"
-            "Version 1.0\n\n"
-            "Copyright © 2025 ZQ SFX\n"
-            "Licensed under GNU GPL v3\n\n"
-            "Built with JUCE " + juce::String(JUCE_MAJOR_VERSION) + "." +
-            juce::String(JUCE_MINOR_VERSION) + "." + juce::String(JUCE_BUILDNUMBER);
+    void showAboutDialog() { m_dialogController.showAboutDialog(this); }
 
-        juce::AlertWindow::showMessageBox(juce::AlertWindow::InfoIcon,
-                                          "About WaveEdit",
-                                          aboutText,
-                                          "OK",
-                                          this);
-    }
-
-    /**
-     * Show keyboard shortcuts reference dialog.
-     *
-     * Displays a searchable, categorized list of all keyboard shortcuts
-     * dynamically loaded from the current keymap template.
-     */
     void showKeyboardShortcutsDialog()
     {
-        KeyboardCheatSheetDialog::showDialog(this, m_keymapManager, m_commandManager);
+        m_dialogController.showKeyboardShortcutsDialog(this, m_keymapManager, m_commandManager);
     }
 
     //==============================================================================
     // Plugin management methods
 
-    /**
-     * Show the Plugin Manager dialog for browsing and selecting plugins.
-     * Uses a simple modal approach for now.
-     */
     void showPluginManagerDialog()
     {
-        // Create dialog and show modally
-        PluginManagerDialog dialog;
-
-        // Show in a dialog window
-        juce::DialogWindow::LaunchOptions options;
-        options.dialogTitle = "Plugin Manager";
-        options.dialogBackgroundColour = juce::Colour(0xff1e1e1e);
-        options.content.setNonOwned(&dialog);
-        options.escapeKeyTriggersCloseButton = true;
-        options.useNativeTitleBar = true;
-        options.resizable = true;
-
-        // Store selected plugin (if any)
-        const juce::PluginDescription* selectedPlugin = nullptr;
-
-        // Set up a simple listener using lambdas (we'll poll the result after modal)
-        // Since DialogWindow::runModal blocks, we check dialog state after it returns
-        int result = options.runModal();
-        juce::ignoreUnused(result);
-
-        // After modal closes, check if user clicked Add and selected a plugin
-        selectedPlugin = dialog.getSelectedPlugin();
-
-        // If user clicked Add button (or double-clicked) with a valid selection
-        if (dialog.wasAddClicked() && selectedPlugin != nullptr)
-        {
-            auto* doc = getCurrentDocument();
-            if (doc)
-            {
-                auto& chain = doc->getAudioEngine().getPluginChain();
-                int index = chain.addPlugin(*selectedPlugin);
-                if (index >= 0)
-                {
-                    // Enable plugin chain if not already enabled
-                    doc->getAudioEngine().setPluginChainEnabled(true);
-                    DBG("Added plugin: " + selectedPlugin->name + " at index " + juce::String(index));
-                }
-                else
-                {
-                    ErrorDialog::show("Plugin Error", "Failed to load plugin: " + selectedPlugin->name);
-                }
-            }
-        }
+        m_pluginController.showPluginManagerDialog(getCurrentDocument());
     }
 
-    /**
-     * Show the unified Plugin Chain window with integrated browser.
-     */
     void showPluginChainPanel()
     {
-        auto* doc = getCurrentDocument();
-        if (!doc)
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::InfoIcon,
-                "Plugin Chain",
-                "Please open an audio file first.",
-                "OK");
-            return;
-        }
-
-        auto& chain = doc->getAudioEngine().getPluginChain();
-
-        // Create the unified window
-        auto* chainWindow = new PluginChainWindow(&chain);
-
-        // Show in window with keyboard shortcut support (need window pointer for listener)
-        auto* window = chainWindow->showInWindow(&m_commandManager);
-
-        // Create and set listener with callback for plugin chain application
-        auto* listener = new ChainWindowListener(
+        m_pluginController.showPluginChainPanel(
+            getCurrentDocument(),
             m_commandManager,
-            &chain,
-            &doc->getAudioEngine(),
-            window,
-            [this](bool stereo, bool tail, double len)
-            {
-                m_dspController.applyPluginChainToSelectionWithOptions(
-                    getCurrentDocument(), stereo, tail, len);
-            });
-        chainWindow->setListener(listener);
-
-        // Track the listener so we can notify it when document is closed
-        m_pluginChainListeners.add(listener);
+            m_dspController,
+            [this]() { return getCurrentDocument(); });
     }
 
 
@@ -2843,6 +2417,10 @@ private:
     RegionController m_regionController;
     MarkerController m_markerController;
     ClipboardController m_clipboardController;
+    PlaybackController m_playbackController;
+    RecordingController m_recordingController;
+    DialogController m_dialogController;
+    PluginController m_pluginController;
 
     // UI preferences
     AudioUnits::TimeFormat m_timeFormat = AudioUnits::TimeFormat::Seconds;
@@ -2873,16 +2451,7 @@ private:
     juce::Component::SafePointer<SpectrumAnalyzer> m_spectrumAnalyzer;  // Auto-nulls when window destroys it
     std::unique_ptr<CallbackDocumentWindow> m_spectrumAnalyzerWindow;
 
-    /**
-     * Listener class for Plugin Chain Window events.
-     * CRITICAL FIX: Uses pointers instead of references to prevent dangling reference crash
-     * when document is closed while Plugin Chain window is still open.
-     * This is defined as a nested class (not local) so it can be referenced by m_pluginChainListeners.
-     * Owned by m_pluginChainListeners (OwnedArray), so no need for DeletedAtShutdown.
-     */
-    // Plugin chain window listeners - need to track these to notify when document closes
-    // OwnedArray handles cleanup of listeners when they are removed
-    juce::OwnedArray<ChainWindowListener> m_pluginChainListeners;
+    // Plugin chain window listeners are owned by PluginController.
 
     // Marker placement tracking (Phase 3.4) - reliable cursor position for marker placement
     double m_lastClickTimeInSeconds = 0.0;  // Last mouse click position on waveform
