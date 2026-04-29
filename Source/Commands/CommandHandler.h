@@ -21,6 +21,7 @@ class Document;
 class DocumentManager;
 class KeymapManager;
 class SpectrumAnalyzer;
+class MainComponent;
 
 /**
  * Context passed to CommandHandler methods containing state from MainComponent.
@@ -71,4 +72,18 @@ public:
     void getCommandInfo(juce::CommandID commandID,
                         juce::ApplicationCommandInfo& result,
                         const CommandContext& context);
+
+    /**
+     * Dispatch a command invocation. Per CLAUDE.md §8.1 the perform()
+     * switch belongs here rather than in MainComponent. The owning
+     * MainComponent is passed by reference so this method can call back
+     * into its public methods, controllers, and state. CommandHandler is
+     * a friend of MainComponent so it can also touch private members it
+     * legitimately collaborates with (the controller members).
+     *
+     * @return true if the command was handled (matches
+     *         juce::ApplicationCommandTarget::perform contract).
+     */
+    bool performCommand(MainComponent& mc,
+                        const juce::ApplicationCommandTarget::InvocationInfo& info);
 };

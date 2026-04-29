@@ -8,7 +8,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (architecture round 3)
+- **Main.cpp now satisfies CLAUDE.md §8.1 size rule.** Extracted
+  `MainComponent`, `SelectionInfoPanel`, and `CallbackDocumentWindow`
+  into `Source/MainComponent.h`. Main.cpp shrank from **2,851 → 281
+  lines** and now contains only `WaveEditApplication` and `main()`.
+- **`perform()` moved into `CommandHandler.cpp` per §8.1.** The 648-line
+  switch statement that the audit flagged as belonging in
+  `Commands/CommandHandler.cpp` is now there as
+  `CommandHandler::performCommand(MainComponent& mc, const InvocationInfo&)`.
+  `MainComponent::perform()` is a one-line forward.
+  `CommandHandler` is declared a `friend` of `MainComponent` so it can
+  reach the controller members it dispatches to.
+- **MainComponent.h (1,959 lines) exceeds the §7.5 500-line .h cap and
+  CommandHandler.cpp (1,806 lines) exceeds the §7.5 1,500-line .cpp
+  cap.** These are honest tradeoffs: closing them would require
+  splitting `MainComponent` into multiple smaller classes (a much
+  larger refactor) and per-class extraction of the controllers each
+  command case touches. Tracked under TODO.md.
+
 ### Fixed
+- **Audio engine: paused buffer reload no longer snaps cursor to 0.**
+  `AudioEngine::reloadBufferPreservingPlayback()` previously captured
+  and restored playback position only when `isPlaying()` was true. An
+  edit while paused therefore lost the cursor. Fix matches the
+  CLAUDE.md §6.5 protocol: capture position unconditionally, restore
+  it unconditionally (clamped to the new buffer length), only call
+  `start()` when playback was actually running.
+- **Three remaining test failures resolved.** With the audio-engine
+  position fix, `Edit during pause - resume` (×2) and `Fade during
+  playback` (×1, plus a stale single-sample expectation that was
+  swapped for a half-vs-half magnitude check) all pass.
+  Local non-CI run: 308 groups / 184,702 assertions / 0 failures.
 - **Restored five post-refactor regressions**: After the controller
   migration, five menu commands routed to `DSPController` stubs that
   showed an "AlertWindow: not yet fully implemented" message. All paths
@@ -121,13 +152,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     Replaced with clearly-invalid bit depths (7, 64, 0).
 
 ### Known Issues
-- **3 remaining test failures** all involve audio-engine playback
-  position/state in a headless test environment with no audio device
-  initialized: `Edit during pause - resume works correctly` (2),
-  `Fade during playback` (1). Need investigation rather than a
-  test-side patch. CI will continue to flag these.
-- `perform()` in `Main.cpp` is a dispatcher but 21 cases still exceed the
-  CLAUDE.md §6.7 ≤5-line rule.
+- `MainComponent.h` (1,959 lines) exceeds the §7.5 500-line .h cap and
+  `Commands/CommandHandler.cpp` (1,806 lines) exceeds the 1,500-line
+  .cpp cap. Both come from concentrating the application's command and
+  UI surface in one place; further splitting requires breaking
+  `MainComponent` into smaller classes (separate Spectrum/Toolbar/
+  RegionPanel-window controllers) and grouping the command dispatch
+  per domain.
 - `AudioUndoActions.h` (1,238 lines) and `RegionUndoActions.h` (964
   lines) still exceed the §7.5 500-line cap; further per-class extraction
   to dedicated files is a follow-up.
