@@ -175,6 +175,13 @@ bool Document::loadFile(const juce::File& file)
     // Load markers from sidecar JSON file (if exists)
     m_markerManager.loadFromFile(file);
 
+    // Load automation lanes from sidecar JSON file (Phase 6, if exists).
+    // Lanes reference plugins by index/parameterID; if the user opens
+    // the document without first restoring their plugin chain, lanes
+    // are still loaded but applyAutomation() ignores ones whose
+    // plugin index doesn't match a current chain slot.
+    m_automationManager.loadFromFile(file);
+
     // Load BWF metadata (Phase 4 Tier 1)
     if (m_bwfMetadata.loadFromFile(file))
     {
@@ -337,6 +344,9 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
 
         // Save marker data as sidecar JSON
         m_markerManager.saveToFile(file);
+
+        // Save automation lanes as sidecar JSON (Phase 6)
+        m_automationManager.saveToFile(file);
 
         DBG("Document saved: " + file.getFullPathName());
         return true;
