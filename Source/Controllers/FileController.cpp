@@ -17,6 +17,12 @@
 #include "../Utils/Settings.h"
 #include "../UI/ErrorDialog.h"
 #include "../UI/SaveAsOptionsPanel.h"
+#include "../UI/NewFileDialog.h"
+#include "../UI/WaveformDisplay.h"
+#include "../UI/RegionDisplay.h"
+#include "../UI/MarkerDisplay.h"
+#include "../Audio/AudioEngine.h"
+#include "../Audio/AudioBufferManager.h"
 
 //==============================================================================
 FileController::FileController(DocumentManager& docManager,
@@ -31,6 +37,37 @@ FileController::FileController(DocumentManager& docManager,
 FileController::~FileController()
 {
     m_autoSaveThreadPool.removeAllJobs(true, 5000);
+}
+
+void FileController::createNewFile()
+{
+    auto settings = NewFileDialog::showDialog();
+    if (! settings.has_value()) return;
+
+    auto* newDoc = m_documentManager.createDocument();
+    if (newDoc == nullptr) return;
+
+    const int64_t numSamples = static_cast<int64_t>(settings->durationSeconds * settings->sampleRate);
+    juce::AudioBuffer<float> emptyBuffer(settings->numChannels, static_cast<int>(numSamples));
+    emptyBuffer.clear();
+
+    auto& buffer = newDoc->getBufferManager().getMutableBuffer();
+    buffer.setSize(settings->numChannels, static_cast<int>(numSamples));
+    buffer.clear();
+
+    newDoc->getAudioEngine().loadFromBuffer(emptyBuffer, settings->sampleRate, settings->numChannels);
+    newDoc->getWaveformDisplay().reloadFromBuffer(emptyBuffer, settings->sampleRate, false, false);
+
+    newDoc->getRegionDisplay().setSampleRate(settings->sampleRate);
+    newDoc->getRegionDisplay().setTotalDuration(settings->durationSeconds);
+    newDoc->getRegionDisplay().setVisibleRange(0.0, settings->durationSeconds);
+    newDoc->getRegionDisplay().setAudioBuffer(&buffer);
+
+    newDoc->getMarkerDisplay().setSampleRate(settings->sampleRate);
+    newDoc->getMarkerDisplay().setTotalDuration(settings->durationSeconds);
+
+    newDoc->setModified(true);
+    m_documentManager.setCurrentDocument(newDoc);
 }
 
 //==============================================================================

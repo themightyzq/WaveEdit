@@ -59,6 +59,13 @@ public:
     void saveFileAs(Document* doc, juce::Component* parent);
 
     /**
+     * Show the New File dialog and create a fresh empty document with the
+     * chosen sample rate / channel count / duration. No-op if the user
+     * cancels the dialog.
+     */
+    void createNewFile();
+
+    /**
      * Close a document, prompting to save if modified.
      * @param onClosed Called after successful close (for UI refresh).
      */
