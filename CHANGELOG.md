@@ -64,7 +64,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     the generic `DeleteAction` / `InsertAction` / `ReplaceAction`
     primitives.
 
+### Fixed
+- **`TestRunner.cpp` summary now reports honest totals.** The previous
+  loop relied on `juce::UnitTestRunner::getNumResults()` after all
+  `runTestsInCategory()` calls had completed — but JUCE's runner clears
+  its results list at the start of every category invocation, so the
+  summary reflected only the last category. The runner now accumulates
+  per-category passes/failures into local counters between calls. The
+  exit code now correctly returns 1 when any test fails.
+
 ### Known Issues
+- **89 pre-existing test failures across 18 groups now visible.** They
+  were always failing; the broken summary just hid them. Breakdown:
+  - `Undo/Redo Multi-Level` (67 failures): the test calls
+    `UndoManager::perform()` 10/50 times without inserting
+    `beginNewTransaction()` between calls, so JUCE coalesces them into
+    a single transaction. The test then expects N undos to succeed but
+    only the first does. Test bug, not a UndoManager regression.
+  - `AudioBufferManager Silence/Trim Operations` (~9 failures): tests
+    appear to assume an older trim/silence API contract.
+  - Various Integration tests (~13 failures) downstream of the
+    silence/trim issues.
+  Triage tracked under TODO.md High Priority. CI on this commit will
+  flag the failures honestly.
 - `perform()` in `Main.cpp` is a dispatcher but 21 cases still exceed the
   CLAUDE.md §6.7 ≤5-line rule.
 - `AudioUndoActions.h` (1,238 lines) and `RegionUndoActions.h` (964
