@@ -18,7 +18,7 @@
 #include "UI/RegionListPanel.h"
 #include "Utils/RegionManager.h"
 #include "Utils/Region.h"
-#include "../TestUtils/TestAudioFiles.h"
+#include "TestAudioFiles.h"
 
 // ============================================================================
 // Test Helper Classes

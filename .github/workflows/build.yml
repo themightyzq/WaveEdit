@@ -38,6 +38,12 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 2
 
+      - name: Build tests
+        run: cmake --build build --config Release --target WaveEditTests --parallel 2
+
+      - name: Run tests
+        run: ./build/WaveEditTests_artefacts/Release/WaveEditTests
+
       - name: Verify build output
         run: |
           echo "Checking build artifacts..."
@@ -86,6 +92,13 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release --parallel 2
+
+      - name: Build tests
+        run: cmake --build build --config Release --target WaveEditTests --parallel 2
+
+      - name: Run tests
+        shell: bash
+        run: ./build/WaveEditTests_artefacts/Release/WaveEditTests.exe
 
       - name: Verify build output
         shell: bash
@@ -157,6 +170,16 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release --parallel 2
+
+      - name: Build tests
+        run: cmake --build build --config Release --target WaveEditTests --parallel 2
+
+      - name: Run tests
+        run: |
+          # Linux CI runs headless; xvfb-run gives JUCE a display for any
+          # GUI-touching tests (e.g. RegionListPanel-adjacent code paths).
+          sudo apt-get install -y xvfb
+          xvfb-run -a ./build/WaveEditTests_artefacts/Release/WaveEditTests
 
       - name: Verify build output
         run: |

@@ -19,8 +19,8 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "Utils/Region.h"
 #include "Utils/RegionManager.h"
-#include "TestUtils/TestAudioFiles.h"
-#include "TestUtils/AudioAssertions.h"
+#include "TestAudioFiles.h"
+#include "AudioAssertions.h"
 
 // ============================================================================
 // Region Basic Operations Tests
@@ -71,7 +71,7 @@ private:
         expectEquals(region.getEndSample(), (int64_t)1000);
 
         region.setColor(juce::Colours::red);
-        expectEquals(region.getColor(), juce::Colours::red);
+        expect(region.getColor() == juce::Colours::red, "color setter");
     }
 
     void testRegionLength()
@@ -94,7 +94,7 @@ private:
         expectEquals(restored.getName(), original.getName());
         expectEquals(restored.getStartSample(), original.getStartSample());
         expectEquals(restored.getEndSample(), original.getEndSample());
-        expectEquals(restored.getColor(), original.getColor());
+        expect(restored.getColor() == original.getColor(), "color round-trip");
     }
 };
 

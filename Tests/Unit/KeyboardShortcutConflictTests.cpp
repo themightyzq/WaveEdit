@@ -1,134 +1,127 @@
-#include <juce_audio_processors/juce_audio_processors.h>
-#include "../../Source/Commands/CommandIDs.h"
-#include "../../Source/Utils/KeymapManager.h"
-#include <cassert>
-#include <iostream>
-#include <map>
-#include <vector>
+/*
+  ==============================================================================
 
-class ConflictTestApp : public juce::JUCEApplication
+    KeyboardShortcutConflictTests.cpp
+    WaveEdit - Professional Audio Editor
+
+    Loads each keymap template under Templates/Keymaps/ and verifies that no
+    two commands share the same key+modifier combination. Operates on the
+    JSON directly so it does not depend on a fully-instantiated
+    ApplicationCommandManager.
+
+    Test file location is provided via the WAVEEDIT_TEMPLATES_DIR compile
+    definition set by CMakeLists.txt.
+
+  ==============================================================================
+*/
+
+#include <juce_core/juce_core.h>
+
+#ifndef WAVEEDIT_TEMPLATES_DIR
+    #define WAVEEDIT_TEMPLATES_DIR ""
+#endif
+
+namespace
+{
+    juce::String normaliseModifiers(const juce::var& mods)
+    {
+        if (auto* arr = mods.getArray())
+        {
+            juce::StringArray flags;
+            for (const auto& m : *arr)
+                flags.add(m.toString().toLowerCase());
+            flags.sort(true);
+            return flags.joinIntoString("+");
+        }
+        return {};
+    }
+}
+
+class KeymapConflictTests : public juce::UnitTest
 {
 public:
-    const juce::String getApplicationName() override { return "ConflictTest"; }
-    const juce::String getApplicationVersion() override { return "1.0"; }
-    void initialise(const juce::String&) override {}
-    void shutdown() override {}
+    KeymapConflictTests() : juce::UnitTest("Keymap Conflict Detection", "Unit") {}
+
+    void runTest() override
+    {
+        beginTest("Templates directory is configured");
+        const juce::String templatesPath = WAVEEDIT_TEMPLATES_DIR;
+        expect(templatesPath.isNotEmpty(),
+               "WAVEEDIT_TEMPLATES_DIR compile definition not set");
+
+        const juce::File templatesDir(templatesPath);
+        expect(templatesDir.isDirectory(),
+               "Templates directory missing: " + templatesDir.getFullPathName());
+
+        beginTest("At least one keymap template ships");
+        juce::Array<juce::File> jsonFiles;
+        templatesDir.findChildFiles(jsonFiles, juce::File::findFiles, false, "*.json");
+        expect(jsonFiles.size() > 0, "No keymap JSON files found");
+
+        for (const auto& jsonFile : jsonFiles)
+            checkSingleTemplate(jsonFile);
+    }
+
+private:
+    void checkSingleTemplate(const juce::File& jsonFile)
+    {
+        beginTest("Template has no key conflicts: " + jsonFile.getFileName());
+
+        const auto parsed = juce::JSON::parse(jsonFile);
+        if (! parsed.isObject())
+        {
+            expect(false, "Failed to parse JSON: " + jsonFile.getFileName());
+            return;
+        }
+
+        const auto* obj = parsed.getDynamicObject();
+        if (obj == nullptr)
+        {
+            expect(false, "Parsed JSON has no object: " + jsonFile.getFileName());
+            return;
+        }
+
+        const juce::var shortcuts = obj->getProperty("shortcuts");
+        if (! shortcuts.isObject())
+        {
+            // Some templates may legitimately ship empty; skip without failing.
+            logMessage("  no 'shortcuts' object — skipping " + jsonFile.getFileName());
+            return;
+        }
+
+        std::map<juce::String, juce::StringArray> keyToCommands;
+        const auto* shortcutsObj = shortcuts.getDynamicObject();
+        const auto& props = shortcutsObj->getProperties();
+
+        for (int i = 0; i < props.size(); ++i)
+        {
+            const juce::String commandName = props.getName(i).toString();
+            const juce::var& binding = props.getValueAt(i);
+            if (! binding.isObject()) continue;
+
+            const auto* bindObj = binding.getDynamicObject();
+            const juce::String key = bindObj->getProperty("key").toString();
+            const juce::String mods = normaliseModifiers(bindObj->getProperty("modifiers"));
+            if (key.isEmpty()) continue;
+
+            const juce::String combo = mods + ":" + key;
+            keyToCommands[combo].add(commandName);
+        }
+
+        int conflictCount = 0;
+        for (const auto& pair : keyToCommands)
+        {
+            if (pair.second.size() > 1)
+            {
+                ++conflictCount;
+                logMessage("  CONFLICT [" + pair.first + "]: "
+                           + pair.second.joinIntoString(", "));
+            }
+        }
+
+        expectEquals(conflictCount, 0,
+                     "Conflicts in " + jsonFile.getFileName());
+    }
 };
 
-static ConflictTestApp conflictTestApp;
-
-struct KeyCombination
-{
-    int keyCode;
-    juce::ModifierKeys modifiers;
-    
-    bool operator<(const KeyCombination& other) const
-    {
-        if (keyCode != other.keyCode)
-            return keyCode < other.keyCode;
-        return modifiers.getRawFlags() < other.modifiers.getRawFlags();
-    }
-    
-    juce::String toString() const
-    {
-        juce::String result;
-        if (modifiers.isCommandDown()) result += "Cmd+";
-        if (modifiers.isShiftDown()) result += "Shift+";
-        if (modifiers.isAltDown()) result += "Alt+";
-        result += juce::String::charToString((juce::juce_wchar)keyCode);
-        return result;
-    }
-};
-
-std::vector<juce::String> detectConflicts(juce::ApplicationCommandManager& commandManager)
-{
-    std::map<KeyCombination, std::vector<juce::String>> keyToCommands;
-    std::vector<juce::String> conflicts;
-    
-    juce::Array<juce::CommandID> commands;
-    commands.addArray(commandManager.getCommandIDs());
-    
-    for (auto commandID : commands)
-    {
-        juce::ApplicationCommandInfo info(commandID);
-        commandManager.getCommandInfo(commandID, info);
-        
-        for (int i = 0; i < info.defaultKeypresses.size(); ++i)
-        {
-            auto keyPress = info.defaultKeypresses.getReference(i);
-            KeyCombination combo;
-            combo.keyCode = keyPress.getKeyCode();
-            combo.modifiers = keyPress.getModifiers();
-            
-            keyToCommands[combo].push_back(info.shortName);
-        }
-    }
-    
-    for (const auto& pair : keyToCommands)
-    {
-        if (pair.second.size() > 1)
-        {
-            juce::String conflict = pair.first.toString() + ": ";
-            for (size_t i = 0; i < pair.second.size(); ++i)
-            {
-                conflict += pair.second[i];
-                if (i < pair.second.size() - 1)
-                    conflict += ", ";
-            }
-            conflicts.push_back(conflict);
-        }
-    }
-    
-    return conflicts;
-}
-
-int main(int argc, char* argv[])
-{
-    juce::ScopedJuceInitialiser_GUI scopedJuce;
-    
-    KeymapManager keymapManager;
-    juce::ApplicationCommandManager commandManager;
-    
-    // Register all commands (simplified - would need full command registration)
-    commandManager.registerAllCommandsForTarget(nullptr);
-    
-    auto templates = keymapManager.getAvailableTemplates();
-    int totalConflicts = 0;
-    
-    std::cout << "\n=== Keyboard Shortcut Conflict Test ===\n\n";
-    
-    for (const auto& templateName : templates)
-    {
-        std::cout << "Testing template: " << templateName << "\n";
-        
-        if (keymapManager.applyTemplate(templateName, commandManager))
-        {
-            auto conflicts = detectConflicts(commandManager);
-            
-            if (conflicts.empty())
-            {
-                std::cout << "  ✅ NO CONFLICTS\n";
-            }
-            else
-            {
-                std::cout << "  ❌ " << conflicts.size() << " conflicts found:\n";
-                for (const auto& conflict : conflicts)
-                {
-                    std::cout << "     - " << conflict << "\n";
-                }
-                totalConflicts += conflicts.size();
-            }
-        }
-        else
-        {
-            std::cout << "  ❌ Failed to apply template\n";
-        }
-        
-        std::cout << "\n";
-    }
-    
-    std::cout << "=== Summary ===\n";
-    std::cout << "Total conflicts across all templates: " << totalConflicts << "\n";
-    
-    return (totalConflicts == 0) ? 0 : 1;
-}
+static KeymapConflictTests keymapConflictTests;
