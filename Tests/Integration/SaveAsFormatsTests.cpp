@@ -40,9 +40,12 @@ public:
             }
         }
 
-        // Test output directory
-        juce::File outputDir("/Users/zacharylquarles/PROJECTS_Apps/Project_WaveEditor/TestFiles/automated");
-        if (!outputDir.exists())
+        // Test output directory — placed under the OS temp dir so CI
+        // runners (which can't write to a developer's home) work too.
+        juce::File outputDir = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                  .getChildFile("WaveEditTests")
+                                  .getChildFile("SaveAsFormats");
+        if (! outputDir.exists())
             outputDir.createDirectory();
 
         AudioFileManager fileManager;
