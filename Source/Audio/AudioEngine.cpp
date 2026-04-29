@@ -458,14 +458,11 @@ bool AudioEngine::reloadBufferPreservingPlayback(const juce::AudioBuffer<float>&
         return false;
     }
 
-    // Capture current playback state
-    bool wasPlaying = isPlaying();
-    double currentPosition = 0.0;
-
-    if (wasPlaying)
-    {
-        currentPosition = getCurrentPosition();
-    }
+    // Capture current playback state. We always capture position so paused
+    // edits keep the cursor where the user left it — only the play/no-play
+    // restoration is conditional. Matches the CLAUDE.md §6.5 protocol.
+    const bool   wasPlaying      = isPlaying();
+    const double currentPosition = getCurrentPosition();
 
     // CRITICAL: Disconnect transport before updating buffer
     // This flushes AudioTransportSource's internal buffers so it will read fresh audio
@@ -499,17 +496,15 @@ bool AudioEngine::reloadBufferPreservingPlayback(const juce::AudioBuffer<float>&
     m_numChannels.store(numChannels);
     m_isPlayingFromBuffer.store(true);
 
-    // Restore playback state
-    if (wasPlaying)
-    {
-        // Clamp position to new buffer length in case it got shorter
-        double newLength = buffer.getNumSamples() / sampleRate;
-        currentPosition = juce::jmin(currentPosition, newLength);
+    // Restore position (clamped to the new buffer length in case the edit
+    // shortened it). Always do this so paused edits don't snap to 0.
+    const double newLength       = buffer.getNumSamples() / sampleRate;
+    const double clampedPosition = juce::jmin(currentPosition, newLength);
+    m_transportSource.setPosition(clampedPosition);
 
-        // Set position and start playing
-        m_transportSource.setPosition(currentPosition);
+    // Resume playback only if we were playing.
+    if (wasPlaying)
         m_transportSource.start();
-    }
 
     return true;
 }

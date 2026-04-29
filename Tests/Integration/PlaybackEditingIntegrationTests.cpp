@@ -564,13 +564,19 @@ private:
             fadedBuffer.getNumChannels());
         expect(reloadSuccess, "Fade operation should succeed during playback");
 
-        // Verify fade curve (first sample should be ~0, last sample should be louder)
-        const float* data = fadedBuffer.getReadPointer(0);
-        float firstSample = std::abs(data[0]);
-        float lastSample = std::abs(data[fadedBuffer.getNumSamples() - 1]);
+        // Verify fade curve. The buffer is exactly 1 second of 440 Hz, so the
+        // very first AND very last samples sit on or near zero crossings —
+        // can't read a single sample for a fade-in shape. Compare the peak
+        // magnitude of the first half (faded down) vs the second half
+        // (close to original 0.5 amplitude).
+        const int numSamples = fadedBuffer.getNumSamples();
+        const float firstHalfPeak  = fadedBuffer.getMagnitude(0, 0,             numSamples / 2);
+        const float secondHalfPeak = fadedBuffer.getMagnitude(0, numSamples / 2, numSamples / 2);
 
-        expect(firstSample < 0.1f, "First sample should be quiet (fade in start)");
-        expect(lastSample > 0.3f, "Last sample should be louder (fade in end)");
+        expect(firstHalfPeak  < 0.3f,
+               "First half should be quieter than full amplitude (fade-in start)");
+        expect(secondHalfPeak > firstHalfPeak * 1.5f,
+               "Second half should be louder than first half (fade-in shape)");
 
         helper.audioEngine.stop();
     }
