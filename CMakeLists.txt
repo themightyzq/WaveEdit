@@ -174,6 +174,7 @@ target_sources(WaveEdit
         Source/Utils/UCSCategorySuggester.cpp
         Source/Utils/UCSCategorySuggester.h
         Source/Utils/UndoActions/AudioUndoActions.h
+        Source/Utils/UndoActions/FadeUndoActions.h
         Source/Utils/UndoActions/RegionUndoActions.h
         Source/Utils/UndoActions/MarkerUndoActions.h
         Source/Utils/UndoActions/PluginUndoActions.h
@@ -628,6 +629,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/UCSCategorySuggester.cpp
         Source/Utils/UCSCategorySuggester.h
         Source/Utils/UndoActions/AudioUndoActions.h
+        Source/Utils/UndoActions/FadeUndoActions.h
         Source/Utils/UndoActions/RegionUndoActions.h
         Source/Utils/UndoActions/MarkerUndoActions.h
         Source/Utils/UndoActions/PluginUndoActions.h
