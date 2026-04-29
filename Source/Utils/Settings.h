@@ -22,7 +22,7 @@
  * Manages application settings and persistent state.
  *
  * Settings are stored as JSON in platform-specific locations:
- * - macOS: ~/Library/WaveEdit/   (see Settings.cpp note on macOS path)
+ * - macOS: ~/Library/Application Support/WaveEdit/
  * - Windows: %APPDATA%/WaveEdit/
  * - Linux: ~/.config/WaveEdit/
  *
@@ -31,9 +31,16 @@
  * - Auto-save settings
  * - UI preferences
  *
- * Note: keyboard shortcut templates live separately under
- * (~/Library/)Application Support/WaveEdit/Keymaps/, managed by
- * KeymapManager. There is no single "keybindings.json" file.
+ * On macOS, builds prior to 2026-04-29 wrote into ~/Library/WaveEdit/
+ * directly. On first launch the constructor copies anything from that
+ * legacy directory into the new path; the legacy directory is left in
+ * place as a backup.
+ *
+ * Note: keyboard shortcut templates / toolbars / batch presets live
+ * under the same parent directory as settings.json, in
+ * Keymaps/, Toolbars/, and Presets/ subfolders managed by
+ * KeymapManager / ToolbarManager. There is no single
+ * "keybindings.json" file.
  */
 class Settings
 {
@@ -205,6 +212,20 @@ private:
      * Creates default settings structure.
      */
     void createDefaultSettings();
+
+    /**
+     * Returns the legacy settings directory used by older macOS builds
+     * (~/Library/WaveEdit/). Returns an empty File on platforms that
+     * never had a separate legacy path.
+     */
+    juce::File getLegacySettingsDirectory() const;
+
+    /**
+     * One-shot migration helper: if the legacy directory exists and
+     * the new directory is missing those files, copy them forward.
+     * Never overwrites or deletes anything in the legacy directory.
+     */
+    void migrateLegacySettingsIfNeeded();
 
     /**
      * Gets or creates a child ValueTree by path.

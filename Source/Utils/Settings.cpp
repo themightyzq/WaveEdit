@@ -29,6 +29,11 @@ Settings::Settings()
         settingsDir.createDirectory();
     }
 
+    // One-time migration from the legacy macOS path (see notes in
+    // getLegacySettingsDirectory()). No-op on other platforms and on
+    // macOS once the new directory is populated.
+    migrateLegacySettingsIfNeeded();
+
     // Load existing settings or create defaults
     if (!load())
     {
@@ -58,12 +63,12 @@ juce::File Settings::getSettingsDirectory() const
     auto appDataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
 
    #if JUCE_MAC
-    // macOS: ~/Library/WaveEdit/  (JUCE's userApplicationDataDirectory
-    // resolves to ~/Library/, not ~/Library/Application Support/. The
-    // Keymaps/Toolbars/Presets directories live under
-    // ~/Library/Application Support/WaveEdit/ — this split is tracked
-    // in TODO.md and will be consolidated.)
-    return appDataDir.getChildFile("WaveEdit");
+    // macOS: ~/Library/Application Support/WaveEdit/. Note that JUCE's
+    // userApplicationDataDirectory resolves to ~/Library/, so we append
+    // the canonical "Application Support/WaveEdit" segment ourselves.
+    // This now matches where KeymapManager/ToolbarManager/Batch presets
+    // live, so the entire user state is under one folder.
+    return appDataDir.getChildFile("Application Support/WaveEdit");
    #elif JUCE_WINDOWS
     // Windows: %APPDATA%/WaveEdit/
     return appDataDir.getChildFile("WaveEdit");
@@ -73,6 +78,76 @@ juce::File Settings::getSettingsDirectory() const
                          .getChildFile(".config");
     return configDir.getChildFile("WaveEdit");
    #endif
+}
+
+juce::File Settings::getLegacySettingsDirectory() const
+{
+   #if JUCE_MAC
+    // Pre-2026-04-29 builds wrote settings.json and the plugin scan
+    // cache directly into ~/Library/WaveEdit/ (because
+    // userApplicationDataDirectory resolves to ~/Library/, not
+    // ~/Library/Application Support/). New builds use the canonical
+    // Application Support path; this helper exposes the old path so
+    // we can copy any pre-existing data forward.
+    auto appDataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+    return appDataDir.getChildFile("WaveEdit");
+   #else
+    // Other platforms never had a separate legacy path — return an
+    // empty File so the migration step is a no-op.
+    return {};
+   #endif
+}
+
+void Settings::migrateLegacySettingsIfNeeded()
+{
+    auto oldDir = getLegacySettingsDirectory();
+    if (oldDir == juce::File{} || !oldDir.exists())
+        return;
+
+    auto newDir = getSettingsDirectory();
+    if (oldDir == newDir)
+        return;  // Same path on this platform — nothing to migrate.
+
+    // Copy each top-level entry from the legacy directory into the new
+    // one if (and only if) it isn't already present in the new
+    // location. We never overwrite or delete from the legacy directory
+    // — if anything goes wrong, the old data is still intact.
+    auto entries = oldDir.findChildFiles(
+        juce::File::findFilesAndDirectories | juce::File::ignoreHiddenFiles, false);
+
+    int migratedFiles = 0;
+    int migratedDirs = 0;
+    for (const auto& entry : entries)
+    {
+        auto target = newDir.getChildFile(entry.getFileName());
+        if (target.exists())
+            continue;  // user already has new version — leave it alone
+
+        bool ok = false;
+        if (entry.isDirectory())
+        {
+            ok = entry.copyDirectoryTo(target);
+            if (ok) ++migratedDirs;
+        }
+        else
+        {
+            ok = entry.copyFileTo(target);
+            if (ok) ++migratedFiles;
+        }
+
+        if (!ok)
+            juce::Logger::writeToLog("Settings::migrateLegacySettingsIfNeeded: "
+                                     "failed to copy " + entry.getFullPathName()
+                                     + " — leaving in place at the old path");
+    }
+
+    if (migratedFiles + migratedDirs > 0)
+    {
+        juce::Logger::writeToLog("Settings: migrated " + juce::String(migratedFiles)
+            + " file(s) and " + juce::String(migratedDirs) + " directory(ies) from "
+            + oldDir.getFullPathName() + " to " + newDir.getFullPathName()
+            + " (legacy directory left as backup; safe to delete manually)");
+    }
 }
 
 juce::File Settings::getSettingsFile() const
