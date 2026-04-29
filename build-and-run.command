@@ -247,7 +247,15 @@ main() {
     build_project
     print_summary
 
-    # Ask user if they want to run the application
+    # Ask user if they want to run the application — but only when
+    # actually attached to a TTY and not running under CI. CI/automation
+    # callers should not get blocked on an interactive prompt.
+    if [ ! -t 0 ] || [ -n "$CI" ] || [ -n "$WAVEEDIT_NONINTERACTIVE" ]; then
+        print_msg "$YELLOW" "Non-interactive environment — skipping launch."
+        print_msg "$YELLOW" "Run './build-and-run.command run-only' to launch."
+        return 0
+    fi
+
     echo ""
     read -p "Do you want to run WaveEdit now? (Y/n): " -n 1 -r
     echo ""

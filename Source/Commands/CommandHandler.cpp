@@ -1139,7 +1139,10 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
 
             case CommandIDs::fileBatchProcessor:
                 result.setInfo("Batch Processor...", "Open batch processing dialog for multiple files", "File", 0);
-                result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                else
+                    result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier);  // Cmd+B fallback if keymap missing
                 result.setActive(true);  // Always available
                 break;
 

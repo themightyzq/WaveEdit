@@ -16,36 +16,75 @@ Homepage: https://juce.com/
 
 ================================================================================
 
-THIRD-PARTY LIBRARIES
+THIRD-PARTY LIBRARIES BUNDLED OR LINKED IN RELEASE BUILDS
 
-As of Phase 2, WaveEdit uses only the JUCE framework and standard C++ libraries.
-When additional open source libraries are integrated (Phase 3+), they will be
-documented here with full attribution including:
-- Library name and version
-- Copyright holder
-- License type
-- Homepage/repository URL
+The following third-party components are compiled into, dynamically
+linked against, or bundled inside Release builds of WaveEdit. Each is
+listed with its license, copyright, and upstream URL. Full license
+texts are in the JUCE/ submodule and (where applicable) alongside the
+bundled binary.
 
-For full license texts, see the Licenses/ directory.
+--------------------------------------------------------------------------------
+LAME MP3 Encoder
+- Used for: MP3 export
+- License: LGPL-2.1-or-later
+- Copyright: © 1998-2017 The LAME Project
+- Homepage: https://lame.sourceforge.io/
+- How we ship it: dynamically linked. The macOS Release build bundles
+  libmp3lame.dylib inside `WaveEdit.app/Contents/Frameworks/`; the
+  Windows Release build bundles lame_enc.dll next to `WaveEdit.exe`;
+  the Linux Release build bundles libmp3lame.so next to the executable.
+- LGPL note: the LAME library is dynamically linked and bundled
+  unmodified. Users who want to substitute a different LAME build can
+  replace the bundled library file in place. LAME source can be
+  obtained from the upstream URL above.
+
+--------------------------------------------------------------------------------
+libFLAC (via JUCE's `juce_audio_formats` module)
+- Used for: FLAC encode/decode
+- License: BSD-3-Clause
+- Copyright: © 2000-2009 Josh Coalson, © 2011-2024 Xiph.Org Foundation
+- Homepage: https://xiph.org/flac/
+- How we ship it: source-compiled inside JUCE.
+
+--------------------------------------------------------------------------------
+libvorbis / libogg (via JUCE's `juce_audio_formats` module)
+- Used for: Ogg Vorbis encode/decode
+- License: BSD-3-Clause
+- Copyright: © 2002-2020 Xiph.Org Foundation
+- Homepage: https://xiph.org/vorbis/
+- How we ship it: source-compiled inside JUCE.
+
+--------------------------------------------------------------------------------
+Steinberg VST3 SDK (via JUCE's `juce_audio_processors` plugin host)
+- Used for: VST3 plugin hosting
+- License: dual-licensed under GPL v3 and the proprietary
+  Steinberg VST3 license. WaveEdit uses the GPL v3 option.
+- Copyright: © Steinberg Media Technologies GmbH
+- Homepage: https://www.steinberg.net/developers/
+
+--------------------------------------------------------------------------------
+
+For the JUCE framework's own dependencies (libpng, libjpeg, zlib,
+freetype, etc., all included as source under JUCE/modules/), see the
+header of each module file in JUCE/modules/.
 
 ================================================================================
 
-FUTURE LIBRARY INTEGRATIONS (Phase 4+)
+LIBRARIES NOT YET INTEGRATED
 
-The following libraries are planned for integration with proper attribution:
+The following are referenced by feature plans but are NOT currently
+bundled or linked in shipping builds:
 
-- libsamplerate (BSD-2-Clause) - Sample rate conversion
-- FFTW or Kiss FFT (GPL v2+ / BSD-3-Clause) - FFT for spectrum analyzer
+- libsamplerate (BSD-2-Clause) - high-quality sample rate conversion
+- FFTW or Kiss FFT - FFT for spectrum analyzer (we currently use
+  juce::dsp::FFT, no extra dependency)
 - libebur128 (MIT) - EBU R128 loudness metering
-- RNNoise (BSD-3-Clause) - Noise suppression
-- Rubber Band Library (GPL v2+) - Pitch/time stretching
-- LAME (LGPL) - MP3 encoding
-- libFLAC (BSD-3-Clause) - FLAC codec
-- libvorbis (BSD-3-Clause) - Ogg Vorbis codec
+- RNNoise (BSD-3-Clause) - noise suppression
+- Rubber Band Library (GPL v2+) - pitch/time stretching
 - Opus (BSD-3-Clause) - Opus codec
-- VST3 SDK (GPL v3) - VST3 plugin hosting
 
-All licenses are compatible with GPL v3.
+All listed/planned licenses are compatible with GPL v3.
 
 ================================================================================
 

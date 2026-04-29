@@ -69,9 +69,10 @@ public:
             return true;
         }
 
-        // Check playback state before applying gain
-        bool wasPlaying = m_audioEngine.isPlaying();
-        double positionBeforeEdit = m_audioEngine.getCurrentPosition();
+        // Check playback state before applying gain (debug logging only;
+        // reloadBufferPreservingPlayback handles the real preservation).
+        [[maybe_unused]] const bool wasPlaying = m_audioEngine.isPlaying();
+        [[maybe_unused]] const double positionBeforeEdit = m_audioEngine.getCurrentPosition();
 
         DBG(juce::String::formatted(
             "GainUndoAction::perform - Before edit: playing=%s, position=%.3f",

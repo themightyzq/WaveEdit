@@ -52,6 +52,18 @@ public:
 
     void initialise(const juce::String& /*commandLine*/) override
     {
+        // Install a file logger so juce::Logger::writeToLog() ends up in a
+        // documented, user-discoverable place. JUCE picks the platform-correct
+        // location: ~/Library/Logs/WaveEdit/WaveEdit.log on macOS,
+        // %APPDATA%\WaveEdit\WaveEdit.log on Windows,
+        // ~/.config/WaveEdit/WaveEdit.log on Linux.
+        m_fileLogger.reset(juce::FileLogger::createDefaultAppLogger(
+            "WaveEdit",
+            "WaveEdit.log",
+            "WaveEdit " + getApplicationVersion() + " session log"));
+        juce::Logger::setCurrentLogger(m_fileLogger.get());
+        juce::Logger::writeToLog("WaveEdit " + getApplicationVersion() + " starting up");
+
         // Set custom LookAndFeel with WCAG-compliant focus indicators
         m_lookAndFeel = std::make_unique<waveedit::WaveEditLookAndFeel>();
         juce::LookAndFeel::setDefaultLookAndFeel(m_lookAndFeel.get());
@@ -76,6 +88,11 @@ public:
     {
         // Clean up on exit
         mainWindow = nullptr;
+
+        // Detach the file logger before destroying it.
+        juce::Logger::writeToLog("WaveEdit shutting down cleanly");
+        juce::Logger::setCurrentLogger(nullptr);
+        m_fileLogger.reset();
     }
 
     void systemRequestedQuit() override
@@ -182,6 +199,7 @@ private:
     std::unique_ptr<waveedit::WaveEditLookAndFeel> m_lookAndFeel;
     juce::AudioDeviceManager m_audioDeviceManager;
     std::unique_ptr<MainWindow> mainWindow;
+    std::unique_ptr<juce::FileLogger> m_fileLogger;
 };
 
 //==============================================================================
@@ -199,6 +217,39 @@ private:
 
 // Forward declaration of the application factory function
 static juce::JUCEApplicationBase* juce_CreateApplication() { return new WaveEditApplication(); }
+
+// CLI flag handling shared across platforms. Returns true if a flag was
+// handled and main() should exit without launching the GUI.
+static bool handleCommandLineFlags(const juce::String& commandLine, int& exitCode)
+{
+    auto trimmed = commandLine.trim();
+    if (trimmed.startsWithIgnoreCase("--help") || trimmed.startsWithIgnoreCase("-h")
+        || trimmed == "/?" || trimmed == "help")
+    {
+        std::printf(
+            "WaveEdit - Professional Audio Editor\n"
+            "\n"
+            "Usage: WaveEdit [options] [file.wav]\n"
+            "\n"
+            "Options:\n"
+            "  -h, --help       Show this help message and exit\n"
+            "  -v, --version    Print the version and exit\n"
+            "\n"
+            "Without arguments, WaveEdit launches its GUI. Pass a path to a\n"
+            "WAV/FLAC/OGG/MP3 file to open it on launch.\n"
+            "\n"
+            "See https://github.com/themightyzq/WaveEdit for more.\n");
+        exitCode = 0;
+        return true;
+    }
+    if (trimmed.startsWithIgnoreCase("--version") || trimmed.startsWithIgnoreCase("-v"))
+    {
+        std::printf("WaveEdit 0.1.0\n");
+        exitCode = 0;
+        return true;
+    }
+    return false;
+}
 
 #if JUCE_MAC
 extern "C" int main(int argc, char* argv[])
@@ -219,6 +270,11 @@ extern "C" int main(int argc, char* argv[])
         // Pass command line since JUCE isn't initialized yet
         return runPluginScannerWorker(commandLine);
     }
+
+    // Handle --help / --version before any GUI initialization.
+    int cliExit = 0;
+    if (handleCommandLineFlags(commandLine, cliExit))
+        return cliExit;
 
     // Set up the application factory - required when using custom main()
     juce::JUCEApplicationBase::createInstance = &juce_CreateApplication;
@@ -243,6 +299,11 @@ JUCE_END_IGNORE_WARNINGS_MSVC
         // Pass command line since JUCE isn't initialized yet
         return runPluginScannerWorker(commandLine);
     }
+
+    // Handle --help / --version before any GUI initialization.
+    int cliExit = 0;
+    if (handleCommandLineFlags(commandLine, cliExit))
+        return cliExit;
 
     // Set up the application factory - required when using custom main()
     juce::JUCEApplicationBase::createInstance = &juce_CreateApplication;
@@ -271,6 +332,11 @@ extern "C" int main(int argc, char* argv[])
         // Pass command line since JUCE isn't initialized yet
         return runPluginScannerWorker(commandLine);
     }
+
+    // Handle --help / --version before any GUI initialization.
+    int cliExit = 0;
+    if (handleCommandLineFlags(commandLine, cliExit))
+        return cliExit;
 
     // Set up the application factory - required when using custom main()
     juce::JUCEApplicationBase::createInstance = &juce_CreateApplication;

@@ -3,6 +3,7 @@ name: Build and Test
 on:
   push:
     branches: [ main, develop ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -13,6 +14,19 @@ env:
   CCACHE_VERSION: '4.8'
 
 jobs:
+  # ============================================================================
+  # Documentation checks (fast, run on every PR/push)
+  # ============================================================================
+  doc-checks:
+    name: Doc Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: README ⇆ keymap drift check
+        run: python3 .github/scripts/check_readme_keymap.py
+
   # ============================================================================
   # macOS Build
   # ============================================================================
@@ -230,3 +244,50 @@ jobs:
           echo "| macOS Universal | ${{ needs.build-macos.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Windows x64 | ${{ needs.build-windows.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Linux x64 | ${{ needs.build-linux.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Publish GitHub Release  (only on v* tags)
+  # ============================================================================
+  release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: [build-macos, build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: ls -R artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WaveEdit ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            artifacts/WaveEdit-macOS-universal/WaveEdit-macOS-universal.zip
+            artifacts/WaveEdit-Windows-x64/WaveEdit-Windows-x64.zip
+            artifacts/WaveEdit-Linux-x64/WaveEdit-Linux-x64.tar.gz
+          body: |
+            Pre-built binaries for macOS, Windows, and Linux.
+
+            **macOS** — unsigned `.app` bundle. On first launch macOS will
+            say "WaveEdit can't be opened because Apple cannot check it
+            for malicious software." Right-click the app → **Open** →
+            **Open**. You only need to do this once.
+
+            **Windows** — unsigned `.exe`. Windows SmartScreen may warn
+            on first launch; click **More info** → **Run anyway**.
+
+            **Linux** — tarball containing the `WaveEdit` binary.
+            `chmod +x WaveEdit` and run.
+
+            All builds bundle the LAME MP3 encoder; no extra install is
+            required. See the [README](https://github.com/themightyzq/WaveEdit/blob/main/README.md)
+            for build-from-source instructions and keyboard shortcuts.
