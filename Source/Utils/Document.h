@@ -53,7 +53,7 @@
  *
  * Thread Safety: All methods must be called from the message thread only.
  */
-class Document
+class Document : private juce::ChangeListener
 {
 public:
     /**
@@ -66,7 +66,7 @@ public:
     /**
      * Destructor. Ensures audio engine is properly closed.
      */
-    ~Document();
+    ~Document() override;
 
     //==============================================================================
     // File Information
@@ -298,6 +298,9 @@ private:
 
     // Saved state (for tab switching)
     double m_savedPlaybackPosition;
+
+    /** Refresh AutomationRecorder dispatchers when the plugin chain changes. */
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Document)
 };

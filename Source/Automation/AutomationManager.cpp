@@ -14,6 +14,7 @@
 */
 
 #include "AutomationManager.h"
+#include "AutomationRecorder.h"
 #include "../Plugins/PluginChain.h"
 #include "../Plugins/PluginChainNode.h"
 
@@ -24,6 +25,21 @@ AutomationManager::AutomationManager()
 
 AutomationManager::~AutomationManager()
 {
+    // Destroy recorder before lane vector so its dispatchers detach
+    // their plugin listeners while the lanes still exist.
+    m_recorder.reset();
+}
+
+void AutomationManager::setAudioEngine(AudioEngine* engine)
+{
+    // Construct the recorder once. Replacing it later would race
+    // against in-flight ParameterDispatcher AsyncUpdater callbacks
+    // (which capture a reference to the old recorder). Assert the
+    // single-call contract; in practice Document calls this exactly
+    // once during construction.
+    jassert(m_recorder == nullptr && "setAudioEngine should be called at most once per AutomationManager");
+    if (m_recorder == nullptr)
+        m_recorder = std::make_unique<AutomationRecorder>(*this, engine);
 }
 
 //==============================================================================

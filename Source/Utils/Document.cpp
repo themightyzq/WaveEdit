@@ -22,6 +22,8 @@
 
 #include "Document.h"
 #include "../Audio/AudioFileManager.h"
+#include "../Automation/AutomationRecorder.h"
+#include "../Plugins/PluginChain.h"
 
 Document::Document(const juce::File& file)
     : m_file(file),
@@ -38,6 +40,15 @@ Document::Document(const juce::File& file)
 
     // Wire automation manager to audio engine for real-time parameter automation
     m_audioEngine.setAutomationManager(&m_automationManager);
+
+    // Construct AutomationRecorder (Phase 4) — needs the AudioEngine for
+    // playback-position queries. Listen on the PluginChain so the
+    // recorder's per-plugin dispatchers stay in sync with adds /
+    // removes / reorders.
+    m_automationManager.setAudioEngine(&m_audioEngine);
+    m_audioEngine.getPluginChain().addChangeListener(this);
+    if (auto* recorder = m_automationManager.getRecorder())
+        recorder->refreshAttachments(m_audioEngine.getPluginChain());
 
     // Connect WaveformDisplay to RegionManager for region overlay rendering
     m_waveformDisplay.setRegionManager(&m_regionManager);
@@ -63,8 +74,22 @@ Document::Document(const juce::File& file)
 
 Document::~Document()
 {
+    // Detach plugin-chain listener before tearing down so the
+    // AutomationRecorder doesn't see a final change-broadcast during
+    // destruction with half-destroyed members.
+    m_audioEngine.getPluginChain().removeChangeListener(this);
+
     // Ensure audio engine is properly closed
     m_audioEngine.closeAudioFile();
+}
+
+void Document::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &m_audioEngine.getPluginChain())
+    {
+        if (auto* recorder = m_automationManager.getRecorder())
+            recorder->refreshAttachments(m_audioEngine.getPluginChain());
+    }
 }
 
 juce::String Document::getFilename() const

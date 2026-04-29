@@ -17,6 +17,7 @@
 #include "CommandIDs.h"
 #include "../MainComponent.h"
 #include "../Utils/Document.h"
+#include "../Automation/AutomationRecorder.h"
 #include "../Utils/DocumentManager.h"
 #include "../Utils/KeymapManager.h"
 #include "../Utils/Settings.h"
@@ -171,6 +172,7 @@ void CommandHandler::getAllCommands(juce::Array<juce::CommandID>& commands)
         CommandIDs::pluginApplyChain,
         CommandIDs::pluginOffline,
         CommandIDs::pluginBypassAll,
+        CommandIDs::automationToggleRecordArm,
         CommandIDs::pluginRescan,
         CommandIDs::pluginShowSettings,
         CommandIDs::pluginClearCache,
@@ -1111,6 +1113,17 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 result.setTicked(doc && doc->getAudioEngine().getPluginChain().areAllBypassed());
                 break;
 
+            case CommandIDs::automationToggleRecordArm:
+                result.setInfo("Arm Automation Recording",
+                               "Capture plugin parameter changes during playback",
+                               "Plugins", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAutomationManager().getRecorder() != nullptr);
+                result.setTicked(doc && doc->getAutomationManager().getRecorder() != nullptr
+                                 && doc->getAutomationManager().getRecorder()->isGlobalArmed());
+                break;
+
             case CommandIDs::pluginRescan:
                 result.setInfo("Rescan Plugins", "Rescan for VST3/AU plugins", "Plugins", 0);
                 result.setActive(!PluginManager::getInstance().isScanInProgress());
@@ -1774,6 +1787,12 @@ bool CommandHandler::performCommand(MainComponent& mc,
         case CommandIDs::pluginBypassAll:
             if (!doc) return false;
             mc.togglePluginChainBypass(doc);
+            return true;
+
+        case CommandIDs::automationToggleRecordArm:
+            if (!doc) return false;
+            if (auto* rec = doc->getAutomationManager().getRecorder())
+                rec->toggleGlobalArm();
             return true;
 
         case CommandIDs::pluginRescan:
