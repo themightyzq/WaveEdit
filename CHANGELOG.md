@@ -41,6 +41,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   conflicts).
 - Local test run: 30 groups / 104 assertions / 0 failures (was 22 / 90).
 
+### Added
+- **MarkerManagerTests** unit suite (`Tests/Unit/MarkerManagerTests.cpp`),
+  covering Marker basic operations (constructors, setters, JSON
+  round-trip, isNear, position-in-seconds) and MarkerManager (add/remove,
+  sorted insertion, navigation, selection, snapshot semantics, sidecar
+  JSON round-trip). Closes the marker-coverage gap that TODO had
+  acknowledged.
+
 ### Changed
 - **Split `UndoableEdits.h` per CLAUDE.md §8.1**:
   - New `Source/Utils/UndoActions/PluginUndoActions.h` —
