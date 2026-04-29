@@ -70,8 +70,8 @@ private:
                                 static_cast<int>(endSample - startSample));
         }
 
-        // Apply silence
-        bool success = manager.silenceRange(startSample, endSample);
+        // Apply silence (API takes startSample + numSamples, not endSample)
+        bool success = manager.silenceRange(startSample, endSample - startSample);
         expect(success, "Silence should succeed");
 
         // Verify silence was applied
@@ -114,10 +114,11 @@ private:
         auto testBuffer = TestAudio::createSineWave(440.0, 0.5, 44100.0, 1.0, 2);
         buffer = testBuffer;
 
-        // Apply multiple silence operations
-        manager.silenceRange(1000, 2000);   // First region
-        manager.silenceRange(5000, 6000);   // Second region
-        manager.silenceRange(10000, 11000); // Third region
+        // Apply multiple silence operations (1000-sample spans each).
+        // API is silenceRange(startSample, numSamples).
+        manager.silenceRange(1000, 1000);
+        manager.silenceRange(5000, 1000);
+        manager.silenceRange(10000, 1000);
 
         // Verify all regions are silenced
         bool region1Silent = true;
@@ -154,7 +155,7 @@ private:
             auto monoBuffer = TestAudio::createSineWave(440.0, 0.5, 44100.0, 0.5, 1);
             buffer = monoBuffer;
 
-            bool success = manager.silenceRange(5000, 10000);
+            bool success = manager.silenceRange(5000, 5000);
             expect(success, "Mono silence should succeed");
             expectEquals(buffer.getNumChannels(), 1, "Should remain mono");
         }
@@ -167,7 +168,7 @@ private:
             auto stereoBuffer = TestAudio::createSineWave(440.0, 0.5, 44100.0, 0.5, 2);
             buffer = stereoBuffer;
 
-            bool success = manager.silenceRange(5000, 10000);
+            bool success = manager.silenceRange(5000, 5000);
             expect(success, "Stereo silence should succeed");
             expectEquals(buffer.getNumChannels(), 2, "Should remain stereo");
 
@@ -227,7 +228,7 @@ private:
         int64_t trimStart = 10000;
         int64_t trimEnd = 30000;
 
-        bool success = manager.trimToRange(trimStart, trimEnd);
+        bool success = manager.trimToRange(trimStart, trimEnd - trimStart);
         expect(success, "Trim should succeed");
 
         // Verify trim worked
@@ -260,8 +261,8 @@ private:
         buffer = testBuffer;
         int64_t originalLength = manager.getNumSamples();
 
-        // First trim - remove beginning
-        manager.trimToRange(22050, originalLength); // Remove first second
+        // First trim - remove beginning. Keep [22050, originalLength).
+        manager.trimToRange(22050, originalLength - 22050); // Remove first second
         expectEquals(manager.getNumSamples(), originalLength - 22050, "First trim size correct");
 
         // Second trim - remove end
@@ -269,11 +270,12 @@ private:
         manager.trimToRange(0, newLength - 11025); // Remove last 0.25 seconds
         expectEquals(manager.getNumSamples(), newLength - 11025, "Second trim size correct");
 
-        // Verify content integrity
-        // Should have middle portion of original ramp
-        float expectedValue = 0.0f; // Middle of -1 to 1 ramp
-        expectWithinAbsoluteError(buffer.getSample(0, 0), expectedValue, 0.1f,
-                                   "Content should be from middle of original");
+        // Verify content integrity. After trim 1 (drop first 22050 samples)
+        // and trim 2 (drop last 11025 samples), sample 0 is the original
+        // sample 22050. The 2.0s ramp from -1 → 1 has value -0.5 there.
+        const float expectedFirst = -1.0f + 2.0f * (22050.0f / 88199.0f);
+        expectWithinAbsoluteError(buffer.getSample(0, 0), expectedFirst, 0.01f,
+                                   "First sample after trims should be from original 22050");
 
         logMessage("✅ Sequential trims work correctly");
     }
@@ -291,8 +293,8 @@ private:
         // Calculate expected peak before trim
         float expectedPeak = buffer.getMagnitude(0, 10000, 10000);
 
-        // Trim to middle portion
-        manager.trimToRange(10000, 20000);
+        // Trim to middle portion: keep [10000, 20000), count = 10000.
+        manager.trimToRange(10000, 10000);
 
         // Verify audio quality preserved
         float actualPeak = buffer.getMagnitude(0, 0, buffer.getNumSamples());
@@ -491,7 +493,7 @@ private:
         buffer = testBuffer;
 
         // Silence middle portion
-        manager.silenceRange(20000, 30000);
+        manager.silenceRange(20000, 10000);
 
         // Verify silence applied
         bool isSilent = true;
@@ -506,7 +508,7 @@ private:
         expect(isSilent, "Range should be silenced");
 
         // Now trim to keep only the silent portion
-        manager.trimToRange(20000, 30000);
+        manager.trimToRange(20000, 10000);
 
         // Verify result is silent buffer of correct length
         expectEquals(manager.getNumSamples(), (int64_t)10000, "Should have 10000 samples");
@@ -527,7 +529,7 @@ private:
 
         // Trim to second half
         int64_t midPoint = manager.getNumSamples() / 2;
-        manager.trimToRange(midPoint, manager.getNumSamples());
+        manager.trimToRange(midPoint, manager.getNumSamples() - midPoint);
 
         // Apply DC removal
         AudioProcessor::removeDCOffset(buffer);
@@ -556,7 +558,7 @@ private:
         manager.silenceRange(0, oneThird);
 
         // Operation 2: Trim to last two thirds
-        manager.trimToRange(oneThird, totalSamples);
+        manager.trimToRange(oneThird, totalSamples - oneThird);
 
         // Operation 3: Remove DC offset
         AudioProcessor::removeDCOffset(buffer);
@@ -567,8 +569,11 @@ private:
         expect(AudioAssertions::expectNoDCOffset(buffer, 0.001f),
                "DC offset should be removed");
 
-        // First sample should not be from silenced region
-        expect(std::abs(buffer.getSample(0, 0)) > 0.0f,
+        // Buffer should not be entirely silent. Sample 0 corresponds to the
+        // first non-silenced sample after the trim, which for this 440 Hz
+        // signal happens to land near a zero crossing — so check the
+        // overall magnitude rather than a single sample.
+        expect(buffer.getMagnitude(0, 0, buffer.getNumSamples()) > 0.0f,
                "Should have non-silent audio");
 
         logMessage("✅ All three operations in sequence work correctly");

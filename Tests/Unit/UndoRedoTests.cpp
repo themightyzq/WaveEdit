@@ -423,6 +423,12 @@ private:
 
         for (int i = 0; i < operationsCount; ++i)
         {
+            // Each operation is its own undoable transaction. Without a fresh
+            // transaction boundary, JUCE's UndoManager coalesces consecutive
+            // perform() calls so a single undo() rolls all of them back.
+            helper.undoManager.beginNewTransaction(
+                "Delete " + juce::String(i + 1));
+
             auto deleteAction = new DeleteAction(
                 helper.bufferManager,
                 helper.audioEngine,
@@ -479,6 +485,11 @@ private:
 
         for (int i = 0; i < operationsCount; ++i)
         {
+            // See note in testMultiLevelUndo10: explicit transaction per op so
+            // each undo() unwinds one delete.
+            helper.undoManager.beginNewTransaction(
+                "Delete " + juce::String(i + 1));
+
             auto deleteAction = new DeleteAction(
                 helper.bufferManager,
                 helper.audioEngine,
@@ -529,9 +540,13 @@ private:
         UndoTestHelper helper;
         expect(helper.loadTestBuffer(originalBuffer, 44100.0), "Should load test buffer");
 
-        // Perform 5 operations
+        // Perform 5 operations, each in its own transaction so 5 undos are
+        // required to unwind them all.
         for (int i = 0; i < 5; ++i)
         {
+            helper.undoManager.beginNewTransaction(
+                "Delete " + juce::String(i + 1));
+
             auto deleteAction = new DeleteAction(
                 helper.bufferManager,
                 helper.audioEngine,
@@ -548,6 +563,7 @@ private:
         helper.undoManager.undo();
 
         // Perform new operation (should clear redo stack)
+        helper.undoManager.beginNewTransaction("Delete (post-undo)");
         auto deleteAction = new DeleteAction(
             helper.bufferManager,
             helper.audioEngine,

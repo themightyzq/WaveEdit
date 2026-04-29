@@ -768,8 +768,9 @@ private:
         auto testBuffer = TestAudio::createSineWave(440.0, 0.5, 44100.0, 1.0, 2);
         buffer = testBuffer;
 
-        // Silence middle portion (samples 10000-20000)
-        bool success = manager.silenceRange(10000, 20000);
+        // Silence middle portion (samples 10000-20000). The API is
+        // silenceRange(startSample, numSamples), so the count is 10000.
+        bool success = manager.silenceRange(10000, 10000);
         expect(success, "Silence operation should succeed");
 
         // Verify the silenced range contains zeros
@@ -828,13 +829,16 @@ private:
         bool success1 = manager.silenceRange(-100, 100);
         expect(!success1, "Silence with negative start should fail");
 
-        // Test end beyond buffer
-        bool success2 = manager.silenceRange(40000, 50000);
+        // Test range exceeding buffer end (start=40000 + count=10000 > 44100)
+        bool success2 = manager.silenceRange(40000, 10000);
         expect(!success2, "Silence beyond buffer end should fail");
 
-        // Test start > end
-        bool success3 = manager.silenceRange(1000, 500);
-        expect(!success3, "Silence with start > end should fail");
+        // Test zero / negative count
+        bool success3 = manager.silenceRange(1000, 0);
+        expect(!success3, "Silence with zero count should fail");
+
+        bool success4 = manager.silenceRange(1000, -500);
+        expect(!success4, "Silence with negative count should fail");
 
         logMessage("✅ Silence invalid range handled correctly");
     }
@@ -848,8 +852,8 @@ private:
         auto testBuffer = TestAudio::createSineWave(440.0, 0.5, 44100.0, 1.0, 2);
         buffer = testBuffer;
 
-        // Single sample silence
-        bool success1 = manager.silenceRange(1000, 1001);
+        // Single sample silence (count = 1)
+        bool success1 = manager.silenceRange(1000, 1);
         expect(success1, "Single sample silence should succeed");
         expectEquals(buffer.getSample(0, 1000), 0.0f, "Single sample should be silenced");
 
@@ -868,9 +872,9 @@ private:
         }
         expect(startSilent, "Start should be silent");
 
-        // Silence at end
+        // Silence the last 1000 samples
         int64_t endStart = manager.getNumSamples() - 1000;
-        bool success3 = manager.silenceRange(endStart, manager.getNumSamples());
+        bool success3 = manager.silenceRange(endStart, 1000);
         expect(success3, "Silence at end should succeed");
 
         logMessage("✅ Silence edge cases handled correctly");
@@ -943,8 +947,9 @@ private:
         auto testBuffer = TestAudio::createLinearRamp(0.0f, 1.0f, 44100.0, 1.0, 2);
         buffer = testBuffer;
 
-        // Trim to middle portion (samples 10000-20000)
-        bool success = manager.trimToRange(10000, 20000);
+        // Keep samples [10000, 20000). API is trimToRange(start, numSamples)
+        // so count = 10000.
+        bool success = manager.trimToRange(10000, 10000);
         expect(success, "Trim operation should succeed");
 
         // Verify new buffer length
@@ -990,7 +995,7 @@ private:
 
         // Trim to last 5000 samples
         int64_t startPos = manager.getNumSamples() - 5000;
-        bool success = manager.trimToRange(startPos, manager.getNumSamples());
+        bool success = manager.trimToRange(startPos, 5000);
         expect(success, "Trim to end should succeed");
 
         expectEquals(manager.getNumSamples(), (int64_t)5000, "Buffer should be 5000 samples");
@@ -1037,13 +1042,16 @@ private:
         bool success1 = manager.trimToRange(-100, 1000);
         expect(!success1, "Trim with negative start should fail");
 
-        // Test end beyond buffer
-        bool success2 = manager.trimToRange(40000, 50000);
+        // Test range exceeding buffer end (start=40000 + count=10000 > 44100)
+        bool success2 = manager.trimToRange(40000, 10000);
         expect(!success2, "Trim beyond buffer end should fail");
 
-        // Test start > end
-        bool success3 = manager.trimToRange(1000, 500);
-        expect(!success3, "Trim with start > end should fail");
+        // Test zero / negative count
+        bool success3 = manager.trimToRange(1000, 0);
+        expect(!success3, "Trim with zero count should fail");
+
+        bool success4 = manager.trimToRange(1000, -500);
+        expect(!success4, "Trim with negative count should fail");
 
         logMessage("✅ Trim invalid range handled correctly");
     }
@@ -1057,8 +1065,8 @@ private:
         auto testBuffer = TestAudio::createImpulse(1.0f, 1000, 44100.0, 0.1, 2);
         buffer = testBuffer;
 
-        // Trim to single sample at impulse position
-        bool success = manager.trimToRange(1000, 1001);
+        // Trim to single sample at impulse position (count = 1)
+        bool success = manager.trimToRange(1000, 1);
         expect(success, "Trim to single sample should succeed");
 
         expectEquals(manager.getNumSamples(), (int64_t)1, "Buffer should have 1 sample");
