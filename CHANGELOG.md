@@ -41,12 +41,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   conflicts).
 - Local test run: 30 groups / 104 assertions / 0 failures (was 22 / 90).
 
+### Changed
+- **Split `UndoableEdits.h` per CLAUDE.md §8.1**:
+  - New `Source/Utils/UndoActions/PluginUndoActions.h` —
+    `ApplyParametricEQAction`, `ApplyDynamicParametricEQAction`,
+    `ApplyPluginChainAction`.
+  - New `Source/Utils/UndoActions/ChannelUndoActions.h` —
+    `ChannelConvertAction`.
+  - `RegionUndoActions.h` gains `NudgeRegionUndoAction`,
+    `BatchRenameRegionUndoAction`, `MergeRegionsUndoAction`,
+    `SplitRegionUndoAction`.
+  - `UndoableEdits.h` trimmed from 1,141 to 453 lines (now under the
+    CLAUDE.md §7.5 500-line cap), keeping only `UndoableEditBase` and
+    the generic `DeleteAction` / `InsertAction` / `ReplaceAction`
+    primitives.
+
 ### Known Issues
 - `perform()` in `Main.cpp` is a dispatcher but 21 cases still exceed the
   CLAUDE.md §6.7 ≤5-line rule.
-- `Source/Utils/UndoableEdits.h` (1,141 lines) still hosts region/plugin/
-  channel undo classes that CLAUDE.md §8.1 requires under
-  `Utils/UndoActions/`.
+- `AudioUndoActions.h` (1,238 lines) and `RegionUndoActions.h` (964
+  lines) still exceed the §7.5 500-line cap; further per-class extraction
+  to dedicated files is a follow-up.
 - `Tests/Integration/RegionListPanelTests.cpp` remains disabled: uses
   non-existent `juce::UnitTest::getInstance()` and a stale Listener
   interface. Needs a rewrite as a proper `UnitTest` subclass.

@@ -20,7 +20,8 @@
 #include "UI/RegionListPanel.h"
 #include "UI/RegionDisplay.h"
 #include "Utils/UndoableEdits.h"
-#include "../TestUtils/TestAudioFiles.h"
+#include "Utils/UndoActions/RegionUndoActions.h"
+#include "TestAudioFiles.h"
 
 // ============================================================================
 // Test Helper Classes

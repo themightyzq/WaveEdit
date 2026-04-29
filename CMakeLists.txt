@@ -168,6 +168,8 @@ target_sources(WaveEdit
         Source/Utils/UndoActions/AudioUndoActions.h
         Source/Utils/UndoActions/RegionUndoActions.h
         Source/Utils/UndoActions/MarkerUndoActions.h
+        Source/Utils/UndoActions/PluginUndoActions.h
+        Source/Utils/UndoActions/ChannelUndoActions.h
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
         Source/UI/RegionListPanel.cpp
@@ -620,6 +622,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/UndoActions/AudioUndoActions.h
         Source/Utils/UndoActions/RegionUndoActions.h
         Source/Utils/UndoActions/MarkerUndoActions.h
+        Source/Utils/UndoActions/PluginUndoActions.h
+        Source/Utils/UndoActions/ChannelUndoActions.h
         Source/UI/MarkerDisplay.cpp
         Source/UI/MarkerDisplay.h
         Source/UI/SpectrumAnalyzer.cpp
