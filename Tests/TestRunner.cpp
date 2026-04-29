@@ -97,6 +97,7 @@ int main(int, char**)
     testRunner.runTestsInCategory("ChannelSystem");     // Channel system tests
     testRunner.runTestsInCategory("DSP");               // DSP engine tests (HeadTailEngine)
     testRunner.runTestsInCategory("RegionManager");     // Region/auto-region/multi-drag tests
+    testRunner.runTestsInCategory("MarkerSystem");      // Marker + MarkerManager tests
 
     // Print results
     std::cout << "\n";

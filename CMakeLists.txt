@@ -776,6 +776,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/ChannelSystemTests.cpp                        # Channel system tests (ITU coefficients, extraction, upmix)
             Tests/Unit/RegionManagerTests.cpp                   # Region/Auto Region tests
             Tests/Unit/KeyboardShortcutConflictTests.cpp        # Keymap binding conflicts (JSON-based)
+            Tests/Unit/MarkerManagerTests.cpp                   # Marker basic ops + manager + sidecar
             Tests/Integration/MultiRegionDragTests.cpp          # Multi-region drag/move
             # Tests/Integration/RegionListPanelTests.cpp        # Disabled: uses non-existent
             #                                                   # juce::UnitTest::getInstance() and a
