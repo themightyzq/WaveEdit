@@ -21,8 +21,11 @@
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
 #include "AutomationData.h"
+#include <memory>
 #include <vector>
 
+class AudioEngine;
+class AutomationRecorder;
 class PluginChain;
 
 /**
@@ -91,6 +94,17 @@ public:
     void stopAllRecording();
 
     //==========================================================================
+    // Recording (Phase 4)
+    //
+    // The recorder is lazily constructed on first setAudioEngine() call.
+    // Tests may pass nullptr; production wiring passes the Document's
+    // owned AudioEngine. Returns nullptr until setAudioEngine is called.
+
+    void setAudioEngine(AudioEngine* engine);
+    AutomationRecorder* getRecorder() { return m_recorder.get(); }
+    const AutomationRecorder* getRecorder() const { return m_recorder.get(); }
+
+    //==========================================================================
     // Serialization
 
     juce::var toVar() const;
@@ -112,6 +126,7 @@ public:
 private:
     std::vector<AutomationLane> m_lanes;
     juce::ListenerList<Listener> m_listeners;
+    std::unique_ptr<AutomationRecorder> m_recorder;
 
     void notifyListeners();
 };

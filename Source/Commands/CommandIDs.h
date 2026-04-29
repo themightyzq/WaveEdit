@@ -178,6 +178,7 @@ namespace CommandIDs
         pluginShowSettings  = 0xD005,  // Plugin scan path settings
         pluginClearCache    = 0xD006,  // Clear plugin cache and rescan
         pluginOffline       = 0xD007,  // Cmd+Shift+O - Apply single plugin offline
+        automationToggleRecordArm = 0xD008,  // Toggle global automation record-arm (Phase 4)
 
         // Toolbar Operations (0xE000 - 0xE0FF)
         toolbarCustomize    = 0xE000,  // Customize toolbar layout dialog

@@ -226,6 +226,8 @@ target_sources(WaveEdit
         Source/Automation/AutomationData.h
         Source/Automation/AutomationManager.cpp
         Source/Automation/AutomationManager.h
+        Source/Automation/AutomationRecorder.cpp
+        Source/Automation/AutomationRecorder.h
         Source/Batch/BatchProcessorSettings.cpp
         Source/Batch/BatchProcessorSettings.h
         Source/Batch/BatchJob.cpp
@@ -677,6 +679,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Automation/AutomationData.h
         Source/Automation/AutomationManager.cpp
         Source/Automation/AutomationManager.h
+        Source/Automation/AutomationRecorder.cpp
+        Source/Automation/AutomationRecorder.h
         Source/Batch/BatchProcessorSettings.cpp
         Source/Batch/BatchProcessorSettings.h
         Source/Batch/BatchJob.cpp
@@ -790,6 +794,8 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/RegionManagerTests.cpp                   # Region/Auto Region tests
             Tests/Unit/KeyboardShortcutConflictTests.cpp        # Keymap binding conflicts (JSON-based)
             Tests/Unit/MarkerManagerTests.cpp                   # Marker basic ops + manager + sidecar
+            Tests/TestUtils/MockAudioProcessor.h                # Mock plugin processor for tests
+            Tests/Unit/AutomationRecorderTests.cpp              # Plugin Parameter Automation Phase 4
             Tests/Integration/MultiRegionDragTests.cpp          # Multi-region drag/move
             Tests/Integration/RegionListPanelTests.cpp          # RegionListPanel state-side contract
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5

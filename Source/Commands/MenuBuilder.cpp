@@ -231,6 +231,10 @@ juce::PopupMenu MenuBuilder::getMenuForIndex(int menuIndex,
         menu.addCommandItem(context.commandManager, CommandIDs::pluginApplyChain);
         menu.addCommandItem(context.commandManager, CommandIDs::pluginBypassAll);
 
+        // --- Automation (Phase 4) ---
+        menu.addSectionHeader("Automation");
+        menu.addCommandItem(context.commandManager, CommandIDs::automationToggleRecordArm);
+
         // --- Offline Processing ---
         menu.addSectionHeader("Offline Processing");
         menu.addCommandItem(context.commandManager, CommandIDs::pluginOffline);
