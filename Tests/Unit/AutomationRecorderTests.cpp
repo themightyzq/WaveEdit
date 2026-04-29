@@ -237,6 +237,87 @@ public:
             dispB.flushPending();
             expect(true, "no crash after dispatcher reindex");
         }
+
+        beginTest("Sidecar: round-trip save → load preserves lanes and points");
+        {
+            // Phase 6 — write a sidecar, reload into a fresh manager,
+            // and assert the lane / curve survived unchanged.
+            auto tempAudio = juce::File::createTempFile("wav");
+            tempAudio.replaceWithText("not actually a wav, just used for path");
+
+            AutomationManager src;
+            src.setAudioEngine(nullptr);
+            auto& laneA = src.addLane(0, 0, "MockPlugin", "Param 0", "p0");
+            laneA.enabled = true;
+            for (int i = 0; i < 5; ++i)
+            {
+                AutomationPoint pt;
+                pt.timeInSeconds = i * 0.5;
+                pt.value = 0.1f * static_cast<float>(i);
+                pt.curve = AutomationPoint::CurveType::Linear;
+                laneA.curve.addPoint(pt);
+            }
+            src.addLane(1, 2, "OtherPlugin", "Cutoff", "p2");
+
+            expect(src.saveToFile(tempAudio), "sidecar write succeeded");
+            auto sidecar = AutomationManager::getAutomationFilePath(tempAudio);
+            expect(sidecar.existsAsFile(), "sidecar file is on disk");
+
+            AutomationManager dst;
+            dst.setAudioEngine(nullptr);
+            expect(dst.loadFromFile(tempAudio), "sidecar load succeeded");
+
+            expectEquals(dst.getNumLanes(), 2, "two lanes loaded");
+            auto* loadedA = dst.findLane(0, 0);
+            expect(loadedA != nullptr, "lane (0,0) found after reload");
+            expectEquals(loadedA->pluginName, juce::String("MockPlugin"),
+                         "plugin name preserved");
+            expectEquals(loadedA->parameterID, juce::String("p0"),
+                         "parameterID preserved");
+            expectEquals(loadedA->curve.getNumPoints(), 5,
+                         "all 5 points preserved");
+            auto pts = loadedA->curve.getPoints();
+            expectWithinAbsoluteError(pts[2].timeInSeconds, 1.0, 1e-6,
+                                       "third point time preserved");
+            expectWithinAbsoluteError<float>(pts[4].value, 0.4f, 1e-5f,
+                                              "fifth point value preserved");
+
+            sidecar.deleteFile();
+            tempAudio.deleteFile();
+        }
+
+        beginTest("Sidecar: empty manager does not write a file");
+        {
+            // No lanes → no sidecar should be created. Avoids cluttering
+            // the disk for files the user never automated.
+            auto tempAudio = juce::File::createTempFile("wav");
+            tempAudio.replaceWithText("placeholder");
+            auto sidecar = AutomationManager::getAutomationFilePath(tempAudio);
+            sidecar.deleteFile();  // ensure clean slate
+
+            AutomationManager mgr;
+            mgr.setAudioEngine(nullptr);
+            expect(mgr.saveToFile(tempAudio), "saveToFile succeeds with no lanes");
+            expect(!sidecar.existsAsFile(), "no sidecar created for empty manager");
+
+            tempAudio.deleteFile();
+        }
+
+        beginTest("Sidecar: missing file → loadFromFile returns false cleanly");
+        {
+            auto tempAudio = juce::File::createTempFile("wav");
+            tempAudio.replaceWithText("placeholder");
+            // No sidecar exists.
+
+            AutomationManager mgr;
+            mgr.setAudioEngine(nullptr);
+            expect(!mgr.loadFromFile(tempAudio),
+                   "loadFromFile returns false when sidecar missing");
+            expectEquals(mgr.getNumLanes(), 0,
+                         "no lanes added on missing sidecar");
+
+            tempAudio.deleteFile();
+        }
     }
 };
 

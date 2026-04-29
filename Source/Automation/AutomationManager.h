@@ -111,6 +111,28 @@ public:
     void fromVar(const juce::var& data);
 
     //==========================================================================
+    // Sidecar persistence (Phase 6) — message thread only.
+    //
+    // Automation lanes are saved alongside the audio file as
+    // `<file>.<ext>.automation.json`, matching the RegionManager /
+    // MarkerManager pattern. Save is called from Document::saveToFile;
+    // load from Document::openFile. Both no-op cleanly when there's
+    // no automation data or no sidecar.
+
+    /** Path to the sidecar JSON for a given audio file. */
+    static juce::File getAutomationFilePath(const juce::File& audioFile);
+
+    /** Write current lanes to <audioFile>.<ext>.automation.json.
+        Returns false on I/O failure. No-op + returns true when there
+        are no lanes (avoids littering the disk with empty files). */
+    bool saveToFile(const juce::File& audioFile) const;
+
+    /** Read lanes from the sidecar (if present) into this manager.
+        Returns true if a sidecar was found and parsed; false on
+        missing file, parse failure, or wrong schema. */
+    bool loadFromFile(const juce::File& audioFile);
+
+    //==========================================================================
     // Listener for UI updates
 
     class Listener

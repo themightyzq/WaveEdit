@@ -221,6 +221,68 @@ void AutomationManager::fromVar(const juce::var& data)
 }
 
 //==============================================================================
+// Sidecar persistence
+//==============================================================================
+
+juce::File AutomationManager::getAutomationFilePath(const juce::File& audioFile)
+{
+    // Mirrors RegionManager::getRegionFilePath — append ".automation.json"
+    // to the audio file's full extension so example.wav becomes
+    // example.wav.automation.json.
+    return audioFile.withFileExtension(audioFile.getFileExtension() + ".automation.json");
+}
+
+bool AutomationManager::saveToFile(const juce::File& audioFile) const
+{
+    auto sidecar = getAutomationFilePath(audioFile);
+
+    // No lanes? Don't litter the disk. If a stale sidecar exists
+    // from a previous save, leave it alone — clearing automation
+    // is an explicit user action, not a side effect of "save".
+    if (m_lanes.empty())
+        return true;
+
+    auto* root = new juce::DynamicObject();
+    root->setProperty("version", "1.0");
+    root->setProperty("audioFile", audioFile.getFileName());
+    root->setProperty("lanes", toVar());
+
+    juce::var jsonData(root);
+    juce::String jsonString = juce::JSON::toString(jsonData, true);
+
+    if (!sidecar.replaceWithText(jsonString))
+    {
+        juce::Logger::writeToLog("AutomationManager::saveToFile failed for "
+                                  + sidecar.getFullPathName());
+        return false;
+    }
+    return true;
+}
+
+bool AutomationManager::loadFromFile(const juce::File& audioFile)
+{
+    auto sidecar = getAutomationFilePath(audioFile);
+    if (!sidecar.existsAsFile())
+        return false;
+
+    juce::String jsonString = sidecar.loadFileAsString();
+    juce::var jsonData = juce::JSON::parse(jsonString);
+    if (!jsonData.isObject())
+    {
+        juce::Logger::writeToLog("AutomationManager::loadFromFile: not a JSON object — "
+                                  + sidecar.getFullPathName());
+        return false;
+    }
+
+    auto* root = jsonData.getDynamicObject();
+    if (root == nullptr)
+        return false;
+
+    fromVar(root->getProperty("lanes"));
+    return true;
+}
+
+//==============================================================================
 // Listener
 //==============================================================================
 
