@@ -473,26 +473,31 @@ editor.
 
 ## Configuration
 
-WaveEdit currently splits user state across two parent directories on
-macOS (this is a known minor inconsistency we plan to consolidate):
+All user state — `settings.json`, plugin scan caches, keymaps,
+toolbars, batch presets, autosave files — lives under a single
+parent directory:
 
-**`settings.json` and plugin scan data**:
-- macOS: `~/Library/WaveEdit/`
-- Windows: `%APPDATA%/WaveEdit/`
-- Linux: `~/.config/WaveEdit/`
-
-Files: `settings.json` (recent files, audio device, auto-save),
-`autosave/`, `plugins.xml`, `plugin_blacklist.txt`,
-`custom_plugin_paths.txt`, `scan_log.txt`.
-
-**Keymaps, toolbars, batch presets**:
 - macOS: `~/Library/Application Support/WaveEdit/`
-- Windows: `%APPDATA%/WaveEdit/`
+- Windows: `%APPDATA%\WaveEdit\`
 - Linux: `~/.config/WaveEdit/`
 
-Subfolders: `Keymaps/` (built-in + user templates),
-`Toolbars/` (toolbar layouts), `Presets/Batch/` (batch processor
-presets).
+**Top-level files**: `settings.json` (recent files, audio device,
+auto-save), `plugins.xml`, `plugin_blacklist.txt`,
+`custom_plugin_paths.txt`, `plugin_incremental_cache.xml`,
+`scan_log.txt`.
+
+**Subfolders**: `autosave/` (in-progress auto-saves),
+`Keymaps/` (built-in + user keyboard templates),
+`Toolbars/` (toolbar layouts),
+`Presets/Batch/` (batch processor presets).
+
+**Migration note (macOS)**: builds before 2026-04-29 wrote
+`settings.json` and the plugin scan cache to `~/Library/WaveEdit/`
+instead of the canonical Application Support path. On first launch
+the new build copies anything from the legacy location into the new
+one and leaves the old folder in place as a backup; you can
+`rm -rf ~/Library/WaveEdit` once you've confirmed your recents and
+plugin list look right.
 
 **UI preferences (window size, dB scale, refresh rate)**:
 - macOS: `~/Library/Preferences/com.waveedit.app.plist` (managed by
@@ -510,8 +515,9 @@ events. Attach it when filing an issue.
 **To uninstall completely (macOS)**:
 ```bash
 # Quit WaveEdit first, then:
-rm -rf ~/Library/WaveEdit
 rm -rf "~/Library/Application Support/WaveEdit"
+rm -rf ~/Library/Logs/WaveEdit
+rm -rf ~/Library/WaveEdit         # legacy path; only if you used a pre-2026-04-29 build
 defaults delete com.waveedit.app
 # Optional: remove the app bundle itself
 rm -rf /Applications/WaveEdit.app
