@@ -73,20 +73,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   per-category passes/failures into local counters between calls. The
   exit code now correctly returns 1 when any test fails.
 
+### Fixed
+- **86 of 89 newly visible test failures triaged**, 100% test-bugs:
+  - 67 `Undo/Redo Multi-Level` failures — added `beginNewTransaction()`
+    between `perform()` calls so each delete is its own undo unit
+    (JUCE coalesces consecutive performs in a single transaction).
+  - ~18 `AudioBufferManager Silence/Trim Operations` and
+    `EditingTools Integration` failures — tests called
+    `silenceRange`/`trimToRange` with second argument as `endSample`,
+    but the API is `(startSample, numSamples)`. Translated all calls.
+    Also corrected two stale content assertions whose expected values
+    no longer matched the corrected trim ranges.
+  - 1 `File I/O Error Handling` failure — test asserted 8-bit WAV save
+    should fail; 8-bit PCM has been a supported format since 2025-11-06.
+    Replaced with clearly-invalid bit depths (7, 64, 0).
+
 ### Known Issues
-- **89 pre-existing test failures across 18 groups now visible.** They
-  were always failing; the broken summary just hid them. Breakdown:
-  - `Undo/Redo Multi-Level` (67 failures): the test calls
-    `UndoManager::perform()` 10/50 times without inserting
-    `beginNewTransaction()` between calls, so JUCE coalesces them into
-    a single transaction. The test then expects N undos to succeed but
-    only the first does. Test bug, not a UndoManager regression.
-  - `AudioBufferManager Silence/Trim Operations` (~9 failures): tests
-    appear to assume an older trim/silence API contract.
-  - Various Integration tests (~13 failures) downstream of the
-    silence/trim issues.
-  Triage tracked under TODO.md High Priority. CI on this commit will
-  flag the failures honestly.
+- **3 remaining test failures** all involve audio-engine playback
+  position/state in a headless test environment with no audio device
+  initialized: `Edit during pause - resume works correctly` (2),
+  `Fade during playback` (1). Need investigation rather than a
+  test-side patch. CI will continue to flag these.
 - `perform()` in `Main.cpp` is a dispatcher but 21 cases still exceed the
   CLAUDE.md §6.7 ≤5-line rule.
 - `AudioUndoActions.h` (1,238 lines) and `RegionUndoActions.h` (964
