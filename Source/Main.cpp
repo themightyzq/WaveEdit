@@ -1830,43 +1830,7 @@ public:
     /**
      * Handle File → New command: show dialog and create new document with user settings.
      */
-    void handleNewFileCommand()
-    {
-        auto settings = NewFileDialog::showDialog();
-        if (settings.has_value())
-        {
-            auto* newDoc = m_documentManager.createDocument();
-            if (newDoc != nullptr)
-            {
-                int64_t numSamples = static_cast<int64_t>(settings->durationSeconds * settings->sampleRate);
-                juce::AudioBuffer<float> emptyBuffer(settings->numChannels, static_cast<int>(numSamples));
-                emptyBuffer.clear();
-
-                auto& buffer = newDoc->getBufferManager().getMutableBuffer();
-                buffer.setSize(settings->numChannels, static_cast<int>(numSamples));
-                buffer.clear();
-
-                newDoc->getAudioEngine().loadFromBuffer(emptyBuffer, settings->sampleRate, settings->numChannels);
-                newDoc->getWaveformDisplay().reloadFromBuffer(emptyBuffer, settings->sampleRate, false, false);
-
-                newDoc->getRegionDisplay().setSampleRate(settings->sampleRate);
-                newDoc->getRegionDisplay().setTotalDuration(settings->durationSeconds);
-                newDoc->getRegionDisplay().setVisibleRange(0.0, settings->durationSeconds);
-                newDoc->getRegionDisplay().setAudioBuffer(&buffer);
-
-                newDoc->getMarkerDisplay().setSampleRate(settings->sampleRate);
-                newDoc->getMarkerDisplay().setTotalDuration(settings->durationSeconds);
-
-                newDoc->setModified(true);
-                m_documentManager.setCurrentDocument(newDoc);
-
-                DBG("Created new audio file: " +
-                    juce::String(numSamples) + " samples, " +
-                    juce::String(settings->sampleRate) + " Hz, " +
-                    juce::String(settings->numChannels) + " channels");
-            }
-        }
-    }
+    void handleNewFileCommand() { m_fileController.createNewFile(); }
 
     void handleRecordCommand()
     {
