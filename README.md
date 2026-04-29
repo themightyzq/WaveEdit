@@ -31,14 +31,39 @@
 
 ## Screenshots
 
+### Main window
 ![Main window with selection](Docs/screenshots/01-main-window.png)
 
-WaveEdit's main view: waveform, transport controls, selection markers
-with duration readout, and the status bar showing sample rate, channel
-count, bit depth, length, snap mode, time format, and zoom.
+Waveform, transport controls, selection markers with duration readout,
+and the status bar showing sample rate, channel count, bit depth,
+length, snap mode, time format, and zoom.
 
-> More screenshots (region list panel, Parametric EQ, Spectrum
-> Analyzer, Batch Processor) will be added — tracked in TODO.md.
+### Region List
+![Region List panel](Docs/screenshots/02-region-list.png)
+
+Color-coded region browser with name/start/end/duration columns,
+in-place search, and one-click Batch Rename. `Cmd+Shift+R` to open.
+
+### Parametric EQ
+![3-Band Parametric EQ](Docs/screenshots/03-parametric-eq.png)
+
+Low Shelf / Mid Peak / High Shelf with frequency, gain, and Q
+controls. The standardised footer (Preview · Bypass · Loop · Cancel ·
+Apply) is shared across every Process dialog. `Shift+E` to open.
+
+### Spectrum Analyzer
+![Spectrum Analyzer](Docs/screenshots/04-spectrum-analyzer.png)
+
+Real-time FFT with logarithmic frequency axis (20 Hz – 20 kHz), peak
+hold (yellow), and a colour gradient from low to high magnitude.
+`Cmd+Alt+S` toggles it on while playback runs.
+
+### Batch Processor
+![Batch Processor](Docs/screenshots/05-batch-processor.png)
+
+Apply a DSP chain (gain, normalise, fades, EQ presets, plugin chain)
+to many files at once with output naming patterns, format/bit-depth/
+sample-rate conversion, and savable presets. `Cmd+B` to open.
 
 ---
 
