@@ -437,12 +437,16 @@ private:
 
         AudioFileManager fileManager;
 
-        // Try to save with invalid bit depth (e.g., 8-bit or 64-bit)
-        bool saveSuccess = fileManager.saveAsWav(testFile, testBuffer, 44100.0, 8);
-        expect(!saveSuccess, "Saving with invalid bit depth (8) should fail");
-
-        saveSuccess = fileManager.saveAsWav(testFile, testBuffer, 44100.0, 64);
+        // 8-bit WAV is now a supported PCM format (added 2025-11-06).
+        // 64-bit WAV remains invalid. Try clearly-invalid depths instead.
+        bool saveSuccess = fileManager.saveAsWav(testFile, testBuffer, 44100.0, 64);
         expect(!saveSuccess, "Saving with invalid bit depth (64) should fail");
+
+        saveSuccess = fileManager.saveAsWav(testFile, testBuffer, 44100.0, 7);
+        expect(!saveSuccess, "Saving with invalid bit depth (7) should fail");
+
+        saveSuccess = fileManager.saveAsWav(testFile, testBuffer, 44100.0, 0);
+        expect(!saveSuccess, "Saving with invalid bit depth (0) should fail");
 
         cleanupTempDirectory();
     }
