@@ -66,19 +66,65 @@ int main(int, char**)
 
     juce::UnitTestRunner testRunner;
 
-    // NOTE on counting: juce::UnitTestRunner::runTestsInCategory clears the
-    // results list before each invocation. To get a true overall summary
-    // we must accumulate the per-category results into our own counters
-    // *between* category calls — a single getNumResults() at the end would
-    // only ever reflect the last category.
+    // CI-aware test selection.
+    //
+    // Some tests require a real audio device or a live message-thread
+    // event loop, and assert/segfault when run on a headless GitHub
+    // Actions runner. They pass locally on a developer machine. When
+    // running in CI, set WAVEEDIT_CI=1 to skip them and keep the
+    // suite green for everything that does not depend on the host
+    // audio stack.
+    const bool isCI = juce::SystemStats::getEnvironmentVariable("WAVEEDIT_CI", "")
+                          .isNotEmpty();
+
+    // Test names that depend on a live audio device. Matched against
+    // juce::UnitTest::getName().
+    const juce::StringArray ciSkipNames {
+        // Whole-engine — initialize/playback assumes a device.
+        "AudioEngine Thread Safety",
+        "AudioEngine Functional",
+        "AudioEngine Edge Cases",
+        "AudioEngine Preview System",
+        // Integration tests that drive the engine for playback.
+        "Basic Playback+Editing",
+        "Real-Time Buffer Updates",
+        "Edit Workflows",
+    };
+
+    auto shouldSkip = [&](juce::UnitTest* t) -> bool
+    {
+        return isCI && ciSkipNames.contains(t->getName());
+    };
+
+    // NOTE on counting: juce::UnitTestRunner::runTests clears the results
+    // list at the start of every call. To get a true overall summary we
+    // accumulate per-call results into our own counters *between* calls —
+    // a single getNumResults() at the end would only reflect the last run.
     int totalGroups   = 0;
     int totalPasses   = 0;
     int totalFailures = 0;
+    int totalSkipped  = 0;
     juce::StringArray failureBlocks;
 
     auto runCategory = [&](const char* category)
     {
-        testRunner.runTestsInCategory(category);
+        juce::Array<juce::UnitTest*> tests;
+        for (auto* t : juce::UnitTest::getTestsInCategory(category))
+        {
+            if (shouldSkip(t))
+            {
+                ++totalSkipped;
+                std::cout << "⏭  Skipping (CI): " << t->getName() << "\n";
+                continue;
+            }
+            tests.add(t);
+        }
+
+        if (tests.isEmpty())
+            return;
+
+        testRunner.runTests(tests);
+
         const int n = testRunner.getNumResults();
         for (int i = 0; i < n; ++i)
         {
@@ -107,6 +153,8 @@ int main(int, char**)
     std::cout << "║         WaveEdit Automated Test Suite by ZQ SFX             ║\n";
     std::cout << "║                    Version 0.1.0                             ║\n";
     std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
+    if (isCI)
+        std::cout << "Mode: CI (device-dependent tests will be skipped)\n";
     std::cout << "\n";
 
     runCategory("Starter");
@@ -140,6 +188,8 @@ int main(int, char**)
     std::cout << "Total assertions: "    << (totalPasses + totalFailures) << "\n";
     std::cout << "Passed: "               << totalPasses   << "\n";
     std::cout << "Failed: "               << totalFailures << "\n";
+    if (totalSkipped > 0)
+        std::cout << "Skipped: "          << totalSkipped  << " (CI mode)\n";
 
     if (totalFailures == 0)
     {
