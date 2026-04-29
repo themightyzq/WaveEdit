@@ -49,6 +49,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   JSON round-trip). Closes the marker-coverage gap that TODO had
   acknowledged.
 
+### Changed (architecture round 2)
+- **Four new domain controllers** under `Source/Controllers/`:
+  - `PlaybackController` — `togglePlayback` / `stopPlayback` /
+    `pausePlayback` / `toggleLoop` / `loopRegion`. Owns the
+    selection-vs-cursor-vs-start playback decision tree and the
+    always-clear-stale-loop-points invariant.
+  - `RecordingController` — `handleRecordCommand` plus the previously
+    inline `RecordingDialog::Listener` (~100 lines of buffer-splice
+    logic for punch-in inserts and new-document creation).
+  - `DialogController` — application-level dialog launchers
+    (`showAboutDialog`, `showKeyboardShortcutsDialog`,
+    `showBatchProcessorDialog`).
+  - `PluginController` — `showPluginManagerDialog`,
+    `showPluginChainPanel`, owns the OwnedArray of
+    `ChainWindowListener` and runs the document-closed teardown.
+- **`perform()` now satisfies CLAUDE.md §6.7** — every case is at most
+  5 lines (was 21 violations, worst was `pluginClearCache` at 37
+  lines). Bodies that did real work moved to MainComponent helpers
+  (`handleUndo`, `handleRedo`, `showGoToPositionDialog`,
+  `toggleRegionVisibility`, etc.) or to controllers.
+- **Main.cpp: 3,318 → 2,851 lines.** Still over the §8.1 <2,000
+  target (the 648-line `perform()` switch is the remaining bulk;
+  its compliance with the ≤5-line rule means each case is already a
+  one-line delegation — moving the dispatch to `CommandHandler.cpp`
+  per §8.1 would require extracting `MainComponent` into its own
+  header file, deferred as a follow-up).
+- **`FileController::createNewFile()`** — handleNewFileCommand body
+  (35 inline lines in Main.cpp) moved verbatim to FileController.
+
 ### Changed
 - **Split `UndoableEdits.h` per CLAUDE.md §8.1**:
   - New `Source/Utils/UndoActions/PluginUndoActions.h` —
@@ -63,6 +92,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     CLAUDE.md §7.5 500-line cap), keeping only `UndoableEditBase` and
     the generic `DeleteAction` / `InsertAction` / `ReplaceAction`
     primitives.
+- **Split FadeIn/FadeOut into `FadeUndoActions.h`**.
+  AudioUndoActions.h: 1,238 → 1,027 lines (still over the cap;
+  further per-domain splits remain in TODO).
 
 ### Fixed
 - **`TestRunner.cpp` summary now reports honest totals.** The previous
