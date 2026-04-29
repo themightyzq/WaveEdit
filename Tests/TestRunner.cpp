@@ -66,15 +66,41 @@ int main(int, char**)
 
     juce::UnitTestRunner testRunner;
 
-    juce::StringArray categories;
-    categories.add("Starter");       // Infrastructure tests
-    categories.add("AudioEngine");   // Week 2 ✅
-    categories.add("BufferManager"); // Week 2 ✅
-    categories.add("Processor");     // Week 2 ✅
-    categories.add("Integration");   // Week 3 ✅ (File I/O Integration)
-    // categories.add("UndoRedo");      // Week 3
-    // categories.add("EndToEnd");      // Week 5
-    // categories.add("Performance");   // Week 6
+    // NOTE on counting: juce::UnitTestRunner::runTestsInCategory clears the
+    // results list before each invocation. To get a true overall summary
+    // we must accumulate the per-category results into our own counters
+    // *between* category calls — a single getNumResults() at the end would
+    // only ever reflect the last category.
+    int totalGroups   = 0;
+    int totalPasses   = 0;
+    int totalFailures = 0;
+    juce::StringArray failureBlocks;
+
+    auto runCategory = [&](const char* category)
+    {
+        testRunner.runTestsInCategory(category);
+        const int n = testRunner.getNumResults();
+        for (int i = 0; i < n; ++i)
+        {
+            const auto* result = testRunner.getResult(i);
+            if (result == nullptr) continue;
+
+            ++totalGroups;
+            totalPasses   += result->passes;
+            totalFailures += result->failures;
+
+            if (result->failures > 0)
+            {
+                juce::String block;
+                block << "\n❌ " << result->unitTestName
+                      << " :: " << result->subcategoryName
+                      << " - " << result->failures << " failures";
+                for (const auto& message : result->messages)
+                    block << "\n   " << message;
+                failureBlocks.add(block);
+            }
+        }
+    };
 
     std::cout << "\n";
     std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
@@ -83,75 +109,44 @@ int main(int, char**)
     std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
     std::cout << "\n";
 
-    // Run all tests in registered categories
-    testRunner.runTestsInCategory("Starter");
-    testRunner.runTestsInCategory("AudioEngine");
-    testRunner.runTestsInCategory("BufferManager");
-    testRunner.runTestsInCategory("Processor");
-    testRunner.runTestsInCategory("BWF");               // BWF Metadata tests (Phase 4)
-    testRunner.runTestsInCategory("Unit");              // UndoRedo data integrity tests
-    testRunner.runTestsInCategory("Integration");       // File I/O integration tests
-    testRunner.runTestsInCategory("MultiDocument");     // Multi-file architecture tests
-    testRunner.runTestsInCategory("InterFileClipboard"); // Inter-file clipboard tests
-    testRunner.runTestsInCategory("Batch");             // Batch processor tests
-    testRunner.runTestsInCategory("ChannelSystem");     // Channel system tests
-    testRunner.runTestsInCategory("DSP");               // DSP engine tests (HeadTailEngine)
-    testRunner.runTestsInCategory("RegionManager");     // Region/auto-region/multi-drag tests
-    testRunner.runTestsInCategory("MarkerSystem");      // Marker + MarkerManager tests
+    runCategory("Starter");
+    runCategory("AudioEngine");
+    runCategory("BufferManager");
+    runCategory("Processor");
+    runCategory("BWF");               // BWF Metadata tests (Phase 4)
+    runCategory("Unit");              // UndoRedo data integrity + keymap conflicts
+    runCategory("Integration");       // File I/O integration tests
+    runCategory("MultiDocument");     // Multi-file architecture tests
+    runCategory("InterFileClipboard"); // Inter-file clipboard tests
+    runCategory("Batch");             // Batch processor tests
+    runCategory("ChannelSystem");     // Channel system tests
+    runCategory("DSP");               // DSP engine tests (HeadTailEngine)
+    runCategory("RegionManager");     // Region/auto-region/multi-drag tests
+    runCategory("MarkerSystem");      // Marker + MarkerManager tests
 
-    // Print results
     std::cout << "\n";
     std::cout << "═══════════════════════════════════════════════════════════════\n";
 
-    int totalTests = testRunner.getNumResults();
-    if (totalTests > 0)
-    {
-        // Sum up passes and failures from all test results
-        int totalPasses = 0;
-        int totalFailures = 0;
-
-        for (int i = 0; i < totalTests; ++i)
-        {
-            const juce::UnitTestRunner::TestResult* result = testRunner.getResult(i);
-            if (result != nullptr)
-            {
-                totalPasses += result->passes;
-                totalFailures += result->failures;
-
-                // Log failures
-                if (result->failures > 0)
-                {
-                    std::cout << "\n❌ " << result->unitTestName.toStdString()
-                              << " :: " << result->subcategoryName.toStdString()
-                              << " - " << result->failures << " failures\n";
-
-                    for (const auto& message : result->messages)
-                    {
-                        std::cout << "   " << message.toStdString() << "\n";
-                    }
-                }
-            }
-        }
-
-        std::cout << "\nTotal test groups: " << totalTests << "\n";
-        std::cout << "Total assertions: " << (totalPasses + totalFailures) << "\n";
-        std::cout << "Passed: " << totalPasses << "\n";
-        std::cout << "Failed: " << totalFailures << "\n";
-
-        if (totalFailures == 0)
-        {
-            std::cout << "\n✅ All tests PASSED\n";
-            return 0;
-        }
-        else
-        {
-            std::cout << "\n❌ Some tests FAILED\n";
-            return 1;
-        }
-    }
-    else
+    if (totalGroups <= 0)
     {
         std::cout << "⚠️  No tests were run\n";
         return 1;
     }
+
+    for (const auto& block : failureBlocks)
+        std::cout << block << "\n";
+
+    std::cout << "\nTotal test groups: " << totalGroups << "\n";
+    std::cout << "Total assertions: "    << (totalPasses + totalFailures) << "\n";
+    std::cout << "Passed: "               << totalPasses   << "\n";
+    std::cout << "Failed: "               << totalFailures << "\n";
+
+    if (totalFailures == 0)
+    {
+        std::cout << "\n✅ All tests PASSED\n";
+        return 0;
+    }
+
+    std::cout << "\n❌ Some tests FAILED\n";
+    return 1;
 }
