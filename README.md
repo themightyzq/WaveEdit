@@ -153,9 +153,9 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Import/export custom templates
 
 **Quality**:
-- ✅ Automated test suite (308 groups / ~184,700 assertions locally;
-  CI runs 278 groups / ~182,470 with 6 device-dependent groups skipped,
-  100% pass rate as of 2026-04-29). Runs locally via
+- ✅ Automated test suite (320 groups / ~184,800 assertions locally;
+  CI runs 290 groups / ~182,500 with 6 device-dependent groups skipped,
+  100% pass rate as of 2026-04-30). Runs locally via
   `./build-and-run.command` and in CI on every push.
 - ✅ Sub-1 second startup, 60fps rendering
 - ✅ <10ms waveform updates, <10ms playback latency
@@ -301,9 +301,9 @@ cmake --build build --target WaveEditTests
 ║         WaveEdit Automated Test Suite by ZQ SFX             ║
 ╚══════════════════════════════════════════════════════════════╝
 
-Total test groups: 308
-Total assertions: 184702
-Passed: 184702
+Total test groups: 320
+Total assertions: 184800
+Passed: 184800
 Failed: 0
 
 ✅ All tests PASSED
@@ -628,5 +628,5 @@ See [LICENSE](LICENSE) for full details.
 
 ---
 
-**Version**: 0.1.0-dev
-**Last Updated**: 2026-04-29
+**Version**: 0.1.0
+**Last Updated**: 2026-04-30
