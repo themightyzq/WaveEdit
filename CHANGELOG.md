@@ -8,6 +8,111 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Plugin Parameter Automation Phase 4**: record plugin parameter
+  changes during playback. New `Plugins → Automation → Arm Automation
+  Recording` toggle. Once armed, lanes whose `isRecording` flag is set
+  capture user-driven knob movements into the AutomationCurve while
+  the transport is playing; the existing Phase 3 playback path then
+  reproduces them on the next pass. Off-thread parameter callbacks
+  are bounced onto the message thread via AsyncUpdater, and rapid
+  knob drags are coalesced by a per-lane debounce (default 20 ms,
+  value-change threshold). Audio thread is untouched — JUCE's plain
+  `setValue()` doesn't notify listeners, so playback can't feed back
+  into recording.
+- **Plugin Parameter Automation Phase 6**: per-document persistence
+  of automation lanes via `<file>.<ext>.automation.json` sidecar
+  next to the audio file (mirrors the existing region/marker sidecar
+  pattern). Recorded automation now survives between sessions.
+  Document::saveToFile / openFile call the round-trip; empty managers
+  skip writing so we don't litter the disk for un-automated files.
+
+### Changed
+- 9 new unit tests for the automation recorder (gating, debounce,
+  dispatcher lifecycle, reorder rebinding, sidecar round-trip).
+  Total test count: 308 → 320 groups locally / 290 in CI.
+
+---
+
+## [0.1.0] - 2026-04-29
+
+First tagged release. Pre-built binaries for macOS, Windows, and
+Linux are published to the
+[Releases page](https://github.com/themightyzq/WaveEdit/releases/tag/v0.1.0)
+by the CI release workflow. Binaries are unsigned; the README
+documents the first-run workaround for Gatekeeper / SmartScreen.
+
+### Added
+- **Tagged release publishing**: pushing a `v*` tag now triggers a
+  GitHub Actions job that downloads the macOS / Windows / Linux
+  build artifacts and publishes them as a Release with first-run
+  instructions in the body.
+- **Application log file**: `juce::FileLogger` writes
+  `juce::Logger::writeToLog()` traffic to
+  `~/Library/Logs/WaveEdit/WaveEdit.log` (macOS),
+  `%APPDATA%\WaveEdit\WaveEdit.log` (Windows), and
+  `~/.config/WaveEdit/WaveEdit.log` (Linux). Path documented in
+  README §Configuration.
+- **Crash backtrace capture**: on a fatal signal,
+  `juce::SystemStats::setApplicationCrashHandler` writes a single
+  timestamped record (time, version, OS, CPU, full stack
+  backtrace) to `~/Library/Logs/WaveEdit/crashes/`. Complements the
+  OS crash dialog rather than replacing it.
+- **CLI flags**: `--help` and `--version` (and short forms `-h` /
+  `-v`) print and exit before any GUI initialization.
+- **Status bar**: "No file loaded — Press Cmd+O…" hint now uses
+  `Cmd` on macOS and `Ctrl` elsewhere.
+- **README ⇆ keymap drift CI test**:
+  `.github/scripts/check_readme_keymap.py` runs on every push and
+  fails the build if `README.md`'s shortcut table disagrees with
+  `Templates/Keymaps/Default.json`.
+- **README §Screenshots**: main window with selection, Region List
+  panel, 3-Band Parametric EQ, Spectrum Analyzer, Batch Processor.
+
+### Changed
+- **macOS user state consolidated under one folder.** Pre-2026-04-29
+  builds wrote `settings.json` and the plugin scan cache into
+  `~/Library/WaveEdit/` while keymaps / toolbars / batch presets
+  lived under `~/Library/Application Support/WaveEdit/`. New builds
+  use the canonical Application Support path for everything.
+  `Settings::migrateLegacySettingsIfNeeded()` runs once on first
+  launch under the new build, copies anything from the legacy
+  directory into the new one, and leaves the legacy folder in
+  place as a backup. The migration is logged so users can confirm
+  before deleting the old directory by hand.
+- **Default keymap**: `editSilence` rebound from plain `S` to
+  `Shift+Alt+S` (no longer destructive without a modifier).
+  `fileBatchProcessor` assigned `Cmd+B` (was colliding with
+  `fileEditBWFMetadata` on `Cmd+Alt+B`).
+- **README §Keyboard Shortcuts** rebuilt from the keymap JSON. Nine
+  documented shortcuts were silently wrong (e.g., `Cmd+G` was
+  documented as Go-To-Position but actually runs Normalize); they
+  now match the actual bindings, and the new CI doc-test prevents
+  the table from drifting out of sync again.
+- **README §Configuration** rewritten to describe the actual
+  on-disk layout per platform, document the macOS migration, list
+  the application log + crash-report paths, and include a complete
+  uninstall block.
+- **README §Installation** points at GitHub Releases instead of
+  Actions artifacts; documents Gatekeeper / SmartScreen first-run
+  workaround for the unsigned binaries.
+- **NOTICE** updated with full attribution for bundled LAME
+  (LGPL-2.1), libFLAC, libvorbis, and the Steinberg VST3 SDK.
+- **`build-and-run.command`** now skips the interactive launch
+  prompt when stdin isn't a TTY, when `CI` is set, or when
+  `WAVEEDIT_NONINTERACTIVE=1`.
+- **Source comments and identifiers**: `WaveEdit Classic` keymap
+  references removed from `KeymapManager.h` (only Default / Sound
+  Forge / Pro Tools ship). Settings.cpp / Settings.h doc comments
+  match the runtime path.
+
+### Fixed
+- **README install instruction** `cd waveedit` (lowercase) →
+  `cd WaveEdit` so it works on case-sensitive filesystems.
+- **`unused variable 'wasPlaying'` warning** in
+  `Utils/UndoActions/AudioUndoActions.h` (debug-only locals are now
+  `[[maybe_unused]]`).
+
 ### Changed (architecture round 3)
 - **Main.cpp now satisfies CLAUDE.md §8.1 size rule.** Extracted
   `MainComponent`, `SelectionInfoPanel`, and `CallbackDocumentWindow`
