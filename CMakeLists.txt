@@ -74,6 +74,7 @@ target_sources(WaveEdit
         Source/DSP/LoopEngine.h
         Source/Commands/CommandIDs.h
         Source/Commands/CommandHandler.cpp
+        Source/Commands/CommandHandler_GetInfo.cpp
         Source/Commands/CommandHandler.h
         Source/Commands/MenuBuilder.cpp
         Source/Commands/MenuBuilder.h
@@ -671,6 +672,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/DSP/LoopEngine.h
         Source/Commands/CommandIDs.h
         Source/Commands/CommandHandler.cpp
+        Source/Commands/CommandHandler_GetInfo.cpp
         Source/Commands/CommandHandler.h
         Source/Commands/MenuBuilder.cpp
         Source/Commands/MenuBuilder.h
