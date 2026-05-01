@@ -9,6 +9,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **PluginManager split for §7.5 file-size cap.** `Plugins/
+  PluginManager.cpp` (1,763 lines → over the 1,500 cap) is now 1,285
+  lines plus a new 497-line `PluginManager_Persistence.cpp` hosting
+  every disk-touching method: the plugin-list XML cache (`saveCache`,
+  `loadCache`, `clearCache`, `getPluginCacheFile`), the blacklist
+  text file (`saveBlacklist`, `loadBlacklist`, `addToBlacklist`,
+  `removeFromBlacklist`, `isBlacklisted`, `getBlacklist`,
+  `clearBlacklist`, `getBlacklistFile`), the custom-search-path
+  text file (`get/setCustomSearchPaths`, `save/loadCustomSearchPaths`,
+  `getCustomPathsFile`), the incremental-cache XML
+  (`save/loadIncrementalCache`, `getIncrementalCacheFile`), the
+  crash-notification queue (`getAndClearNewlyBlacklistedPlugins`,
+  `hasNewlyBlacklistedPlugins`), and the default-blacklist seeding
+  stub. Scanning thread, plugin-instance creation, and
+  search/discovery APIs all stay in the main file. No behaviour
+  changes; all 372 test groups still pass.
+
 - **AudioEngine split for §7.5 file-size cap.** `Audio/AudioEngine.cpp`
   (1,537 lines → over the 1,500 cap) is now 1,226 lines plus a new
   336-line `AudioEngine_Preview.cpp` hosting the preview-system

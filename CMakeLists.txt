@@ -227,6 +227,7 @@ target_sources(WaveEdit
         Source/UI/ThemeManager.cpp
         Source/UI/ThemeManager.h
         Source/Plugins/PluginManager.cpp
+        Source/Plugins/PluginManager_Persistence.cpp
         Source/Plugins/PluginManager.h
         Source/Plugins/PluginChain.cpp
         Source/Plugins/PluginChain.h
@@ -803,6 +804,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/ThemeManager.cpp
         Source/UI/ThemeManager.h
         Source/Plugins/PluginManager.cpp
+        Source/Plugins/PluginManager_Persistence.cpp
         Source/Plugins/PluginManager.h
         Source/Plugins/PluginChain.cpp
         Source/Plugins/PluginChain.h
