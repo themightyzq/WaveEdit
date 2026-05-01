@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **DSPController split for §7.5 file-size cap.** `Controllers/
+  DSPController.cpp` (1,602 lines → over the 1,500 cap) is now split
+  into `DSPController.cpp` (1,297 lines: core + simple level
+  operations — gain, normalize, fade, DC offset, silence, reverse,
+  invert, trim) and a new `DSPController_Advanced.cpp` (1,061 lines:
+  EQ dialogs, channel converter / extractor, plugin chain + offline
+  plugin application, head & tail, looping tools, resample,
+  time-stretch, pitch-shift). Both files are well under the cap. No
+  behavior changes; all 372 test groups still pass.
+
 ### Added
 - **Color theme system — Phase 3 (full coverage + High Contrast +
   custom JSON themes).** All remaining UI surfaces now route through

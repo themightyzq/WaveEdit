@@ -357,10 +357,12 @@ work top-down.
   - `.cpp` >1,500: `WaveformDisplay.cpp` 2,574,
     `BatchProcessorDialog.cpp` 2,465, `UCSCategorySuggester.cpp` 1,827,
     `Commands/CommandHandler.cpp` 1,806 (gained the `perform()`
-    switch), `PluginManager.cpp` 1,763, `Controllers/DSPController.cpp`
-    1,602, `Audio/AudioEngine.cpp` 1,542, `UI/GraphicalEQEditor.cpp`
-    1,521. (`UCSCategorySuggester_generated.cpp` is auto-generated
-    — exempt.)
+    switch), `PluginManager.cpp` 1,763, `Audio/AudioEngine.cpp` 1,542,
+    `UI/GraphicalEQEditor.cpp` 1,521.
+    (`Controllers/DSPController.cpp` was 1,602 → split 2026-05-01:
+    1,297-line core + 1,061-line `DSPController_Advanced.cpp` for EQ /
+    channel / plugin / head-tail / loop / time-pitch / resample.)
+    (`UCSCategorySuggester_generated.cpp` is auto-generated — exempt.)
   - `.h` >500: `MainComponent.h` 1,959, `Audio/AudioEngine.h` 989,
     `UI/WaveformDisplay.h` 748, `Utils/AudioUnits.h` 530.
     (`AudioUndoActions.h` and `RegionUndoActions.h` were split into
