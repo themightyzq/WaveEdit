@@ -9,6 +9,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **WaveformDisplay split for §7.5 file-size cap.** `UI/
+  WaveformDisplay.cpp` (2,799 lines → 1,300 over the 1,500 cap) is
+  now 1,277 lines plus two new sibling files:
+    - `WaveformDisplay_Render.cpp` (631 lines): the paint pipeline —
+      `paint`, `resized`, and every `drawXxx` helper (time ruler,
+      channel waveforms, selection box, playback / preview / edit
+      cursors, region overlays).
+    - `WaveformDisplay_Interact.cpp` (945 lines): the user-input
+      surface — `mouseDown / Drag / Up / DoubleClick / WheelMove`,
+      the zoom primitives (`zoomIn / Out / Fit / Selection /
+      OneToOne / ToRegion`, `getZoomPercentage`), and the navigation
+      primitives (`navigateLeft / Right / ToStart / ToEnd /
+      PageLeft / PageRight / ToVisibleStart / ToVisibleEnd`,
+      `centerViewOnCursor`, `setVisibleRange`).
+  The main file keeps state, lifecycle (`loadFile`,
+  `reloadFromBuffer`, `clear`), selection / focus / edit-cursor
+  setters, snap helpers, callbacks (`timerCallback`,
+  `changeListenerCallback`, `scrollBarMoved`), coordinate helpers
+  (`timeToX`, `xToTime`, `updateScrollbar`), the channel context
+  menu, and the per-channel waveform-colour overrides. No behaviour
+  changes; all 372 test groups still pass.
+
+  This closes the `.cpp` half of CLAUDE.md §7.5 — every hand-written
+  source file is now under the 1,500-line cap.
+
 - **BatchProcessorDialog split for §7.5 file-size cap.** `Batch/
   BatchProcessorDialog.cpp` (2,465 lines → ~1,000 over the 1,500 cap)
   is now 1,477 lines plus two new sibling files:

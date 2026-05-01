@@ -354,8 +354,12 @@ work top-down.
 - 9 controllers: File, DSP, Region, Marker, Clipboard, Playback,
   Recording, Dialog, Plugin. ✅
 - Remaining file-size violations (CLAUDE.md §7.5):
-  - `.cpp` >1,500: `WaveformDisplay.cpp` 2,799.
+  - `.cpp` >1,500: none.
     Recently brought under cap (2026-05-01):
+      - `UI/WaveformDisplay.cpp` 2,799 → 1,277 + 631-line
+        `WaveformDisplay_Render.cpp` (paint + every drawXxx helper)
+        + 945-line `WaveformDisplay_Interact.cpp` (mouse, zoom,
+        navigate primitives).
       - `Batch/BatchProcessorDialog.cpp` 2,465 → 1,477 + 806-line
         `BatchProcessorDialog_Components.cpp` (DSPOperationComponent +
         DSPChainPanel + FileListModel) + 235-line
