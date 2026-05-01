@@ -41,6 +41,9 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Install dependencies
+        run: brew install sound-touch
+
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
@@ -98,13 +101,24 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Install dependencies (vcpkg)
+        shell: bash
+        run: |
+          # vcpkg is preinstalled on windows-latest at C:/vcpkg.
+          # Install SoundTouch (LGPL-2.1) — required for time-stretch / pitch-shift.
+          vcpkg install soundtouch:x64-windows
+
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: '3.22.x'
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build
         run: cmake --build build --config Release --parallel 2
@@ -176,7 +190,8 @@ jobs:
             libxrender-dev \
             libwebkit2gtk-4.1-dev \
             libglu1-mesa-dev \
-            mesa-common-dev
+            mesa-common-dev \
+            libsoundtouch-dev
 
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2

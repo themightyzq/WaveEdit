@@ -478,6 +478,8 @@ find_path(SOUNDTOUCH_INCLUDE_DIR
         /usr/local/Cellar/sound-touch/*/include/soundtouch
         /opt/local/include/soundtouch
         /usr/include/soundtouch
+    # vcpkg + other prefix-style installs put headers under <prefix>/include/soundtouch.
+    PATH_SUFFIXES soundtouch
 )
 
 if(SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR)
@@ -497,11 +499,26 @@ if(SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR)
             COMMENT "Bundling SoundTouch library"
         )
     elseif(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Release")
-        add_custom_command(TARGET WaveEdit POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy
-                "${SOUNDTOUCH_LIBRARY}"
-                "$<TARGET_FILE_DIR:WaveEdit>"
-            COMMENT "Bundling SoundTouch library")
+        # On Windows, SOUNDTOUCH_LIBRARY is the import library (.lib); the
+        # runtime needs the .dll alongside the .exe. Locate the DLL the same
+        # way (vcpkg lays it out under <prefix>/bin).
+        find_file(SOUNDTOUCH_DLL
+            NAMES SoundTouch.dll
+            PATHS
+                "${SOUNDTOUCH_INCLUDE_DIR}/../../bin"
+                "$ENV{VCPKG_INSTALLATION_ROOT}/installed/x64-windows/bin"
+                "C:/vcpkg/installed/x64-windows/bin"
+        )
+        if(SOUNDTOUCH_DLL)
+            message(STATUS "Found SoundTouch DLL: ${SOUNDTOUCH_DLL}")
+            add_custom_command(TARGET WaveEdit POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy
+                    "${SOUNDTOUCH_DLL}"
+                    "$<TARGET_FILE_DIR:WaveEdit>"
+                COMMENT "Bundling SoundTouch DLL")
+        else()
+            message(WARNING "SoundTouch.dll not found — runtime will need it on PATH")
+        endif()
     elseif(UNIX AND CMAKE_BUILD_TYPE STREQUAL "Release")
         add_custom_command(TARGET WaveEdit POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy
