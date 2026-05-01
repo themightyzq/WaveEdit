@@ -30,6 +30,7 @@ target_sources(WaveEdit
         Source/Controllers/FileController.cpp
         Source/Controllers/FileController.h
         Source/Controllers/DSPController.cpp
+        Source/Controllers/DSPController_Advanced.cpp
         Source/Controllers/DSPController.h
         Source/Controllers/RegionController.cpp
         Source/Controllers/RegionController.h
@@ -611,6 +612,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Controllers/FileController.cpp
         Source/Controllers/FileController.h
         Source/Controllers/DSPController.cpp
+        Source/Controllers/DSPController_Advanced.cpp
         Source/Controllers/DSPController.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioEngine.h
