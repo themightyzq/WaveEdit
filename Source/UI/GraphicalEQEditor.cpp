@@ -15,6 +15,7 @@
 
 #include "GraphicalEQEditor.h"
 #include "../Audio/AudioEngine.h"
+#include "ThemeManager.h"
 #include <cmath>
 #include <iostream>
 
@@ -211,7 +212,7 @@ std::optional<DynamicParametricEQ::Parameters> GraphicalEQEditor::showDialog(
     juce::DialogWindow::LaunchOptions options;
     options.content.setNonOwned(&editor);
     options.dialogTitle = "Graphical Parametric EQ (20-Band)";
-    options.dialogBackgroundColour = juce::Colour(0xff2d2d2d);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = false;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -247,7 +248,7 @@ void GraphicalEQEditor::setAudioEngine(AudioEngine* audioEngine)
 
 void GraphicalEQEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1e1e1e));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().waveformBackground);
 
     // Calculate visualization bounds (reserve space for preset controls, axis labels, and buttons)
     // Must match the layout in resized()
@@ -744,7 +745,11 @@ void GraphicalEQEditor::drawControlPoints(juce::Graphics& g, juce::Rectangle<flo
 
 void GraphicalEQEditor::drawGrid(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    g.setColour(juce::Colour(0xff3d3d3d));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    const auto gridColour  = theme.gridLine;
+    const auto labelColour = theme.textMuted;
+
+    g.setColour(gridColour);
 
     // Draw frequency grid lines (logarithmic)
     const std::array<float, 10> frequencies = {20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000};
@@ -758,11 +763,11 @@ void GraphicalEQEditor::drawGrid(juce::Graphics& g, juce::Rectangle<float> bound
             // Draw frequency label
             juce::String label = freq < 1000 ? juce::String(static_cast<int>(freq)) + " Hz"
                                              : juce::String(static_cast<int>(freq / 1000)) + "k";
-            g.setColour(juce::Colours::grey);
+            g.setColour(labelColour);
             g.setFont(10.0f);
             g.drawText(label, static_cast<int>(x) - 20, static_cast<int>(bounds.getBottom()) + 2, 40, 16,
                       juce::Justification::centred);
-            g.setColour(juce::Colour(0xff3d3d3d));
+            g.setColour(gridColour);
         }
     }
 
@@ -773,16 +778,16 @@ void GraphicalEQEditor::drawGrid(juce::Graphics& g, juce::Rectangle<float> bound
         g.drawLine(bounds.getX(), y, bounds.getRight(), y, 1.0f);
 
         // Draw gain label
-        g.setColour(juce::Colours::grey);
+        g.setColour(labelColour);
         g.setFont(10.0f);
         g.drawText(juce::String(static_cast<int>(gainDB)) + " dB",
                   static_cast<int>(bounds.getX()) - 45, static_cast<int>(y) - 8, 40, 16,
                   juce::Justification::right);
-        g.setColour(juce::Colour(0xff3d3d3d));
+        g.setColour(gridColour);
     }
 
     // Draw 0 dB reference line (highlighted)
-    g.setColour(juce::Colour(0xff6d6d6d));
+    g.setColour(theme.ruler);
     float zeroY = gainToY(0.0f, bounds);
     g.drawLine(bounds.getX(), zeroY, bounds.getRight(), zeroY, 2.0f);
 }

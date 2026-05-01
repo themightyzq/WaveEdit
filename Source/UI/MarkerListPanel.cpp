@@ -22,6 +22,8 @@
 */
 
 #include "MarkerListPanel.h"
+#include "ThemeManager.h"
+#include <juce_gui_extra/juce_gui_extra.h>
 
 //==============================================================================
 // NameEditor implementation
@@ -52,18 +54,34 @@ MarkerListPanel::MarkerListPanel(MarkerManager* markerManager, double sampleRate
 {
     // Set up search box
     m_searchLabel.setText("Search:", juce::dontSendNotification);
-    m_searchLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_searchLabel.setColour(juce::Label::textColourId, textColour());
     addAndMakeVisible(m_searchLabel);
 
     m_searchBox.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_searchBox.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_searchBox.setColour(juce::TextEditor::textColourId, textColour());
     m_searchBox.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff3a3a3a));
     m_searchBox.addListener(this);
     addAndMakeVisible(m_searchBox);
 
+    m_exportButton.setButtonText("Export...");
+    m_exportButton.setTooltip("Export this document's markers to a JSON file");
+    m_exportButton.onClick = [this]()
+    {
+        if (m_listener) m_listener->markerListPanelExportRequested();
+    };
+    addAndMakeVisible(m_exportButton);
+
+    m_importButton.setButtonText("Import...");
+    m_importButton.setTooltip("Import markers from a JSON file (appended to current markers)");
+    m_importButton.onClick = [this]()
+    {
+        if (m_listener) m_listener->markerListPanelImportRequested();
+    };
+    addAndMakeVisible(m_importButton);
+
     // Set up table
-    m_table.setColour(juce::ListBox::backgroundColourId, m_backgroundColour);
-    m_table.setColour(juce::ListBox::textColourId, m_textColour);
+    m_table.setColour(juce::ListBox::backgroundColourId, backgroundColour());
+    m_table.setColour(juce::ListBox::textColourId, textColour());
     m_table.setColour(juce::ListBox::outlineColourId, juce::Colour(0xff3a3a3a));
     m_table.setOutlineThickness(1);
     m_table.setRowHeight(m_rowHeight);
@@ -77,7 +95,7 @@ MarkerListPanel::MarkerListPanel(MarkerManager* markerManager, double sampleRate
     header.addColumn("Name", NameColumn, 200, 100, 400);
     header.addColumn("Position", PositionColumn, 150, 100, 250);
 
-    header.setColour(juce::TableHeaderComponent::textColourId, m_textColour);
+    header.setColour(juce::TableHeaderComponent::textColourId, textColour());
     header.setColour(juce::TableHeaderComponent::backgroundColourId, juce::Colour(0xff2a2a2a));
     header.setColour(juce::TableHeaderComponent::highlightColourId, juce::Colour(0xff3a3a3a));
 
@@ -95,11 +113,44 @@ MarkerListPanel::MarkerListPanel(MarkerManager* markerManager, double sampleRate
 
     // Start timer for periodic refresh (in case markers change externally)
     startTimer(500);
+
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
 }
 
 MarkerListPanel::~MarkerListPanel()
 {
     stopTimer();
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
+}
+
+//==============================================================================
+// Theme integration
+//==============================================================================
+
+juce::Colour MarkerListPanel::backgroundColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().background;
+}
+
+juce::Colour MarkerListPanel::alternateRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().panelAlternate;
+}
+
+juce::Colour MarkerListPanel::selectedRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().border;
+}
+
+juce::Colour MarkerListPanel::textColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().text;
+}
+
+void MarkerListPanel::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+        repaint();
 }
 
 void MarkerListPanel::setListener(Listener* listener)
@@ -209,7 +260,7 @@ juce::DocumentWindow* MarkerListPanel::showInWindow(bool modal)
 
 void MarkerListPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(m_backgroundColour);
+    g.fillAll(backgroundColour());
 }
 
 void MarkerListPanel::resized()
@@ -219,6 +270,10 @@ void MarkerListPanel::resized()
     // Search box at top
     auto searchArea = bounds.removeFromTop(30).reduced(5);
     m_searchLabel.setBounds(searchArea.removeFromLeft(60));
+    m_importButton.setBounds(searchArea.removeFromRight(80));
+    searchArea.removeFromRight(4);
+    m_exportButton.setBounds(searchArea.removeFromRight(80));
+    searchArea.removeFromRight(4);
     m_searchBox.setBounds(searchArea);
 
     // Table takes remaining space
@@ -251,11 +306,11 @@ void MarkerListPanel::paintRowBackground(juce::Graphics& g, int rowNumber, int w
 {
     if (rowIsSelected)
     {
-        g.fillAll(m_selectedRowColour);
+        g.fillAll(selectedRowColour());
     }
     else if (rowNumber % 2 == 0)
     {
-        g.fillAll(m_alternateRowColour);
+        g.fillAll(alternateRowColour());
     }
 }
 
@@ -271,7 +326,7 @@ void MarkerListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
     if (!marker)
         return;
 
-    g.setColour(m_textColour);
+    g.setColour(textColour());
 
     switch (columnId)
     {
@@ -317,10 +372,11 @@ void MarkerListPanel::cellClicked(int rowNumber, int columnId, const juce::Mouse
     if (rowNumber < 0 || rowNumber >= m_filteredMarkers.size())
         return;
 
+    int originalIndex = m_filteredMarkers[rowNumber].originalIndex;
+
     // Notify listener of selection
     if (m_listener)
     {
-        int originalIndex = m_filteredMarkers[rowNumber].originalIndex;
         m_listener->markerListPanelMarkerSelected(originalIndex);
     }
 
@@ -328,6 +384,50 @@ void MarkerListPanel::cellClicked(int rowNumber, int columnId, const juce::Mouse
     if (columnId == NameColumn)
     {
         startEditingName(rowNumber);
+    }
+
+    // Color column: open a colour picker as a CallOutBox.
+    if (columnId == ColorColumn)
+    {
+        const auto* marker = m_markerManager != nullptr ? m_markerManager->getMarker(originalIndex)
+                                                         : nullptr;
+        if (marker == nullptr) return;
+        const auto currentColor = marker->getColor();
+
+        // CallOutBox-hosted picker. Wrapper owns the selector via
+        // unique_ptr so lifetime is correct when the CallOutBox closes.
+        struct PickerWrapper : public juce::Component, private juce::ChangeListener
+        {
+            PickerWrapper(MarkerListPanel& ownerIn, int idxIn, juce::Colour startColor)
+                : owner(ownerIn), idx(idxIn), starting(startColor),
+                  m_sel(juce::ColourSelector::showColourAtTop
+                        | juce::ColourSelector::showSliders
+                        | juce::ColourSelector::showColourspace)
+            {
+                m_sel.setCurrentColour(startColor, juce::dontSendNotification);
+                m_sel.addChangeListener(this);
+                addAndMakeVisible(m_sel);
+                setSize(300, 280);
+            }
+            ~PickerWrapper() override { m_sel.removeChangeListener(this); }
+            void resized() override { m_sel.setBounds(getLocalBounds()); }
+            void changeListenerCallback(juce::ChangeBroadcaster*) override
+            {
+                const auto c = m_sel.getCurrentColour();
+                if (c != starting && owner.m_listener != nullptr)
+                    owner.m_listener->markerListPanelMarkerColorChanged(idx, c);
+            }
+            MarkerListPanel& owner;
+            int idx;
+            juce::Colour starting;
+            juce::ColourSelector m_sel;
+        };
+
+        auto wrapper = std::make_unique<PickerWrapper>(*this, originalIndex, currentColor);
+        const auto cellBounds = m_table.getScreenBounds();
+        juce::CallOutBox::launchAsynchronously(std::move(wrapper),
+                                                cellBounds.withSize(40, 28),
+                                                nullptr);
     }
 }
 

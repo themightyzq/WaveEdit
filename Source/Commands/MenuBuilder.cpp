@@ -222,6 +222,8 @@ juce::PopupMenu MenuBuilder::getMenuForIndex(int menuIndex,
         menu.addCommandItem(context.commandManager, CommandIDs::processReverse);
         menu.addCommandItem(context.commandManager, CommandIDs::processInvert);
         menu.addCommandItem(context.commandManager, CommandIDs::processResample);
+        menu.addCommandItem(context.commandManager, CommandIDs::processTimeStretch);
+        menu.addCommandItem(context.commandManager, CommandIDs::processPitchShift);
     }
     else if (menuIndex == 6) // Plugins menu (VST3/AU plugin chain)
     {
@@ -231,9 +233,10 @@ juce::PopupMenu MenuBuilder::getMenuForIndex(int menuIndex,
         menu.addCommandItem(context.commandManager, CommandIDs::pluginApplyChain);
         menu.addCommandItem(context.commandManager, CommandIDs::pluginBypassAll);
 
-        // --- Automation (Phase 4) ---
+        // --- Automation (Phase 4 + 5) ---
         menu.addSectionHeader("Automation");
         menu.addCommandItem(context.commandManager, CommandIDs::automationToggleRecordArm);
+        menu.addCommandItem(context.commandManager, CommandIDs::pluginShowAutomationLanes);
 
         // --- Offline Processing ---
         menu.addSectionHeader("Offline Processing");

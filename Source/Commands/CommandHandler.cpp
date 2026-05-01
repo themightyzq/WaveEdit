@@ -131,6 +131,8 @@ void CommandHandler::getAllCommands(juce::Array<juce::CommandID>& commands)
         CommandIDs::processReverse,
         CommandIDs::processInvert,
         CommandIDs::processResample,
+        CommandIDs::processTimeStretch,
+        CommandIDs::processPitchShift,
         // Tools commands
         CommandIDs::toolsChannelConverter,
         CommandIDs::toolsChannelExtractor,
@@ -173,6 +175,7 @@ void CommandHandler::getAllCommands(juce::Array<juce::CommandID>& commands)
         CommandIDs::pluginOffline,
         CommandIDs::pluginBypassAll,
         CommandIDs::automationToggleRecordArm,
+        CommandIDs::pluginShowAutomationLanes,
         CommandIDs::pluginRescan,
         CommandIDs::pluginShowSettings,
         CommandIDs::pluginClearCache,
@@ -860,6 +863,24 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
+            case CommandIDs::processTimeStretch:
+                result.setInfo("Time Stretch...",
+                               "Stretch or compress tempo without changing pitch (SoundTouch)",
+                               "Process", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::processPitchShift:
+                result.setInfo("Pitch Shift...",
+                               "Shift pitch without changing length (SoundTouch)",
+                               "Process", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
             // Region commands (Phase 3 Tier 2)
             case CommandIDs::regionAdd:
                 result.setInfo("Add Region", "Create region from current selection", "Region", 0);
@@ -1122,6 +1143,18 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 result.setActive(doc && doc->getAutomationManager().getRecorder() != nullptr);
                 result.setTicked(doc && doc->getAutomationManager().getRecorder() != nullptr
                                  && doc->getAutomationManager().getRecorder()->isGlobalArmed());
+                break;
+
+            case CommandIDs::pluginShowAutomationLanes:
+                result.setInfo("Show Automation Lanes",
+                               "Show the automation lanes panel for this file",
+                               "Plugins", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                else
+                    result.addDefaultKeypress('l',
+                        juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
             case CommandIDs::pluginRescan:
@@ -1744,6 +1777,16 @@ bool CommandHandler::performCommand(MainComponent& mc,
             mc.m_dspController.showResampleDialog(doc, &mc);
             return true;
 
+        case CommandIDs::processTimeStretch:
+            if (!doc) return false;
+            mc.m_dspController.showTimeStretchDialog(doc, &mc);
+            return true;
+
+        case CommandIDs::processPitchShift:
+            if (!doc) return false;
+            mc.m_dspController.showPitchShiftDialog(doc, &mc);
+            return true;
+
         case CommandIDs::editSilence:
             if (!doc) return false;
             mc.m_dspController.silenceSelection(doc);
@@ -1793,6 +1836,11 @@ bool CommandHandler::performCommand(MainComponent& mc,
             if (!doc) return false;
             if (auto* rec = doc->getAutomationManager().getRecorder())
                 rec->toggleGlobalArm();
+            return true;
+
+        case CommandIDs::pluginShowAutomationLanes:
+            if (!doc) return false;
+            mc.showAutomationLanesPanel();
             return true;
 
         case CommandIDs::pluginRescan:

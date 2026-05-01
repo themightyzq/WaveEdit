@@ -21,6 +21,7 @@
 class Document;
 class ChainWindowListener;
 class DSPController;
+class AutomationLanesPanel;
 
 class PluginController
 {
@@ -54,6 +55,24 @@ public:
     /** Drop all tracked listeners (e.g. on application shutdown). */
     void clearListeners();
 
+    //==========================================================================
+    // Plugin Parameter Automation — Phase 5
+
+    /**
+     * Open the Automation Lanes panel for the document. If already open,
+     * brings it to front. Optionally scrolls to a specific lane after
+     * opening (pass -1 / -1 to skip the scroll).
+     */
+    void showAutomationLanesPanel(Document* currentDoc,
+                                  juce::ApplicationCommandManager& commandManager,
+                                  int scrollToPluginIndex = -1,
+                                  int scrollToParameterIndex = -1);
+
 private:
     juce::OwnedArray<ChainWindowListener> m_listeners;
+
+    // Tracks the currently-open Automation Lanes window (if any). When the
+    // user closes the window it deletes itself, so this auto-clears.
+    juce::Component::SafePointer<juce::DocumentWindow> m_automationLanesWindow;
+    juce::Component::SafePointer<AutomationLanesPanel> m_automationLanesPanel;
 };

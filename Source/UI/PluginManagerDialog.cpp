@@ -14,6 +14,27 @@
 */
 
 #include "PluginManagerDialog.h"
+#include "ThemeManager.h"
+
+juce::Colour PluginManagerDialog::backgroundColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().panel;
+}
+
+juce::Colour PluginManagerDialog::alternateRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().panelAlternate;
+}
+
+juce::Colour PluginManagerDialog::selectedRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().selection;
+}
+
+juce::Colour PluginManagerDialog::textColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().text;
+}
 
 //==============================================================================
 PluginManagerDialog::PluginManagerDialog()
@@ -53,7 +74,7 @@ PluginManagerDialog::PluginManagerDialog()
 
     // Plugin table
     m_table.setModel(this);
-    m_table.setColour(juce::ListBox::backgroundColourId, m_backgroundColour);
+    m_table.setColour(juce::ListBox::backgroundColourId, backgroundColour());
     m_table.setRowHeight(m_rowHeight);
     m_table.setMultipleSelectionEnabled(false);
     m_table.getHeader().setStretchToFitActive(true);
@@ -103,8 +124,10 @@ PluginManagerDialog::PluginManagerDialog()
     m_scanStatusLabel.setText("", juce::dontSendNotification);
     addAndMakeVisible(m_scanStatusLabel);
 
-    m_scanProgressBar.setColour(juce::ProgressBar::backgroundColourId, juce::Colour(0xff333333));
-    m_scanProgressBar.setColour(juce::ProgressBar::foregroundColourId, juce::Colour(0xff4a9eff));
+    m_scanProgressBar.setColour(juce::ProgressBar::backgroundColourId,
+        waveedit::ThemeManager::getInstance().getCurrent().panelAlternate);
+    m_scanProgressBar.setColour(juce::ProgressBar::foregroundColourId,
+        waveedit::ThemeManager::getInstance().getCurrent().accent);
     addAndMakeVisible(m_scanProgressBar);
     m_scanProgressBar.setVisible(false);
 
@@ -451,13 +474,13 @@ juce::DocumentWindow* PluginManagerDialog::showInWindow(bool modal)
 //==============================================================================
 void PluginManagerDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(m_backgroundColour);
+    g.fillAll(backgroundColour());
 
     // Draw separator line above info panel
     auto bounds = getLocalBounds();
     int infoPanelY = bounds.getHeight() - 200;
 
-    g.setColour(juce::Colour(0xff444444));
+    g.setColour(waveedit::ThemeManager::getInstance().getCurrent().border);
     g.drawHorizontalLine(infoPanelY, 10.0f, static_cast<float>(bounds.getWidth() - 10));
 }
 
@@ -549,15 +572,15 @@ void PluginManagerDialog::paintRowBackground(juce::Graphics& g, int rowNumber, i
 {
     if (rowIsSelected)
     {
-        g.fillAll(m_selectedRowColour);
+        g.fillAll(selectedRowColour());
     }
     else if (rowNumber % 2 == 1)
     {
-        g.fillAll(m_alternateRowColour);
+        g.fillAll(alternateRowColour());
     }
     else
     {
-        g.fillAll(m_backgroundColour);
+        g.fillAll(backgroundColour());
     }
 }
 
@@ -571,7 +594,7 @@ void PluginManagerDialog::paintCell(juce::Graphics& g, int rowNumber, int column
     if (desc == nullptr)
         return;
 
-    g.setColour(m_textColour);
+    g.setColour(textColour());
     g.setFont(juce::FontOptions(13.0f));
 
     juce::String text;

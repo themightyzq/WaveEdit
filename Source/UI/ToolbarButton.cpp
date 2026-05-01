@@ -15,6 +15,7 @@
 
 #include "ToolbarButton.h"
 #include "../Commands/CommandIDs.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 // Command name to CommandID mapping (mirrors KeymapManager)
@@ -142,10 +143,12 @@ ToolbarButton::~ToolbarButton()
 //==============================================================================
 void ToolbarButton::paint(juce::Graphics& g)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Separators and spacers don't use internal buttons
     if (m_config.type == ToolbarButtonType::SEPARATOR)
     {
-        g.setColour(juce::Colour(0xff4a4a4a));
+        g.setColour(theme.border);
         int xCenter = getWidth() / 2;
         g.drawLine(static_cast<float>(xCenter), 4.0f,
                    static_cast<float>(xCenter), static_cast<float>(getHeight() - 4), 1.0f);
@@ -154,22 +157,17 @@ void ToolbarButton::paint(juce::Graphics& g)
              m_config.type == ToolbarButtonType::PLUGIN)
     {
         // Draw hover/pressed background for command and plugin buttons
-        // Using high-contrast colors for accessibility (WCAG AA compliance)
         if (m_isPressed)
         {
-            // Bright blue pressed color - high visibility
-            g.setColour(juce::Colour(0xff4a90d9));
+            g.setColour(theme.accent);
             g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 4.0f);
         }
         else if (m_isHovered)
         {
-            // High-contrast hover highlight - much more visible than before
-            // Using a lighter gray (#5a5a5a) on dark background (#2D2D30) for 3:1+ contrast ratio
-            g.setColour(juce::Colour(0xff5a5a5a));
+            g.setColour(theme.selection);
             g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 4.0f);
 
-            // Add a subtle border for extra visibility
-            g.setColour(juce::Colour(0xff6a6a6a));
+            g.setColour(theme.focus);
             g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.5f), 4.0f, 1.0f);
         }
     }
@@ -529,7 +527,7 @@ ToolbarSeparator::ToolbarSeparator(int width)
 
 void ToolbarSeparator::paint(juce::Graphics& g)
 {
-    g.setColour(juce::Colour(0xff4a4a4a));
+    g.setColour(waveedit::ThemeManager::getInstance().getCurrent().border);
     int xCenter = getWidth() / 2;
     g.drawLine(static_cast<float>(xCenter), 4.0f,
                static_cast<float>(xCenter), static_cast<float>(getHeight() - 4), 1.0f);

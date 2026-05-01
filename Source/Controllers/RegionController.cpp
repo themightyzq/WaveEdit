@@ -31,6 +31,7 @@
 #include "../UI/StripSilenceDialog.h"
 #include "../UI/BatchExportDialog.h"
 #include "../UI/EditRegionBoundariesDialog.h"
+#include "../UI/ThemeManager.h"
 #include <algorithm>
 
 RegionController::RegionController()
@@ -402,7 +403,7 @@ void RegionController::showStripSilenceDialog(Document* doc, juce::Component* pa
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(dialog);
     options.dialogTitle = "Auto Region";
-    options.dialogBackgroundColour = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;

@@ -16,6 +16,7 @@
 #include "../Plugins/PluginChain.h"
 #include "../UI/PluginManagerDialog.h"
 #include "../UI/PluginChainWindow.h"
+#include "../UI/AutomationLanesPanel.h"
 #include "../UI/ErrorDialog.h"
 
 void PluginController::showPluginManagerDialog(Document* currentDoc)
@@ -68,7 +69,7 @@ void PluginController::showPluginChainPanel(Document* currentDoc,
     }
 
     auto& chain = currentDoc->getAudioEngine().getPluginChain();
-    auto* chainWindow = new PluginChainWindow(&chain);
+    auto* chainWindow = new PluginChainWindow(&chain, &currentDoc->getAutomationManager());
     auto* window = chainWindow->showInWindow(&commandManager);
 
     auto* listener = new ChainWindowListener(
@@ -108,4 +109,41 @@ void PluginController::clearListeners()
     for (auto* listener : m_listeners)
         listener->documentClosed();
     m_listeners.clear();
+}
+
+void PluginController::showAutomationLanesPanel(Document* currentDoc,
+                                                juce::ApplicationCommandManager& commandManager,
+                                                int scrollToPluginIndex,
+                                                int scrollToParameterIndex)
+{
+    if (currentDoc == nullptr)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "Automation Lanes",
+            "Please open an audio file first.",
+            "OK");
+        return;
+    }
+
+    // Existing window? Bring it forward (and rebind to current doc if
+    // it's pointing at a different one).
+    if (m_automationLanesWindow != nullptr && m_automationLanesPanel != nullptr)
+    {
+        m_automationLanesWindow->setVisible(true);
+        m_automationLanesWindow->toFront(true);
+        if (scrollToPluginIndex >= 0 && scrollToParameterIndex >= 0)
+            m_automationLanesPanel->scrollToLane(scrollToPluginIndex, scrollToParameterIndex);
+        return;
+    }
+
+    auto* panel = new AutomationLanesPanel(&currentDoc->getAutomationManager(),
+                                            &currentDoc->getAudioEngine(),
+                                            &currentDoc->getUndoManager());
+    auto* window = panel->showInWindow(&commandManager);
+    m_automationLanesPanel  = panel;
+    m_automationLanesWindow = window;
+
+    if (scrollToPluginIndex >= 0 && scrollToParameterIndex >= 0)
+        panel->scrollToLane(scrollToPluginIndex, scrollToParameterIndex);
 }

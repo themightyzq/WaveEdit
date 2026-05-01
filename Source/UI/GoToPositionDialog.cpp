@@ -14,6 +14,7 @@
 */
 
 #include "GoToPositionDialog.h"
+#include "ThemeManager.h"
 
 namespace
 {
@@ -27,12 +28,18 @@ namespace
     constexpr int EDITOR_HEIGHT = 32;
     constexpr int SPACING = 10;
 
-    // Dark theme colors (matching SettingsPanel and FilePropertiesDialog)
-    const juce::Colour BACKGROUND_COLOR = juce::Colour(0xff2a2a2a);
-    const juce::Colour TEXT_COLOR = juce::Colour(0xffd0d0d0);
-    const juce::Colour ACCENT_COLOR = juce::Colour(0xff4a9eff);
-    const juce::Colour ERROR_COLOR = juce::Colour(0xffff5555);
-    const juce::Colour SUCCESS_COLOR = juce::Colour(0xff55ff55);
+    // Theme-driven colour accessors (resolved at construction time;
+    // dialog is short-lived so live re-skin isn't needed).
+    inline juce::Colour bgFn()
+        { return waveedit::ThemeManager::getInstance().getCurrent().panel; }
+    inline juce::Colour textFn()
+        { return waveedit::ThemeManager::getInstance().getCurrent().text; }
+    inline juce::Colour accentFn()
+        { return waveedit::ThemeManager::getInstance().getCurrent().accent; }
+    inline juce::Colour errorFn()
+        { return waveedit::ThemeManager::getInstance().getCurrent().error; }
+    inline juce::Colour successFn()
+        { return waveedit::ThemeManager::getInstance().getCurrent().success; }
 }
 
 //==============================================================================
@@ -54,20 +61,20 @@ GoToPositionDialog::GoToPositionDialog(AudioUnits::TimeFormat currentFormat,
     // Title label
     m_titleLabel.setText("Go To Position", juce::dontSendNotification);
     m_titleLabel.setFont(juce::Font(20.0f, juce::Font::bold));
-    m_titleLabel.setColour(juce::Label::textColourId, TEXT_COLOR);
+    m_titleLabel.setColour(juce::Label::textColourId, textFn());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
     // Instruction label
     m_instructionLabel.setText("Enter position to jump to:", juce::dontSendNotification);
     m_instructionLabel.setFont(juce::Font(14.0f));
-    m_instructionLabel.setColour(juce::Label::textColourId, TEXT_COLOR);
+    m_instructionLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_instructionLabel);
 
     // Format label ("Format:")
     m_formatLabel.setText("Format:", juce::dontSendNotification);
     m_formatLabel.setFont(juce::Font(14.0f));
-    m_formatLabel.setColour(juce::Label::textColourId, TEXT_COLOR);
+    m_formatLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_formatLabel);
 
     // Format selection ComboBox
@@ -78,8 +85,8 @@ GoToPositionDialog::GoToPositionDialog(AudioUnits::TimeFormat currentFormat,
     m_formatComboBox.setSelectedId(static_cast<int>(m_timeFormat) + 1, juce::dontSendNotification);
     m_formatComboBox.addListener(this);
     m_formatComboBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1a1a1a));
-    m_formatComboBox.setColour(juce::ComboBox::textColourId, TEXT_COLOR);
-    m_formatComboBox.setColour(juce::ComboBox::outlineColourId, ACCENT_COLOR);
+    m_formatComboBox.setColour(juce::ComboBox::textColourId, textFn());
+    m_formatComboBox.setColour(juce::ComboBox::outlineColourId, accentFn());
     addAndMakeVisible(m_formatComboBox);
 
     // Example label
@@ -96,9 +103,9 @@ GoToPositionDialog::GoToPositionDialog(AudioUnits::TimeFormat currentFormat,
     m_positionEditor.setPopupMenuEnabled(true);
     m_positionEditor.setFont(juce::Font(16.0f));
     m_positionEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff1a1a1a));
-    m_positionEditor.setColour(juce::TextEditor::textColourId, TEXT_COLOR);
-    m_positionEditor.setColour(juce::TextEditor::outlineColourId, ACCENT_COLOR);
-    m_positionEditor.setColour(juce::TextEditor::focusedOutlineColourId, ACCENT_COLOR.brighter());
+    m_positionEditor.setColour(juce::TextEditor::textColourId, textFn());
+    m_positionEditor.setColour(juce::TextEditor::outlineColourId, accentFn());
+    m_positionEditor.setColour(juce::TextEditor::focusedOutlineColourId, accentFn().brighter());
     m_positionEditor.addListener(this);
     addAndMakeVisible(m_positionEditor);
 
@@ -132,10 +139,10 @@ GoToPositionDialog::~GoToPositionDialog()
 //==============================================================================
 void GoToPositionDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(BACKGROUND_COLOR);
+    g.fillAll(bgFn());
 
     // Draw border
-    g.setColour(ACCENT_COLOR);
+    g.setColour(accentFn());
     g.drawRect(getLocalBounds(), 2);
 }
 
@@ -332,7 +339,7 @@ void GoToPositionDialog::validateInput()
     {
         // No input yet - neutral state
         m_validationLabel.setText("", juce::dontSendNotification);
-        m_validationLabel.setColour(juce::Label::textColourId, TEXT_COLOR);
+        m_validationLabel.setColour(juce::Label::textColourId, textFn());
         m_goButton.setEnabled(false);
     }
     else if (m_isValid)
@@ -341,14 +348,14 @@ void GoToPositionDialog::validateInput()
         double timeInSeconds = AudioUnits::samplesToSeconds(m_cachedPosition, m_sampleRate);
         juce::String validMsg = juce::String::formatted("✓ Valid position: %.3f seconds", timeInSeconds);
         m_validationLabel.setText(validMsg, juce::dontSendNotification);
-        m_validationLabel.setColour(juce::Label::textColourId, SUCCESS_COLOR);
+        m_validationLabel.setColour(juce::Label::textColourId, successFn());
         m_goButton.setEnabled(true);
     }
     else
     {
         // Invalid input
         m_validationLabel.setText("✗ Invalid format or out of range", juce::dontSendNotification);
-        m_validationLabel.setColour(juce::Label::textColourId, ERROR_COLOR);
+        m_validationLabel.setColour(juce::Label::textColourId, errorFn());
         m_goButton.setEnabled(false);
     }
 

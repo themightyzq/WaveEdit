@@ -230,11 +230,14 @@ private:
 
     // Visual settings
     const int m_rowHeight = 48;
-    const juce::Colour m_backgroundColour { 0xff1e1e1e };
-    const juce::Colour m_alternateRowColour { 0xff252525 };
-    const juce::Colour m_selectedRowColour { 0xff3a3a3a };
-    const juce::Colour m_textColour { 0xffe0e0e0 };
-    const juce::Colour m_accentColour { 0xff4a90d9 };
+
+    // Theme integration
+    juce::Colour backgroundColour() const;
+    juce::Colour alternateRowColour() const;
+    juce::Colour selectedRowColour() const;
+    juce::Colour textColour() const;
+    juce::Colour accentColour() const;
+    void applyThemeColours();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginChainPanel)
 };

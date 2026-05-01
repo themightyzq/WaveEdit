@@ -213,12 +213,12 @@ private:
     static const int kBrowserRowHeight = 22;    // Row height in plugin table
     static const int kDividerWidth = 8;         // Divider between editor and browser
 
-    // Visual settings (match PluginChainWindow)
-    const juce::Colour m_backgroundColour { 0xff2b2b2b };
-    const juce::Colour m_alternateRowColour { 0xff252525 };
-    const juce::Colour m_selectedRowColour { 0xff3a3a3a };
-    const juce::Colour m_textColour { 0xffe0e0e0 };
-    const juce::Colour m_accentColour { 0xff4a90d9 };
+    // Visual settings (theme-driven colour helpers)
+    juce::Colour backgroundColour() const;
+    juce::Colour alternateRowColour() const;
+    juce::Colour selectedRowColour() const;
+    juce::Colour textColour() const;
+    juce::Colour accentColour() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OfflinePluginDialog)
 };

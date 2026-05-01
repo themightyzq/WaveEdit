@@ -23,6 +23,7 @@ constexpr int BUTTON_SPACING = 10;
 #include "SettingsPanel.h"
 #include "Utils/Settings.h"
 #include "Utils/KeymapManager.h"
+#include "UI/ThemeManager.h"
 
 //==============================================================================
 SettingsPanel::SettingsPanel(juce::AudioDeviceManager& deviceManager,
@@ -38,21 +39,23 @@ SettingsPanel::SettingsPanel(juce::AudioDeviceManager& deviceManager,
                                 juce::ColourSelector::showSliders |
                                 juce::ColourSelector::showColourspace)
 {
+    const auto tabColour = waveedit::ThemeManager::getInstance().getCurrent().panelAlternate;
+
     // Create audio settings tab
     auto* audioTab = createAudioSettingsTab();
-    m_tabbedComponent.addTab("Audio", juce::Colour(0xff3a3a3a), audioTab, true);
+    m_tabbedComponent.addTab("Audio", tabColour, audioTab, true);
 
     // Create display settings tab
     auto* displayTab = createDisplaySettingsTab();
-    m_tabbedComponent.addTab("Display", juce::Colour(0xff3a3a3a), displayTab, true);
+    m_tabbedComponent.addTab("Display", tabColour, displayTab, true);
 
     // Create auto-save settings tab
     auto* autoSaveTab = createAutoSaveSettingsTab();
-    m_tabbedComponent.addTab("Auto-Save", juce::Colour(0xff3a3a3a), autoSaveTab, true);
+    m_tabbedComponent.addTab("Auto-Save", tabColour, autoSaveTab, true);
 
     // Create keyboard shortcuts tab
     auto* shortcutsTab = createKeyboardShortcutsTab();
-    m_tabbedComponent.addTab("Keyboard Shortcuts", juce::Colour(0xff3a3a3a), shortcutsTab, true);
+    m_tabbedComponent.addTab("Keyboard Shortcuts", tabColour, shortcutsTab, true);
 
     addAndMakeVisible(m_tabbedComponent);
 
@@ -82,7 +85,7 @@ SettingsPanel::~SettingsPanel()
 //==============================================================================
 void SettingsPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().panel);
 }
 
 void SettingsPanel::resized()
@@ -390,11 +393,21 @@ juce::Component* SettingsPanel::createAudioSettingsTab()
 class DisplaySettingsTab : public juce::Component
 {
 public:
-    DisplaySettingsTab(juce::Label& waveformLabel, juce::ColourSelector& waveformSelector,
+    DisplaySettingsTab(juce::Label& themeLabel, juce::ComboBox& themeCombo,
+                       juce::Label& themeNoteLabel,
+                       juce::TextButton& importButton, juce::TextButton& exportButton,
+                       juce::Label& waveformLabel, juce::ColourSelector& waveformSelector,
                        juce::Label& selectionLabel, juce::ColourSelector& selectionSelector)
-        : m_waveformLabel(waveformLabel), m_waveformSelector(waveformSelector),
+        : m_themeLabel(themeLabel), m_themeCombo(themeCombo), m_themeNote(themeNoteLabel),
+          m_importButton(importButton), m_exportButton(exportButton),
+          m_waveformLabel(waveformLabel), m_waveformSelector(waveformSelector),
           m_selectionLabel(selectionLabel), m_selectionSelector(selectionSelector)
     {
+        addAndMakeVisible(m_themeLabel);
+        addAndMakeVisible(m_themeCombo);
+        addAndMakeVisible(m_themeNote);
+        addAndMakeVisible(m_importButton);
+        addAndMakeVisible(m_exportButton);
         addAndMakeVisible(m_waveformLabel);
         addAndMakeVisible(m_waveformSelector);
         addAndMakeVisible(m_selectionLabel);
@@ -405,20 +418,36 @@ public:
     {
         auto bounds = getLocalBounds().reduced(10);
 
+        // Theme picker section (compact, top)
+        auto themeRow = bounds.removeFromTop(28);
+        m_themeLabel.setBounds(themeRow.removeFromLeft(120));
+        m_themeCombo.setBounds(themeRow.removeFromLeft(180));
+        themeRow.removeFromLeft(8);
+        m_importButton.setBounds(themeRow.removeFromLeft(90));
+        themeRow.removeFromLeft(6);
+        m_exportButton.setBounds(themeRow.removeFromLeft(90));
+        m_themeNote.setBounds(bounds.removeFromTop(20));
+        bounds.removeFromTop(8);
+
         // Waveform color section
-        auto waveformSection = bounds.removeFromTop(220);
+        auto waveformSection = bounds.removeFromTop(200);
         m_waveformLabel.setBounds(waveformSection.removeFromTop(25));
         m_waveformSelector.setBounds(waveformSection.reduced(0, 5));
 
-        bounds.removeFromTop(10); // Spacing
+        bounds.removeFromTop(10);
 
         // Selection color section
-        auto selectionSection = bounds.removeFromTop(220);
+        auto selectionSection = bounds.removeFromTop(200);
         m_selectionLabel.setBounds(selectionSection.removeFromTop(25));
         m_selectionSelector.setBounds(selectionSection.reduced(0, 5));
     }
 
 private:
+    juce::Label& m_themeLabel;
+    juce::ComboBox& m_themeCombo;
+    juce::Label& m_themeNote;
+    juce::TextButton& m_importButton;
+    juce::TextButton& m_exportButton;
     juce::Label& m_waveformLabel;
     juce::ColourSelector& m_waveformSelector;
     juce::Label& m_selectionLabel;
@@ -427,6 +456,88 @@ private:
 
 juce::Component* SettingsPanel::createDisplaySettingsTab()
 {
+    // Theme picker (top)
+    m_themeLabel.setText("Theme:", juce::dontSendNotification);
+    m_themeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+
+    m_themeCombo.onChange = [this]()
+    {
+        const auto ids = waveedit::ThemeManager::getInstance().getAvailableIds();
+        const int selected = m_themeCombo.getSelectedId() - 1;
+        if (selected >= 0 && selected < ids.size())
+            waveedit::ThemeManager::getInstance().setActiveById(ids[selected]);
+    };
+
+    m_themeNoteLabel.setText("Theme applies across waveform, panels, dialogs, and the "
+                             "command palette. High Contrast is tuned for accessibility.",
+                             juce::dontSendNotification);
+    m_themeNoteLabel.setFont(juce::FontOptions(11.0f).withStyle("Italic"));
+    m_themeNoteLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+
+    auto refreshThemeCombo = [this]()
+    {
+        const auto& tm     = waveedit::ThemeManager::getInstance();
+        const auto  ids    = tm.getAvailableIds();
+        const auto  active = tm.getCurrent().id;
+
+        m_themeCombo.clear(juce::dontSendNotification);
+        for (int i = 0; i < ids.size(); ++i)
+        {
+            juce::String displayName = ids[i] == "dark"          ? "Dark"
+                                      : ids[i] == "light"         ? "Light"
+                                      : ids[i] == "high-contrast" ? "High Contrast"
+                                                                  : ids[i];
+            m_themeCombo.addItem(displayName, i + 1);
+            if (ids[i] == active)
+                m_themeCombo.setSelectedId(i + 1, juce::dontSendNotification);
+        }
+    };
+
+    m_themeImportButton.setButtonText("Import...");
+    m_themeImportButton.onClick = [this, refreshThemeCombo]()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Import theme JSON", juce::File(), "*.json");
+        chooser->launchAsync(juce::FileBrowserComponent::openMode |
+                             juce::FileBrowserComponent::canSelectFiles,
+            [chooser, refreshThemeCombo](const juce::FileChooser& fc)
+            {
+                const auto file = fc.getResult();
+                if (! file.existsAsFile())
+                    return;
+                juce::String err;
+                if (! waveedit::ThemeManager::getInstance().importCustomTheme(file, err))
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "Theme import failed", err);
+                    return;
+                }
+                refreshThemeCombo();
+            });
+    };
+
+    m_themeExportButton.setButtonText("Export...");
+    m_themeExportButton.onClick = []()
+    {
+        const auto& tm = waveedit::ThemeManager::getInstance();
+        auto suggested = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                             .getChildFile(tm.getCurrent().id + "-theme.json");
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Export theme to JSON", suggested, "*.json");
+        chooser->launchAsync(juce::FileBrowserComponent::saveMode |
+                             juce::FileBrowserComponent::canSelectFiles,
+            [chooser](const juce::FileChooser& fc)
+            {
+                const auto file = fc.getResult();
+                if (file == juce::File())
+                    return;
+                juce::String err;
+                if (! waveedit::ThemeManager::getInstance().exportCurrentTheme(file, err))
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "Theme export failed", err);
+            });
+    };
+
     // Waveform color
     m_waveformColorLabel.setText("Waveform Color:", juce::dontSendNotification);
     m_waveformColorLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -439,9 +550,13 @@ juce::Component* SettingsPanel::createDisplaySettingsTab()
 
     m_selectionColorSelector.setCurrentColour(juce::Colour(0x8800ff00), juce::dontSendNotification);
 
-    auto* container = new DisplaySettingsTab(m_waveformColorLabel, m_waveformColorSelector,
+    refreshThemeCombo();
+
+    auto* container = new DisplaySettingsTab(m_themeLabel, m_themeCombo, m_themeNoteLabel,
+                                             m_themeImportButton, m_themeExportButton,
+                                             m_waveformColorLabel, m_waveformColorSelector,
                                              m_selectionColorLabel, m_selectionColorSelector);
-    container->setSize(650, 400);
+    container->setSize(650, 480);
     return container;
 }
 
@@ -663,7 +778,7 @@ void SettingsPanel::showDialog(juce::Component* parentComponent,
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(settingsPanel);
     options.dialogTitle = "Preferences";
-    options.dialogBackgroundColour = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;

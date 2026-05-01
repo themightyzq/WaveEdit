@@ -14,6 +14,7 @@
 */
 
 #include "LoopingToolsDialog.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 // WaveformPreview implementation
@@ -33,14 +34,16 @@ void LoopingToolsDialog::WaveformPreview::setCrossfadeLength(int64_t samples)
 
 void LoopingToolsDialog::WaveformPreview::paint(juce::Graphics& g)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Background
-    g.fillAll(juce::Colour(0xff1a1a1a));
-    g.setColour(juce::Colours::grey);
+    g.fillAll(theme.waveformBackground);
+    g.setColour(theme.waveformBorder);
     g.drawRect(getLocalBounds(), 1);
 
     if (m_buffer == nullptr || m_buffer->getNumSamples() == 0)
     {
-        g.setColour(juce::Colour(0xff888888));
+        g.setColour(theme.textMuted);
         g.drawText("Click Preview to see loop waveform",
                    getLocalBounds(), juce::Justification::centred);
         return;
@@ -96,7 +99,7 @@ void LoopingToolsDialog::WaveformPreview::drawWaveform(juce::Graphics& g,
         const int    chanY    = bounds.getY() + channel * channelHeight;
         const int    centerY  = chanY + channelHeight / 2;
 
-        g.setColour(juce::Colour(0xff00cc44).withAlpha(0.7f));
+        g.setColour(waveedit::ThemeManager::getInstance().getCurrent().waveformLine.withAlpha(0.85f));
 
         juce::Path path;
         bool firstPoint = true;
@@ -436,10 +439,11 @@ LoopingToolsDialog::~LoopingToolsDialog()
 
 void LoopingToolsDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
     // Title
-    g.setColour(juce::Colours::white);
+    g.setColour(theme.text);
     g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     g.drawText("Looping Tools", getLocalBounds().removeFromTop(36),
                juce::Justification::centred, true);
@@ -482,7 +486,7 @@ void LoopingToolsDialog::paint(juce::Graphics& g)
 
     const int sectionW = getWidth() - kMargin * 2;
 
-    g.setColour(juce::Colour(0xff333333));
+    g.setColour(theme.panelAlternate);
     g.fillRoundedRectangle((float)kMargin, (float)sec1Y,
                             (float)sectionW, (float)kSectionBandH, 3.0f);
     g.fillRoundedRectangle((float)kMargin, (float)sec2Y,
@@ -492,7 +496,7 @@ void LoopingToolsDialog::paint(juce::Graphics& g)
     g.fillRoundedRectangle((float)kMargin, (float)sec3Y,
                             (float)sectionW, (float)kSectionBandH, 3.0f);
 
-    g.setColour(juce::Colour(0xffaaaaaa));
+    g.setColour(theme.textMuted);
     g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
     g.drawText("LOOP SETTINGS",
                juce::Rectangle<int>(kMargin + 4, sec1Y, 200, kSectionBandH),
@@ -821,18 +825,20 @@ void LoopingToolsDialog::updatePreview()
         m_diagnosticsLabel.setText(diag, juce::dontSendNotification);
 
         // Color-code the diagnostics label based on discontinuity quality
+        const auto& diagTheme = waveedit::ThemeManager::getInstance().getCurrent();
         if (result.discontinuityAfter < 0.001f)
-            m_diagnosticsLabel.setColour(juce::Label::textColourId, juce::Colour(0xff44cc44));  // green
+            m_diagnosticsLabel.setColour(juce::Label::textColourId, diagTheme.success);
         else if (result.discontinuityAfter < 0.01f)
-            m_diagnosticsLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccc44));  // yellow
+            m_diagnosticsLabel.setColour(juce::Label::textColourId, diagTheme.warning);
         else if (result.discontinuityAfter < 0.05f)
-            m_diagnosticsLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcc8844));  // orange
+            m_diagnosticsLabel.setColour(juce::Label::textColourId, diagTheme.warning);
         else
-            m_diagnosticsLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcc4444));  // red
+            m_diagnosticsLabel.setColour(juce::Label::textColourId, diagTheme.error);
     }
     else
     {
-        m_diagnosticsLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcc4444));
+        m_diagnosticsLabel.setColour(juce::Label::textColourId,
+            waveedit::ThemeManager::getInstance().getCurrent().error);
         m_diagnosticsLabel.setText("Preview failed: " + result.errorMessage,
                                     juce::dontSendNotification);
     }

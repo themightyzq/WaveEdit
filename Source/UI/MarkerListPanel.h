@@ -45,7 +45,8 @@
 class MarkerListPanel : public juce::Component,
                         public juce::TableListBoxModel,
                         private juce::TextEditor::Listener,
-                        private juce::Timer
+                        private juce::Timer,
+                        private juce::ChangeListener
 {
 public:
     /**
@@ -77,6 +78,20 @@ public:
          * @param newName New name for the marker
          */
         virtual void markerListPanelMarkerRenamed(int markerIndex, const juce::String& newName) = 0;
+
+        /**
+         * Called when the user changes a marker's color via the panel's
+         * color picker. Default implementation is a no-op so existing
+         * listeners don't have to override.
+         */
+        virtual void markerListPanelMarkerColorChanged(int /*markerIndex*/,
+                                                        juce::Colour /*newColor*/) {}
+
+        /** Called when the user clicks the panel's Export button. */
+        virtual void markerListPanelExportRequested() {}
+
+        /** Called when the user clicks the panel's Import button. */
+        virtual void markerListPanelImportRequested() {}
 
         /**
          * Called when the user selects a marker (single-click).
@@ -210,6 +225,9 @@ private:
     // Timer override
     void timerCallback() override;
 
+    // ChangeListener override (theme switches)
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+
     //==============================================================================
     // Private methods
     void updateFilteredMarkers();
@@ -231,6 +249,8 @@ private:
     // UI Components
     juce::Label m_searchLabel;
     juce::TextEditor m_searchBox;
+    juce::TextButton m_exportButton;
+    juce::TextButton m_importButton;
     juce::TableListBox m_table;
 
     // Filtered and sorted markers
@@ -252,10 +272,11 @@ private:
     // Visual settings
     const int m_rowHeight = 28;
     const int m_colorColumnWidth = 40;
-    const juce::Colour m_backgroundColour { 0xff1e1e1e };
-    const juce::Colour m_alternateRowColour { 0xff252525 };
-    const juce::Colour m_selectedRowColour { 0xff3a3a3a };
-    const juce::Colour m_textColour { 0xffe0e0e0 };
+    // Theme-driven colour accessors (resolved at call time).
+    juce::Colour backgroundColour() const;
+    juce::Colour alternateRowColour() const;
+    juce::Colour selectedRowColour() const;
+    juce::Colour textColour() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MarkerListPanel)
 };

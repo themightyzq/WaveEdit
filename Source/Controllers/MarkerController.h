@@ -68,8 +68,18 @@ public:
     // These handle MarkerListPanel::Listener events
     void handleMarkerListJumpToMarker(Document* doc, int markerIndex);
     void handleMarkerListMarkerDeleted(Document* doc);
-    void handleMarkerListMarkerRenamed(Document* doc);
+    void handleMarkerListMarkerRenamed(Document* doc, int markerIndex,
+                                       const juce::String& newName);
+    void handleMarkerListMarkerColorChanged(Document* doc, int markerIndex,
+                                            juce::Colour newColor);
     void handleMarkerListMarkerSelected(Document* doc, int markerIndex);
+
+    /** Export the document's markers to a user-chosen JSON file. */
+    void exportMarkers(Document* doc, juce::Component* parent);
+
+    /** Import markers from a user-chosen JSON file. Replaces current
+        markers (undoable). */
+    void importMarkers(Document* doc, juce::Component* parent);
 
     //==========================================================================
     // Callback Wiring

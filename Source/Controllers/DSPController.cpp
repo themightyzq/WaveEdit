@@ -34,6 +34,7 @@
 #include "../Utils/UndoActions/FadeUndoActions.h"
 #include "../Utils/UndoActions/PluginUndoActions.h"
 #include "../Utils/UndoActions/ChannelUndoActions.h"
+#include "../DSP/TimePitchEngine.h"
 #include "../Utils/UndoableEdits.h"
 #include "../UI/GainDialog.h"
 #include "../UI/NormalizeDialog.h"
@@ -48,6 +49,7 @@
 #include "../DSP/HeadTailEngine.h"
 #include "../UI/HeadTailDialog.h"
 #include "../UI/LoopingToolsDialog.h"
+#include "../UI/ThemeManager.h"
 #include "../Plugins/PluginManager.h"
 #include "../Plugins/PluginChainRenderer.h"
 
@@ -379,6 +381,7 @@ void DSPController::showNormalizeDialog(Document* doc, juce::Component* parent)
     options.content.setNonOwned(&dialog);  // Use setNonOwned for stack-allocated dialog
     options.componentToCentreAround = parent;
     options.dialogTitle = "Normalize";
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -534,6 +537,7 @@ void DSPController::showFadeInDialog(Document* doc, juce::Component* parent)
     options.content.setNonOwned(&dialog);  // Use setNonOwned for stack-allocated dialog
     options.componentToCentreAround = parent;
     options.dialogTitle = "Fade In";
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -689,6 +693,7 @@ void DSPController::showFadeOutDialog(Document* doc, juce::Component* parent)
     options.content.setNonOwned(&dialog);  // Use setNonOwned for stack-allocated dialog
     options.componentToCentreAround = parent;
     options.dialogTitle = "Fade Out";
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -843,6 +848,7 @@ void DSPController::showParametricEQDialog(Document* doc, juce::Component* paren
     options.content.setNonOwned(&dialog);
     options.componentToCentreAround = parent;
     options.dialogTitle = "Parametric EQ";
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = true;
@@ -1937,6 +1943,133 @@ void DSPController::showResampleDialog(Document* doc, juce::Component* parent)
     }
 }
 
+//==============================================================================
+// Time stretch / pitch shift (SoundTouch-backed)
+//==============================================================================
+
+namespace
+{
+    // Apply a TimePitchEngine recipe to the whole-buffer of a document
+    // and register the result as an undoable transaction. Shared by
+    // both showTimeStretchDialog and showPitchShiftDialog so the
+    // buffer-handling, error-reporting, and undo wiring are identical.
+    void applyTimePitchToDocument(Document* doc,
+                                   const TimePitchEngine::Recipe& recipe,
+                                   const juce::String& description)
+    {
+        if (! doc || ! doc->getAudioEngine().isFileLoaded())
+            return;
+
+        auto& bufferManager = doc->getBufferManager();
+        const auto& srcBuffer = bufferManager.getBuffer();
+        const double sampleRate = doc->getAudioEngine().getSampleRate();
+
+        try
+        {
+            const auto processed =
+                TimePitchEngine::apply(srcBuffer, sampleRate, recipe);
+            if (processed.getNumSamples() <= 0)
+            {
+                ErrorDialog::show("Error",
+                                   description + " produced an empty result.");
+                return;
+            }
+
+            doc->getUndoManager().beginNewTransaction(description);
+            doc->getUndoManager().perform(new TimePitchUndoAction(
+                bufferManager,
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                srcBuffer,
+                processed,
+                sampleRate,
+                description));
+
+            doc->setModified(true);
+        }
+        catch (const std::exception& e)
+        {
+            juce::Logger::writeToLog(
+                "DSPController::applyTimePitchToDocument - " + juce::String(e.what()));
+            ErrorDialog::show("Error",
+                               description + " failed: " + juce::String(e.what()));
+        }
+    }
+}
+
+void DSPController::showTimeStretchDialog(Document* doc, juce::Component* /*parent*/)
+{
+    if (! doc || ! doc->getAudioEngine().isFileLoaded())
+        return;
+
+    juce::AlertWindow dialog(
+        "Time Stretch",
+        "Stretch or compress the file's tempo without changing pitch.\n"
+        "Range: -50% (half speed) to +500% (6x speed).",
+        juce::AlertWindow::NoIcon);
+
+    dialog.addTextEditor("tempoPercent", "0.0", "Tempo change (%)");
+    dialog.addButton("Apply",  1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog.addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    if (dialog.runModalLoop() != 1)
+        return;
+
+    const double tempoPercent = dialog.getTextEditorContents("tempoPercent").getDoubleValue();
+    if (std::abs(tempoPercent) < 1.0e-6)
+        return;  // identity
+
+    if (tempoPercent < -50.0 || tempoPercent > 500.0)
+    {
+        ErrorDialog::show("Time Stretch",
+                          "Tempo change out of range. Use -50 to +500.");
+        return;
+    }
+
+    TimePitchEngine::Recipe recipe;
+    recipe.tempoPercent = tempoPercent;
+
+    const auto desc = juce::String::formatted("Time stretch %+.1f%%", tempoPercent);
+    applyTimePitchToDocument(doc, recipe, desc);
+}
+
+void DSPController::showPitchShiftDialog(Document* doc, juce::Component* /*parent*/)
+{
+    if (! doc || ! doc->getAudioEngine().isFileLoaded())
+        return;
+
+    juce::AlertWindow dialog(
+        "Pitch Shift",
+        "Shift the file's pitch without changing length.\n"
+        "Use whole semitones (e.g. 12 = 1 octave up) or fractions for cents.\n"
+        "Range: -24 to +24 semitones.",
+        juce::AlertWindow::NoIcon);
+
+    dialog.addTextEditor("semitones", "0.0", "Semitones");
+    dialog.addButton("Apply",  1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog.addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    if (dialog.runModalLoop() != 1)
+        return;
+
+    const double semitones = dialog.getTextEditorContents("semitones").getDoubleValue();
+    if (std::abs(semitones) < 1.0e-6)
+        return;  // identity
+
+    if (semitones < -24.0 || semitones > 24.0)
+    {
+        ErrorDialog::show("Pitch Shift",
+                          "Semitone count out of range. Use -24 to +24.");
+        return;
+    }
+
+    TimePitchEngine::Recipe recipe;
+    recipe.pitchSemitones = semitones;
+
+    const auto desc = juce::String::formatted("Pitch shift %+.2f semitones", semitones);
+    applyTimePitchToDocument(doc, recipe, desc);
+}
+
 /**
  * Trim to selection (delete everything outside the selection).
  */
@@ -2108,7 +2241,7 @@ void DSPController::showHeadTailDialog(Document* doc, juce::Component* parent)
 
     juce::DialogWindow::LaunchOptions options;
     options.dialogTitle               = "Head & Tail Processing";
-    options.dialogBackgroundColour    = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour    = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.content.setOwned(dialog);
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar            = true;
@@ -2164,7 +2297,7 @@ void DSPController::showLoopingToolsDialog(Document* doc, juce::Component* paren
 
     juce::DialogWindow::LaunchOptions options;
     options.dialogTitle               = "Looping Tools";
-    options.dialogBackgroundColour    = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour    = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.content.setOwned(dialog);
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar            = true;

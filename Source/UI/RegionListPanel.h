@@ -44,7 +44,8 @@
 class RegionListPanel : public juce::Component,
                         public juce::TableListBoxModel,
                         private juce::TextEditor::Listener,
-                        private juce::Timer
+                        private juce::Timer,
+                        private juce::ChangeListener
 {
 public:
     /**
@@ -269,6 +270,9 @@ private:
     // Timer override
     void timerCallback() override;
 
+    // ChangeListener override (theme switches)
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+
     //==============================================================================
     // Private methods
     void updateFilteredRegions();
@@ -319,10 +323,13 @@ private:
     // Visual settings
     const int m_rowHeight = 28;
     const int m_colorColumnWidth = 40;
-    const juce::Colour m_backgroundColour { 0xff1e1e1e };
-    const juce::Colour m_alternateRowColour { 0xff252525 };
-    const juce::Colour m_selectedRowColour { 0xff3a3a3a };
-    const juce::Colour m_textColour { 0xffe0e0e0 };
+    // Theme-driven colour accessors (resolved at call time so a
+    // theme switch re-skins the panel via applyThemeColours()).
+    juce::Colour backgroundColour() const;
+    juce::Colour alternateRowColour() const;
+    juce::Colour selectedRowColour() const;
+    juce::Colour textColour() const;
+    void applyThemeColours();
 
     //==============================================================================
     // Batch rename UI components

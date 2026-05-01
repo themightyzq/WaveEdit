@@ -15,6 +15,10 @@
 
 #include "PluginChainWindow.h"
 #include "UIConstants.h"
+#include "ThemeManager.h"
+
+#include "../Automation/AutomationManager.h"
+#include "../Plugins/PluginPresetManager.h"
 
 //==============================================================================
 // PluginRowComponent implementation
@@ -275,7 +279,7 @@ void PluginChainWindow::DraggableListBox::paintOverChildren(juce::Graphics& g)
         // Only draw if visible
         if (y >= 0 && y <= getHeight())
         {
-            g.setColour(m_owner.m_accentColour);
+            g.setColour(m_owner.accentColour());
             g.fillRect(0, y - 2, getWidth(), 4);
         }
     }
@@ -295,12 +299,13 @@ int PluginChainWindow::DraggableListBox::getInsertIndexForPosition(int y) const
 //==============================================================================
 // PluginChainWindow implementation
 //==============================================================================
-PluginChainWindow::PluginChainWindow(PluginChain* chain)
+PluginChainWindow::PluginChainWindow(PluginChain* chain, AutomationManager* automation)
     : m_chain(chain),
       m_chainListBox(*this),
       m_browserTableModel(*this),
       m_scanProgressBar(m_scanProgress)
 {
+    m_automation = automation;
     // Chain panel title
     m_chainTitleLabel.setText("Plugin Chain", juce::dontSendNotification);
     m_chainTitleLabel.setFont(juce::FontOptions(16.0f).withStyle("Bold"));
@@ -309,7 +314,6 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain)
 
     // Chain list box
     m_chainListBox.setModel(this);
-    m_chainListBox.setColour(juce::ListBox::backgroundColourId, m_backgroundColour);
     m_chainListBox.setRowHeight(m_chainRowHeight);
     m_chainListBox.setMultipleSelectionEnabled(false);
     addAndMakeVisible(m_chainListBox);
@@ -330,22 +334,24 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain)
     // Bypass all toggle
     m_bypassAllButton.setButtonText("Bypass All");
     m_bypassAllButton.setTooltip("Bypass all plugins in the chain");
-    m_bypassAllButton.setColour(juce::ToggleButton::tickColourId, m_accentColour);
     m_bypassAllButton.onClick = [this]() { onBypassAllClicked(); };
     addAndMakeVisible(m_bypassAllButton);
 
     // Apply to Selection button
+    m_presetsButton.setButtonText("Presets...");
+    m_presetsButton.setTooltip("Save / load / manage plugin chain presets (includes automation lanes)");
+    m_presetsButton.onClick = [this]() { onPresetsButtonClicked(); };
+    m_presetsButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff404040));
+    addAndMakeVisible(m_presetsButton);
+
     m_applyToSelectionButton.setButtonText("Apply to Selection (Cmd+P)");
     m_applyToSelectionButton.setTooltip("Permanently apply plugin chain effects to selected audio");
     m_applyToSelectionButton.onClick = [this]() { onApplyToSelectionClicked(); };
-    m_applyToSelectionButton.setColour(juce::TextButton::buttonColourId, m_accentColour);
-    m_applyToSelectionButton.setColour(juce::TextButton::buttonOnColourId, m_accentColour.brighter(0.2f));
     addAndMakeVisible(m_applyToSelectionButton);
 
     // Render Options group
     m_renderOptionsGroup.setText("Render Options");
     m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, juce::Colour(waveedit::ui::kBorderVisible));
-    m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, m_textColour);
     addAndMakeVisible(m_renderOptionsGroup);
 
     m_convertToStereoCheckbox.setButtonText("Convert to Stereo");
@@ -408,7 +414,6 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain)
 
     // Browser table
     m_browserTable.setModel(&m_browserTableModel);
-    m_browserTable.setColour(juce::ListBox::backgroundColourId, m_backgroundColour);
     m_browserTable.setRowHeight(m_browserRowHeight);
     m_browserTable.setMultipleSelectionEnabled(false);
     m_browserTable.getHeader().setStretchToFitActive(true);
@@ -444,14 +449,19 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain)
     m_scanStatusLabel.setText("", juce::dontSendNotification);
     addAndMakeVisible(m_scanStatusLabel);
 
-    m_scanProgressBar.setColour(juce::ProgressBar::backgroundColourId, juce::Colour(0xff333333));
-    m_scanProgressBar.setColour(juce::ProgressBar::foregroundColourId, m_accentColour);
     addAndMakeVisible(m_scanProgressBar);
     m_scanProgressBar.setVisible(false);
 
     // Listen for chain changes
     if (m_chain != nullptr)
         m_chain->addChangeListener(this);
+
+    // Subscribe to theme switches.
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+
+    // Apply theme colours to all child components (sets up initial
+    // appearance and is re-called from the change listener).
+    applyThemeColours();
 
     // Initial refresh
     refresh();
@@ -462,6 +472,8 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain)
 PluginChainWindow::~PluginChainWindow()
 {
     stopTimer();
+
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
 
     if (m_chain != nullptr)
         m_chain->removeChangeListener(this);
@@ -626,11 +638,61 @@ juce::DocumentWindow* PluginChainWindow::showInWindow(juce::ApplicationCommandMa
 //==============================================================================
 void PluginChainWindow::paint(juce::Graphics& g)
 {
-    g.fillAll(m_backgroundColour);
+    g.fillAll(backgroundColour());
 
     // Draw divider
-    g.setColour(m_dividerColour);
+    g.setColour(dividerColour());
     g.fillRect(m_dividerX - 1, 0, 2, getHeight());
+}
+
+//==============================================================================
+// Theme integration
+//==============================================================================
+
+juce::Colour PluginChainWindow::backgroundColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().background;
+}
+
+juce::Colour PluginChainWindow::alternateRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().panelAlternate;
+}
+
+juce::Colour PluginChainWindow::selectedRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().border;
+}
+
+juce::Colour PluginChainWindow::textColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().text;
+}
+
+juce::Colour PluginChainWindow::accentColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().accent;
+}
+
+juce::Colour PluginChainWindow::dividerColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().border;
+}
+
+void PluginChainWindow::applyThemeColours()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    m_chainListBox.setColour(juce::ListBox::backgroundColourId, theme.background);
+    m_bypassAllButton.setColour(juce::ToggleButton::tickColourId, theme.accent);
+    m_applyToSelectionButton.setColour(juce::TextButton::buttonColourId, theme.accent);
+    m_applyToSelectionButton.setColour(juce::TextButton::buttonOnColourId,
+                                        theme.accent.brighter(0.2f));
+    m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, theme.text);
+    m_browserTable.setColour(juce::ListBox::backgroundColourId, theme.background);
+    m_scanProgressBar.setColour(juce::ProgressBar::backgroundColourId,
+                                 theme.background.brighter(0.1f));
+    m_scanProgressBar.setColour(juce::ProgressBar::foregroundColourId, theme.accent);
 }
 
 void PluginChainWindow::resized()
@@ -649,6 +711,7 @@ void PluginChainWindow::resized()
     // Bottom buttons row
     auto chainBottomButtons = chainArea.removeFromBottom(36);
     m_bypassAllButton.setBounds(chainBottomButtons.removeFromLeft(100).reduced(2));
+    m_presetsButton.setBounds(chainBottomButtons.removeFromLeft(90).reduced(2));
     m_applyToSelectionButton.setBounds(chainBottomButtons.reduced(2));
 
     // Render options area (above bottom buttons)
@@ -803,11 +866,11 @@ void PluginChainWindow::BrowserTableModel::paintRowBackground(juce::Graphics& g,
                                                                bool rowIsSelected)
 {
     if (rowIsSelected)
-        g.fillAll(m_owner.m_selectedRowColour);
+        g.fillAll(m_owner.selectedRowColour());
     else if (rowNumber % 2 == 1)
-        g.fillAll(m_owner.m_alternateRowColour);
+        g.fillAll(m_owner.alternateRowColour());
     else
-        g.fillAll(m_owner.m_backgroundColour);
+        g.fillAll(m_owner.backgroundColour());
 }
 
 void PluginChainWindow::BrowserTableModel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
@@ -820,7 +883,7 @@ void PluginChainWindow::BrowserTableModel::paintCell(juce::Graphics& g, int rowN
     if (desc == nullptr)
         return;
 
-    g.setColour(m_owner.m_textColour);
+    g.setColour(m_owner.textColour());
     g.setFont(juce::FontOptions(13.0f));
 
     juce::String text;
@@ -876,6 +939,13 @@ void PluginChainWindow::BrowserTableModel::selectedRowsChanged(int)
 //==============================================================================
 void PluginChainWindow::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
+    if (source == &waveedit::ThemeManager::getInstance())
+    {
+        applyThemeColours();
+        repaint();
+        return;
+    }
+
     if (source == m_chain)
     {
         m_chainListBox.updateContent();
@@ -1113,4 +1183,218 @@ void PluginChainWindow::addSelectedPluginToChain()
             m_listener->pluginChainWindowPluginAdded(*desc);
         }
     }
+}
+
+//==============================================================================
+// Preset menu
+//==============================================================================
+
+namespace
+{
+    constexpr int kPresetMenu_Save           = 1;
+    constexpr int kPresetMenu_Export         = 2;
+    constexpr int kPresetMenu_Import         = 3;
+    constexpr int kPresetMenu_LoadBase       = 1000;
+    constexpr int kPresetMenu_DeleteBase     = 2000;
+}
+
+void PluginChainWindow::onPresetsButtonClicked()
+{
+    juce::PopupMenu menu;
+    menu.addItem(kPresetMenu_Save,   "Save current chain as preset...");
+    menu.addItem(kPresetMenu_Export, "Export chain to file...");
+    menu.addItem(kPresetMenu_Import, "Import chain from file...");
+
+    auto names = PluginPresetManager::getAvailablePresets();
+    if (! names.isEmpty())
+    {
+        menu.addSeparator();
+        menu.addSectionHeader("Load Preset");
+        for (int i = 0; i < names.size() && i < 999; ++i)
+            menu.addItem(kPresetMenu_LoadBase + i, names[i]);
+
+        juce::PopupMenu deleteSubmenu;
+        for (int i = 0; i < names.size() && i < 999; ++i)
+            deleteSubmenu.addItem(kPresetMenu_DeleteBase + i, names[i]);
+        menu.addSeparator();
+        menu.addSubMenu("Delete Preset", deleteSubmenu);
+    }
+
+    juce::Component::SafePointer<PluginChainWindow> safeThis(this);
+    juce::StringArray namesCopy = names;
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&m_presetsButton),
+        [safeThis, namesCopy](int result)
+        {
+            if (safeThis == nullptr || result == 0)
+                return;
+
+            if (result == kPresetMenu_Save)
+            {
+                safeThis->presetSavePromptThenSave();
+                return;
+            }
+            if (result == kPresetMenu_Export)
+            {
+                safeThis->presetExportToFilePrompt();
+                return;
+            }
+            if (result == kPresetMenu_Import)
+            {
+                safeThis->presetImportFromFilePrompt();
+                return;
+            }
+
+            if (result >= kPresetMenu_LoadBase && result < kPresetMenu_LoadBase + 1000)
+            {
+                const int idx = result - kPresetMenu_LoadBase;
+                if (idx < 0 || idx >= namesCopy.size())
+                    return;
+                const auto name = namesCopy[idx];
+
+                if (safeThis->m_chain == nullptr)
+                    return;
+                bool ok = (safeThis->m_automation != nullptr)
+                            ? PluginPresetManager::loadPreset(*safeThis->m_chain,
+                                                              *safeThis->m_automation, name)
+                            : PluginPresetManager::loadPreset(*safeThis->m_chain, name);
+                if (! ok)
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Load Preset", "Failed to load preset \"" + name + "\".", "OK");
+                }
+                else
+                {
+                    safeThis->refresh();
+                }
+                return;
+            }
+
+            if (result >= kPresetMenu_DeleteBase && result < kPresetMenu_DeleteBase + 1000)
+            {
+                const int idx = result - kPresetMenu_DeleteBase;
+                if (idx < 0 || idx >= namesCopy.size())
+                    return;
+                const auto name = namesCopy[idx];
+
+                auto opts = juce::MessageBoxOptions()
+                                .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                                .withTitle("Delete Preset")
+                                .withMessage("Delete preset \"" + name + "\"? This cannot be undone.")
+                                .withButton("Delete")
+                                .withButton("Cancel");
+                juce::AlertWindow::showAsync(opts,
+                    [name](int r) { if (r == 1) PluginPresetManager::deletePreset(name); });
+            }
+        });
+}
+
+void PluginChainWindow::presetSavePromptThenSave()
+{
+    if (m_chain == nullptr)
+        return;
+
+    auto* aw = new juce::AlertWindow("Save Plugin Chain Preset",
+                                      "Enter a name for the preset:",
+                                      juce::MessageBoxIconType::QuestionIcon);
+    aw->addTextEditor("name", "", "");
+    aw->addButton("Save",   1, juce::KeyPress(juce::KeyPress::returnKey));
+    aw->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<PluginChainWindow> safeThis(this);
+    aw->enterModalState(true,
+        juce::ModalCallbackFunction::create(
+            [safeThis, aw](int result)
+            {
+                std::unique_ptr<juce::AlertWindow> owner(aw);
+                if (safeThis == nullptr || result != 1)
+                    return;
+                const auto name = aw->getTextEditorContents("name").trim();
+                if (name.isEmpty())
+                    return;
+                if (safeThis->m_chain == nullptr)
+                    return;
+
+                bool ok = (safeThis->m_automation != nullptr)
+                            ? PluginPresetManager::savePreset(*safeThis->m_chain,
+                                                              *safeThis->m_automation, name)
+                            : PluginPresetManager::savePreset(*safeThis->m_chain, name);
+                if (! ok)
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Save Preset", "Failed to save preset \"" + name + "\".", "OK");
+                }
+            }),
+        true);
+}
+
+void PluginChainWindow::presetExportToFilePrompt()
+{
+    if (m_chain == nullptr)
+        return;
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Export Plugin Chain Preset",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+        "*.wepchain");
+
+    juce::Component::SafePointer<PluginChainWindow> safeThis(this);
+    chooser->launchAsync(
+        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis, chooser](const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (safeThis == nullptr || file == juce::File() || safeThis->m_chain == nullptr)
+                return;
+            const auto target = file.getFileExtension().isEmpty()
+                                    ? file.withFileExtension("wepchain")
+                                    : file;
+            bool ok = (safeThis->m_automation != nullptr)
+                        ? PluginPresetManager::exportPreset(*safeThis->m_chain,
+                                                            *safeThis->m_automation, target)
+                        : PluginPresetManager::exportPreset(*safeThis->m_chain, target);
+            if (! ok)
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Export Preset", "Failed to export preset.", "OK");
+            }
+        });
+}
+
+void PluginChainWindow::presetImportFromFilePrompt()
+{
+    if (m_chain == nullptr)
+        return;
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Import Plugin Chain Preset",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+        "*.wepchain");
+
+    juce::Component::SafePointer<PluginChainWindow> safeThis(this);
+    chooser->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis, chooser](const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (safeThis == nullptr || file == juce::File() || safeThis->m_chain == nullptr)
+                return;
+            bool ok = (safeThis->m_automation != nullptr)
+                        ? PluginPresetManager::importPreset(*safeThis->m_chain,
+                                                            *safeThis->m_automation, file)
+                        : PluginPresetManager::importPreset(*safeThis->m_chain, file);
+            if (! ok)
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Import Preset", "Failed to import preset.", "OK");
+            }
+            else
+            {
+                safeThis->refresh();
+            }
+        });
 }

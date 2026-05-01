@@ -25,15 +25,25 @@
 #include "Region.h"
 
 // UndoableEditBase + the generic Delete/Insert/Replace primitives live here.
-// Domain-specific actions live alongside their domain in Source/Utils/UndoActions/:
-//   AudioUndoActions.h    (Gain, Normalize, Fade, DC Offset, Silence, Trim,
-//                          ConvertToStereo, Reverse, ReplaceChannels)
-//   RegionUndoActions.h   (Add/Delete/Rename/Color/Resize/Merge/Split/Nudge/
-//                          BatchRename/StripSilence/MarkersToRegions)
+// Domain-specific actions live alongside their domain in Source/Utils/UndoActions/.
+// AudioUndoActions.h and RegionUndoActions.h are umbrella headers per
+// CLAUDE.md §7.5; the actual classes live in domain-split files:
+//   AudioUndoActions.h          (umbrella)
+//     ├─ LevelUndoActions.h      (Gain, Normalize, DCOffsetRemoval)
+//     ├─ RangeUndoActions.h      (Silence, Trim)
+//     ├─ TransformUndoActions.h  (Reverse, Invert, Resample, HeadTail)
+//     └─ ChannelUndoActions.h    (ChannelConvert, ConvertToStereo,
+//                                  SilenceChannels, ReplaceChannels)
+//   RegionUndoActions.h         (umbrella)
+//     ├─ RegionLifecycleUndoActions.h   (Add, Delete, Rename, BatchRename,
+//     │                                   ChangeRegionColor)
+//     ├─ RegionEditUndoActions.h        (Resize, Nudge, Merge, MultiMerge, Split)
+//     └─ RegionDerivationUndoActions.h  (StripSilence, Retrospective,
+//                                         MarkersToRegions)
+//   FadeUndoActions.h     (FadeIn/FadeOut)
 //   MarkerUndoActions.h   (Add/Delete/Move/Rename)
 //   PluginUndoActions.h   (ApplyParametricEQ, ApplyDynamicParametricEQ,
 //                          ApplyPluginChain)
-//   ChannelUndoActions.h  (ChannelConvert)
 
 /**
  * Base class for undoable edit operations.

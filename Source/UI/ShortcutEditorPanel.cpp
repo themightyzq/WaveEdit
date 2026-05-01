@@ -15,6 +15,7 @@
 
 #include "ShortcutEditorPanel.h"
 #include "../Commands/CommandIDs.h"
+#include "ThemeManager.h"
 #include <juce_data_structures/juce_data_structures.h>
 
 //==============================================================================
@@ -132,8 +133,11 @@ ShortcutEditorPanel::ShortcutEditorPanel(juce::ApplicationCommandManager& comman
 
     // Table setup
     m_table.setModel(this);
-    m_table.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff1e1e1e));
-    m_table.setColour(juce::ListBox::outlineColourId, juce::Colour(0xff3e3e3e));
+    {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        m_table.setColour(juce::ListBox::backgroundColourId, theme.panel);
+        m_table.setColour(juce::ListBox::outlineColourId, theme.border);
+    }
     m_table.getHeader().addColumn("Category", 1, 120, 80, 200, juce::TableHeaderComponent::notSortable);
     m_table.getHeader().addColumn("Command", 2, 280, 150, 400, juce::TableHeaderComponent::notSortable);
     m_table.getHeader().addColumn("Shortcut", 3, 180, 100, 300, juce::TableHeaderComponent::notSortable);
@@ -170,10 +174,11 @@ ShortcutEditorPanel::~ShortcutEditorPanel()
 
 void ShortcutEditorPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2e2e2e));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
     // Draw separator line below title
-    g.setColour(juce::Colour(0xff3e3e3e));
+    g.setColour(theme.border);
     g.drawLine(10.0f, 50.0f, (float)getWidth() - 10.0f, 50.0f, 1.0f);
 }
 
@@ -226,22 +231,23 @@ void ShortcutEditorPanel::paintRowBackground(juce::Graphics& g, int rowNumber,
         hasConflict = m_filteredCommands.getReference(rowNumber).hasConflict;
     }
 
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     if (rowIsSelected)
     {
-        g.fillAll(juce::Colour(0xff4e4e4e));
+        g.fillAll(theme.selection);
     }
     else if (hasConflict)
     {
-        // Red background for conflicts
-        g.fillAll(juce::Colour(0xff4e2e2e));
+        // Tinted background for conflicts
+        g.fillAll(theme.error.withAlpha(0.30f));
     }
     else if (rowNumber % 2 == 0)
     {
-        g.fillAll(juce::Colour(0xff2a2a2a));
+        g.fillAll(theme.panelAlternate);
     }
     else
     {
-        g.fillAll(juce::Colour(0xff1e1e1e));
+        g.fillAll(theme.panel);
     }
 }
 
@@ -253,7 +259,10 @@ void ShortcutEditorPanel::paintCell(juce::Graphics& g, int rowNumber, int column
 
     const auto& cmd = m_filteredCommands.getReference(rowNumber);
 
-    g.setColour(rowIsSelected ? juce::Colours::white : juce::Colour(0xffcccccc));
+    {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        g.setColour(rowIsSelected ? theme.text : theme.textMuted);
+    }
     g.setFont(14.0f);
 
     juce::String text;

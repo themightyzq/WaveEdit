@@ -9,6 +9,166 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Color theme system — Phase 3 (full coverage + High Contrast +
+  custom JSON themes).** All remaining UI surfaces now route through
+  the theme: every processing dialog (Gain, Normalize, Fade In/Out,
+  Parametric EQ, Graphical EQ, Head & Tail, Strip Silence, Looping
+  Tools, Auto Region), plugin chrome (Plugin Manager, Offline Plugin,
+  Plugin Editor toolbar), Settings panel + tabs, the keyboard
+  shortcut editor and cheat-sheet, the toolbar buttons, the fade
+  curve preview, and the Edit Region Boundaries dialog. A new
+  **High Contrast** built-in theme is available alongside Dark and
+  Light — pure-black surfaces with neon-cyan accents, tuned for
+  WCAG AAA legibility. Settings → Display now has **Import...** and
+  **Export...** buttons next to the theme picker: themes round-trip
+  to a single JSON file (one `id`, one `name`, an 8-digit ARGB hex
+  value per token), so you can ship custom palettes without a
+  rebuild. Reserved ids (`dark`, `light`, `high-contrast`) cannot
+  be shadowed.
+
+- **Color theme system — Phase 2 (most surfaces follow the theme).**
+  Extends the Phase 1 token system to the major UI surfaces beyond
+  the waveform area: tabs, plugin chain window + panel, region list
+  panel, marker list panel, automation lanes panel, command palette,
+  and the remaining WaveformDisplay paint sites (channel-label state
+  colours). All these surfaces now subscribe to `ThemeManager` and
+  re-skin live when the theme is switched. Settings picker note
+  updated to reflect actual coverage — only some processing dialogs
+  still appear in the original Dark colours (filed as Phase 3).
+
+- **Color theme system — Phase 1 (Light + Dark).** Settings → Display
+  has a new theme picker. Switching to **Light** instantly re-skins
+  the waveform area: ruler, channel backgrounds, focus border, grid
+  lines, and the default waveform line colour all adopt the active
+  theme. Picker is labelled "Phase 1 — affects waveform area only"
+  because the rest of the UI (dialogs, panels, toolbars) hasn't been
+  routed through the new tokens yet — that's Phase 2. Theme choice
+  persists across launches under `display.theme`. 8 new unit tests
+  cover token population, switching, settings persistence, and
+  listener notification.
+
+- **Time Stretch and Pitch Shift.** Two new entries under the Process
+  menu, backed by SoundTouch (LGPL-2.1). **Time Stretch...** changes
+  tempo without affecting pitch (range -50% to +500%); **Pitch
+  Shift...** shifts pitch without changing length (range ±24
+  semitones). Both write a single undoable transaction; identity
+  recipes are no-ops. SoundTouch is now bundled in Release builds
+  alongside the existing LAME library — `brew install sound-touch`
+  on macOS or the equivalent distribution package on Linux.
+  NOTICE has the full LGPL attribution. 8 new unit tests cover
+  identity / ±2× tempo / ±1 octave pitch / stereo / empty input.
+
+- **Persistent waveform thumbnail cache.** The first time a file is
+  opened the waveform is generated normally; on completion the binary
+  thumbnail is written to `<settings>/thumbnail_cache/<hash>_<size>_
+  <mtime>.thumb`. Subsequent opens of the same file load the cached
+  thumbnail directly and skip audio decoding entirely — no more
+  waiting for the waveform to render on large files. Cache invalidation
+  is automatic (the filename includes size + mtime); stale entries
+  are evicted when the cache exceeds 100 entries.
+
+- **Selection edge handles are now grabbable.** Click within ~6 pixels
+  of the selection's start or end line and drag — the selection
+  resizes by pivoting around the opposite edge. Dragging past the
+  anchor flips the active edge (start/end normalize automatically).
+  Previously the yellow corner glyphs were purely decorative;
+  clicking them just cleared the selection.
+
+- **Per-channel waveform colors.** Right-click a channel label in the
+  waveform display and choose **Set Channel Color...** to pick a
+  custom colour for just that channel; the global "display.waveformColor"
+  setting is the fallback when no override is set. Per-channel
+  overrides persist as `display.waveformColor.ch<N>` in settings.
+  **Reset Channel Color** clears the override. The live colour picker
+  updates the rendering immediately.
+
+- **Marker parity with regions.** Renaming and color changes from the
+  Marker List Panel now go through the document UndoManager (Cmd+Z
+  reverts). Click a marker's color cell to open a colour picker;
+  changes apply live and are undoable. New Export.../Import... buttons
+  in the panel write/read marker JSON files (import appends). Two new
+  UndoableActions: `RenameMarkerUndoAction`, `ChangeMarkerColorUndoAction`.
+
+- **Plugin chain preset save/load UI.** The Plugin Chain window
+  toolbar now has a "Presets..." button that opens a popup menu with
+  Save, Export to file, Import from file, and a list of every
+  user-saved preset (click to load). Saved presets bundle the
+  document's automation lanes when present, so loading a chain
+  preset on a different file restores both the plugin states and
+  the automation in one step. Delete is offered via a confirmation
+  dialog.
+
+- **Marquee select for automation points.** Drag from empty space in
+  the curve view to draw a rectangle; every point inside becomes
+  selected. Shift+drag adds to the existing selection instead of
+  replacing it. Esc clears selection. Click without dragging still
+  adds a point at the click position (same as before). 2 new unit
+  tests cover non-additive and additive paths.
+
+- **Crash recovery dialog.** When you open an audio file that has
+  unsaved changes from a previous session (the app crashed, was
+  force-quit, or you closed without saving), WaveEdit now offers to
+  restore them. The detection is per-file: if any auto-save in
+  `<settings>/autosave/` targets the file you're opening and is
+  newer than the file on disk, a three-button dialog asks whether to
+  **Recover** (replace the document's audio with the auto-save and
+  mark dirty so you must Save to commit), **Discard** (delete the
+  auto-saves), or **Keep & Continue** (leave them on disk for later).
+  A normal save also evicts that file's auto-saves now. 7 new unit
+  tests cover the detection algorithm and the eviction-on-save path.
+
+- **Multi-select + copy/paste for automation points.** In the
+  Automation Lanes panel, Cmd-click a point to add or remove it from
+  the selection, Cmd+A to select every point in the lane, Cmd+C / Cmd+V
+  to copy/paste (paste anchors at the current playhead, with relative
+  offsets preserved across the copied set), and Delete to remove every
+  selected point — each as one undo step. Dragging any selected point
+  moves the whole selection by the same delta. Cross-lane copy/paste
+  is supported (clipboard is process-global). Selected points render
+  in orange. Selection auto-clears on lane lifecycle changes (add /
+  remove / sidecar reload) but persists across point edits and
+  recorder appends. 6 new unit tests.
+
+- **Automation point edits are now undoable.** Click-to-add,
+  drag-to-move, right-click delete, curve-type change, and "Clear All
+  Points" in the Automation Lanes panel each become a single
+  transaction on the document's UndoManager — `Cmd+Z` / `Cmd+Shift+Z`
+  revert and replay the gesture. A whole drag is one undo step
+  (snapshot at mouseDown, commit at mouseUp). Removing a lane while
+  its point-edit history is still on the stack is safe — the undo
+  entries inert-no-op rather than crash. 7 new unit tests for the
+  skipFirstPerform pattern, per-gesture round-trip, and lane-removed
+  safety.
+
+- **Plugin Parameter Automation Phase 5 — visual lane editor**: a new
+  Automation Lanes panel (`Plugins → Show Automation Lanes`,
+  `Cmd+Alt+L`) lists every recorded lane for the current file with the
+  parameter name, plugin name, point count, Enabled / Record toggles,
+  and a Remove button. Each row's curve view spans the document
+  timeline: click empty space to add a point, drag to move, right-click
+  for Delete + Curve-to-Next-Point (Linear / Step / S-Curve /
+  Exponential). A live playhead tracks transport during playback.
+
+- **Plugin Parameter Automation Phase 4 — UI surface**: every
+  PluginEditorWindow toolbar now has an "Automation" button. The popup
+  menu lists every plugin parameter with a checkmark next to armed
+  ones; clicking toggles arm and creates the lane on demand. Arming
+  the first parameter also turns the global record-arm flag on, so
+  first-time use "just works." A top-level menu item opens the lanes
+  panel directly. Native-plugin right-click on individual knobs
+  is still deferred — most third-party UIs swallow right-click before
+  WaveEdit can see it; the toolbar button is the path that works for
+  every editor.
+
+- **`AutomationCurve::setPointCurve(int, CurveType)`**: change a single
+  point's interpolation curve without touching its time/value, kept on
+  the same publish path as moves.
+
+- **AutomationLanesPanel test suite** (7 groups) covering the new
+  setPointCurve API, panel listener wiring (rows track lane count
+  through add / remove / clear), and lifetime safety
+  (manager outliving panel destruction).
+
 - **Plugin Parameter Automation Phase 4**: record plugin parameter
   changes during playback. New `Plugins → Automation → Arm Automation
   Recording` toggle. Once armed, lanes whose `isRecording` flag is set
@@ -20,6 +180,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   value-change threshold). Audio thread is untouched — JUCE's plain
   `setValue()` doesn't notify listeners, so playback can't feed back
   into recording.
+
 - **Plugin Parameter Automation Phase 6**: per-document persistence
   of automation lanes via `<file>.<ext>.automation.json` sidecar
   next to the audio file (mirrors the existing region/marker sidecar
@@ -28,9 +189,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   skip writing so we don't litter the disk for un-automated files.
 
 ### Changed
-- 9 new unit tests for the automation recorder (gating, debounce,
-  dispatcher lifecycle, reorder rebinding, sidecar round-trip).
-  Total test count: 308 → 320 groups locally / 290 in CI.
+- **Plugin chain preset format now bundles automation lanes.** The
+  `.wepchain` JSON has gained an optional top-level `"automation"`
+  block carrying the document's AutomationManager state. Empty
+  managers omit the block (small presets stay small). New
+  `PluginPresetManager` overloads accept an `AutomationManager`
+  alongside the chain; existing chain-only callers (BatchJob and
+  any external file readers) keep working unchanged and cleanly
+  ignore the automation block when reading newer files. Loading a
+  preset through the automation-aware API replaces both the chain
+  and the manager. 7 new unit tests cover round-trip, empty-skip,
+  bidirectional backwards compatibility, and error paths.
+
+- **UndoActions split for §7.5 compliance**: `AudioUndoActions.h`
+  (1,028 lines) and `RegionUndoActions.h` (964 lines) — both over
+  the CLAUDE.md §7.5 500-line cap — are now thin umbrella headers
+  that re-export from sub-domain files. New: `LevelUndoActions.h`
+  (Gain/Normalize/DCOffset), `RangeUndoActions.h` (Silence/Trim),
+  `TransformUndoActions.h` (Reverse/Invert/Resample/HeadTail),
+  `RegionLifecycleUndoActions.h` (Add/Delete/Rename/Color/
+  BatchRename), `RegionEditUndoActions.h` (Resize/Nudge/Merge/
+  MultiMerge/Split), `RegionDerivationUndoActions.h` (StripSilence/
+  Retrospective/MarkersToRegions). `ChannelUndoActions.h` absorbed
+  the channel-shape actions (`ConvertToStereoAction`,
+  `SilenceChannelsUndoAction`, `ReplaceChannelsAction`) that were
+  always misfiled under Audio. All callers using
+  `#include "AudioUndoActions.h"` or `#include "RegionUndoActions.h"`
+  keep working unchanged. Largest UndoActions file is now 381 lines.
+  No behavior change.
+
+- **Test suite grew from 308 → 364 groups** across the entire
+  Unreleased cycle (~207,000 assertions, all passing). New test files:
+  `AutomationRecorderTests`, `AutomationLanesPanelTests`,
+  `PluginPresetManagerTests`, `CrashRecoveryTests`, `TimePitchEngineTests`.
+
+### Fixed
+- **Marker rename in the Marker List Panel never persisted.** The
+  panel called the listener with the new name but the listener
+  override dropped the argument, so `Marker::setName` was never
+  invoked. Fixed by routing the new name through
+  `MarkerController::handleMarkerListMarkerRenamed` which now also
+  wraps the rename in an UndoableAction.
 
 ---
 

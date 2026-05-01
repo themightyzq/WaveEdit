@@ -730,6 +730,8 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::pluginRescan] = "pluginRescan";
         commandNameMap[CommandIDs::pluginShowSettings] = "pluginShowSettings";
         commandNameMap[CommandIDs::pluginClearCache] = "pluginClearCache";
+        commandNameMap[CommandIDs::automationToggleRecordArm] = "automationToggleRecordArm";
+        commandNameMap[CommandIDs::pluginShowAutomationLanes] = "pluginShowAutomationLanes";
     }
 
     auto it = commandNameMap.find(commandID);
@@ -825,7 +827,9 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::pluginShowChain, CommandIDs::pluginAddPlugin,
             CommandIDs::pluginApplyChain, CommandIDs::pluginBypassAll,
             CommandIDs::pluginRescan, CommandIDs::pluginShowSettings,
-            CommandIDs::pluginClearCache
+            CommandIDs::pluginClearCache,
+            CommandIDs::automationToggleRecordArm,
+            CommandIDs::pluginShowAutomationLanes
         };
 
         for (const auto& id : allCommandIDs)

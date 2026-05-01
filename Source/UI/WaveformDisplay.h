@@ -171,6 +171,26 @@ public:
      */
     int getFocusedChannels() const { return m_focusedChannels; }
 
+    //==============================================================================
+    // Per-channel waveform colour overrides
+    //
+    // Each channel may have its own colour. A "no override" sentinel
+    // (juce::Colour(0u)) falls back to the global setting
+    // `display.waveformColor` (or the JUCE brand colour if unset).
+    // Persisted under `display.waveformColor.ch<N>` per-channel keys.
+
+    /** Get the rendered waveform colour for a channel (resolved). */
+    juce::Colour getChannelWaveformColour(int channel) const;
+
+    /** Get the per-channel override (transparent black if none set). */
+    juce::Colour getChannelWaveformOverride(int channel) const;
+
+    /** Set the override colour for a channel. Pass juce::Colour() to clear. */
+    void setChannelWaveformOverride(int channel, juce::Colour colour);
+
+    /** Clear all per-channel overrides; revert to the global setting. */
+    void clearAllChannelWaveformOverrides();
+
     /**
      * Sets which channels are focused for editing.
      * @param channelMask -1 for all channels, or bitmask (1 << channel)
@@ -718,6 +738,28 @@ private:
     // Channel label bounds for solo/mute click detection
     // Indexed by channel number, stores the clickable rectangle for each label
     std::array<juce::Rectangle<int>, 8> m_channelLabelBounds;
+
+    // Per-channel waveform colour overrides. juce::Colour(0u) (transparent
+    // black) means "use global default". Loaded lazily from Settings on
+    // first paint / set.
+    std::array<juce::Colour, 8> m_channelWaveformOverride {};
+    bool m_channelOverridesLoaded = false;
+
+    // Disk thumbnail cache bookkeeping. We remember the audio file
+    // we're displaying so we can save the thumbnail to disk after
+    // generation completes, and to avoid re-saving an already-cached
+    // thumbnail on subsequent change broadcasts.
+    juce::File m_loadedFile;
+    bool m_thumbnailFromCache = false;
+    bool m_thumbnailCacheSaved = false;
+
+    // Selection-edge resize gesture state. When the user clicks within
+    // kEdgeHandleHaloPx of selectionStart or selectionEnd, the next
+    // mouseDrag resizes that edge instead of starting a fresh selection.
+    bool   m_resizingLeftEdge  = false;
+    bool   m_resizingRightEdge = false;
+    double m_resizeAnchor      = 0.0;
+    static constexpr int kEdgeHandleHaloPx = 6;
 
     // Time comparison epsilon (1ms for sample-accurate comparisons)
     static constexpr double TIME_EPSILON = 0.001;

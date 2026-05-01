@@ -14,6 +14,7 @@
 */
 
 #include "FileController.h"
+#include "../Utils/AutoSaveRecovery.h"
 #include "../Utils/Settings.h"
 #include "../UI/ErrorDialog.h"
 #include "../UI/SaveAsOptionsPanel.h"
@@ -114,6 +115,9 @@ void FileController::openFile(juce::Component* /*parent*/)
                         Settings::getInstance().addRecentFile(file);
 
                         DBG("FileController::openFile - Opened: " + file.getFileName());
+
+                        // Crash recovery: offer to restore an unsaved auto-save.
+                        offerCrashRecovery(newDoc, file);
                     }
                     else
                     {
@@ -204,6 +208,9 @@ void FileController::loadFile(const juce::File& file, juce::Component* /*parent*
 
         // Document is now active, UI will update via listener
         DBG("FileController::loadFile - Opened: " + file.getFileName());
+
+        // Crash recovery: offer to restore an unsaved auto-save.
+        offerCrashRecovery(doc, file);
     }
     else
     {
@@ -247,6 +254,10 @@ void FileController::saveFile(Document* doc, std::function<void()> onSaved)
 
     if (saveSuccess)
     {
+        // The on-disk file is now the canonical version — drop any
+        // crash-recovery auto-saves for this file (they're superseded).
+        deleteAutoSavesFor(currentFile);
+
         requestUIRefresh();
         DBG("FileController::saveFile - Saved: " + currentFile.getFullPathName());
 
@@ -663,4 +674,121 @@ void FileController::AutoSaveJob::logFailure(const juce::String& reason)
     {
         juce::Logger::writeToLog("Auto-save failed for " + file.getFullPathName() + ": " + reason);
     });
+}
+
+//==============================================================================
+// Crash recovery
+//
+// The static helpers (find/delete/dir) live in Source/Utils/AutoSaveRecovery
+// — they're UI-free so unit tests can link them without dragging the rest
+// of FileController's dialog dependencies. The FileController shim methods
+// just forward, keeping the public API surface familiar.
+//==============================================================================
+
+juce::File FileController::getAutoSaveDirectory()
+{
+    return AutoSaveRecovery::getAutoSaveDirectory();
+}
+
+juce::Array<juce::File> FileController::findOrphanedAutoSaves(const juce::File& originalFile)
+{
+    return AutoSaveRecovery::findOrphanedAutoSaves(originalFile);
+}
+
+void FileController::deleteAutoSavesFor(const juce::File& originalFile)
+{
+    AutoSaveRecovery::deleteAutoSavesFor(originalFile);
+}
+
+void FileController::offerCrashRecovery(Document* doc, const juce::File& originalFile)
+{
+    if (doc == nullptr)
+        return;
+
+    auto orphans = AutoSaveRecovery::findOrphanedAutoSaves(originalFile);
+    if (orphans.isEmpty())
+        return;
+
+    const auto& newest = orphans.getReference(0);
+    const auto when    = newest.getLastModificationTime().toString(true, true, true, true);
+
+    juce::String body;
+    body << "WaveEdit found unsaved changes for \"" << originalFile.getFileName() << "\".\n\n"
+         << "The most recent auto-save is from " << when << ".\n\n"
+         << "What would you like to do?";
+
+    auto opts = juce::MessageBoxOptions()
+                    .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                    .withTitle("Recover Unsaved Changes?")
+                    .withMessage(body)
+                    .withButton("Recover")
+                    .withButton("Discard")
+                    .withButton("Keep & Continue");
+
+    auto* docManager = &m_documentManager;
+    auto* fileMgr    = &m_fileManager;
+    auto orphanList  = orphans;
+    auto refreshUI   = m_onUIRefreshNeeded;
+    Document* docPtr = doc;
+
+    juce::AlertWindow::showAsync(opts,
+        [docManager, fileMgr, orphanList, refreshUI, docPtr](int result)
+        {
+            // result 1 = Recover, 2 = Discard, 3 = Keep & Continue.
+            // Anything else (including the user closing via the
+            // window's close button) we treat as Keep & Continue.
+            if (result == 2)
+            {
+                for (const auto& f : orphanList)
+                    f.deleteFile();
+                return;
+            }
+            if (result != 1)
+                return;  // Keep & Continue: do nothing.
+
+            // Verify the document still exists in the manager — the
+            // user may have closed it while the modal was open. We
+            // use pointer-equality against the manager's owned list
+            // since Document doesn't expose a stable identity.
+            bool stillOpen = false;
+            for (int i = 0; i < docManager->getNumDocuments(); ++i)
+            {
+                if (docManager->getDocument(i) == docPtr)
+                {
+                    stillOpen = true;
+                    break;
+                }
+            }
+            if (! stillOpen)
+                return;
+
+            const auto& newestAS = orphanList.getReference(0);
+
+            // Load the auto-save's audio into a fresh buffer.
+            juce::AudioBuffer<float> recovered;
+            if (! fileMgr->loadIntoBuffer(newestAS, recovered))
+            {
+                juce::Logger::writeToLog(
+                    "Crash recovery: failed to load " + newestAS.getFullPathName());
+                return;
+            }
+
+            // Replace the document's buffer in place. Mark it modified
+            // so the user must Save (or Save As) to commit, and reload
+            // the audio engine so playback uses the recovered audio.
+            const double sr = docPtr->getAudioEngine().getSampleRate();
+            docPtr->getBufferManager().setBuffer(recovered, sr);
+            docPtr->getAudioEngine().reloadBufferPreservingPlayback(
+                docPtr->getBufferManager().getBuffer(),
+                sr,
+                docPtr->getBufferManager().getBuffer().getNumChannels());
+            docPtr->setModified(true);
+
+            // Discard the auto-saves now that we've consumed them.
+            for (const auto& f : orphanList)
+                f.deleteFile();
+
+            if (refreshUI)
+                refreshUI();
+        });
 }

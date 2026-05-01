@@ -29,6 +29,7 @@
 #include "Audio/AudioBufferManager.h"
 #include "Audio/AudioProcessor.h"
 #include "Audio/ChannelLayout.h"
+#include "Automation/AutomationRecorder.h"
 #include "Commands/CommandIDs.h"
 #include "Commands/CommandHandler.h"
 #include "Commands/MenuBuilder.h"
@@ -416,6 +417,11 @@ public:
         m_commandPalette = std::make_unique<CommandPalette>(m_commandManager);
         addChildComponent(m_commandPalette.get());  // Hidden by default
 
+        // Wire the plugin-editor automation toolbar to the AutomationManager
+        // of whichever document owns the plugin node. (Phase 4 UI surface +
+        // Phase 5 entry point.)
+        installAutomationEditorHandlers();
+
         // Update component visibility based on whether we have documents
         updateComponentVisibility();
 
@@ -743,8 +749,28 @@ public:
     {
         if (auto* doc = m_documentManager.getCurrentDocument())
         {
-            m_markerController.handleMarkerListMarkerRenamed(doc);
+            m_markerController.handleMarkerListMarkerRenamed(doc, markerIndex, newName);
         }
+    }
+
+    void markerListPanelMarkerColorChanged(int markerIndex, juce::Colour newColor) override
+    {
+        if (auto* doc = m_documentManager.getCurrentDocument())
+        {
+            m_markerController.handleMarkerListMarkerColorChanged(doc, markerIndex, newColor);
+        }
+    }
+
+    void markerListPanelExportRequested() override
+    {
+        if (auto* doc = m_documentManager.getCurrentDocument())
+            m_markerController.exportMarkers(doc, this);
+    }
+
+    void markerListPanelImportRequested() override
+    {
+        if (auto* doc = m_documentManager.getCurrentDocument())
+            m_markerController.importMarkers(doc, this);
     }
 
     void markerListPanelMarkerSelected(int markerIndex) override
@@ -1719,6 +1745,101 @@ public:
             m_dspController,
             [this]() { return getCurrentDocument(); });
     }
+
+    void showAutomationLanesPanel(int scrollToPluginIndex = -1,
+                                  int scrollToParameterIndex = -1)
+    {
+        m_pluginController.showAutomationLanesPanel(
+            getCurrentDocument(),
+            m_commandManager,
+            scrollToPluginIndex,
+            scrollToParameterIndex);
+    }
+
+private:
+    /** Find the open document whose plugin chain owns a given node, or
+        nullptr if the node belongs to none of the open documents. */
+    Document* findDocumentForNode(PluginChainNode* node, int* outPluginIndex = nullptr) const
+    {
+        if (node == nullptr) return nullptr;
+        for (int d = 0; d < m_documentManager.getNumDocuments(); ++d)
+        {
+            auto* doc = m_documentManager.getDocument(d);
+            if (doc == nullptr) continue;
+            auto& chain = doc->getAudioEngine().getPluginChain();
+            for (int i = 0; i < chain.getNumPlugins(); ++i)
+            {
+                if (chain.getPlugin(i) == node)
+                {
+                    if (outPluginIndex != nullptr) *outPluginIndex = i;
+                    return doc;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    void installAutomationEditorHandlers()
+    {
+        PluginEditorWindow::setAutomationHandlers(
+            // openLanes(node, paramIndex)
+            [this](PluginChainNode* node, int paramIndex)
+            {
+                int pluginIndex = -1;
+                auto* doc = findDocumentForNode(node, &pluginIndex);
+                if (doc == nullptr)
+                    return;
+                m_pluginController.showAutomationLanesPanel(
+                    doc, m_commandManager, pluginIndex, paramIndex);
+            },
+            // toggleArm(node, paramIndex)
+            [this](PluginChainNode* node, int paramIndex)
+            {
+                int pluginIndex = -1;
+                auto* doc = findDocumentForNode(node, &pluginIndex);
+                if (doc == nullptr || node == nullptr || node->getPlugin() == nullptr)
+                    return;
+                auto& mgr = doc->getAutomationManager();
+                auto* recorder = mgr.getRecorder();
+                if (recorder == nullptr)
+                    return;
+
+                auto& params = node->getPlugin()->getParameters();
+                if (paramIndex < 0 || paramIndex >= params.size())
+                    return;
+                auto* param = params[paramIndex];
+
+                const bool currentlyArmed = (mgr.findLane(pluginIndex, paramIndex) != nullptr
+                                             && mgr.findLane(pluginIndex, paramIndex)->isRecording);
+                if (currentlyArmed)
+                {
+                    recorder->disarmParameter(pluginIndex, paramIndex);
+                }
+                else
+                {
+                    recorder->armParameter(pluginIndex, paramIndex,
+                                            node->getName(),
+                                            param->getName(64),
+                                            param->getName(64));  // no stable param ID exposed
+                    // Phase-4 capture also requires the global arm flag to be on;
+                    // flip it on opportunistically when the user arms their first
+                    // parameter, since the menu item is the user's primary intent.
+                    if (! recorder->isGlobalArmed())
+                        recorder->setGlobalArm(true);
+                }
+            },
+            // isArmed(node, paramIndex)
+            [this](PluginChainNode* node, int paramIndex) -> bool
+            {
+                int pluginIndex = -1;
+                auto* doc = findDocumentForNode(node, &pluginIndex);
+                if (doc == nullptr) return false;
+                auto* lane = doc->getAutomationManager().findLane(pluginIndex, paramIndex);
+                return lane != nullptr && lane->isRecording;
+            });
+    }
+
+public:
 
 
     // Undo action classes moved to Utils/UndoActions/ (AudioUndoActions.h, RegionUndoActions.h, MarkerUndoActions.h)

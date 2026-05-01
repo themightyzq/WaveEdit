@@ -623,16 +623,46 @@ void MarkerController::handleMarkerListMarkerDeleted(Document* doc)
     DBG("Marker deleted - display refreshed");
 }
 
-void MarkerController::handleMarkerListMarkerRenamed(Document* doc)
+void MarkerController::handleMarkerListMarkerRenamed(Document* doc, int markerIndex,
+                                                      const juce::String& newName)
 {
-    if (!doc)
-        return;
+    if (! doc) return;
+    auto* marker = doc->getMarkerManager().getMarker(markerIndex);
+    if (marker == nullptr) return;
+    if (marker->getName() == newName) return;
 
-    // Marker was renamed - update display
+    const auto oldName = marker->getName();
+    doc->getUndoManager().beginNewTransaction("Rename marker");
+    doc->getUndoManager().perform(new RenameMarkerUndoAction(
+        doc->getMarkerManager(),
+        &doc->getMarkerDisplay(),
+        doc->getFile(),
+        markerIndex,
+        oldName,
+        newName));
+
     doc->setModified(true);
-    doc->getMarkerDisplay().repaint();
+}
 
-    DBG("Marker renamed - display refreshed");
+void MarkerController::handleMarkerListMarkerColorChanged(Document* doc, int markerIndex,
+                                                           juce::Colour newColor)
+{
+    if (! doc) return;
+    auto* marker = doc->getMarkerManager().getMarker(markerIndex);
+    if (marker == nullptr) return;
+    if (marker->getColor() == newColor) return;
+
+    const auto oldColor = marker->getColor();
+    doc->getUndoManager().beginNewTransaction("Change marker color");
+    doc->getUndoManager().perform(new ChangeMarkerColorUndoAction(
+        doc->getMarkerManager(),
+        &doc->getMarkerDisplay(),
+        doc->getFile(),
+        markerIndex,
+        oldColor,
+        newColor));
+
+    doc->setModified(true);
 }
 
 void MarkerController::handleMarkerListMarkerSelected(Document* doc, int markerIndex)
@@ -645,4 +675,114 @@ void MarkerController::handleMarkerListMarkerSelected(Document* doc, int markerI
     doc->getMarkerDisplay().repaint();
 
     DBG("Marker selected: " + juce::String(markerIndex));
+}
+
+//==============================================================================
+// Export / Import
+//==============================================================================
+
+void MarkerController::exportMarkers(Document* doc, juce::Component* /*parent*/)
+{
+    if (! doc) return;
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Export Markers",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+            .getChildFile(doc->getFile().getFileNameWithoutExtension() + "-markers.json"),
+        "*.json");
+
+    Document* docCapture = doc;
+    chooser->launchAsync(
+        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+        [chooser, docCapture](const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (file == juce::File() || docCapture == nullptr) return;
+
+            const auto target = file.getFileExtension().isEmpty()
+                                    ? file.withFileExtension("json")
+                                    : file;
+
+            // Reuse the same JSON shape used by the per-document sidecar.
+            auto* root = new juce::DynamicObject();
+            root->setProperty("version", "1.0");
+            root->setProperty("audioFile", docCapture->getFile().getFileName());
+
+            juce::Array<juce::var> arr;
+            const auto& mgr = docCapture->getMarkerManager();
+            for (int i = 0; i < mgr.getNumMarkers(); ++i)
+            {
+                if (const auto* m = mgr.getMarker(i))
+                    arr.add(m->toJSON());
+            }
+            root->setProperty("markers", arr);
+
+            const auto json = juce::JSON::toString(juce::var(root), true);
+            if (! target.replaceWithText(json))
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Export Markers", "Failed to write " + target.getFullPathName(), "OK");
+            }
+        });
+}
+
+void MarkerController::importMarkers(Document* doc, juce::Component* /*parent*/)
+{
+    if (! doc) return;
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Import Markers",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+        "*.json");
+
+    Document* docCapture = doc;
+    chooser->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [chooser, docCapture](const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (file == juce::File() || docCapture == nullptr) return;
+
+            const auto jsonString = file.loadFileAsString();
+            const auto jsonData   = juce::JSON::parse(jsonString);
+            auto* root            = jsonData.getDynamicObject();
+            if (root == nullptr)
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Import Markers",
+                    "File is not a valid markers JSON document.", "OK");
+                return;
+            }
+
+            const auto markersVar = root->getProperty("markers");
+            if (! markersVar.isArray())
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Import Markers",
+                    "File has no \"markers\" array.", "OK");
+                return;
+            }
+
+            // Append imported markers to the existing list — non-destructive.
+            // The user can clear first if they want to replace.
+            auto& mgr = docCapture->getMarkerManager();
+            int imported = 0;
+            for (const auto& mVar : *markersVar.getArray())
+            {
+                Marker m = Marker::fromJSON(mVar);
+                mgr.addMarker(m);
+                ++imported;
+            }
+            mgr.saveToFile(docCapture->getFile());
+            docCapture->getMarkerDisplay().repaint();
+            docCapture->setModified(true);
+
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon,
+                "Import Markers",
+                "Imported " + juce::String(imported) + " marker(s).", "OK");
+        });
 }

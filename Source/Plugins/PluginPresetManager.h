@@ -18,6 +18,8 @@
 #include <juce_core/juce_core.h>
 #include "PluginChain.h"
 
+class AutomationManager;
+
 /**
  * Manages saving and loading plugin chain presets.
  *
@@ -56,12 +58,31 @@ public:
     static bool savePreset(const PluginChain& chain, const juce::String& presetName);
 
     /**
+     * Save a plugin chain plus its automation lanes to a preset file.
+     * If the AutomationManager has no lanes, no automation block is
+     * written (file shape matches the chain-only save).
+     */
+    static bool savePreset(const PluginChain& chain,
+                           const AutomationManager& automation,
+                           const juce::String& presetName);
+
+    /**
      * Load a plugin chain from a preset file.
      * @param chain The chain to load into (existing plugins will be cleared)
      * @param presetName Name of the preset to load
      * @return true if loaded successfully
      */
     static bool loadPreset(PluginChain& chain, const juce::String& presetName);
+
+    /**
+     * Load a plugin chain plus its automation lanes from a preset file.
+     * Replaces both the chain's plugins and the AutomationManager's
+     * lanes. If the preset file has no automation block, the manager
+     * is cleared.
+     */
+    static bool loadPreset(PluginChain& chain,
+                           AutomationManager& automation,
+                           const juce::String& presetName);
 
     /**
      * Delete a preset file.
@@ -95,12 +116,29 @@ public:
     static bool exportPreset(const PluginChain& chain, const juce::File& file);
 
     /**
+     * Export a chain preset (with automation) to a specified file
+     * location. The automation block is omitted when the manager has
+     * no lanes.
+     */
+    static bool exportPreset(const PluginChain& chain,
+                             const AutomationManager& automation,
+                             const juce::File& file);
+
+    /**
      * Import a chain preset from a file.
      * @param chain The chain to load into
      * @param file The source file
      * @return true if imported successfully
      */
     static bool importPreset(PluginChain& chain, const juce::File& file);
+
+    /**
+     * Import a chain preset (with automation) from a file. Both the
+     * chain and the AutomationManager are replaced.
+     */
+    static bool importPreset(PluginChain& chain,
+                             AutomationManager& automation,
+                             const juce::File& file);
 
 private:
     //==============================================================================
