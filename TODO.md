@@ -354,9 +354,12 @@ work top-down.
 - 9 controllers: File, DSP, Region, Marker, Clipboard, Playback,
   Recording, Dialog, Plugin. ✅
 - Remaining file-size violations (CLAUDE.md §7.5):
-  - `.cpp` >1,500: `WaveformDisplay.cpp` 2,799,
-    `BatchProcessorDialog.cpp` 2,465.
+  - `.cpp` >1,500: `WaveformDisplay.cpp` 2,799.
     Recently brought under cap (2026-05-01):
+      - `Batch/BatchProcessorDialog.cpp` 2,465 → 1,477 + 806-line
+        `BatchProcessorDialog_Components.cpp` (DSPOperationComponent +
+        DSPChainPanel + FileListModel) + 235-line
+        `BatchProcessorDialog_Preview.cpp` (audio preview surface).
       - `Commands/CommandHandler.cpp` 1,876 → 877 + 1,026-line
         `CommandHandler_GetInfo.cpp` (the per-command setInfo switch).
       - `Controllers/DSPController.cpp` 1,602 → 1,297 + 1,061-line

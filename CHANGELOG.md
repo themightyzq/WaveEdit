@@ -9,6 +9,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **BatchProcessorDialog split for §7.5 file-size cap.** `Batch/
+  BatchProcessorDialog.cpp` (2,465 lines → ~1,000 over the 1,500 cap)
+  is now 1,477 lines plus two new sibling files:
+    - `BatchProcessorDialog_Components.cpp` (806 lines): the three
+      helper component / model classes used inside the dialog —
+      `DSPOperationComponent` (one row in the DSP chain),
+      `DSPChainPanel` (the drag-reorderable chain panel), and
+      `BatchProcessorDialog::FileListModel` (file-list paint +
+      tooltip model).
+    - `BatchProcessorDialog_Preview.cpp` (235 lines): the audio
+      preview surface — `onPreviewClicked`, `startPreviewPlayback`,
+      `stopPreview`, and `cleanupPreview`.
+  The dialog's state, layout, file-list ops, output config, plugin
+  chain wiring, preset management, and start/cancel flow all stay in
+  the main file. No behaviour changes; all 372 test groups still pass.
+
 - **CommandHandler split for §7.5 file-size cap.** `Commands/
   CommandHandler.cpp` (1,876 lines → over the 1,500 cap) is now 877
   lines plus a new 1,026-line `CommandHandler_GetInfo.cpp` that hosts
