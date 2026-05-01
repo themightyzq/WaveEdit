@@ -15,8 +15,27 @@
 
 #include "PluginEditorWindow.h"
 
+#include "../Plugins/PluginChainNode.h"
+#include "ThemeManager.h"
+
 // Static member initialization
 juce::Array<PluginEditorWindow*> PluginEditorWindow::s_openWindows;
+
+namespace
+{
+    PluginEditorWindow::OpenLanesHandler   g_openLanesHandler;
+    PluginEditorWindow::ArmParameterHandler g_armHandler;
+    PluginEditorWindow::IsArmedQuery       g_isArmedQuery;
+}
+
+void PluginEditorWindow::setAutomationHandlers(OpenLanesHandler openLanes,
+                                               ArmParameterHandler toggleArm,
+                                               IsArmedQuery isArmed)
+{
+    g_openLanesHandler = std::move(openLanes);
+    g_armHandler       = std::move(toggleArm);
+    g_isArmedQuery     = std::move(isArmed);
+}
 
 //==============================================================================
 // ContentComponent
@@ -39,8 +58,16 @@ PluginEditorWindow::ContentComponent::ContentComponent(
     };
     addAndMakeVisible(m_bypassButton);
 
+    // Automation menu button (Phase 4 UI surface + Phase 5)
+    m_automationButton.setButtonText("Automation");
+    m_automationButton.setTooltip("Arm parameters for automation recording, "
+                                  "or open the Automation Lanes panel");
+    m_automationButton.onClick = [this]() { showAutomationMenu(); };
+    addAndMakeVisible(m_automationButton);
+
     // Latency label
-    m_latencyLabel.setColour(juce::Label::textColourId, juce::Colour(0xffa0a0a0));
+    m_latencyLabel.setColour(juce::Label::textColourId,
+        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     m_latencyLabel.setFont(juce::FontOptions(11.0f));
     addAndMakeVisible(m_latencyLabel);
 
@@ -72,12 +99,14 @@ PluginEditorWindow::ContentComponent::~ContentComponent()
 
 void PluginEditorWindow::ContentComponent::paint(juce::Graphics& g)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Toolbar background
-    g.setColour(juce::Colour(0xff2a2a2a));
+    g.setColour(theme.panelAlternate);
     g.fillRect(0, 0, getWidth(), kToolbarHeight);
 
     // Separator line
-    g.setColour(juce::Colour(0xff404040));
+    g.setColour(theme.border);
     g.drawHorizontalLine(kToolbarHeight - 1, 0.0f, static_cast<float>(getWidth()));
 }
 
@@ -88,6 +117,8 @@ void PluginEditorWindow::ContentComponent::resized()
     // Toolbar area
     auto toolbar = bounds.removeFromTop(kToolbarHeight).reduced(4, 2);
     m_bypassButton.setBounds(toolbar.removeFromLeft(80));
+    toolbar.removeFromLeft(6);
+    m_automationButton.setBounds(toolbar.removeFromLeft(100));
     m_latencyLabel.setBounds(toolbar.removeFromRight(150));
 
     // Editor fills rest
@@ -95,6 +126,74 @@ void PluginEditorWindow::ContentComponent::resized()
     {
         m_editor->setBounds(bounds);
     }
+}
+
+void PluginEditorWindow::ContentComponent::showAutomationMenu()
+{
+    auto* node = m_owner.m_node;
+    if (node == nullptr)
+        return;
+
+    juce::PopupMenu menu;
+
+    const bool haveOpen = static_cast<bool>(g_openLanesHandler);
+    menu.addItem(1, "Open Automation Lanes Panel", haveOpen);
+
+    auto* plugin = node->getPlugin();
+    if (plugin == nullptr)
+    {
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&m_automationButton),
+                           [](int) {});
+        return;
+    }
+
+    const auto& parameters = plugin->getParameters();
+    const bool haveArm    = static_cast<bool>(g_armHandler);
+    const bool haveQuery  = static_cast<bool>(g_isArmedQuery);
+
+    if (parameters.size() > 0)
+    {
+        menu.addSeparator();
+        menu.addSectionHeader("Record this parameter");
+
+        for (int i = 0; i < parameters.size(); ++i)
+        {
+            auto* param = parameters[i];
+            if (param == nullptr) continue;
+
+            juce::String label = param->getName(64);
+            if (label.isEmpty())
+                label = "Param " + juce::String(i);
+
+            const bool armed = haveQuery ? g_isArmedQuery(node, i) : false;
+            menu.addItem(1000 + i, label, haveArm, armed);
+        }
+    }
+    else
+    {
+        menu.addSeparator();
+        menu.addItem(0, "(plugin reports no automatable parameters)", false);
+    }
+
+    juce::Component::SafePointer<ContentComponent> safeThis(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&m_automationButton),
+        [safeThis](int result)
+        {
+            if (safeThis == nullptr || result == 0)
+                return;
+            auto* liveNode = safeThis->m_owner.m_node;
+            if (liveNode == nullptr)
+                return;
+            if (result == 1)
+            {
+                if (g_openLanesHandler)
+                    g_openLanesHandler(liveNode, -1);
+                return;
+            }
+            const int paramIndex = result - 1000;
+            if (paramIndex >= 0 && g_armHandler)
+                g_armHandler(liveNode, paramIndex);
+        });
 }
 
 void PluginEditorWindow::ContentComponent::updateBypassState()
@@ -124,7 +223,7 @@ PluginEditorWindow::PluginEditorWindow(PluginChainNode* node,
                                        juce::ApplicationCommandManager* commandManager)
     : juce::DocumentWindow(
           node != nullptr ? node->getName() : "Plugin Editor",
-          juce::Colour(0xff1e1e1e),
+          waveedit::ThemeManager::getInstance().getCurrent().background,
           juce::DocumentWindow::allButtons),
       m_node(node),
       m_commandManager(commandManager),

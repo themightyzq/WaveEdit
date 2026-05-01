@@ -15,6 +15,7 @@
 
 #include "CommandPalette.h"
 #include "../Commands/CommandIDs.h"
+#include "ThemeManager.h"
 #include <algorithm>
 
 //==============================================================================
@@ -24,18 +25,16 @@ CommandPalette::CommandPalette(juce::ApplicationCommandManager& commandManager)
     setWantsKeyboardFocus(false);
 
     m_searchField.setFont(juce::FontOptions(16.0f));
-    m_searchField.setTextToShowWhenEmpty("Type a command...",
-                                         juce::Colour(0xff666666));
-    m_searchField.setColour(juce::TextEditor::backgroundColourId,
-                            juce::Colour(0xff333333));
-    m_searchField.setColour(juce::TextEditor::textColourId,
-                            juce::Colours::white);
-    m_searchField.setColour(juce::TextEditor::outlineColourId,
-                            juce::Colour(0xff444444));
-    m_searchField.setColour(juce::TextEditor::focusedOutlineColourId,
-                            juce::Colour(0xff5588cc));
-    m_searchField.setColour(juce::CaretComponent::caretColourId,
-                            juce::Colours::white);
+    {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        m_searchField.setTextToShowWhenEmpty("Type a command...", theme.textMuted);
+        m_searchField.setColour(juce::TextEditor::backgroundColourId,
+                                theme.background.brighter(0.05f));
+        m_searchField.setColour(juce::TextEditor::textColourId, theme.text);
+        m_searchField.setColour(juce::TextEditor::outlineColourId, theme.border);
+        m_searchField.setColour(juce::TextEditor::focusedOutlineColourId, theme.accent);
+        m_searchField.setColour(juce::CaretComponent::caretColourId, theme.text);
+    }
     m_searchField.addListener(this);
     m_searchField.addKeyListener(this);
     addAndMakeVisible(m_searchField);
@@ -87,17 +86,18 @@ bool CommandPalette::isShowing() const
 void CommandPalette::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
 
     // Drop shadow
     g.setColour(juce::Colour(0x40000000));
     g.fillRoundedRectangle(bounds.translated(1.0f, 2.0f), 8.0f);
 
     // Background
-    g.setColour(juce::Colour(0xff2a2a2a));
+    g.setColour(theme.panel);
     g.fillRoundedRectangle(bounds, 8.0f);
 
     // Border
-    g.setColour(juce::Colour(0xff3a3a3a));
+    g.setColour(theme.border);
     g.drawRoundedRectangle(bounds.reduced(0.5f), 8.0f, 1.0f);
 
     // Command list area
@@ -106,7 +106,7 @@ void CommandPalette::paint(juce::Graphics& g)
 
     if (m_filteredCommands.empty())
     {
-        g.setColour(juce::Colour(0xff666666));
+        g.setColour(theme.textMuted);
         g.setFont(juce::FontOptions(13.0f));
         g.drawText("No matching commands", listArea,
                    juce::Justification::centred);
@@ -126,13 +126,13 @@ void CommandPalette::paint(juce::Graphics& g)
         // Selected row highlight
         if (i == m_selectedIndex)
         {
-            g.setColour(juce::Colour(0xff3a3a3a));
+            g.setColour(theme.border);
             g.fillRect(rowBounds);
         }
 
         auto contentBounds = rowBounds.reduced(12, 0);
 
-        // Category badge
+        // Category badge — colours are workflow-specific, not theme-driven.
         if (entry.category.isNotEmpty())
         {
             auto categoryColour = getCategoryColour(entry.category);
@@ -153,8 +153,7 @@ void CommandPalette::paint(juce::Graphics& g)
         if (entry.shortcutText.isNotEmpty())
         {
             g.setFont(juce::FontOptions(11.0f));
-            g.setColour(entry.isActive ? juce::Colour(0xff888888)
-                                       : juce::Colour(0xff444444));
+            g.setColour(entry.isActive ? theme.textMuted : theme.textMuted.darker(0.4f));
             auto shortcutBounds = contentBounds.removeFromRight(120);
             g.drawText(entry.shortcutText, shortcutBounds,
                        juce::Justification::centredRight);
@@ -162,8 +161,7 @@ void CommandPalette::paint(juce::Graphics& g)
 
         // Command name
         g.setFont(juce::FontOptions(14.0f));
-        g.setColour(entry.isActive ? juce::Colours::white
-                                   : juce::Colour(0xff666666));
+        g.setColour(entry.isActive ? theme.text : theme.textMuted);
         g.drawText(entry.name, contentBounds,
                    juce::Justification::centredLeft);
     }

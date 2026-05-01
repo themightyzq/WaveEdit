@@ -24,8 +24,12 @@
 #include "../Utils/AudioBufferInputSource.h"
 #include "../Utils/RegionManager.h"
 #include "../Utils/Region.h"
+#include "../Utils/Settings.h"
+#include "../Utils/ThumbnailDiskCache.h"
+#include "ThemeManager.h"
 #include "../Audio/ChannelLayout.h"
 #include <cmath>
+#include <juce_gui_extra/juce_gui_extra.h>
 
 //==============================================================================
 WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
@@ -71,6 +75,9 @@ WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
     // Set up thumbnail
     m_thumbnail.addChangeListener(this);
 
+    // Subscribe to theme switches so we re-skin live without a restart.
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+
     // Set up scrollbar
     m_scrollbar.addListener(this);
     m_scrollbar.setAutoHide(false);
@@ -87,6 +94,7 @@ WaveformDisplay::~WaveformDisplay()
 {
     stopTimer();
     m_thumbnail.removeChangeListener(this);
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
     m_scrollbar.removeListener(this);
 }
 
@@ -114,13 +122,27 @@ bool WaveformDisplay::loadFile(const juce::File& file, double sampleRate, int nu
     m_sampleRate = sampleRate;
     m_numChannels = numChannels;
 
-    // Load the file into the thumbnail asynchronously
-    // AudioThumbnail takes ownership of the source
+    // Bookkeeping for the disk cache.
+    m_loadedFile = file;
+    m_thumbnailFromCache = false;
+    m_thumbnailCacheSaved = false;
+    m_isLoading = true;
+
+    // Try to populate the thumbnail from the on-disk cache. If the
+    // load succeeds, AudioThumbnail::loadFrom() fires its change
+    // message and our changeListenerCallback finishes the rest of
+    // the setup — no audio decoding required.
+    if (ThumbnailDiskCache::tryLoad(file, m_thumbnail))
+    {
+        m_thumbnailFromCache = true;
+        repaint();
+        return true;
+    }
+
+    // Cache miss: kick off the normal async generation. AudioThumbnail
+    // takes ownership of the source.
     auto source = std::make_unique<juce::FileInputSource>(file);
     m_thumbnail.setSource(source.release());
-
-    // Set loading state
-    m_isLoading = true;
 
     // The thumbnail will call changeListenerCallback when data is ready
     repaint();
@@ -1415,7 +1437,7 @@ void WaveformDisplay::setVisibleRange(double startTime, double endTime)
 void WaveformDisplay::paint(juce::Graphics& g)
 {
     // Background
-    g.fillAll(juce::Colour(0xff1e1e1e)); // Dark grey background
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().background);
 
     auto bounds = getLocalBounds();
 
@@ -1548,6 +1570,27 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& event)
         }
     }
 
+    // Selection-edge resize: if there's an existing selection and the
+    // click landed within a few pixels of either edge, drag-resizes
+    // that edge instead of starting a fresh selection.
+    m_resizingLeftEdge  = false;
+    m_resizingRightEdge = false;
+    if (m_hasSelection)
+    {
+        const int selStartX = timeToX(m_selectionStart);
+        const int selEndX   = timeToX(m_selectionEnd);
+        if (std::abs(event.x - selStartX) <= kEdgeHandleHaloPx)
+        {
+            m_resizingLeftEdge = true;
+            m_resizeAnchor     = m_selectionEnd;
+        }
+        else if (std::abs(event.x - selEndX) <= kEdgeHandleHaloPx)
+        {
+            m_resizingRightEdge = true;
+            m_resizeAnchor      = m_selectionStart;
+        }
+    }
+
     // Start selection drag
     m_isDraggingSelection = true;
     m_isExtendingSelection = false;  // Clear keyboard extension flag when mouse selecting
@@ -1557,6 +1600,11 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& event)
 
     // CRITICAL: Sample-accurate snapping (audio-unit based, not pixel-based)
     m_dragStartTime = snapTimeToUnit(approximateTime);
+
+    // If we're resizing an edge, leave the selection intact and let
+    // mouseDrag pivot it around the anchor.
+    if (m_resizingLeftEdge || m_resizingRightEdge)
+        return;
 
     // Only clear selection if clicking OUTSIDE of it
     // This allows user to set playback cursor without losing selection
@@ -1666,6 +1714,16 @@ void WaveformDisplay::mouseDrag(const juce::MouseEvent& event)
     // CRITICAL: Sample-accurate snapping (audio-unit based, not pixel-based)
     double currentTime = snapTimeToUnit(approximateTime);
 
+    // Edge-resize gesture: pivot the selection around the opposite edge
+    // (m_resizeAnchor). setSelection normalizes start < end so the user
+    // can even drag past the anchor to flip the active edge.
+    if (m_resizingLeftEdge || m_resizingRightEdge)
+    {
+        clearEditCursor();
+        setSelection(m_resizeAnchor, currentTime);
+        return;
+    }
+
     // Clear edit cursor when user starts dragging (creating a selection)
     // This is intentional: edit cursor is for single-click positioning,
     // while drag is for selection. They are mutually exclusive.
@@ -1685,6 +1743,14 @@ void WaveformDisplay::mouseUp(const juce::MouseEvent& /*event*/)
     }
 
     m_isDraggingSelection = false;
+    const bool wasResizing = m_resizingLeftEdge || m_resizingRightEdge;
+    m_resizingLeftEdge  = false;
+    m_resizingRightEdge = false;
+
+    // Resize gestures keep whatever the user landed on, even if zero-width
+    // (clicking the edge without dragging just preserves the selection).
+    if (wasResizing)
+        return;
 
     // If selection is too small (less than 0.01 seconds), treat as a single click
     // Keep the edit cursor, clear the selection
@@ -1795,6 +1861,12 @@ void WaveformDisplay::timerCallback()
 
 void WaveformDisplay::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
+    if (source == &waveedit::ThemeManager::getInstance())
+    {
+        repaint();
+        return;
+    }
+
     if (source == &m_thumbnail)
     {
         // Check if thumbnail is ready (only used for initial file load)
@@ -1826,6 +1898,20 @@ void WaveformDisplay::changeListenerCallback(juce::ChangeBroadcaster* source)
             // NOTE: We do NOT switch rendering modes here anymore
             // Once a file has been edited, we stay in fast rendering mode permanently
             // Fast direct rendering is sufficient for all use cases and much faster
+        }
+
+        // Save freshly-generated thumbnails to the on-disk cache so the
+        // next open of this file is instant. Skip if we already loaded
+        // from cache (no point re-saving the same data) or if we've
+        // already saved in this session.
+        if (! m_thumbnailFromCache
+            && ! m_thumbnailCacheSaved
+            && m_thumbnail.isFullyLoaded()
+            && m_loadedFile != juce::File()
+            && m_loadedFile.existsAsFile())
+        {
+            ThumbnailDiskCache::save(m_loadedFile, m_thumbnail);
+            m_thumbnailCacheSaved = true;
         }
 
         // Repaint for loading progress or completion
@@ -1937,12 +2023,14 @@ void WaveformDisplay::updateScrollbar(bool sendNotification)
 
 void WaveformDisplay::drawTimeRuler(juce::Graphics& g, juce::Rectangle<int> bounds)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Background for ruler
-    g.setColour(juce::Colour(0xff2a2a2a));
+    g.setColour(theme.ruler);
     g.fillRect(bounds);
 
     // Border
-    g.setColour(juce::Colour(0xff3a3a3a));
+    g.setColour(theme.border);
     g.drawLine(bounds.getX(), bounds.getBottom(), bounds.getRight(), bounds.getBottom(), 1.0f);
 
     if (!m_fileLoaded)
@@ -1974,7 +2062,7 @@ void WaveformDisplay::drawTimeRuler(juce::Graphics& g, juce::Rectangle<int> boun
     }
 
     // Draw time markers
-    g.setColour(juce::Colours::white);
+    g.setColour(waveedit::ThemeManager::getInstance().getCurrent().rulerText);
     g.setFont(12.0f);
 
     double firstMarker = std::ceil(m_visibleStart / markerInterval) * markerInterval;
@@ -2005,30 +2093,33 @@ void WaveformDisplay::drawTimeRuler(juce::Graphics& g, juce::Rectangle<int> boun
 
 void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int> bounds, int channelNum)
 {
-    // Channel background - slightly different shade for unfocused channels
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Channel background - slightly different shade for unfocused channels.
+    // The "dimmer" variant is the theme's panel surface darkened by
+    // ~25% so the relationship holds whether we're on Dark or Light.
     bool isFocused = isChannelFocused(channelNum);
     bool showFocusIndicator = (m_focusedChannels != -1);  // Only show when not all focused
 
     if (!isFocused && showFocusIndicator)
     {
-        // Dimmer background for unfocused channels
-        g.setColour(juce::Colour(0xff1a1a1a));
+        g.setColour(theme.waveformBackground.darker(0.4f));
     }
     else
     {
-        g.setColour(juce::Colour(0xff252525));
+        g.setColour(theme.waveformBackground);
     }
     g.fillRect(bounds);
 
     // Draw focus indicator border for focused channels (when not all are focused)
     if (isFocused && showFocusIndicator)
     {
-        g.setColour(juce::Colour(0xff00aaff).withAlpha(0.6f));  // Cyan highlight
+        g.setColour(theme.waveformBorder.withAlpha(0.6f));
         g.drawRect(bounds.reduced(1), 2);
     }
 
     // Center line
-    g.setColour(juce::Colour(0xff3a3a3a));
+    g.setColour(theme.gridLine);
     g.drawLine(bounds.getX(), bounds.getCentreY(),
                bounds.getRight(), bounds.getCentreY(), 1.0f);
 
@@ -2050,7 +2141,7 @@ void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int
     }
     else
     {
-        juce::Colour waveformColor = juce::Colour(0xff00d4aa).withAlpha(waveformAlpha);
+        juce::Colour waveformColor = getChannelWaveformColour(channelNum).withAlpha(waveformAlpha);
         g.setColour(waveformColor);
         m_thumbnail.drawChannel(g, bounds, m_visibleStart, m_visibleEnd, channelNum, 1.0f);
     }
@@ -2073,22 +2164,23 @@ void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int
         juce::Colour labelBgColor(0x00000000);  // Transparent by default
         juce::Colour labelTextColor = juce::Colours::grey;
 
+        const auto& laneTheme = waveedit::ThemeManager::getInstance().getCurrent();
         if (isSolo)
         {
-            // Yellow background for solo (highest priority)
-            labelBgColor = juce::Colour(0xffddaa00).withAlpha(0.9f);
+            // Solo — warning token (yellow / amber across themes)
+            labelBgColor = laneTheme.warning.withAlpha(0.9f);
             labelTextColor = juce::Colours::white;
         }
         else if (isMute)
         {
-            // Red background for mute
-            labelBgColor = juce::Colour(0xffdd3333).withAlpha(0.9f);
+            // Mute — error token (red across themes)
+            labelBgColor = laneTheme.error.withAlpha(0.9f);
             labelTextColor = juce::Colours::white;
         }
         else if (showingFocusMode && isChannelCurrentlyFocused)
         {
-            // Blue background for focused channel (when in per-channel mode)
-            labelBgColor = juce::Colour(0xff3a7dd4).withAlpha(0.9f);
+            // Focused channel — accent token (blue-ish across themes)
+            labelBgColor = laneTheme.accent.withAlpha(0.9f);
             labelTextColor = juce::Colours::white;
         }
         else if (showingFocusMode && !isChannelCurrentlyFocused)
@@ -2156,8 +2248,8 @@ void WaveformDisplay::drawChannelWaveformDirect(juce::Graphics& g, juce::Rectang
     const float centerY = bounds.getCentreY();
     const float halfHeight = height * 0.5f;
 
-    // Set waveform color
-    g.setColour(juce::Colour(0xff00d4aa)); // JUCE brand color
+    // Set waveform color (per-channel override falls back to global setting)
+    g.setColour(getChannelWaveformColour(channelNum));
 
     // Calculate samples per pixel
     const double samplesPerPixel = static_cast<double>(visibleSamples) / width;
@@ -2507,6 +2599,11 @@ void WaveformDisplay::showChannelContextMenu(int channel, juce::Point<int> scree
     menu.addItem(4, "Unsolo All Channels");
     menu.addItem(5, "Unmute All Channels");
 
+    menu.addSeparator();
+    menu.addItem(6, "Set Channel Color...");
+    const bool hasOverride = getChannelWaveformOverride(channel).getARGB() != 0u;
+    menu.addItem(7, "Reset Channel Color", hasOverride);
+
     menu.showMenuAsync(juce::PopupMenu::Options()
         .withTargetScreenArea(juce::Rectangle<int>(screenPos.x, screenPos.y, 1, 1)),
         [this, channel](int result) { handleChannelMenuResult(channel, result); });
@@ -2568,7 +2665,135 @@ void WaveformDisplay::handleChannelMenuResult(int channel, int menuResult)
             }
             break;
 
+        case 6:  // Set Channel Color
+            {
+                struct PickerWrapper : public juce::Component, private juce::ChangeListener
+                {
+                    PickerWrapper(WaveformDisplay& d, int ch, juce::Colour startC)
+                        : display(d), channel(ch),
+                          m_sel(juce::ColourSelector::showColourAtTop
+                                | juce::ColourSelector::showSliders
+                                | juce::ColourSelector::showColourspace)
+                    {
+                        m_sel.setCurrentColour(startC, juce::dontSendNotification);
+                        m_sel.addChangeListener(this);
+                        addAndMakeVisible(m_sel);
+                        setSize(300, 280);
+                    }
+                    ~PickerWrapper() override { m_sel.removeChangeListener(this); }
+                    void resized() override { m_sel.setBounds(getLocalBounds()); }
+                    void changeListenerCallback(juce::ChangeBroadcaster*) override
+                    {
+                        display.setChannelWaveformOverride(channel, m_sel.getCurrentColour());
+                    }
+                    WaveformDisplay& display;
+                    int channel;
+                    juce::ColourSelector m_sel;
+                };
+
+                const auto bounds = m_channelLabelBounds[static_cast<size_t>(channel)];
+                const auto screenBounds = localAreaToGlobal(bounds);
+                auto wrapper = std::make_unique<PickerWrapper>(*this, channel,
+                                                                getChannelWaveformColour(channel));
+                juce::CallOutBox::launchAsynchronously(std::move(wrapper),
+                                                        screenBounds, nullptr);
+            }
+            break;
+
+        case 7:  // Reset Channel Color (clear override)
+            setChannelWaveformOverride(channel, juce::Colour());
+            break;
+
         default:
             break;
     }
+}
+
+//==============================================================================
+// Per-channel waveform colours
+//==============================================================================
+
+namespace
+{
+    constexpr juce::uint32 kNoOverride = 0u;  // transparent black sentinel
+
+    juce::String channelColourSettingsKey(int channel)
+    {
+        return "display.waveformColor.ch" + juce::String(channel);
+    }
+
+    juce::Colour resolveGlobalWaveformColour()
+    {
+        // Resolution order: explicit `display.waveformColor` setting
+        // (legacy from before the theme system) → active theme's
+        // waveformLine token. Most installs will have no setting, in
+        // which case the theme drives the colour and switching themes
+        // re-skins the waveform.
+        auto raw = Settings::getInstance()
+                       .getSetting("display.waveformColor", "")
+                       .toString();
+        if (raw.isNotEmpty())
+            return juce::Colour::fromString(raw);
+        return waveedit::ThemeManager::getInstance().getCurrent().waveformLine;
+    }
+}
+
+juce::Colour WaveformDisplay::getChannelWaveformOverride(int channel) const
+{
+    if (channel < 0 || channel >= 8)
+        return juce::Colour();
+
+    if (! m_channelOverridesLoaded)
+    {
+        // const-cast: lazy load from Settings.
+        auto* self = const_cast<WaveformDisplay*>(this);
+        for (int i = 0; i < 8; ++i)
+        {
+            auto raw = Settings::getInstance()
+                           .getSetting(channelColourSettingsKey(i), "")
+                           .toString();
+            self->m_channelWaveformOverride[static_cast<size_t>(i)] =
+                raw.isEmpty() ? juce::Colour() : juce::Colour::fromString(raw);
+        }
+        self->m_channelOverridesLoaded = true;
+    }
+
+    return m_channelWaveformOverride[static_cast<size_t>(channel)];
+}
+
+juce::Colour WaveformDisplay::getChannelWaveformColour(int channel) const
+{
+    const auto override_ = getChannelWaveformOverride(channel);
+    if (override_.getARGB() != kNoOverride)
+        return override_;
+    return resolveGlobalWaveformColour();
+}
+
+void WaveformDisplay::setChannelWaveformOverride(int channel, juce::Colour colour)
+{
+    if (channel < 0 || channel >= 8)
+        return;
+
+    // Force lazy-load before write so we don't race with it.
+    (void) getChannelWaveformOverride(0);
+
+    m_channelWaveformOverride[static_cast<size_t>(channel)] = colour;
+
+    if (colour.getARGB() == kNoOverride)
+        Settings::getInstance().setSetting(channelColourSettingsKey(channel), "");
+    else
+        Settings::getInstance().setSetting(channelColourSettingsKey(channel),
+                                            colour.toString());
+    repaint();
+}
+
+void WaveformDisplay::clearAllChannelWaveformOverrides()
+{
+    for (int i = 0; i < 8; ++i)
+    {
+        m_channelWaveformOverride[static_cast<size_t>(i)] = juce::Colour();
+        Settings::getInstance().setSetting(channelColourSettingsKey(i), "");
+    }
+    m_channelOverridesLoaded = true;
+    repaint();
 }

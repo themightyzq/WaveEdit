@@ -18,6 +18,32 @@
 #include "../Audio/AudioBufferManager.h"
 #include "../Plugins/PluginManager.h"
 #include "../Plugins/PluginChainRenderer.h"
+#include "ThemeManager.h"
+
+juce::Colour OfflinePluginDialog::backgroundColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().panel;
+}
+
+juce::Colour OfflinePluginDialog::alternateRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().panelAlternate;
+}
+
+juce::Colour OfflinePluginDialog::selectedRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().selection;
+}
+
+juce::Colour OfflinePluginDialog::textColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().text;
+}
+
+juce::Colour OfflinePluginDialog::accentColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().accent;
+}
 
 //==============================================================================
 OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
@@ -40,16 +66,20 @@ OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
     // Search box
     m_searchBox.setTextToShowWhenEmpty("Filter plugins...", juce::Colours::grey);
     m_searchBox.onTextChange = [this]() { onSearchTextChanged(); };
-    m_searchBox.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_searchBox.setColour(juce::TextEditor::textColourId, m_textColour);
-    m_searchBox.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff3a3a3a));
+    {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        m_searchBox.setColour(juce::TextEditor::backgroundColourId, theme.panelAlternate);
+        m_searchBox.setColour(juce::TextEditor::textColourId, theme.text);
+        m_searchBox.setColour(juce::TextEditor::outlineColourId, theme.border);
+    }
     addAndMakeVisible(m_searchBox);
 
     // Plugin browser table
     m_pluginTable.setModel(this);
     m_pluginTable.setRowHeight(kBrowserRowHeight);
-    m_pluginTable.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff1e1e1e));
-    m_pluginTable.setColour(juce::ListBox::outlineColourId, juce::Colour(0xff444444));
+    m_pluginTable.setColour(juce::ListBox::backgroundColourId, backgroundColour());
+    m_pluginTable.setColour(juce::ListBox::outlineColourId,
+        waveedit::ThemeManager::getInstance().getCurrent().border);
     m_pluginTable.getHeader().addColumn("Name", NameColumn, 250, 100, 400);
     m_pluginTable.getHeader().addColumn("Manufacturer", ManufacturerColumn, 120, 80, 200);
     m_pluginTable.getHeader().addColumn("Type", FormatColumn, 60, 50, 100);
@@ -84,8 +114,9 @@ OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
 
     // Render Options Group
     m_renderOptionsGroup.setText("Render Options");
-    m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, juce::Colour(0xff444444));
-    m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, m_textColour);
+    m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId,
+        waveedit::ThemeManager::getInstance().getCurrent().border);
+    m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, textColour());
     addAndMakeVisible(m_renderOptionsGroup);
 
     // Convert to stereo checkbox
@@ -108,7 +139,7 @@ OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
 
     // Tail length label
     m_tailLengthLabel.setText("Tail:", juce::dontSendNotification);
-    m_tailLengthLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_tailLengthLabel.setColour(juce::Label::textColourId, textColour());
     m_tailLengthLabel.setEnabled(false);
     addAndMakeVisible(m_tailLengthLabel);
 
@@ -117,9 +148,12 @@ OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
     m_tailLengthSlider.setValue(2.0);
     m_tailLengthSlider.setTextValueSuffix(" sec");
     m_tailLengthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    m_tailLengthSlider.setColour(juce::Slider::textBoxTextColourId, m_textColour);
-    m_tailLengthSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff2a2a2a));
-    m_tailLengthSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(0xff3a3a3a));
+    {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        m_tailLengthSlider.setColour(juce::Slider::textBoxTextColourId, theme.text);
+        m_tailLengthSlider.setColour(juce::Slider::textBoxBackgroundColourId, theme.panelAlternate);
+        m_tailLengthSlider.setColour(juce::Slider::textBoxOutlineColourId, theme.border);
+    }
     m_tailLengthSlider.setEnabled(false);
     addAndMakeVisible(m_tailLengthSlider);
 
@@ -183,7 +217,7 @@ std::optional<OfflinePluginDialog::Result> OfflinePluginDialog::showDialog(
     juce::DialogWindow::LaunchOptions options;
     options.content.setNonOwned(&dialog);
     options.dialogTitle = "Offline Plugin";
-    options.dialogBackgroundColour = juce::Colour(0xff2b2b2b);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = false;
     options.useNativeTitleBar = false;
     options.resizable = true;
@@ -206,16 +240,18 @@ std::optional<OfflinePluginDialog::Result> OfflinePluginDialog::showDialog(
 //==============================================================================
 void OfflinePluginDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(m_backgroundColour);
+    g.fillAll(backgroundColour());
+
+    const auto borderColour = waveedit::ThemeManager::getInstance().getCurrent().border;
 
     // Draw border around editor area
     auto editorBounds = m_editorViewport.getBounds().expanded(1);
-    g.setColour(juce::Colour(0xff444444));
+    g.setColour(borderColour);
     g.drawRect(editorBounds, 1);
 
     // Draw border around browser table
     auto tableBounds = m_pluginTable.getBounds().expanded(1);
-    g.setColour(juce::Colour(0xff444444));
+    g.setColour(borderColour);
     g.drawRect(tableBounds, 1);
 }
 
@@ -317,9 +353,9 @@ void OfflinePluginDialog::paintRowBackground(juce::Graphics& g, int rowNumber, i
                                               bool rowIsSelected)
 {
     if (rowIsSelected)
-        g.fillAll(m_selectedRowColour);
+        g.fillAll(selectedRowColour());
     else if (rowNumber % 2 == 1)
-        g.fillAll(m_alternateRowColour);
+        g.fillAll(alternateRowColour());
 }
 
 void OfflinePluginDialog::paintCell(juce::Graphics& g, int rowNumber, int columnId,
@@ -333,7 +369,7 @@ void OfflinePluginDialog::paintCell(juce::Graphics& g, int rowNumber, int column
     if (desc == nullptr)
         return;
 
-    g.setColour(m_textColour);
+    g.setColour(textColour());
     g.setFont(14.0f);
 
     juce::String text;

@@ -91,6 +91,8 @@ namespace CommandIDs
         processReverse          = 0x500A,  // Ctrl+R - Reverse audio
         processInvert           = 0x500B,  // Ctrl+I - Invert polarity
         processResample         = 0x500C,  // Resample to different sample rate
+        processTimeStretch      = 0x500D,  // Time stretch (SoundTouch)
+        processPitchShift       = 0x500E,  // Pitch shift (SoundTouch)
 
         // Navigation Operations (0x6000 - 0x60FF)
         navigateLeft         = 0x6000,  // Arrow left (uses current snap increment)
@@ -179,6 +181,7 @@ namespace CommandIDs
         pluginClearCache    = 0xD006,  // Clear plugin cache and rescan
         pluginOffline       = 0xD007,  // Cmd+Shift+O - Apply single plugin offline
         automationToggleRecordArm = 0xD008,  // Toggle global automation record-arm (Phase 4)
+        pluginShowAutomationLanes = 0xD009,  // Cmd+Alt+L - Show Automation Lanes panel (Phase 5)
 
         // Toolbar Operations (0xE000 - 0xE0FF)
         toolbarCustomize    = 0xE000,  // Customize toolbar layout dialog

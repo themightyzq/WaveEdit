@@ -1,6 +1,7 @@
 #include "GainDialog.h"
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
+#include "ThemeManager.h"
 
 // Static state persistence for dialog reopens (Phase 6 finalization)
 // These persist bypass and loop toggle states across dialog instances
@@ -147,7 +148,7 @@ std::optional<float> GainDialog::showDialog(AudioEngine* audioEngine, AudioBuffe
     juce::DialogWindow::LaunchOptions options;
     options.content.setNonOwned(&dialog);  // Use setNonOwned for stack object
     options.dialogTitle = "Apply Gain";
-    options.dialogBackgroundColour = juce::Colour(0xff2b2b2b);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = false;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -170,9 +171,10 @@ std::optional<float> GainDialog::showDialog(AudioEngine* audioEngine, AudioBuffe
 
 void GainDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2b2b2b));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
-    g.setColour(juce::Colour(0xff3d3d3d));
+    g.setColour(theme.border);
     g.drawRect(getLocalBounds(), 1);
 }
 

@@ -173,7 +173,8 @@ private:
 class TabComponent : public juce::Component,
                      public DocumentManager::Listener,
                      public TabButton::Listener,
-                     public juce::ScrollBar::Listener
+                     public juce::ScrollBar::Listener,
+                     public juce::ChangeListener
 {
 public:
     /**
@@ -202,6 +203,9 @@ public:
     void tabClicked(TabButton* tab) override;
     void tabCloseClicked(TabButton* tab) override;
     void tabRightClicked(TabButton* tab, const juce::MouseEvent& event) override;
+
+    // juce::ChangeListener — repaints on theme switch
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     // ScrollBar::Listener implementation
     void scrollBarMoved(juce::ScrollBar* scrollBar, double newRangeStart) override;

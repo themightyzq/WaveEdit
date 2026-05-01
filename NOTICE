@@ -56,6 +56,22 @@ libvorbis / libogg (via JUCE's `juce_audio_formats` module)
 - How we ship it: source-compiled inside JUCE.
 
 --------------------------------------------------------------------------------
+SoundTouch
+- Used for: time-stretch and pitch-shift DSP (Process → Time Stretch...,
+  Process → Pitch Shift...)
+- License: LGPL-2.1-or-later
+- Copyright: © Olli Parviainen
+- Homepage: https://www.surina.net/soundtouch/
+- How we ship it: dynamically linked. The macOS Release build bundles
+  libSoundTouch.dylib inside `WaveEdit.app/Contents/Frameworks/`; the
+  Windows / Linux Release builds bundle the corresponding shared
+  library next to the executable.
+- LGPL note: SoundTouch is dynamically linked and bundled unmodified.
+  Users who want to substitute a different SoundTouch build can
+  replace the bundled library file in place. SoundTouch source can be
+  obtained from the upstream URL above.
+
+--------------------------------------------------------------------------------
 Steinberg VST3 SDK (via JUCE's `juce_audio_processors` plugin host)
 - Used for: VST3 plugin hosting
 - License: dual-licensed under GPL v3 and the proprietary

@@ -14,6 +14,7 @@
 */
 
 #include "BatchExportDialog.h"
+#include "ThemeManager.h"
 #include "../Utils/Settings.h"
 #include <optional>
 
@@ -243,9 +244,10 @@ std::optional<BatchExportDialog::ExportSettings> BatchExportDialog::showDialog(
 
 void BatchExportDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2b2b2b));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
-    g.setColour(juce::Colour(0xff3d3d3d));
+    g.setColour(theme.border);
     g.drawRect(getLocalBounds(), 1);
 }
 

@@ -186,3 +186,122 @@ private:
     juce::File m_audioFile;
     juce::Array<Marker> m_markers;
 };
+
+//==============================================================================
+/**
+ * Undoable action for renaming a marker.
+ * Stores old and new names to enable undo/redo.
+ */
+class RenameMarkerUndoAction : public juce::UndoableAction
+{
+public:
+    RenameMarkerUndoAction(MarkerManager& markerManager,
+                           MarkerDisplay* markerDisplay,
+                           const juce::File& audioFile,
+                           int markerIndex,
+                           const juce::String& oldName,
+                           const juce::String& newName)
+        : m_markerManager(markerManager),
+          m_markerDisplay(markerDisplay),
+          m_audioFile(audioFile),
+          m_markerIndex(markerIndex),
+          m_oldName(oldName),
+          m_newName(newName)
+    {
+    }
+
+    bool perform() override
+    {
+        if (auto* m = m_markerManager.getMarker(m_markerIndex))
+        {
+            m->setName(m_newName);
+            m_markerManager.saveToFile(m_audioFile);
+            if (m_markerDisplay) m_markerDisplay->repaint();
+            return true;
+        }
+        return false;
+    }
+
+    bool undo() override
+    {
+        if (auto* m = m_markerManager.getMarker(m_markerIndex))
+        {
+            m->setName(m_oldName);
+            m_markerManager.saveToFile(m_audioFile);
+            if (m_markerDisplay) m_markerDisplay->repaint();
+            return true;
+        }
+        return false;
+    }
+
+    int getSizeInUnits() override
+    {
+        return sizeof(*this) + m_oldName.length() + m_newName.length();
+    }
+
+private:
+    MarkerManager& m_markerManager;
+    MarkerDisplay* m_markerDisplay;
+    juce::File m_audioFile;
+    int m_markerIndex;
+    juce::String m_oldName;
+    juce::String m_newName;
+};
+
+//==============================================================================
+/**
+ * Undoable action for changing a marker's color.
+ * Stores old and new colors to enable undo/redo.
+ */
+class ChangeMarkerColorUndoAction : public juce::UndoableAction
+{
+public:
+    ChangeMarkerColorUndoAction(MarkerManager& markerManager,
+                                MarkerDisplay* markerDisplay,
+                                const juce::File& audioFile,
+                                int markerIndex,
+                                juce::Colour oldColor,
+                                juce::Colour newColor)
+        : m_markerManager(markerManager),
+          m_markerDisplay(markerDisplay),
+          m_audioFile(audioFile),
+          m_markerIndex(markerIndex),
+          m_oldColor(oldColor),
+          m_newColor(newColor)
+    {
+    }
+
+    bool perform() override
+    {
+        if (auto* m = m_markerManager.getMarker(m_markerIndex))
+        {
+            m->setColor(m_newColor);
+            m_markerManager.saveToFile(m_audioFile);
+            if (m_markerDisplay) m_markerDisplay->repaint();
+            return true;
+        }
+        return false;
+    }
+
+    bool undo() override
+    {
+        if (auto* m = m_markerManager.getMarker(m_markerIndex))
+        {
+            m->setColor(m_oldColor);
+            m_markerManager.saveToFile(m_audioFile);
+            if (m_markerDisplay) m_markerDisplay->repaint();
+            return true;
+        }
+        return false;
+    }
+
+    int getSizeInUnits() override { return sizeof(*this) + sizeof(juce::Colour) * 2; }
+
+private:
+    MarkerManager& m_markerManager;
+    MarkerDisplay* m_markerDisplay;
+    juce::File m_audioFile;
+    int m_markerIndex;
+    juce::Colour m_oldColor;
+    juce::Colour m_newColor;
+};

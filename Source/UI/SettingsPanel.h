@@ -115,6 +115,12 @@ private:
     juce::TextButton m_exportTemplateButton;
 
     // Display settings
+    juce::Label m_themeLabel;
+    juce::ComboBox m_themeCombo;
+    juce::Label m_themeNoteLabel;
+    juce::TextButton m_themeImportButton;
+    juce::TextButton m_themeExportButton;
+
     juce::Label m_waveformColorLabel;
     juce::ColourSelector m_waveformColorSelector;
 

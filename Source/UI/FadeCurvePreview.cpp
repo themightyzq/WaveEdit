@@ -14,6 +14,7 @@
 */
 
 #include "FadeCurvePreview.h"
+#include "ThemeManager.h"
 
 FadeCurvePreview::FadeCurvePreview(bool isFadeIn)
     : m_isFadeIn(isFadeIn)
@@ -33,8 +34,10 @@ void FadeCurvePreview::setCurveType(FadeCurveType curveType)
 
 void FadeCurvePreview::paint(juce::Graphics& g)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Draw background
-    g.fillAll(juce::Colour(0xff2a2a2a));  // Dark grey background
+    g.fillAll(theme.waveformBackground);
 
     // Get drawing bounds with small padding
     auto bounds = getLocalBounds().toFloat().reduced(2.0f);
@@ -42,7 +45,7 @@ void FadeCurvePreview::paint(juce::Graphics& g)
     const float height = bounds.getHeight();
 
     // Draw grid lines (subtle)
-    g.setColour(juce::Colour(0xff404040));  // Subtle grey for grid
+    g.setColour(theme.gridLine);
     const float gridAlpha = 0.3f;
     g.setOpacity(gridAlpha);
 
@@ -65,7 +68,7 @@ void FadeCurvePreview::paint(juce::Graphics& g)
     g.setOpacity(1.0f);
 
     // Draw border
-    g.setColour(juce::Colour(0xff505050));
+    g.setColour(theme.waveformBorder);
     g.drawRect(bounds, 1.0f);
 
     // Draw curve
@@ -95,16 +98,16 @@ void FadeCurvePreview::paint(juce::Graphics& g)
     }
 
     // Draw the curve with anti-aliasing
-    g.setColour(juce::Colours::cyan);
+    g.setColour(theme.accent);
     g.strokePath(curvePath, juce::PathStrokeType(2.0f));
 
     // Add subtle glow effect
-    g.setColour(juce::Colours::cyan.withAlpha(0.3f));
+    g.setColour(theme.accent.withAlpha(0.3f));
     g.strokePath(curvePath, juce::PathStrokeType(4.0f));
 
     // Draw curve type label (small text at bottom)
     const char* curveNames[] = { "Linear", "Exponential", "Logarithmic", "S-Curve" };
-    g.setColour(juce::Colour(0xff808080));  // Grey text
+    g.setColour(theme.textMuted);
     g.setFont(10.0f);
     g.drawText(curveNames[static_cast<int>(m_curveType)],
                bounds.reduced(2.0f),

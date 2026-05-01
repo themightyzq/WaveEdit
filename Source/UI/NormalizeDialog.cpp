@@ -18,6 +18,7 @@
 #include "../Audio/AudioBufferManager.h"
 #include "../Audio/AudioProcessor.h"
 #include "../Utils/Settings.h"
+#include "ThemeManager.h"
 
 // Static state persistence for dialog reopens (Phase 6 finalization)
 // These persist bypass and loop toggle states across dialog instances
@@ -140,7 +141,10 @@ NormalizeDialog::~NormalizeDialog()
 
 void NormalizeDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
+    g.setColour(theme.border);
+    g.drawRect(getLocalBounds(), 1);
 }
 
 void NormalizeDialog::resized()

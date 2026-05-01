@@ -16,6 +16,7 @@
 #include "ParametricEQDialog.h"
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
+#include "ThemeManager.h"
 #include <cmath>
 
 // Static state persistence for dialog reopens (Phase 6 finalization)
@@ -108,7 +109,7 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
 
 void ParametricEQDialog::BandControl::paint(juce::Graphics& g)
 {
-    g.setColour(juce::Colour(0xff3d3d3d));
+    g.setColour(waveedit::ThemeManager::getInstance().getCurrent().border);
     g.drawRect(getLocalBounds(), 1);
 }
 
@@ -299,7 +300,7 @@ std::optional<ParametricEQ::Parameters> ParametricEQDialog::showDialog(
     juce::DialogWindow::LaunchOptions options;
     options.content.setNonOwned(&dialog);
     options.dialogTitle = "Parametric EQ";
-    options.dialogBackgroundColour = juce::Colour(0xff2b2b2b);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = false;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -316,9 +317,10 @@ std::optional<ParametricEQ::Parameters> ParametricEQDialog::showDialog(
 
 void ParametricEQDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2b2b2b));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
-    g.setColour(juce::Colour(0xff3d3d3d));
+    g.setColour(theme.border);
     g.drawRect(getLocalBounds(), 1);
 }
 

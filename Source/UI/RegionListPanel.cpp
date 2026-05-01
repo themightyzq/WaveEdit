@@ -23,6 +23,7 @@
 
 #include "RegionListPanel.h"
 #include "UIConstants.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 // NameEditor implementation
@@ -54,18 +55,18 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
 {
     // Set up search box
     m_searchLabel.setText("Search:", juce::dontSendNotification);
-    m_searchLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_searchLabel.setColour(juce::Label::textColourId, textColour());
     addAndMakeVisible(m_searchLabel);
 
     m_searchBox.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_searchBox.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_searchBox.setColour(juce::TextEditor::textColourId, textColour());
     m_searchBox.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff3a3a3a));
     m_searchBox.addListener(this);
     addAndMakeVisible(m_searchBox);
 
     // Set up table
-    m_table.setColour(juce::ListBox::backgroundColourId, m_backgroundColour);
-    m_table.setColour(juce::ListBox::textColourId, m_textColour);
+    m_table.setColour(juce::ListBox::backgroundColourId, backgroundColour());
+    m_table.setColour(juce::ListBox::textColourId, textColour());
     m_table.setColour(juce::ListBox::outlineColourId, juce::Colour(0xff3a3a3a));
     m_table.setOutlineThickness(1);
     m_table.setRowHeight(m_rowHeight);
@@ -84,7 +85,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
                     juce::TableHeaderComponent::notSortable | juce::TableHeaderComponent::visible);
     header.setColumnVisible(NewNameColumn, false);  // Initially hidden, shown when batch rename is active
 
-    header.setColour(juce::TableHeaderComponent::textColourId, m_textColour);
+    header.setColour(juce::TableHeaderComponent::textColourId, textColour());
     header.setColour(juce::TableHeaderComponent::backgroundColourId, juce::Colour(0xff2a2a2a));
     header.setColour(juce::TableHeaderComponent::highlightColourId, juce::Colour(0xff3a3a3a));
 
@@ -103,7 +104,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
 
     // Set up Pattern mode UI
     m_patternLabel.setText("Pattern:", juce::dontSendNotification);
-    m_patternLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_patternLabel.setColour(juce::Label::textColourId, textColour());
     m_batchRenameSection.addAndMakeVisible(m_patternLabel);
 
     m_patternComboBox.addItem("Region {n}", 1);
@@ -129,7 +130,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_patternComboBox);
 
     m_startNumberLabel.setText("Start:", juce::dontSendNotification);
-    m_startNumberLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_startNumberLabel.setColour(juce::Label::textColourId, textColour());
     m_batchRenameSection.addAndMakeVisible(m_startNumberLabel);
 
     m_decrementButton.setButtonText("-");
@@ -154,13 +155,13 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_incrementButton);
 
     m_startNumberValue.setText("1", juce::dontSendNotification);
-    m_startNumberValue.setColour(juce::Label::textColourId, m_textColour);
+    m_startNumberValue.setColour(juce::Label::textColourId, textColour());
     m_startNumberValue.setJustificationType(juce::Justification::centred);
     m_batchRenameSection.addAndMakeVisible(m_startNumberValue);
 
     m_customPatternEditor.setMultiLine(false);
     m_customPatternEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_customPatternEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_customPatternEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_customPatternEditor.onTextChange = [this]()
     {
         m_customPattern = m_customPatternEditor.getText();
@@ -178,12 +179,12 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
 
     // Set up Find/Replace mode UI
     m_findLabel.setText("Find:", juce::dontSendNotification);
-    m_findLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_findLabel.setColour(juce::Label::textColourId, textColour());
     m_batchRenameSection.addAndMakeVisible(m_findLabel);
 
     m_findEditor.setMultiLine(false);
     m_findEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_findEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_findEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_findEditor.onTextChange = [this]()
     {
         m_findText = m_findEditor.getText();
@@ -192,12 +193,12 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_findEditor);
 
     m_replaceLabel.setText("Replace:", juce::dontSendNotification);
-    m_replaceLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_replaceLabel.setColour(juce::Label::textColourId, textColour());
     m_batchRenameSection.addAndMakeVisible(m_replaceLabel);
 
     m_replaceEditor.setMultiLine(false);
     m_replaceEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_replaceEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_replaceEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_replaceEditor.onTextChange = [this]()
     {
         m_replaceText = m_replaceEditor.getText();
@@ -206,7 +207,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_replaceEditor);
 
     m_caseSensitiveToggle.setButtonText("Case Sensitive");
-    m_caseSensitiveToggle.setColour(juce::ToggleButton::textColourId, m_textColour);
+    m_caseSensitiveToggle.setColour(juce::ToggleButton::textColourId, textColour());
     m_caseSensitiveToggle.onClick = [this]()
     {
         m_caseSensitive = m_caseSensitiveToggle.getToggleState();
@@ -215,7 +216,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_caseSensitiveToggle);
 
     m_replaceAllToggle.setButtonText("Replace All Occurrences");
-    m_replaceAllToggle.setColour(juce::ToggleButton::textColourId, m_textColour);
+    m_replaceAllToggle.setColour(juce::ToggleButton::textColourId, textColour());
     m_replaceAllToggle.setToggleState(true, juce::dontSendNotification);
     m_replaceAllToggle.onClick = [this]()
     {
@@ -226,12 +227,12 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
 
     // Set up Prefix/Suffix mode UI
     m_prefixLabel.setText("Prefix:", juce::dontSendNotification);
-    m_prefixLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_prefixLabel.setColour(juce::Label::textColourId, textColour());
     m_batchRenameSection.addAndMakeVisible(m_prefixLabel);
 
     m_prefixEditor.setMultiLine(false);
     m_prefixEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_prefixEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_prefixEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_prefixEditor.onTextChange = [this]()
     {
         m_prefixText = m_prefixEditor.getText();
@@ -240,12 +241,12 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_prefixEditor);
 
     m_suffixLabel.setText("Suffix:", juce::dontSendNotification);
-    m_suffixLabel.setColour(juce::Label::textColourId, m_textColour);
+    m_suffixLabel.setColour(juce::Label::textColourId, textColour());
     m_batchRenameSection.addAndMakeVisible(m_suffixLabel);
 
     m_suffixEditor.setMultiLine(false);
     m_suffixEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_suffixEditor.setColour(juce::TextEditor::textColourId, m_textColour);
+    m_suffixEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_suffixEditor.onTextChange = [this]()
     {
         m_suffixText = m_suffixEditor.getText();
@@ -254,7 +255,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_suffixEditor);
 
     m_addNumberingToggle.setButtonText("Add Sequential Numbering");
-    m_addNumberingToggle.setColour(juce::ToggleButton::textColourId, m_textColour);
+    m_addNumberingToggle.setColour(juce::ToggleButton::textColourId, textColour());
     m_addNumberingToggle.onClick = [this]()
     {
         m_addNumbering = m_addNumberingToggle.getToggleState();
@@ -264,14 +265,14 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
 
     // OLD PREVIEW (no longer used - preview now shown in "New Name" column)
     // m_previewLabel.setText("Preview:", juce::dontSendNotification);
-    // m_previewLabel.setColour(juce::Label::textColourId, m_textColour);
+    // m_previewLabel.setColour(juce::Label::textColourId, textColour());
     // m_batchRenameSection.addAndMakeVisible(m_previewLabel);
 
     // m_previewList.setMultiLine(true);
     // m_previewList.setReadOnly(true);
     // m_previewList.setScrollbarsShown(true);
     // m_previewList.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff1a1a1a));
-    // m_previewList.setColour(juce::TextEditor::textColourId, m_textColour);
+    // m_previewList.setColour(juce::TextEditor::textColourId, textColour());
     // m_previewList.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
     // m_batchRenameSection.addAndMakeVisible(m_previewList);
 
@@ -331,11 +332,56 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
 
     // Start timer for periodic refresh (in case regions change externally)
     startTimer(500);
+
+    // Subscribe to theme changes for live re-skin.
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
 }
 
 RegionListPanel::~RegionListPanel()
 {
     stopTimer();
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
+}
+
+//==============================================================================
+// Theme integration
+//==============================================================================
+
+juce::Colour RegionListPanel::backgroundColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().background;
+}
+
+juce::Colour RegionListPanel::alternateRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().panelAlternate;
+}
+
+juce::Colour RegionListPanel::selectedRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().border;
+}
+
+juce::Colour RegionListPanel::textColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().text;
+}
+
+void RegionListPanel::applyThemeColours()
+{
+    // For now, paint-time reads handle most of the visible surfaces.
+    // This hook is here so future re-application of one-shot
+    // setColour calls (table header, search box outline, etc.) can
+    // be re-invoked when the theme switches.
+    repaint();
+}
+
+void RegionListPanel::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+    {
+        applyThemeColours();
+    }
 }
 
 void RegionListPanel::setListener(Listener* listener)
@@ -502,7 +548,7 @@ juce::DocumentWindow* RegionListPanel::showInWindow(bool modal)
 
 void RegionListPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(m_backgroundColour);
+    g.fillAll(backgroundColour());
 }
 
 void RegionListPanel::resized()
@@ -681,11 +727,11 @@ void RegionListPanel::paintRowBackground(juce::Graphics& g, int rowNumber,
 
     if (rowIsSelected)
     {
-        g.fillAll(m_selectedRowColour);
+        g.fillAll(selectedRowColour());
     }
     else if (rowNumber % 2 == 1)
     {
-        g.fillAll(m_alternateRowColour);
+        g.fillAll(alternateRowColour());
     }
 }
 
@@ -701,7 +747,7 @@ void RegionListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
     if (!region)
         return;
 
-    g.setColour(rowIsSelected ? juce::Colours::white : m_textColour);
+    g.setColour(rowIsSelected ? juce::Colours::white : textColour());
 
     switch (columnId)
     {
@@ -803,8 +849,8 @@ juce::Component* RegionListPanel::refreshComponentForCell(int rowNumber, int col
             }
 
             m_nameEditor->setColour(juce::TextEditor::backgroundColourId,
-                                   isRowSelected ? m_selectedRowColour : m_backgroundColour);
-            m_nameEditor->setColour(juce::TextEditor::textColourId, m_textColour);
+                                   isRowSelected ? selectedRowColour() : backgroundColour());
+            m_nameEditor->setColour(juce::TextEditor::textColourId, textColour());
             m_nameEditor->selectAll();
         }
 

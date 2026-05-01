@@ -608,6 +608,13 @@
       "modifiers": [
         "cmd"
       ]
+    },
+    "pluginShowAutomationLanes": {
+      "key": "L",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
     }
   }
 }

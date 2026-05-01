@@ -95,6 +95,26 @@ public:
      */
     static void closeForNode(PluginChainNode* node);
 
+    //==============================================================================
+    // Plugin Parameter Automation hooks (Phase 4 UI surface + Phase 5)
+    //
+    // The application installs these once at startup; the editor toolbar's
+    // "Automation" button calls into them. Empty defaults make the button
+    // inert when no host has wired the hooks (e.g. unit tests).
+
+    /** Opens the document's Automation Lanes panel. */
+    using OpenLanesHandler   = std::function<void(PluginChainNode* node, int parameterIndex)>;
+
+    /** Toggles record-arm for a single (node, parameter). Idempotent. */
+    using ArmParameterHandler = std::function<void(PluginChainNode* node, int parameterIndex)>;
+
+    /** Returns true iff the (node, parameter) is currently armed. */
+    using IsArmedQuery        = std::function<bool(PluginChainNode* node, int parameterIndex)>;
+
+    static void setAutomationHandlers(OpenLanesHandler openLanes,
+                                      ArmParameterHandler toggleArm,
+                                      IsArmedQuery isArmed);
+
 private:
     //==============================================================================
     /**
@@ -112,9 +132,12 @@ private:
         void updateBypassState();
 
     private:
+        void showAutomationMenu();
+
         PluginEditorWindow& m_owner;
         std::unique_ptr<juce::AudioProcessorEditor> m_editor;
         juce::ToggleButton m_bypassButton;
+        juce::TextButton m_automationButton;
         juce::Label m_latencyLabel;
 
         static const int kToolbarHeight = 28;

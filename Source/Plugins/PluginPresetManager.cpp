@@ -15,7 +15,10 @@
 
 #include "PluginPresetManager.h"
 
+#include "../Automation/AutomationManager.h"
+
 static const juce::String kPresetExtension = ".wepchain";  // WaveEdit Plugin Chain
+static const juce::String kAutomationKey   = "automation";
 
 //==============================================================================
 PluginPresetManager::PluginPresetManager()
@@ -96,6 +99,28 @@ bool PluginPresetManager::loadPreset(PluginChain& chain, const juce::String& pre
 {
     auto file = getPresetFile(presetName);
     return importPreset(chain, file);
+}
+
+bool PluginPresetManager::savePreset(const PluginChain& chain,
+                                      const AutomationManager& automation,
+                                      const juce::String& presetName)
+{
+    if (presetName.isEmpty())
+        return false;
+
+    if (!ensurePresetDirectoryExists())
+        return false;
+
+    auto file = getPresetFile(presetName);
+    return exportPreset(chain, automation, file);
+}
+
+bool PluginPresetManager::loadPreset(PluginChain& chain,
+                                      AutomationManager& automation,
+                                      const juce::String& presetName)
+{
+    auto file = getPresetFile(presetName);
+    return importPreset(chain, automation, file);
 }
 
 bool PluginPresetManager::deletePreset(const juce::String& presetName)
@@ -179,6 +204,80 @@ bool PluginPresetManager::importPreset(PluginChain& chain, const juce::File& fil
     }
 
     return chain.loadFromJson(json);
+}
+
+bool PluginPresetManager::exportPreset(const PluginChain& chain,
+                                        const AutomationManager& automation,
+                                        const juce::File& file)
+{
+    auto json = chain.saveToJson();
+
+    if (json.isVoid())
+    {
+        DBG("PluginPresetManager::exportPreset(automation) - Failed to serialize chain");
+        return false;
+    }
+
+    if (auto* obj = json.getDynamicObject())
+    {
+        obj->setProperty("exportedAt", juce::Time::getCurrentTime().toISO8601(true));
+        obj->setProperty("version", "1.0");
+
+        // Only attach the automation block when there's something to
+        // store — keeps small presets small and is symmetric with the
+        // sidecar's empty-skip behavior.
+        if (automation.getNumLanes() > 0)
+            obj->setProperty(kAutomationKey, automation.toVar());
+    }
+
+    auto jsonString = juce::JSON::toString(json, true);
+    return file.replaceWithText(jsonString);
+}
+
+bool PluginPresetManager::importPreset(PluginChain& chain,
+                                        AutomationManager& automation,
+                                        const juce::File& file)
+{
+    if (!file.existsAsFile())
+    {
+        DBG("PluginPresetManager::importPreset(automation) - File not found: "
+             + file.getFullPathName());
+        return false;
+    }
+
+    auto jsonString = file.loadFileAsString();
+    if (jsonString.isEmpty())
+    {
+        DBG("PluginPresetManager::importPreset(automation) - Empty file");
+        return false;
+    }
+
+    auto json = juce::JSON::parse(jsonString);
+    if (json.isVoid())
+    {
+        DBG("PluginPresetManager::importPreset(automation) - Invalid JSON");
+        return false;
+    }
+
+    if (! chain.loadFromJson(json))
+        return false;
+
+    // Replace automation regardless of preset content. If the preset has
+    // no automation block, we still clear the manager so loading is a
+    // pure replace (matches chain's "load = clear + add" semantics).
+    if (auto* obj = json.getDynamicObject())
+    {
+        if (obj->hasProperty(kAutomationKey))
+            automation.fromVar(obj->getProperty(kAutomationKey));
+        else
+            automation.clearAll();
+    }
+    else
+    {
+        automation.clearAll();
+    }
+
+    return true;
 }
 
 //==============================================================================

@@ -65,6 +65,8 @@ target_sources(WaveEdit
         Source/DSP/HeadTailRecipe.h
         Source/DSP/HeadTailEngine.cpp
         Source/DSP/HeadTailEngine.h
+        Source/DSP/TimePitchEngine.cpp
+        Source/DSP/TimePitchEngine.h
         Source/DSP/LoopRecipe.h
         Source/DSP/LoopEngine.cpp
         Source/DSP/LoopEngine.h
@@ -81,6 +83,11 @@ target_sources(WaveEdit
         Source/Utils/iXMLMetadata.h
         Source/Utils/AudioClipboard.cpp
         Source/Utils/AudioClipboard.h
+        Source/Utils/AutomationClipboard.h
+        Source/Utils/AutoSaveRecovery.cpp
+        Source/Utils/AutoSaveRecovery.h
+        Source/Utils/ThumbnailDiskCache.cpp
+        Source/Utils/ThumbnailDiskCache.h
         Source/Utils/AudioBufferInputSource.cpp
         Source/Utils/AudioBufferInputSource.h
         Source/Utils/ToolbarConfig.cpp
@@ -175,11 +182,18 @@ target_sources(WaveEdit
         Source/Utils/UCSCategorySuggester.cpp
         Source/Utils/UCSCategorySuggester.h
         Source/Utils/UndoActions/AudioUndoActions.h
+        Source/Utils/UndoActions/LevelUndoActions.h
+        Source/Utils/UndoActions/RangeUndoActions.h
+        Source/Utils/UndoActions/TransformUndoActions.h
         Source/Utils/UndoActions/FadeUndoActions.h
         Source/Utils/UndoActions/RegionUndoActions.h
+        Source/Utils/UndoActions/RegionLifecycleUndoActions.h
+        Source/Utils/UndoActions/RegionEditUndoActions.h
+        Source/Utils/UndoActions/RegionDerivationUndoActions.h
         Source/Utils/UndoActions/MarkerUndoActions.h
         Source/Utils/UndoActions/PluginUndoActions.h
         Source/Utils/UndoActions/ChannelUndoActions.h
+        Source/Utils/UndoActions/AutomationUndoActions.h
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
         Source/UI/RegionListPanel.cpp
@@ -198,11 +212,17 @@ target_sources(WaveEdit
         Source/UI/PluginChainWindow.h
         Source/UI/PluginEditorWindow.cpp
         Source/UI/PluginEditorWindow.h
+        Source/UI/AutomationLanesPanel.cpp
+        Source/UI/AutomationLanesPanel.h
         Source/UI/OfflinePluginDialog.cpp
         Source/UI/OfflinePluginDialog.h
         Source/UI/UIConstants.h
         Source/UI/WaveEditLookAndFeel.cpp
         Source/UI/WaveEditLookAndFeel.h
+        Source/UI/WaveEditTheme.cpp
+        Source/UI/WaveEditTheme.h
+        Source/UI/ThemeManager.cpp
+        Source/UI/ThemeManager.h
         Source/Plugins/PluginManager.cpp
         Source/Plugins/PluginManager.h
         Source/Plugins/PluginChain.cpp
@@ -284,7 +304,11 @@ target_compile_definitions(WaveEdit
 target_include_directories(WaveEdit
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/Source
+        ${SOUNDTOUCH_INCLUDE_DIR}
 )
+
+# Link SoundTouch (LGPL-2.1) for time-stretch / pitch-shift DSP.
+target_link_libraries(WaveEdit PRIVATE ${SOUNDTOUCH_LIBRARY})
 
 # Platform-specific settings
 if(APPLE)
@@ -423,6 +447,75 @@ elseif(UNIX)
 endif()
 
 # ============================================================================
+# Bundle SoundTouch (LGPL-2.1) for time-stretch / pitch-shift DSP
+# ============================================================================
+# Same shape as the LAME integration: dynamically linked, source code
+# available at https://www.surina.net/soundtouch/. NOTICE has the full
+# attribution text. Install with `brew install sound-touch` (macOS),
+# the appropriate distribution package on Linux, or build from source
+# on Windows.
+
+find_library(SOUNDTOUCH_LIBRARY
+    NAMES SoundTouch libSoundTouch
+    PATHS
+        /opt/homebrew/lib            # Apple Silicon Homebrew
+        /opt/homebrew/Cellar/sound-touch/*/lib
+        /usr/local/lib               # Intel Homebrew
+        /usr/local/Cellar/sound-touch/*/lib
+        /opt/local/lib               # MacPorts
+        /usr/lib
+        /usr/lib/x86_64-linux-gnu
+        /usr/lib/aarch64-linux-gnu
+)
+
+find_path(SOUNDTOUCH_INCLUDE_DIR
+    NAMES SoundTouch.h
+    PATHS
+        /opt/homebrew/include/soundtouch
+        /opt/homebrew/Cellar/sound-touch/*/include/soundtouch
+        /usr/local/include/soundtouch
+        /usr/local/Cellar/sound-touch/*/include/soundtouch
+        /opt/local/include/soundtouch
+        /usr/include/soundtouch
+)
+
+if(SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR)
+    message(STATUS "Found SoundTouch library: ${SOUNDTOUCH_LIBRARY}")
+    message(STATUS "Found SoundTouch headers:  ${SOUNDTOUCH_INCLUDE_DIR}")
+
+    if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_custom_command(TARGET WaveEdit POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks"
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "${SOUNDTOUCH_LIBRARY}"
+                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libSoundTouch.dylib"
+            COMMAND install_name_tool -id
+                "@rpath/libSoundTouch.dylib"
+                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libSoundTouch.dylib"
+            COMMENT "Bundling SoundTouch library"
+        )
+    elseif(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_custom_command(TARGET WaveEdit POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "${SOUNDTOUCH_LIBRARY}"
+                "$<TARGET_FILE_DIR:WaveEdit>"
+            COMMENT "Bundling SoundTouch library")
+    elseif(UNIX AND CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_custom_command(TARGET WaveEdit POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "${SOUNDTOUCH_LIBRARY}"
+                "$<TARGET_FILE_DIR:WaveEdit>"
+            COMMENT "Bundling SoundTouch library")
+    endif()
+else()
+    message(FATAL_ERROR
+        "SoundTouch not found. Install via: brew install sound-touch (macOS), "
+        "apt-get install libsoundtouch-dev (Linux), or download from "
+        "https://www.surina.net/soundtouch/ (Windows).")
+endif()
+
+# ============================================================================
 # Copy keyboard template resources to app bundle
 # ============================================================================
 if(APPLE)
@@ -537,6 +630,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/DSP/HeadTailRecipe.h
         Source/DSP/HeadTailEngine.cpp
         Source/DSP/HeadTailEngine.h
+        Source/DSP/TimePitchEngine.cpp
+        Source/DSP/TimePitchEngine.h
         Source/DSP/LoopRecipe.h
         Source/DSP/LoopEngine.cpp
         Source/DSP/LoopEngine.h
@@ -553,6 +648,11 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/iXMLMetadata.h
         Source/Utils/AudioClipboard.cpp
         Source/Utils/AudioClipboard.h
+        Source/Utils/AutomationClipboard.h
+        Source/Utils/AutoSaveRecovery.cpp
+        Source/Utils/AutoSaveRecovery.h
+        Source/Utils/ThumbnailDiskCache.cpp
+        Source/Utils/ThumbnailDiskCache.h
         Source/Utils/AudioBufferInputSource.cpp
         Source/Utils/AudioBufferInputSource.h
         Source/Utils/ToolbarConfig.cpp
@@ -634,11 +734,18 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/UCSCategorySuggester.cpp
         Source/Utils/UCSCategorySuggester.h
         Source/Utils/UndoActions/AudioUndoActions.h
+        Source/Utils/UndoActions/LevelUndoActions.h
+        Source/Utils/UndoActions/RangeUndoActions.h
+        Source/Utils/UndoActions/TransformUndoActions.h
         Source/Utils/UndoActions/FadeUndoActions.h
         Source/Utils/UndoActions/RegionUndoActions.h
+        Source/Utils/UndoActions/RegionLifecycleUndoActions.h
+        Source/Utils/UndoActions/RegionEditUndoActions.h
+        Source/Utils/UndoActions/RegionDerivationUndoActions.h
         Source/Utils/UndoActions/MarkerUndoActions.h
         Source/Utils/UndoActions/PluginUndoActions.h
         Source/Utils/UndoActions/ChannelUndoActions.h
+        Source/Utils/UndoActions/AutomationUndoActions.h
         Source/UI/MarkerDisplay.cpp
         Source/UI/MarkerDisplay.h
         Source/UI/SpectrumAnalyzer.cpp
@@ -651,11 +758,17 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/PluginChainWindow.h
         Source/UI/PluginEditorWindow.cpp
         Source/UI/PluginEditorWindow.h
+        Source/UI/AutomationLanesPanel.cpp
+        Source/UI/AutomationLanesPanel.h
         Source/UI/OfflinePluginDialog.cpp
         Source/UI/OfflinePluginDialog.h
         Source/UI/UIConstants.h
         Source/UI/WaveEditLookAndFeel.cpp
         Source/UI/WaveEditLookAndFeel.h
+        Source/UI/WaveEditTheme.cpp
+        Source/UI/WaveEditTheme.h
+        Source/UI/ThemeManager.cpp
+        Source/UI/ThemeManager.h
         Source/Plugins/PluginManager.cpp
         Source/Plugins/PluginManager.h
         Source/Plugins/PluginChain.cpp
@@ -715,7 +828,11 @@ if(WAVEEDIT_BUILD_TESTS)
         PUBLIC
             ${CMAKE_CURRENT_SOURCE_DIR}/Source
             ${CMAKE_CURRENT_SOURCE_DIR}/Tests/TestUtils
+            ${SOUNDTOUCH_INCLUDE_DIR}
     )
+
+    # Link SoundTouch (LGPL-2.1) — same library used by the WaveEdit binary.
+    target_link_libraries(WaveEditCore PUBLIC ${SOUNDTOUCH_LIBRARY})
 
     # Preprocessor definitions for WaveEditCore
     target_compile_definitions(WaveEditCore
@@ -775,6 +892,8 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/AudioProcessorTests.cpp                  # Week 2 ✅
             Tests/Unit/FadeCurveTypesTests.cpp                  # Phase 4 ✅ (Fade Curve Types)
             Tests/Unit/HeadTailEngineTests.cpp                  # Head & Tail Engine Tests
+            Tests/Unit/TimePitchEngineTests.cpp                 # SoundTouch wrapper
+            Tests/Unit/ThemeManagerTests.cpp                    # Color theme system Phase 1
             Tests/Unit/LoopEngineTests.cpp                      # Loop Engine Tests
             Tests/Unit/BWFMetadataTests.cpp                     # Phase 4 ✅ (BWF Metadata System)
             Tests/Unit/BWFEditorDialogTests.cpp                 # Phase 4 ✅ (BWF Editor Dialog)
@@ -796,6 +915,9 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/MarkerManagerTests.cpp                   # Marker basic ops + manager + sidecar
             Tests/TestUtils/MockAudioProcessor.h                # Mock plugin processor for tests
             Tests/Unit/AutomationRecorderTests.cpp              # Plugin Parameter Automation Phase 4
+            Tests/Unit/AutomationLanesPanelTests.cpp            # Plugin Parameter Automation Phase 5
+            Tests/Unit/PluginPresetManagerTests.cpp             # Plugin chain preset format (incl. automation bundle)
+            Tests/Unit/CrashRecoveryTests.cpp                   # Crash recovery: detection + supersede
             Tests/Integration/MultiRegionDragTests.cpp          # Multi-region drag/move
             Tests/Integration/RegionListPanelTests.cpp          # RegionListPanel state-side contract
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5

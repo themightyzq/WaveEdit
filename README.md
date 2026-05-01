@@ -175,14 +175,60 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Process multiple audio files with identical DSP settings (`Cmd+Alt+B`)
 - ✅ DSP chain: Gain, Normalize, DC Offset, Fade In/Out, EQ presets
 - ✅ Plugin chain support (apply VST3/AU effect chains)
+- ✅ Save/load chain presets via the Plugin Chain window's
+  "Presets..." button — saved presets bundle automation lanes too
 - ✅ Output settings: directory, naming patterns, sample rate/bit depth conversion
 - ✅ Error handling: stop on error, continue, or skip and log
 - ✅ Save/load batch presets for recurring workflows
 
+**Plugin Parameter Automation** 🆕:
+- ✅ Record plugin knob movements during playback (Plugins → Arm Automation Recording)
+- ✅ Visual lane editor (`Cmd+Alt+L` or Plugins → Show Automation Lanes)
+- ✅ Click empty space to add an automation point; drag to move; right-click to
+  delete or change the curve type (Linear, Step, S-Curve, Exponential)
+- ✅ Cmd-click to multi-select; Cmd+A all; drag empty space for
+  rectangle select (Shift+drag adds); Cmd+C/Cmd+V copy/paste
+  (cross-lane supported); Delete removes selection; Esc clears;
+  drag any selected point to move the whole selection
+- ✅ Every point edit is undoable (`Cmd+Z` / `Cmd+Shift+Z`); a whole drag
+  is one undo step
+- ✅ Per-lane Enabled / Record toggles, live playhead during playback
+- ✅ Automation persists in a `<file>.<ext>.automation.json` sidecar
+- ℹ️ Right-click on individual knobs in third-party plugin UIs is not yet
+  supported — use the editor window's "Automation" toolbar button to arm
+  parameters instead
+
+**Crash recovery** 🆕:
+- ✅ Auto-save runs every minute on modified documents
+  (configurable in Preferences → Auto-Save)
+- ✅ When you reopen a file with unsaved changes from a previous
+  session (crash, force-quit, closed without saving), WaveEdit
+  offers to **Recover**, **Discard**, or **Keep & Continue**
+- ✅ Saving a file evicts its auto-saves (superseded)
+
+**Theme system** 🆕:
+- ✅ Three built-in themes ship out of the box: **Dark** (default),
+  **Light**, and **High Contrast** (accessibility-tuned, pure-black
+  surfaces with neon-cyan accents). Switch from Preferences →
+  Display; the choice persists across launches.
+- ✅ Theme is wired through every visible surface: waveform area,
+  tabs, plugin chain UI, region/marker list panels, automation
+  lanes, command palette, settings panel, shortcut editor, keyboard
+  cheat-sheet, toolbar, **and** every processing dialog (Gain,
+  Normalize, Fade In/Out, Parametric/Graphical EQ, Head & Tail,
+  Strip Silence, Looping Tools, Auto Region, Offline Plugin, etc.).
+  All re-skin live without a restart.
+- ✅ **Custom themes** — Preferences → Display has Import/Export
+  buttons next to the picker. Themes round-trip to a single JSON
+  file (`id`, `name`, plus an 8-digit ARGB hex per token), so you
+  can drop in a hand-tuned palette without rebuilding the app.
+
 ### What's Next
 
 Planned features:
-- Additional DSP operations (reverb, compressor, noise reduction)
+- Additional DSP operations (reverb, compressor, noise reduction;
+  time-stretch + pitch-shift via SoundTouch already shipped under
+  Process menu)
 - More export formats
 - Plugin preset management improvements
 
@@ -266,6 +312,9 @@ xcode-select --install
 
 # LAME MP3 encoder (required for MP3 support)
 brew install lame
+
+# SoundTouch (required for Time Stretch and Pitch Shift)
+brew install sound-touch
 ```
 
 Linux (Ubuntu/Debian):
@@ -277,11 +326,15 @@ sudo apt-get install build-essential cmake libasound2-dev \
 
 # LAME MP3 encoder (required for MP3 support)
 sudo apt-get install libmp3lame-dev
+
+# SoundTouch (required for Time Stretch and Pitch Shift)
+sudo apt-get install libsoundtouch-dev
 ```
 
 Windows:
 - Visual Studio 2017+ (open generated `.sln` file)
 - LAME MP3 encoder: Download from https://lame.sourceforge.io/
+- SoundTouch: Download from https://www.surina.net/soundtouch/
 
 **Note for developers**: LAME is only required for building from source. Release builds automatically bundle LAME, so end users don't need to install it separately.
 
@@ -415,6 +468,7 @@ editor.
 |--------|----------|
 | Show Plugin Chain | `Cmd+Shift+P` |
 | Apply Plugin Chain | `Cmd+P` |
+| Show Automation Lanes | `Cmd+Alt+L` |
 
 ### Regions
 | Action | Shortcut |

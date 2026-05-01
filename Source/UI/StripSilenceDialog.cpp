@@ -14,6 +14,7 @@
 */
 
 #include "StripSilenceDialog.h"
+#include "ThemeManager.h"
 
 StripSilenceDialog::StripSilenceDialog(RegionManager& regionManager,
                                        const juce::AudioBuffer<float>& audioBuffer,
@@ -190,9 +191,10 @@ StripSilenceDialog::~StripSilenceDialog()
 
 void StripSilenceDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
-    g.setColour(juce::Colours::white);
+    g.setColour(theme.text);
     g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     g.drawText("Auto Region - Auto-Create Regions", getLocalBounds().removeFromTop(40),
                juce::Justification::centred, true);

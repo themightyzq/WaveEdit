@@ -14,6 +14,7 @@
 */
 
 #include "NewFileDialog.h"
+#include "ThemeManager.h"
 
 NewFileDialog::NewFileDialog()
     : m_titleLabel("titleLabel", "New Audio File"),
@@ -109,7 +110,7 @@ std::optional<NewFileSettings> NewFileDialog::showDialog()
     juce::DialogWindow::LaunchOptions options;
     options.content.setNonOwned(&dialog);
     options.dialogTitle = "New Audio File";
-    options.dialogBackgroundColour = juce::Colour(0xff2b2b2b);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = false;
     options.useNativeTitleBar = false;
     options.resizable = false;
@@ -126,7 +127,7 @@ std::optional<NewFileSettings> NewFileDialog::showDialog()
 
 void NewFileDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2b2b2b));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().panel);
 }
 
 void NewFileDialog::resized()

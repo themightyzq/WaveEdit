@@ -15,6 +15,7 @@
 
 #include "HeadTailDialog.h"
 #include "../DSP/HeadTailEngine.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 // WaveformPreview implementation
@@ -29,14 +30,15 @@ void HeadTailDialog::WaveformPreview::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
 
-    g.fillAll(juce::Colour(0xff1a1a1a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.waveformBackground);
 
-    g.setColour(juce::Colours::grey);
+    g.setColour(theme.waveformBorder);
     g.drawRect(bounds, 1);
 
     if (m_audioBuffer.getNumSamples() == 0)
     {
-        g.setColour(juce::Colours::grey);
+        g.setColour(theme.textMuted);
         g.drawText("No audio loaded", bounds, juce::Justification::centred);
         return;
     }
@@ -93,7 +95,7 @@ void HeadTailDialog::WaveformPreview::drawWaveform(juce::Graphics& g,
         const int    channelY   = bounds.getY() + channel * channelHeight;
         const int    centerY    = channelY + channelHeight / 2;
 
-        g.setColour(juce::Colour(0xff00cc44).withAlpha(0.7f));
+        g.setColour(waveedit::ThemeManager::getInstance().getCurrent().waveformLine.withAlpha(0.85f));
 
         juce::Path path;
         bool firstPoint = true;
@@ -181,7 +183,7 @@ void HeadTailDialog::WaveformPreview::drawBoundaryLines(juce::Graphics& g,
         return bounds.getX() + (int)((double)sample / (double)totalSamples * width);
     };
 
-    g.setColour(juce::Colour(0xff00e060));
+    g.setColour(waveedit::ThemeManager::getInstance().getCurrent().accent);
 
     if (m_boundaryStart >= 0)
     {
@@ -430,10 +432,11 @@ HeadTailDialog::~HeadTailDialog()
 
 void HeadTailDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
     // Title
-    g.setColour(juce::Colours::white);
+    g.setColour(theme.text);
     g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     g.drawText("Head & Tail Processing", getLocalBounds().removeFromTop(36),
                juce::Justification::centred, true);
@@ -446,7 +449,7 @@ void HeadTailDialog::paint(juce::Graphics& g)
     const int kHeaderH    = 36;
     const int kSection1Y  = kHeaderH + kMargin;
     // Section 1 header rect
-    g.setColour(juce::Colour(0xff333333));
+    g.setColour(theme.panelAlternate);
     g.fillRoundedRectangle((float)kMargin, (float)kSection1Y,
                             (float)(getWidth() - kMargin * 2), 20.0f, 3.0f);
 
@@ -456,7 +459,7 @@ void HeadTailDialog::paint(juce::Graphics& g)
                             (float)(getWidth() - kMargin * 2), 20.0f, 3.0f);
 
     // Section labels
-    g.setColour(juce::Colour(0xffaaaaaa));
+    g.setColour(theme.textMuted);
     g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
     g.drawText("TIME-BASED EDITS",
                juce::Rectangle<int>(kMargin + 4, kSection2Y, 200, 20),

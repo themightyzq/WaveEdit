@@ -214,12 +214,12 @@ private:
     juce::TextButton m_addButton;
     juce::TextButton m_cancelButton;
 
-    // Visual settings
+    // Visual settings (theme-driven colour helpers)
     const int m_rowHeight = 24;
-    const juce::Colour m_backgroundColour { 0xff1e1e1e };
-    const juce::Colour m_alternateRowColour { 0xff252525 };
-    const juce::Colour m_selectedRowColour { 0xff3a3a3a };
-    const juce::Colour m_textColour { 0xffe0e0e0 };
+    juce::Colour backgroundColour() const;
+    juce::Colour alternateRowColour() const;
+    juce::Colour selectedRowColour() const;
+    juce::Colour textColour() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginManagerDialog)
 };

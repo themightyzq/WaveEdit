@@ -14,6 +14,7 @@
 */
 
 #include "KeyboardCheatSheetDialog.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 // Constructor / Destructor
@@ -88,7 +89,7 @@ KeyboardCheatSheetDialog::~KeyboardCheatSheetDialog()
 
 void KeyboardCheatSheetDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().panel);
 }
 
 void KeyboardCheatSheetDialog::resized()
@@ -129,12 +130,13 @@ int KeyboardCheatSheetDialog::getNumRows()
 void KeyboardCheatSheetDialog::paintRowBackground(juce::Graphics& g, int rowNumber,
                                                     int width, int height, bool rowIsSelected)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     if (rowIsSelected)
-        g.fillAll(juce::Colour(0xff3a3a3a));
+        g.fillAll(theme.selection);
     else if (rowNumber % 2 == 0)
-        g.fillAll(juce::Colour(0xff2a2a2a));
+        g.fillAll(theme.panel);
     else
-        g.fillAll(juce::Colour(0xff252525));
+        g.fillAll(theme.panelAlternate);
 }
 
 void KeyboardCheatSheetDialog::paintCell(juce::Graphics& g, int rowNumber, int columnId,
@@ -145,7 +147,10 @@ void KeyboardCheatSheetDialog::paintCell(juce::Graphics& g, int rowNumber, int c
 
     const auto& entry = m_filteredShortcuts.getReference(rowNumber);
 
-    g.setColour(rowIsSelected ? juce::Colours::white : juce::Colour(0xffcccccc));
+    {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        g.setColour(rowIsSelected ? theme.text : theme.textMuted);
+    }
     g.setFont(juce::Font(13.0f));
 
     juce::String text;
@@ -241,7 +246,7 @@ void KeyboardCheatSheetDialog::showDialog(juce::Component* parentComponent,
     options.content.setOwned(dialog);
     options.dialogTitle = "Keyboard Shortcuts";
     options.componentToCentreAround = parentComponent;
-    options.dialogBackgroundColour = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = true;

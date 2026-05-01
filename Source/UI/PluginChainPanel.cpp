@@ -14,6 +14,7 @@
 */
 
 #include "PluginChainPanel.h"
+#include "ThemeManager.h"
 #include <iostream>
 
 //==============================================================================
@@ -261,7 +262,7 @@ void PluginChainPanel::DraggableListBox::paint(juce::Graphics& g)
     if (m_dropInsertIndex >= 0)
     {
         int y = m_dropInsertIndex * m_owner.m_rowHeight;
-        g.setColour(m_owner.m_accentColour);
+        g.setColour(m_owner.accentColour());
         g.fillRect(0, y - 2, getWidth(), 4);
     }
 }
@@ -285,14 +286,11 @@ PluginChainPanel::PluginChainPanel(PluginChain* chain)
     // Title label
     m_titleLabel.setText("Plugin Chain", juce::dontSendNotification);
     m_titleLabel.setFont(juce::FontOptions(18.0f).withStyle("Bold"));
-    m_titleLabel.setColour(juce::Label::textColourId, m_textColour);
     addAndMakeVisible(m_titleLabel);
 
     // List box
     m_listBox.setModel(this);
     m_listBox.setRowHeight(m_rowHeight);
-    m_listBox.setColour(juce::ListBox::backgroundColourId, m_backgroundColour);
-    m_listBox.setColour(juce::ListBox::outlineColourId, juce::Colour(0xff404040));
     m_listBox.setOutlineThickness(1);
     addAndMakeVisible(m_listBox);
 
@@ -300,11 +298,9 @@ PluginChainPanel::PluginChainPanel(PluginChain* chain)
     m_emptyLabel.setText("No plugins in chain.\nClick 'Add Plugin' to get started.",
                           juce::dontSendNotification);
     m_emptyLabel.setJustificationType(juce::Justification::centred);
-    m_emptyLabel.setColour(juce::Label::textColourId, juce::Colour(0xff808080));
     addAndMakeVisible(m_emptyLabel);
 
     // Latency label
-    m_latencyLabel.setColour(juce::Label::textColourId, juce::Colour(0xffa0a0a0));
     m_latencyLabel.setFont(juce::FontOptions(12.0f));
     addAndMakeVisible(m_latencyLabel);
 
@@ -313,11 +309,9 @@ PluginChainPanel::PluginChainPanel(PluginChain* chain)
     m_addPluginButton.onClick = [this]() { onAddPluginClicked(); };
     addAndMakeVisible(m_addPluginButton);
 
-    // Apply to Selection button - prominent green button for main action
+    // Apply to Selection button - prominent action; uses success token.
     m_applyToSelectionButton.setButtonText("Apply (Cmd+P)");
     m_applyToSelectionButton.setTooltip("Apply plugin chain to selection or entire file (Cmd+P)");
-    m_applyToSelectionButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff308040));  // Green
-    m_applyToSelectionButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     m_applyToSelectionButton.onClick = [this]() { onApplyToSelectionClicked(); };
     addAndMakeVisible(m_applyToSelectionButton);
 
@@ -328,8 +322,6 @@ PluginChainPanel::PluginChainPanel(PluginChain* chain)
 
     // Render Options Group
     m_renderOptionsGroup.setText("Render Options");
-    m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, juce::Colour(0xff444444));
-    m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, m_textColour);
     addAndMakeVisible(m_renderOptionsGroup);
 
     // Convert to stereo checkbox
@@ -353,7 +345,6 @@ PluginChainPanel::PluginChainPanel(PluginChain* chain)
 
     // Tail length label
     m_tailLengthLabel.setText("Tail:", juce::dontSendNotification);
-    m_tailLengthLabel.setColour(juce::Label::textColourId, m_textColour);
     m_tailLengthLabel.setEnabled(false);
     addAndMakeVisible(m_tailLengthLabel);
 
@@ -368,12 +359,17 @@ PluginChainPanel::PluginChainPanel(PluginChain* chain)
     // Listen for chain changes
     m_chain->addChangeListener(this);
 
+    // Theme integration: subscribe + apply current theme.
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+    applyThemeColours();
+
     // Initial refresh
     refresh();
 }
 
 PluginChainPanel::~PluginChainPanel()
 {
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
     if (m_chain != nullptr)
     {
         m_chain->removeChangeListener(this);
@@ -400,7 +396,7 @@ void PluginChainPanel::refresh()
 juce::DocumentWindow* PluginChainPanel::showInWindow(bool modal)
 {
     auto* window = new juce::DocumentWindow("Plugin Chain",
-                                             m_backgroundColour,
+                                             backgroundColour(),
                                              juce::DocumentWindow::allButtons);
     window->setContentNonOwned(this, true);
     window->setResizable(true, true);
@@ -420,7 +416,7 @@ juce::DocumentWindow* PluginChainPanel::showInWindow(bool modal)
 
 void PluginChainPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(m_backgroundColour);
+    g.fillAll(backgroundColour());
 }
 
 void PluginChainPanel::resized()
@@ -506,15 +502,15 @@ void PluginChainPanel::paintListBoxItem(int rowNumber, juce::Graphics& g, int wi
     // Background
     if (rowIsSelected)
     {
-        g.fillAll(m_selectedRowColour);
+        g.fillAll(selectedRowColour());
     }
     else if (rowNumber % 2 == 1)
     {
-        g.fillAll(m_alternateRowColour);
+        g.fillAll(alternateRowColour());
     }
     else
     {
-        g.fillAll(m_backgroundColour);
+        g.fillAll(backgroundColour());
     }
 }
 
@@ -588,6 +584,13 @@ juce::Component* PluginChainPanel::refreshComponentForRow(int rowNumber, bool /*
 
 void PluginChainPanel::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
+    if (source == &waveedit::ThemeManager::getInstance())
+    {
+        applyThemeColours();
+        repaint();
+        return;
+    }
+
     if (source == m_chain)
     {
         juce::MessageManager::callAsync([this]()
@@ -595,6 +598,51 @@ void PluginChainPanel::changeListenerCallback(juce::ChangeBroadcaster* source)
             refresh();
         });
     }
+}
+
+//==============================================================================
+// Theme integration
+//==============================================================================
+
+juce::Colour PluginChainPanel::backgroundColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().background;
+}
+
+juce::Colour PluginChainPanel::alternateRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().panelAlternate;
+}
+
+juce::Colour PluginChainPanel::selectedRowColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().border;
+}
+
+juce::Colour PluginChainPanel::textColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().text;
+}
+
+juce::Colour PluginChainPanel::accentColour() const
+{
+    return waveedit::ThemeManager::getInstance().getCurrent().accent;
+}
+
+void PluginChainPanel::applyThemeColours()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    m_titleLabel.setColour(juce::Label::textColourId, theme.text);
+    m_listBox.setColour(juce::ListBox::backgroundColourId, theme.background);
+    m_listBox.setColour(juce::ListBox::outlineColourId, theme.border);
+    m_emptyLabel.setColour(juce::Label::textColourId, theme.textMuted);
+    m_latencyLabel.setColour(juce::Label::textColourId, theme.textMuted);
+    m_applyToSelectionButton.setColour(juce::TextButton::buttonColourId, theme.success);
+    m_applyToSelectionButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, theme.border);
+    m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, theme.text);
+    m_tailLengthLabel.setColour(juce::Label::textColourId, theme.text);
 }
 
 //==============================================================================

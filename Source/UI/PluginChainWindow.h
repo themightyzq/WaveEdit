@@ -20,6 +20,8 @@
 #include "../Plugins/PluginChain.h"
 #include "../Plugins/PluginManager.h"
 
+class AutomationManager;
+
 /**
  * Unified window for managing the plugin effect chain with integrated browser.
  *
@@ -39,6 +41,8 @@
  * - Apply button processes selection through chain
  * - Drag-and-drop reordering within chain
  */
+// Note: juce::ChangeListener is inherited once below; the same callback
+// handles both PluginChain change broadcasts and ThemeManager switches.
 class PluginChainWindow : public juce::Component,
                            public juce::ListBoxModel,
                            public juce::ChangeListener,
@@ -88,9 +92,13 @@ public:
 
     /**
      * Constructor.
-     * @param chain The plugin chain to display and manage
+     * @param chain      The plugin chain to display and manage.
+     * @param automation Optional. When non-null, the Presets menu can
+     *                   bundle the document's automation lanes into
+     *                   saved presets and restore them on load.
      */
-    explicit PluginChainWindow(PluginChain* chain);
+    explicit PluginChainWindow(PluginChain* chain,
+                               AutomationManager* automation = nullptr);
 
     /**
      * Destructor.
@@ -266,6 +274,10 @@ private:
     void updateLatencyDisplay();
     void onBypassAllClicked();
     void onApplyToSelectionClicked();
+    void onPresetsButtonClicked();
+    void presetSavePromptThenSave();
+    void presetExportToFilePrompt();
+    void presetImportFromFilePrompt();
     juce::Component* refreshComponentForRow(int rowNumber, bool isRowSelected,
                                              juce::Component* existingComponentToUpdate) override;
 
@@ -291,7 +303,9 @@ private:
     juce::Label m_latencyLabel;
     juce::Label m_emptyChainLabel;
     juce::TextButton m_applyToSelectionButton;
+    juce::TextButton m_presetsButton;
     juce::ToggleButton m_bypassAllButton;
+    AutomationManager* m_automation = nullptr;
 
     // Render Options UI
     juce::GroupComponent m_renderOptionsGroup;
@@ -332,12 +346,20 @@ private:
     const int m_dividerX = 450;  // Split position
 
     // Visual settings
-    const juce::Colour m_backgroundColour { 0xff1e1e1e };
-    const juce::Colour m_alternateRowColour { 0xff252525 };
-    const juce::Colour m_selectedRowColour { 0xff3a3a3a };
-    const juce::Colour m_textColour { 0xffe0e0e0 };
-    const juce::Colour m_accentColour { 0xff4a90d9 };
-    const juce::Colour m_dividerColour { 0xff333333 };
+    // Theme-derived colours (computed at access time so a theme switch
+    // re-skins the window via applyThemeColours()).
+    juce::Colour backgroundColour() const;
+    juce::Colour alternateRowColour() const;
+    juce::Colour selectedRowColour() const;
+    juce::Colour textColour() const;
+    juce::Colour accentColour() const;
+    juce::Colour dividerColour() const;
+
+    /** Apply theme colours to all child components that hold their own
+        explicit colour overrides (TextButton::buttonColourId, ListBox
+        backgrounds, etc.). Call from the constructor and from the
+        ChangeListener callback when the theme switches. */
+    void applyThemeColours();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginChainWindow)
 };

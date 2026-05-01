@@ -21,6 +21,7 @@
 */
 
 #include "TabComponent.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 // TabButton Implementation
@@ -56,22 +57,26 @@ void TabButton::paint(juce::Graphics& g)
     if (!m_document)
         return;
 
-    // Tab background
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Tab background — derive selected/hover from the panel token so
+    // the relationship holds across themes (slightly brighter for the
+    // active tab; an in-between shade on hover).
     if (m_isSelected)
     {
-        g.fillAll(juce::Colour(0xff3a3a3a)); // Lighter for selected
+        g.fillAll(theme.panel.brighter(0.08f));
     }
     else if (m_isHovering)
     {
-        g.fillAll(juce::Colour(0xff323232)); // Slightly lighter on hover
+        g.fillAll(theme.panel.brighter(0.04f));
     }
     else
     {
-        g.fillAll(juce::Colour(0xff2a2a2a)); // Dark background
+        g.fillAll(theme.panel);
     }
 
     // Tab border
-    g.setColour(juce::Colour(0xff4a4a4a));
+    g.setColour(theme.border);
     if (!m_isSelected)
     {
         // Draw right border to separate tabs
@@ -79,10 +84,10 @@ void TabButton::paint(juce::Graphics& g)
                   static_cast<float>(getWidth() - 1), static_cast<float>(getHeight()), 1.0f);
     }
 
-    // Selected tab indicator (bottom bar)
+    // Selected tab indicator (bottom bar) — accent token
     if (m_isSelected)
     {
-        g.setColour(juce::Colour(0xff00ff00)); // Green for selected
+        g.setColour(theme.accent);
         g.fillRect(0, getHeight() - 3, getWidth(), 3);
     }
 
@@ -99,8 +104,8 @@ void TabButton::paint(juce::Graphics& g)
     auto textBounds = getLocalBounds().reduced(kPadding, 0);
     textBounds.removeFromRight(kCloseButtonSize + kPadding);
 
-    // Draw filename
-    g.setColour(m_isSelected ? juce::Colours::white : juce::Colours::lightgrey);
+    // Draw filename — selected tabs use full text, others muted
+    g.setColour(m_isSelected ? theme.text : theme.textMuted);
     g.setFont(juce::Font(14.0f));
     g.drawFittedText(filename, textBounds, juce::Justification::centredLeft, 1);
 
@@ -111,12 +116,12 @@ void TabButton::paint(juce::Graphics& g)
 
     if (m_isHoveringClose)
     {
-        g.setColour(juce::Colour(0xff5a5a5a));
+        g.setColour(theme.border.brighter(0.15f));
         g.fillRoundedRectangle(m_closeBounds.toFloat(), 2.0f);
     }
 
     // Draw X icon
-    g.setColour(m_isHoveringClose ? juce::Colours::white : juce::Colours::grey);
+    g.setColour(m_isHoveringClose ? theme.text : theme.textMuted);
     const float crossSize = 8.0f;
     const float cx = m_closeBounds.getCentreX();
     const float cy = m_closeBounds.getCentreY();
@@ -176,6 +181,7 @@ TabComponent::TabComponent(DocumentManager& documentManager)
     , m_scrollOffset(0)
 {
     m_documentManager.addListener(this);
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
 
     addAndMakeVisible(m_scrollBar);
     m_scrollBar.addListener(this);
@@ -188,17 +194,30 @@ TabComponent::TabComponent(DocumentManager& documentManager)
 TabComponent::~TabComponent()
 {
     m_documentManager.removeListener(this);
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
 }
 
 void TabComponent::paint(juce::Graphics& g)
 {
-    // Background
-    g.fillAll(juce::Colour(0xff1a1a1a)); // Darker than tabs
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Background — sits behind tabs, so darker than the panel surface.
+    g.fillAll(theme.background);
 
     // Bottom border
-    g.setColour(juce::Colour(0xff4a4a4a));
+    g.setColour(theme.border);
     g.drawLine(0.0f, static_cast<float>(getHeight() - 1), static_cast<float>(getWidth()),
               static_cast<float>(getHeight() - 1), 1.0f);
+}
+
+void TabComponent::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+    {
+        for (auto* tab : m_tabs)
+            if (tab != nullptr) tab->repaint();
+        repaint();
+    }
 }
 
 void TabComponent::resized()

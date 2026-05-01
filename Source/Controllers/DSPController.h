@@ -59,6 +59,8 @@ public:
 
     // Dialog-based operations
     void showResampleDialog(Document* doc, juce::Component* parent);
+    void showTimeStretchDialog(Document* doc, juce::Component* parent);
+    void showPitchShiftDialog(Document* doc, juce::Component* parent);
     void showGainDialog(Document* doc, juce::Component* parent);
     void showNormalizeDialog(Document* doc, juce::Component* parent);
     void showFadeInDialog(Document* doc, juce::Component* parent);

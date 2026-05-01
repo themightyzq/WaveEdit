@@ -74,6 +74,7 @@ COMMAND_LABELS: dict[str, str] = {
     "processChannelConverter": "Channel Converter",
     "pluginShowChain": "Show Plugin Chain",
     "pluginApplyChain": "Apply Plugin Chain",
+    "pluginShowAutomationLanes": "Show Automation Lanes",
     "regionAdd": "Add Region",
     "regionStripSilence": "Strip Silence to Regions",
     "regionShowList": "Region List Panel",

@@ -222,6 +222,22 @@ public:
         return true;
     }
 
+    /** Change the interpolation curve of a single point. Index is unchanged. */
+    bool setPointCurve(int index, AutomationPoint::CurveType curve)
+    {
+        std::lock_guard<std::mutex> writeLock(m_writeMutex);
+        auto current = getPointsCopy();
+        if (index < 0 || index >= static_cast<int>(current.size()))
+            return false;
+
+        if (current[static_cast<size_t>(index)].curve == curve)
+            return false;
+
+        current[static_cast<size_t>(index)].curve = curve;
+        publish(std::make_shared<PointList>(std::move(current)));
+        return true;
+    }
+
     /** Clear all points. */
     void clear()
     {
