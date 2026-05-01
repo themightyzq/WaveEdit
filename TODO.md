@@ -355,9 +355,10 @@ work top-down.
   Recording, Dialog, Plugin. ✅
 - Remaining file-size violations (CLAUDE.md §7.5):
   - `.cpp` >1,500: `WaveformDisplay.cpp` 2,799,
-    `BatchProcessorDialog.cpp` 2,465, `Commands/CommandHandler.cpp` 1,876
-    (gained the `perform()` switch).
+    `BatchProcessorDialog.cpp` 2,465.
     Recently brought under cap (2026-05-01):
+      - `Commands/CommandHandler.cpp` 1,876 → 877 + 1,026-line
+        `CommandHandler_GetInfo.cpp` (the per-command setInfo switch).
       - `Controllers/DSPController.cpp` 1,602 → 1,297 + 1,061-line
         `DSPController_Advanced.cpp` (EQ, channel, plugin, head-tail,
         loop, time-pitch, resample).

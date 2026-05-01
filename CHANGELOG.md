@@ -9,6 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **CommandHandler split for §7.5 file-size cap.** `Commands/
+  CommandHandler.cpp` (1,876 lines → over the 1,500 cap) is now 877
+  lines plus a new 1,026-line `CommandHandler_GetInfo.cpp` that hosts
+  `getCommandInfo()` — the per-command switch that fills in menu
+  titles, descriptions, categories, default keypresses, and active
+  state. The constructor, `getAllCommands()`, and the `performCommand()`
+  dispatch all stay in the main file. No behaviour changes; all 372
+  test groups still pass.
+
 - **UCSCategorySuggester data extracted from logic.**
   `Utils/UCSCategorySuggester.cpp` (1,827 lines → over the 1,500 cap)
   is now 201 lines: only the constructor, lookup methods, and scoring.
