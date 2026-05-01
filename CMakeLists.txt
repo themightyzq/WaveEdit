@@ -98,6 +98,8 @@ target_sources(WaveEdit
         Source/Utils/ToolbarManager.cpp
         Source/Utils/ToolbarManager.h
         Source/UI/WaveformDisplay.cpp
+        Source/UI/WaveformDisplay_Render.cpp
+        Source/UI/WaveformDisplay_Interact.cpp
         Source/UI/WaveformDisplay.h
         Source/UI/TransportControls.cpp
         Source/UI/TransportControls.h
@@ -698,6 +700,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/ToolbarManager.cpp
         Source/Utils/ToolbarManager.h
         Source/UI/WaveformDisplay.cpp
+        Source/UI/WaveformDisplay_Render.cpp
+        Source/UI/WaveformDisplay_Interact.cpp
         Source/UI/WaveformDisplay.h
         Source/UI/TransportControls.cpp
         Source/UI/TransportControls.h
