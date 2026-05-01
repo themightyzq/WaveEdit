@@ -9,6 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **AudioEngine split for §7.5 file-size cap.** `Audio/AudioEngine.cpp`
+  (1,537 lines → over the 1,500 cap) is now 1,226 lines plus a new
+  336-line `AudioEngine_Preview.cpp` hosting the preview-system
+  surface: entering/leaving preview mode, loading the preview buffer,
+  the atomic per-processor setters (`setGainPreview`,
+  `setParametricEQPreview`, `setDynamicEQPreview`, `setNormalizePreview`,
+  `setFadePreview`, `setDCOffsetPreview`), the bypass / reset / disable
+  helpers, and the selection-offset accounting. The audio callback,
+  device management, file loading, transport, and level/solo/mute
+  surfaces all stay in the main file. No behaviour changes; all 372
+  test groups still pass.
+
 - **GraphicalEQEditor split for §7.5 file-size cap.** `UI/
   GraphicalEQEditor.cpp` (1,526 lines → over the 1,500 cap) is now
   1,280 lines plus a new 266-line `GraphicalEQEditor_Presets.cpp`

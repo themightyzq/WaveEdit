@@ -47,6 +47,7 @@ target_sources(WaveEdit
         Source/Controllers/PluginController.cpp
         Source/Controllers/PluginController.h
         Source/Audio/AudioEngine.cpp
+        Source/Audio/AudioEngine_Preview.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
         Source/Audio/AudioBufferManager.h
@@ -643,6 +644,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Controllers/DSPController_Advanced.cpp
         Source/Controllers/DSPController.h
         Source/Audio/AudioEngine.cpp
+        Source/Audio/AudioEngine_Preview.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
         Source/Audio/AudioBufferManager.h

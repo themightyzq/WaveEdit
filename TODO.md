@@ -357,7 +357,7 @@ work top-down.
   - `.cpp` >1,500: `WaveformDisplay.cpp` 2,799,
     `BatchProcessorDialog.cpp` 2,465, `Commands/CommandHandler.cpp` 1,876
     (gained the `perform()` switch), `UCSCategorySuggester.cpp` 1,827,
-    `PluginManager.cpp` 1,763, `Audio/AudioEngine.cpp` 1,537.
+    `PluginManager.cpp` 1,763.
     Recently brought under cap (2026-05-01):
       - `Controllers/DSPController.cpp` 1,602 → 1,297 + 1,061-line
         `DSPController_Advanced.cpp` (EQ, channel, plugin, head-tail,
@@ -365,6 +365,9 @@ work top-down.
       - `UI/GraphicalEQEditor.cpp` 1,526 → 1,280 + 266-line
         `GraphicalEQEditor_Presets.cpp` (refresh / select / save /
         delete preset flows).
+      - `Audio/AudioEngine.cpp` 1,537 → 1,226 + 336-line
+        `AudioEngine_Preview.cpp` (preview mode, per-processor
+        setters, bypass/reset/disable helpers, selection offset).
     (`UCSCategorySuggester_generated.cpp` is auto-generated — exempt.)
   - `.h` >500: `MainComponent.h` 1,959, `Audio/AudioEngine.h` 989,
     `UI/WaveformDisplay.h` 748, `Utils/AudioUnits.h` 530.
