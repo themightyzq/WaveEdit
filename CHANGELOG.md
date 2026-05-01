@@ -9,6 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **GraphicalEQEditor split for §7.5 file-size cap.** `UI/
+  GraphicalEQEditor.cpp` (1,526 lines → over the 1,500 cap) is now
+  1,280 lines plus a new 266-line `GraphicalEQEditor_Presets.cpp`
+  hosting the preset-management methods: `refreshPresetList`,
+  `presetSelected`, `savePreset` + `doSavePreset` (with overwrite
+  confirmation), and `deletePreset`. The visualisation, mouse /
+  keyboard interaction, and DSP plumbing all stay in the main file.
+  No behaviour changes; all 372 test groups still pass.
+
 - **DSPController split for §7.5 file-size cap.** `Controllers/
   DSPController.cpp` (1,602 lines → over the 1,500 cap) is now split
   into `DSPController.cpp` (1,297 lines: core + simple level
