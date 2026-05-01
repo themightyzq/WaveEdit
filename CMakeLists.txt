@@ -263,6 +263,8 @@ target_sources(WaveEdit
         Source/Batch/BatchPresetManager.cpp
         Source/Batch/BatchPresetManager.h
         Source/Batch/BatchProcessorDialog.cpp
+        Source/Batch/BatchProcessorDialog_Components.cpp
+        Source/Batch/BatchProcessorDialog_Preview.cpp
         Source/Batch/BatchProcessorDialog.h
 )
 
