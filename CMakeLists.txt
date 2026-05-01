@@ -128,6 +128,7 @@ target_sources(WaveEdit
         Source/UI/ParametricEQDialog.cpp
         Source/UI/ParametricEQDialog.h
         Source/UI/GraphicalEQEditor.cpp
+        Source/UI/GraphicalEQEditor_Presets.cpp
         Source/UI/GraphicalEQEditor.h
         Source/UI/TabComponent.cpp
         Source/UI/TabComponent.h
@@ -721,6 +722,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/ParametricEQDialog.cpp
         Source/UI/ParametricEQDialog.h
         Source/UI/GraphicalEQEditor.cpp
+        Source/UI/GraphicalEQEditor_Presets.cpp
         Source/UI/GraphicalEQEditor.h
         Source/UI/TabComponent.cpp
         Source/UI/TabComponent.h
