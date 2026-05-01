@@ -301,6 +301,50 @@ target_compile_definitions(WaveEdit
         JUCE_PLUGINHOST_AU=1
 )
 
+# ----------------------------------------------------------------------------
+# Locate SoundTouch (LGPL-2.1) — required for time-stretch / pitch-shift DSP.
+# Done BEFORE target_include_directories / target_link_libraries so the
+# variables are populated when those calls evaluate ${SOUNDTOUCH_*} on a
+# fresh CMake configure (CI does no-cache builds). Bundle/install copy
+# steps live further down once the WaveEdit target exists.
+# ----------------------------------------------------------------------------
+find_library(SOUNDTOUCH_LIBRARY
+    NAMES SoundTouch libSoundTouch
+    PATHS
+        /opt/homebrew/lib            # Apple Silicon Homebrew
+        /opt/homebrew/Cellar/sound-touch/*/lib
+        /usr/local/lib               # Intel Homebrew
+        /usr/local/Cellar/sound-touch/*/lib
+        /opt/local/lib               # MacPorts
+        /usr/lib
+        /usr/lib/x86_64-linux-gnu
+        /usr/lib/aarch64-linux-gnu
+)
+
+find_path(SOUNDTOUCH_INCLUDE_DIR
+    NAMES SoundTouch.h
+    PATHS
+        /opt/homebrew/include/soundtouch
+        /opt/homebrew/Cellar/sound-touch/*/include/soundtouch
+        /usr/local/include/soundtouch
+        /usr/local/Cellar/sound-touch/*/include/soundtouch
+        /opt/local/include/soundtouch
+        /usr/include/soundtouch
+    # vcpkg + other prefix-style installs put headers under <prefix>/include/soundtouch.
+    PATH_SUFFIXES soundtouch
+)
+
+if(NOT (SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR))
+    message(FATAL_ERROR
+        "SoundTouch not found. Install via: brew install sound-touch (macOS), "
+        "apt-get install libsoundtouch-dev (Linux), or vcpkg install "
+        "soundtouch:x64-windows + pass -DCMAKE_TOOLCHAIN_FILE=...vcpkg.cmake "
+        "(Windows).")
+endif()
+
+message(STATUS "Found SoundTouch library: ${SOUNDTOUCH_LIBRARY}")
+message(STATUS "Found SoundTouch headers:  ${SOUNDTOUCH_INCLUDE_DIR}")
+
 # Include directories
 target_include_directories(WaveEdit
     PRIVATE
@@ -452,40 +496,11 @@ endif()
 # ============================================================================
 # Same shape as the LAME integration: dynamically linked, source code
 # available at https://www.surina.net/soundtouch/. NOTICE has the full
-# attribution text. Install with `brew install sound-touch` (macOS),
-# the appropriate distribution package on Linux, or build from source
-# on Windows.
-
-find_library(SOUNDTOUCH_LIBRARY
-    NAMES SoundTouch libSoundTouch
-    PATHS
-        /opt/homebrew/lib            # Apple Silicon Homebrew
-        /opt/homebrew/Cellar/sound-touch/*/lib
-        /usr/local/lib               # Intel Homebrew
-        /usr/local/Cellar/sound-touch/*/lib
-        /opt/local/lib               # MacPorts
-        /usr/lib
-        /usr/lib/x86_64-linux-gnu
-        /usr/lib/aarch64-linux-gnu
-)
-
-find_path(SOUNDTOUCH_INCLUDE_DIR
-    NAMES SoundTouch.h
-    PATHS
-        /opt/homebrew/include/soundtouch
-        /opt/homebrew/Cellar/sound-touch/*/include/soundtouch
-        /usr/local/include/soundtouch
-        /usr/local/Cellar/sound-touch/*/include/soundtouch
-        /opt/local/include/soundtouch
-        /usr/include/soundtouch
-    # vcpkg + other prefix-style installs put headers under <prefix>/include/soundtouch.
-    PATH_SUFFIXES soundtouch
-)
+# attribution text. The find_library / find_path calls are higher up the
+# file (before target_include_directories) so SOUNDTOUCH_LIBRARY and
+# SOUNDTOUCH_INCLUDE_DIR are populated before they are consumed.
 
 if(SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR)
-    message(STATUS "Found SoundTouch library: ${SOUNDTOUCH_LIBRARY}")
-    message(STATUS "Found SoundTouch headers:  ${SOUNDTOUCH_INCLUDE_DIR}")
-
     if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
         add_custom_command(TARGET WaveEdit POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -526,11 +541,6 @@ if(SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR)
                 "$<TARGET_FILE_DIR:WaveEdit>"
             COMMENT "Bundling SoundTouch library")
     endif()
-else()
-    message(FATAL_ERROR
-        "SoundTouch not found. Install via: brew install sound-touch (macOS), "
-        "apt-get install libsoundtouch-dev (Linux), or download from "
-        "https://www.surina.net/soundtouch/ (Windows).")
 endif()
 
 # ============================================================================
