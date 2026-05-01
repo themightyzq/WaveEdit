@@ -1,3 +1,21 @@
+/*
+  ==============================================================================
+
+    UCSCategorySuggester_generated.cpp
+    WaveEdit - Professional Audio Editor
+    Copyright (C) 2025 ZQ SFX
+
+    Auto-generated keyword-mapping table for the UCS v8.2.1 category
+    taxonomy. Built from UCS v8.2.1 Full List.xlsx and lifted into this
+    standalone translation unit so the rest of UCSCategorySuggester.cpp
+    can stay under the §7.5 file-size cap. This file is exempt from
+    the cap as data-only generated code.
+
+  ==============================================================================
+*/
+
+#include "UCSCategorySuggester.h"
+
 void UCSCategorySuggester::initializeKeywordMappings()
 {
     m_mappings.clear();

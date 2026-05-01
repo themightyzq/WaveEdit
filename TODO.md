@@ -356,7 +356,7 @@ work top-down.
 - Remaining file-size violations (CLAUDE.md §7.5):
   - `.cpp` >1,500: `WaveformDisplay.cpp` 2,799,
     `BatchProcessorDialog.cpp` 2,465, `Commands/CommandHandler.cpp` 1,876
-    (gained the `perform()` switch), `UCSCategorySuggester.cpp` 1,827.
+    (gained the `perform()` switch).
     Recently brought under cap (2026-05-01):
       - `Controllers/DSPController.cpp` 1,602 → 1,297 + 1,061-line
         `DSPController_Advanced.cpp` (EQ, channel, plugin, head-tail,
@@ -370,6 +370,11 @@ work top-down.
       - `Plugins/PluginManager.cpp` 1,763 → 1,285 + 497-line
         `PluginManager_Persistence.cpp` (cache + blacklist + custom
         search paths + incremental cache + default-blacklist stub).
+      - `Utils/UCSCategorySuggester.cpp` 1,827 → 201; the
+        `initializeKeywordMappings()` data table now lives in the
+        already-existing `UCSCategorySuggester_generated.cpp` and that
+        file is now actually compiled (the duplicate body in the
+        hand-written .cpp had been shadowing it).
     (`UCSCategorySuggester_generated.cpp` is auto-generated — exempt.)
   - `.h` >500: `MainComponent.h` 1,959, `Audio/AudioEngine.h` 989,
     `UI/WaveformDisplay.h` 748, `Utils/AudioUnits.h` 530.

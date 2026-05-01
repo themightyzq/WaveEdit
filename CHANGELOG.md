@@ -9,6 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **UCSCategorySuggester data extracted from logic.**
+  `Utils/UCSCategorySuggester.cpp` (1,827 lines → over the 1,500 cap)
+  is now 201 lines: only the constructor, lookup methods, and scoring.
+  The `initializeKeywordMappings()` data table — the full UCS v8.2.1
+  category list, hand-rolled `m_mappings.push_back(...)` calls — moved
+  to the already-existing `UCSCategorySuggester_generated.cpp`, which
+  is now actually compiled. (The hand-written .cpp had a duplicate
+  body that was shadowing the generated file; CMake was only building
+  the hand-written one. They're now de-duplicated and the generated
+  file is the single source of truth for the data.) The generated
+  file (1,645 lines) is exempt from §7.5 as auto-generated data.
+
 - **PluginManager split for §7.5 file-size cap.** `Plugins/
   PluginManager.cpp` (1,763 lines → over the 1,500 cap) is now 1,285
   lines plus a new 497-line `PluginManager_Persistence.cpp` hosting

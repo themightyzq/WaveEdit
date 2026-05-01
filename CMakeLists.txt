@@ -183,6 +183,7 @@ target_sources(WaveEdit
         Source/Utils/KeymapManager.cpp
         Source/Utils/KeymapManager.h
         Source/Utils/UCSCategorySuggester.cpp
+        Source/Utils/UCSCategorySuggester_generated.cpp
         Source/Utils/UCSCategorySuggester.h
         Source/Utils/UndoActions/AudioUndoActions.h
         Source/Utils/UndoActions/LevelUndoActions.h
@@ -766,6 +767,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/MarkerManager.cpp
         Source/Utils/MarkerManager.h
         Source/Utils/UCSCategorySuggester.cpp
+        Source/Utils/UCSCategorySuggester_generated.cpp
         Source/Utils/UCSCategorySuggester.h
         Source/Utils/UndoActions/AudioUndoActions.h
         Source/Utils/UndoActions/LevelUndoActions.h
