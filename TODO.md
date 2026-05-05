@@ -400,7 +400,7 @@ work top-down.
 
 ### Current Tests
 - **Test runner**: `./build/WaveEditTests_artefacts/Release/WaveEditTests`
-  reports **364 groups / ~207,000 assertions / 0 failures** locally
+  reports **372 groups / ~207,000 assertions / 0 failures** locally
   (CI is similar with device-dependent groups skipped via
   `WAVEEDIT_CI=1`). New test files this round:
   `Tests/Unit/AutomationLanesPanelTests.cpp`,
