@@ -71,7 +71,7 @@ COMMAND_LABELS: dict[str, str] = {
     "processDCOffset": "DC Offset Removal",
     "processParametricEQ": "Parametric EQ",
     "processGraphicalEQ": "Graphical EQ",
-    "processChannelConverter": "Channel Converter",
+    "toolsChannelConverter": "Channel Converter",
     "pluginShowChain": "Show Plugin Chain",
     "pluginApplyChain": "Apply Plugin Chain",
     "pluginShowAutomationLanes": "Show Automation Lanes",
@@ -99,7 +99,7 @@ COMMAND_LABELS: dict[str, str] = {
     "tabPrevious": "Previous Tab",
     "tabClose": "Close Tab",
     "tabCloseAll": "Close All Tabs",
-    "helpShortcuts": "Keyboard Shortcuts Reference",
+    "helpShortcuts": "Keyboard Shortcuts",
     "helpCommandPalette": "Command Palette",
 }
 
