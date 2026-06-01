@@ -57,7 +57,23 @@ void DSPController::showParametricEQDialog(Document* doc, juce::Component* paren
     if (!doc || !doc->getAudioEngine().isFileLoaded())
         return;
 
-    ParametricEQDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager());
+    // Pass the current selection so the preview plays/loops the selection (an
+    // empty selection -> the whole buffer, handled by the engine helper). This
+    // mirrors showGraphicalEQDialog; omitting it was the cause of Parametric EQ
+    // preview ignoring the selection.
+    auto& waveform = doc->getWaveformDisplay();
+    auto& engine = doc->getAudioEngine();
+    const bool hasSelection = waveform.hasSelection();
+    const double sampleRate = engine.getSampleRate();
+
+    const int64_t startSample = hasSelection
+        ? static_cast<int64_t>(waveform.getSelectionStart() * sampleRate)
+        : 0;
+    const int64_t endSample = hasSelection
+        ? static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate)
+        : static_cast<int64_t>(engine.getTotalLength() * sampleRate);
+
+    ParametricEQDialog dialog(&engine, &doc->getBufferManager(), startSample, endSample);
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setNonOwned(&dialog);

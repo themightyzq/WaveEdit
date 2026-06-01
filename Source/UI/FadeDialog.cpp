@@ -122,11 +122,7 @@ FadeDialog::~FadeDialog()
 {
     // Stop any preview playback and reset bypass
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-    {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setPreviewBypassed(false);
-    }
+        m_audioEngine->stopSelectionPreview();
 }
 
 void FadeDialog::paint(juce::Graphics& g)
@@ -212,10 +208,7 @@ void FadeDialog::visibilityChanged()
     {
         // Stop preview when dialog is hidden
         if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-        {
-            m_audioEngine->stop();
-            m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        }
+            m_audioEngine->stopSelectionPreview();
     }
 }
 
@@ -227,10 +220,7 @@ void FadeDialog::onPreviewClicked()
     // Toggle behavior: if preview is playing, stop it
     if (m_isPreviewPlaying && m_audioEngine->isPlaying())
     {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setFadePreview(m_direction == FadeDirection::FadeIn, 0, 0.0f, false);  // Disable fade processor
-        m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
+        m_audioEngine->stopSelectionPreview();
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
@@ -241,50 +231,18 @@ void FadeDialog::onPreviewClicked()
         return;
     }
 
-    // Following GainDialog/NormalizeDialog pattern
+    // The fade spans the whole selection; derive its duration and curve.
+    const int64_t numSamples = m_selectionEnd - m_selectionStart;
+    const double  sampleRate = m_bufferManager->getSampleRate();
+    const float   durationMs = static_cast<float>((numSamples / sampleRate) * 1000.0);
+    const int     curveIndex = m_curveTypeBox.getSelectedId() - 1;  // 0-based
+    const bool    isFadeIn   = (m_direction == FadeDirection::FadeIn);
 
-    // 0. Stop any current playback FIRST
-    if (m_audioEngine->isPlaying())
-    {
-        m_audioEngine->stop();
-    }
-
-    // 1. Clear stale loop points (CRITICAL for coordinate system)
-    m_audioEngine->clearLoopPoints();
-
-    // 2. Configure looping based on loop toggle
-    bool shouldLoop = m_loopToggle.getToggleState();
-    m_audioEngine->setLooping(shouldLoop);
-
-    // 3. Get fade parameters
-    int64_t numSamples = m_selectionEnd - m_selectionStart;
-    const double sampleRate = m_bufferManager->getSampleRate();
-    float durationMs = static_cast<float>((numSamples / sampleRate) * 1000.0);
-    int curveIndex = m_curveTypeBox.getSelectedId() - 1;  // Convert to 0-based index
-
-    // 4. Set preview mode to REALTIME_DSP for instant parameter changes
+    // Configure the effect, then hand selection/loop/transport to the shared helper.
     m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
-
-    // 5. Set fade parameters - direction determines fade in/out
-    bool isFadeIn = (m_direction == FadeDirection::FadeIn);
     m_audioEngine->setFadePreview(isFadeIn, curveIndex, durationMs, true);
-
-    // 6. Set preview selection offset for accurate cursor positioning
-    m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
-
-    // 7. Set position and loop points in FILE coordinates
-    double selectionStartSec = m_selectionStart / sampleRate;
-    double selectionEndSec = m_selectionEnd / sampleRate;
-
-    m_audioEngine->setPosition(selectionStartSec);
-
-    if (shouldLoop)
-    {
-        m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
-    }
-
-    // 8. Start playback
-    m_audioEngine->play();
+    m_audioEngine->startSelectionPreview(m_selectionStart, m_selectionEnd,
+                                         m_loopToggle.getToggleState());
 
     // 9. Update button state for toggle
     m_isPreviewPlaying = true;
@@ -312,10 +270,7 @@ void FadeDialog::onApplyClicked()
 
     // Stop any preview playback
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-    {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-    }
+        m_audioEngine->stopSelectionPreview();
 
     if (m_applyCallback)
     {
@@ -327,10 +282,7 @@ void FadeDialog::onCancelClicked()
 {
     // Stop any preview playback
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-    {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-    }
+        m_audioEngine->stopSelectionPreview();
 
     if (m_cancelCallback)
     {

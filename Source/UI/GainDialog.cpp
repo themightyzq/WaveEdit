@@ -348,9 +348,7 @@ void GainDialog::onPreviewClicked()
     // Toggle behavior: if preview is playing, stop it
     if (m_isPreviewPlaying && m_audioEngine->isPlaying())
     {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setPreviewBypassed(false);  // Clear bypass state
+        m_audioEngine->stopSelectionPreview();
         m_isPreviewPlaying = false;
         m_isPreviewActive = false;
         m_previewButton.setButtonText("Preview");
@@ -376,46 +374,15 @@ void GainDialog::onPreviewClicked()
         return;
     }
 
-    // CRITICAL: Clear any stale loop points from previous playback sessions
-    // This prevents coordinate system mismatch between old main buffer loop points
-    // and new preview buffer playback (which uses 0-based coordinates)
-    m_audioEngine->clearLoopPoints();
-
-    // Enable looping based on checkbox state
-    bool shouldLoop = m_loopCheckbox.getToggleState();
-    m_audioEngine->setLooping(shouldLoop);
     m_isPreviewActive = true;
 
-    // Use REALTIME_DSP mode for instant parameter updates
+    // Configure the effect, then hand the selection/loop/transport setup to the
+    // shared engine helper (it falls back to the whole buffer if there is no
+    // selection, and always wires loop points + setLooping together).
     m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
     m_audioEngine->setGainPreview(gain.value(), true);
-
-    // If we have a selection, set up playback for that range
-    if (m_bufferManager && m_selectionEnd > m_selectionStart)
-    {
-        // Set preview selection offset for accurate cursor positioning
-        m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
-
-        // Set position and loop points in FILE coordinates
-        const double sampleRate = m_bufferManager->getSampleRate();
-        double selectionStartSec = m_selectionStart / sampleRate;
-        double selectionEndSec = m_selectionEnd / sampleRate;
-
-        m_audioEngine->setPosition(selectionStartSec);
-
-        if (shouldLoop)
-        {
-            m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
-        }
-    }
-    else
-    {
-        // No selection - play from beginning of file
-        m_audioEngine->setPreviewSelectionOffset(0);
-        m_audioEngine->setPosition(0.0);
-    }
-
-    m_audioEngine->play();
+    m_audioEngine->startSelectionPreview(m_selectionStart, m_selectionEnd,
+                                         m_loopCheckbox.getToggleState());
 
     // Update button state for toggle
     m_isPreviewPlaying = true;
@@ -488,24 +455,10 @@ void GainDialog::disablePreview()
 {
     if (m_audioEngine && m_isPreviewActive)
     {
-        // CRITICAL: Use pause() instead of stop() to preserve loop state for next preview
-        // stop() calls clearLoopPoints() and setLooping(false), which breaks looping
-        // on subsequent preview sessions. pause() only stops playback without clearing state.
-        m_audioEngine->pause();
-
-        // CRITICAL: Clear loop points and looping AFTER pausing
-        // This ensures clean state for main playback while preserving the ability
-        // to loop correctly on the next preview session
-        m_audioEngine->clearLoopPoints();
-        m_audioEngine->setLooping(false);
-
-        // Clear preview mode and effects
-        m_audioEngine->setGainPreview(0.0f, false);
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-
-        // Clear bypass state
-        m_audioEngine->setPreviewBypassed(false);
-
+        // Shared teardown: stops playback, clears loop state, disables every
+        // preview effect, and clears bypass. The next preview re-establishes all
+        // of it via startSelectionPreview(), so nothing needs to be preserved.
+        m_audioEngine->stopSelectionPreview();
         m_isPreviewActive = false;
     }
 
