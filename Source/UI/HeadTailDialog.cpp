@@ -451,6 +451,11 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     });
 }
 
+bool HeadTailDialog::previewIsPlayable(int numSamples, int numChannels) noexcept
+{
+    return numSamples > 0 && numChannels > 0;
+}
+
 HeadTailDialog::~HeadTailDialog()
 {
 }
