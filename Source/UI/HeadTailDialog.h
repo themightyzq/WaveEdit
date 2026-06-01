@@ -68,6 +68,11 @@ public:
     /** Invoked when the user clicks Cancel. */
     std::function<void()> onCancel;
 
+    /** True if a processed preview buffer with this shape can be played.
+        Gates the Preview/Bypass buttons when a recipe trims the result to
+        nothing. Pure + static so it is unit-testable. */
+    static bool previewIsPlayable(int numSamples, int numChannels) noexcept;
+
 private:
     //==========================================================================
     // Section 1: Intelligent Trim
