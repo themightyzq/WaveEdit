@@ -90,6 +90,26 @@ public:
      */
     juce::Array<Marker> getAllMarkers() const;
 
+    /**
+     * Get marker by its stable ID (mutable).
+     *
+     * Preferred over getMarker(index) for undo/redo: the ID is invariant to
+     * later inserts/removes (markers re-sort on add), so an action can re-find
+     * its exact marker even after the list order changed.
+     *
+     * @param id Stable marker ID (Marker::getId())
+     * @return Pointer to marker, or nullptr if no marker has that ID
+     */
+    Marker* getMarkerById(int64_t id);
+
+    /**
+     * Get the current index of the marker with the given stable ID.
+     *
+     * @param id Stable marker ID (Marker::getId())
+     * @return Index, or -1 if no marker has that ID
+     */
+    int getIndexOfMarkerId(int64_t id) const;
+
     // Navigation
     /**
      * Find marker at or near sample position

@@ -230,5 +230,11 @@ private:
     /** Notify listeners that chain changed */
     void notifyChainChanged();
 
+    // Enables juce::WeakReference<PluginChain>. notifyChainChanged() posts an
+    // async callback that calls sendChangeMessage(); if the chain (and its
+    // owning document) is destroyed before that callback fires, the weak ref
+    // lets the callback no-op instead of writing to freed memory (C16).
+    JUCE_DECLARE_WEAK_REFERENCEABLE(PluginChain)
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginChain)
 };

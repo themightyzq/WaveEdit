@@ -20,6 +20,25 @@ iXMLMetadata::iXMLMetadata()
 {
 }
 
+namespace
+{
+    /**
+     * Escape XML special characters (& < > " ') in element text. The old
+     * code used XmlElement::createTextElement(x)->getText(), which returns
+     * the text UNescaped, so a field containing &, <, or > produced
+     * malformed XML that XmlDocument::parse() then rejected -- silently
+     * dropping ALL iXML on the next load (M7).
+     */
+    juce::String escapeXmlText(const juce::String& text)
+    {
+        return text.replace("&", "&amp;")
+                   .replace("<", "&lt;")
+                   .replace(">", "&gt;")
+                   .replace("\"", "&quot;")
+                   .replace("'", "&apos;");
+    }
+}
+
 bool iXMLMetadata::loadFromFile(const juce::File& file)
 {
     if (!file.existsAsFile())
@@ -88,16 +107,16 @@ juce::String iXMLMetadata::toXMLString() const
 
     // Project/Scene/Take/Tape (Standard iXML fields)
     if (m_project.isNotEmpty())
-        xml << "  <PROJECT>" << juce::XmlElement::createTextElement(m_project)->getText() << "</PROJECT>\n";
+        xml << "  <PROJECT>" << escapeXmlText(m_project) << "</PROJECT>\n";
 
     if (m_scene.isNotEmpty())
-        xml << "  <SCENE>" << juce::XmlElement::createTextElement(m_scene)->getText() << "</SCENE>\n";
+        xml << "  <SCENE>" << escapeXmlText(m_scene) << "</SCENE>\n";
 
     if (m_take.isNotEmpty())
-        xml << "  <TAKE>" << juce::XmlElement::createTextElement(m_take)->getText() << "</TAKE>\n";
+        xml << "  <TAKE>" << escapeXmlText(m_take) << "</TAKE>\n";
 
     if (m_tape.isNotEmpty())
-        xml << "  <TAPE>" << juce::XmlElement::createTextElement(m_tape)->getText() << "</TAPE>\n";
+        xml << "  <TAPE>" << escapeXmlText(m_tape) << "</TAPE>\n";
 
     xml << "  <CIRCLED>FALSE</CIRCLED>\n";
 
@@ -109,7 +128,7 @@ juce::String iXMLMetadata::toXMLString() const
         xml << "    <TRACK>\n";
         xml << "      <CHANNEL_INDEX>1</CHANNEL_INDEX>\n";
         xml << "      <INTERLEAVE_INDEX>1</INTERLEAVE_INDEX>\n";
-        xml << "      <NAME>" << juce::XmlElement::createTextElement(m_trackTitle)->getText() << "</NAME>\n";
+        xml << "      <NAME>" << escapeXmlText(m_trackTitle) << "</NAME>\n";
         xml << "      <FUNCTION>sfx</FUNCTION>\n";
         xml << "    </TRACK>\n";
         xml << "  </TRACK_LIST>\n";
@@ -117,7 +136,7 @@ juce::String iXMLMetadata::toXMLString() const
 
     // Notes
     if (m_notes.isNotEmpty())
-        xml << "  <NOTE>" << juce::XmlElement::createTextElement(m_notes)->getText() << "</NOTE>\n";
+        xml << "  <NOTE>" << escapeXmlText(m_notes) << "</NOTE>\n";
 
     // UCS Category/Subcategory + SoundMiner Extended (Steinberg USER extension)
     if (m_category.isNotEmpty() || m_subcategory.isNotEmpty() ||
@@ -126,19 +145,19 @@ juce::String iXMLMetadata::toXMLString() const
     {
         xml << "  <USER>\n";
         if (m_category.isNotEmpty())
-            xml << "    <CATEGORY>" << juce::XmlElement::createTextElement(m_category)->getText() << "</CATEGORY>\n";
+            xml << "    <CATEGORY>" << escapeXmlText(m_category) << "</CATEGORY>\n";
         if (m_subcategory.isNotEmpty())
-            xml << "    <SUBCATEGORY>" << juce::XmlElement::createTextElement(m_subcategory)->getText() << "</SUBCATEGORY>\n";
+            xml << "    <SUBCATEGORY>" << escapeXmlText(m_subcategory) << "</SUBCATEGORY>\n";
 
         // SoundMiner Extended Fields
         if (m_fxName.isNotEmpty())
-            xml << "    <FXNAME>" << juce::XmlElement::createTextElement(m_fxName)->getText() << "</FXNAME>\n";
+            xml << "    <FXNAME>" << escapeXmlText(m_fxName) << "</FXNAME>\n";
         if (m_description.isNotEmpty())
-            xml << "    <DESCRIPTION>" << juce::XmlElement::createTextElement(m_description)->getText() << "</DESCRIPTION>\n";
+            xml << "    <DESCRIPTION>" << escapeXmlText(m_description) << "</DESCRIPTION>\n";
         if (m_keywords.isNotEmpty())
-            xml << "    <KEYWORDS>" << juce::XmlElement::createTextElement(m_keywords)->getText() << "</KEYWORDS>\n";
+            xml << "    <KEYWORDS>" << escapeXmlText(m_keywords) << "</KEYWORDS>\n";
         if (m_designer.isNotEmpty())
-            xml << "    <DESIGNER>" << juce::XmlElement::createTextElement(m_designer)->getText() << "</DESIGNER>\n";
+            xml << "    <DESIGNER>" << escapeXmlText(m_designer) << "</DESIGNER>\n";
 
         xml << "  </USER>\n";
     }

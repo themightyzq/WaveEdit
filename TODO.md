@@ -7,6 +7,36 @@ For completed work, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Recently Completed
 
+- ✅ **End-user review fixes (2026-05-29)** —
+  A fresh end-user walkthrough (see REVIEW-USER.md) found and fixed:
+  files now open from Finder / "Open With" / double-click (registered
+  WAV/FLAC/OGG/MP3 document types + single-instance routing to tabs);
+  the duplicate macOS menu bar removed (native bar only); empty-state
+  "Open File..." button; Preferences moved to the app menu as "Settings…"
+  and "Exit" dropped on macOS; "Head & Tail" double-ampersand fixed; the
+  glyph sweep completed for byte-escape forms (menus, Looping Tools,
+  Progress, panel empty-states) and locked in by a CI check
+  (`scripts/check_rendered_ascii.py`, wired into the doc-checks job);
+  About-box version corrected (was "Version 1.0"); accessible button
+  names; tab-width compression. Residuals tracked under Known Issues.
+
+- ✅ **UI/UX polish + theming hardening (2026-05-29)** —
+  A design-review pass found the theme system was only partially
+  wired (the LookAndFeel ignored ThemeManager and ~196 hardcoded
+  colour literals remained), so Light / High Contrast were broken
+  outside the waveform. This round delivered what Phase 3 below
+  claimed: the LookAndFeel is now theme-driven and repaints all
+  windows on switch, chrome literals swept to tokens across dialogs /
+  panels / toolbar / transport / plugin windows, fonts & padding moved
+  to UIConstants tokens, and all rendered strings are ASCII. Also
+  fixed: Graphical EQ hit-test offset, recording buffer-full modal
+  spam, File Properties section headers, Region/Marker empty states,
+  error-text contrast (WCAG AA), and a live transport recording
+  indicator. New guardrails added in CLAUDE.md §6.11 (colour theme)
+  and §6.12 (ASCII rendered strings). See CHANGELOG [Unreleased].
+  Remaining: a few domain-visualisation colours (spectrum / EQ curve)
+  are still literals by design.
+
 - ✅ **Color theme system — Phase 3 (2026-04-30)** —
   Final coverage of every visible surface, plus an accessibility
   theme and custom-theme support. All processing dialogs (Gain,
@@ -343,6 +373,12 @@ work top-down.
 ## Known Issues
 
 ### Non-Blocking
+- Screen-reader names were added to icon-only buttons (setTitle) but have
+  NOT been verified with VoiceOver/NVDA — needs a real assistive-tech pass.
+- `Utils/UCSCategorySuggester_generated.cpp` contains mojibake keyword tokens
+  (e.g. "saut√©ing") in its match-input data. Not user-visible (never drawn,
+  only compared) — fix by regenerating from `UCS v8.2.1 Full List.xlsx` via
+  `scripts/generate_ucs_mappings.py`, not by hand-editing the generated file.
 - Some VST3 plugins may require multiple load attempts (workaround: retry in Offline Plugin dialog)
 - Large file thumbnails may take 1-2 seconds to fully render
 - Occasional toolbar highlight flicker on rapid mouse movement

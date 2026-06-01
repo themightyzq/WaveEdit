@@ -143,18 +143,31 @@ void PluginChain::publishChain(ChainPtr newChain)
 
 void PluginChain::processPendingDeletes()
 {
-    std::lock_guard<std::mutex> lock(m_pendingDeleteMutex);
-
     // Generation-based deletion: Keep the last kMinPendingGenerations chains alive
     // to guarantee the audio thread has finished iterating before we delete.
     //
     // The audio thread holds a raw pointer (not shared_ptr), so use_count() doesn't
     // tell us if it's still iterating. Instead, we wait a minimum number of audio
     // callbacks (~93ms at 44.1kHz/512 samples with 8 generations) before deletion.
-    while (m_pendingDeletes.size() > kMinPendingGenerations)
+    //
+    // IMPORTANT: We move the to-delete chains into a local under the lock, then
+    // release the lock BEFORE letting them destruct. Releasing a chain can run
+    // PluginChainNode / VST3 destructors, which may block or re-enter the host;
+    // running those under m_pendingDeleteMutex risks deadlocking against a
+    // concurrent publishChain() that takes the same mutex (M20).
+    std::vector<ChainPtr> toDelete;
     {
-        m_pendingDeletes.erase(m_pendingDeletes.begin());
+        std::lock_guard<std::mutex> lock(m_pendingDeleteMutex);
+
+        while (m_pendingDeletes.size() > kMinPendingGenerations)
+        {
+            toDelete.push_back(std::move(m_pendingDeletes.front()));
+            m_pendingDeletes.erase(m_pendingDeletes.begin());
+        }
     }
+
+    // toDelete destructs here, outside the lock. Any node/VST3 dtors run without
+    // holding m_pendingDeleteMutex.
 }
 
 //==============================================================================
@@ -601,9 +614,14 @@ bool PluginChain::loadFromJson(const juce::var& json)
 //==============================================================================
 void PluginChain::notifyChainChanged()
 {
-    // Notify listeners on message thread
-    juce::MessageManager::callAsync([this]()
+    // Notify listeners on message thread. Capture a weak reference rather than
+    // a raw `this`: the chain (and its owning document) may be closed and
+    // destroyed before this queued callback runs, in which case `weak` is null
+    // and we no-op instead of calling sendChangeMessage() on freed memory (C16).
+    juce::WeakReference<PluginChain> weak(this);
+    juce::MessageManager::callAsync([weak]()
     {
-        sendChangeMessage();
+        if (auto* self = weak.get())
+            self->sendChangeMessage();
     });
 }

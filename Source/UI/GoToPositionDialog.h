@@ -111,6 +111,14 @@ public:
      */
     bool isPositionValid() const;
 
+    /**
+     * Test-only accessor: exposes parseInput so unit tests can exercise the
+     * validation logic without needing a live message thread / component tree.
+     *
+     * Do not call from production code — use validateInput() instead.
+     */
+    int64_t parseInputForTest(const juce::String& input) const { return parseInput(input); }
+
 private:
     //==============================================================================
     // Helper methods

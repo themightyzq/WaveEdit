@@ -155,6 +155,7 @@ private:
     private:
         void updateBypassButtonAppearance(bool isBypassed);
         void updateMoveButtonStates(int index, int totalCount);
+        void applyRowTheme();  ///< (Re-)applies theme colours to row controls.
         PluginChainPanel& m_owner;
         int m_index = -1;
         PluginChainNode* m_node = nullptr;

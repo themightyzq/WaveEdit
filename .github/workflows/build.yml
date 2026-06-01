@@ -27,6 +27,9 @@ jobs:
       - name: README ⇆ keymap drift check
         run: python3 .github/scripts/check_readme_keymap.py
 
+      - name: Rendered-string ASCII check (CLAUDE.md §6.12)
+        run: python3 scripts/check_rendered_ascii.py
+
   # ============================================================================
   # macOS Build
   # ============================================================================

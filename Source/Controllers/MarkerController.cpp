@@ -133,7 +133,11 @@ void MarkerController::jumpToNextMarker(Document* doc)
     if (!doc)
         return;
 
-    int64_t currentSample = doc->getAudioEngine().getCurrentPosition();
+    // C2: getCurrentPosition() returns SECONDS; marker positions are SAMPLES.
+    // Convert the playhead to samples for the search, then convert the chosen
+    // marker's sample position back to seconds for setPosition(seconds).
+    int64_t currentSample = doc->getBufferManager().timeToSample(
+        doc->getAudioEngine().getCurrentPosition());
     int nextIndex = doc->getMarkerManager().getNextMarkerIndex(currentSample);
 
     if (nextIndex < 0)
@@ -149,8 +153,9 @@ void MarkerController::jumpToNextMarker(Document* doc)
         return;
     }
 
-    // Set playback position to marker
-    doc->getAudioEngine().setPosition(marker->getPosition());
+    // Set playback position to marker (samples -> seconds)
+    doc->getAudioEngine().setPosition(
+        doc->getBufferManager().sampleToTime(marker->getPosition()));
 
     // Select the marker
     doc->getMarkerManager().setSelectedMarkerIndex(nextIndex);
@@ -167,7 +172,10 @@ void MarkerController::jumpToPreviousMarker(Document* doc)
     if (!doc)
         return;
 
-    int64_t currentSample = doc->getAudioEngine().getCurrentPosition();
+    // C2: convert playhead seconds -> samples for the search; convert the
+    // chosen marker's sample position -> seconds for setPosition(seconds).
+    int64_t currentSample = doc->getBufferManager().timeToSample(
+        doc->getAudioEngine().getCurrentPosition());
     int prevIndex = doc->getMarkerManager().getPreviousMarkerIndex(currentSample);
 
     if (prevIndex < 0)
@@ -183,8 +191,9 @@ void MarkerController::jumpToPreviousMarker(Document* doc)
         return;
     }
 
-    // Set playback position to marker
-    doc->getAudioEngine().setPosition(marker->getPosition());
+    // Set playback position to marker (samples -> seconds)
+    doc->getAudioEngine().setPosition(
+        doc->getBufferManager().sampleToTime(marker->getPosition()));
 
     // Select the marker
     doc->getMarkerManager().setSelectedMarkerIndex(prevIndex);
@@ -216,8 +225,9 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
             return;
         }
 
-        // Set playback position to marker
-        doc->getAudioEngine().setPosition(marker->getPosition());
+        // C2: marker position is SAMPLES; setPosition expects SECONDS.
+        doc->getAudioEngine().setPosition(
+            doc->getBufferManager().sampleToTime(marker->getPosition()));
 
         // Select the marker
         doc->getMarkerManager().setSelectedMarkerIndex(markerIndex);
@@ -232,7 +242,7 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
         doc->getMarkerDisplay().repaint();
     };
 
-    // onMarkerRenamed: Update marker name with undo support
+    // onMarkerRenamed: Update marker name with undo support (C4)
     markerDisplay.onMarkerRenamed = [doc](int markerIndex, const juce::String& newName)
     {
         if (!doc)
@@ -245,19 +255,26 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
             return;
         }
 
-        // Update marker name directly (no undo for rename in Phase 1)
-        marker->setName(newName);
+        if (marker->getName() == newName)
+            return;
 
-        // Save to sidecar JSON file
-        doc->getMarkerManager().saveToFile(doc->getFile());
+        // C4: route through UndoManager (was a direct, un-undoable mutation),
+        // matching the MarkerListPanel rename path.
+        const auto oldName = marker->getName();
+        doc->getUndoManager().beginNewTransaction("Rename marker");
+        doc->getUndoManager().perform(new RenameMarkerUndoAction(
+            doc->getMarkerManager(),
+            &doc->getMarkerDisplay(),
+            doc->getFile(),
+            markerIndex,
+            oldName,
+            newName));
 
-        // Repaint to show new name
-        doc->getMarkerDisplay().repaint();
-
+        doc->setModified(true);
         DBG("Renamed marker to: " + newName);
     };
 
-    // onMarkerColorChanged: Update marker color with undo support
+    // onMarkerColorChanged: Update marker color with undo support (C4)
     markerDisplay.onMarkerColorChanged = [doc](int markerIndex, const juce::Colour& newColor)
     {
         if (!doc)
@@ -270,15 +287,22 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
             return;
         }
 
-        // Update marker color directly (no undo for color change in Phase 1)
-        marker->setColor(newColor);
+        if (marker->getColor() == newColor)
+            return;
 
-        // Save to sidecar JSON file
-        doc->getMarkerManager().saveToFile(doc->getFile());
+        // C4: route through UndoManager (was a direct mutation), matching the
+        // MarkerListPanel color path.
+        const auto oldColor = marker->getColor();
+        doc->getUndoManager().beginNewTransaction("Change marker color");
+        doc->getUndoManager().perform(new ChangeMarkerColorUndoAction(
+            doc->getMarkerManager(),
+            &doc->getMarkerDisplay(),
+            doc->getFile(),
+            markerIndex,
+            oldColor,
+            newColor));
 
-        // Repaint to show new color
-        doc->getMarkerDisplay().repaint();
-
+        doc->setModified(true);
         DBG("Changed marker color");
     };
 
@@ -315,43 +339,41 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
         DBG("Deleted marker: " + markerName);
     };
 
-    // onMarkerMoved: Update marker position with undo support
+    // onMarkerMoved: Update marker position with undo support (C4)
     markerDisplay.onMarkerMoved = [doc](int markerIndex, int64_t oldPos, int64_t newPos)
     {
         if (!doc)
             return;
 
-        Marker* marker = doc->getMarkerManager().getMarker(markerIndex);
+        const Marker* marker = doc->getMarkerManager().getMarker(markerIndex);
         if (!marker)
         {
             DBG("Cannot move marker: Invalid marker index");
             return;
         }
 
-        // Update marker position directly (no undo for move in Phase 1)
-        marker->setPosition(newPos);
+        if (oldPos == newPos)
+            return;
 
-        // Re-sort markers (they must stay sorted by position)
-        // Remove and re-add to maintain sort order
-        Marker movedMarker = *marker;
-        doc->getMarkerManager().removeMarker(markerIndex);
-        int newIndex = doc->getMarkerManager().addMarker(movedMarker);
-
-        // Update selection to new index
-        doc->getMarkerManager().setSelectedMarkerIndex(newIndex);
-
-        // Save to sidecar JSON file
-        doc->getMarkerManager().saveToFile(doc->getFile());
-
-        // Repaint to show new position
-        doc->getMarkerDisplay().repaint();
-
-        DBG(juce::String::formatted(
-            "Moved marker '%s' from sample %lld to %lld",
-            movedMarker.getName().toRawUTF8(),
+        // C4: route the drag-move through UndoManager (was "no undo for move
+        // in Phase 1"). MoveMarkerUndoAction keys off the stable ID and
+        // re-sorts internally, then re-selects the moved marker.
+        const int64_t markerId = marker->getId();
+        doc->getUndoManager().beginNewTransaction("Move marker");
+        doc->getUndoManager().perform(new MoveMarkerUndoAction(
+            doc->getMarkerManager(),
+            &doc->getMarkerDisplay(),
+            doc->getFile(),
+            markerId,
             oldPos,
-            newPos
-        ));
+            newPos));
+
+        const int newIndex = doc->getMarkerManager().getIndexOfMarkerId(markerId);
+        if (newIndex >= 0)
+            doc->getMarkerManager().setSelectedMarkerIndex(newIndex);
+
+        doc->setModified(true);
+        DBG(juce::String::formatted("Moved marker from sample %lld to %lld", oldPos, newPos));
     };
 
     // onMarkerDoubleClicked: Show rename dialog
@@ -599,8 +621,9 @@ void MarkerController::handleMarkerListJumpToMarker(Document* doc, int markerInd
     const auto* marker = doc->getMarkerManager().getMarker(markerIndex);
     if (marker)
     {
-        // Set playback position to marker
-        doc->getAudioEngine().setPosition(marker->getPosition());
+        // C2: marker position is SAMPLES; setPosition expects SECONDS.
+        doc->getAudioEngine().setPosition(
+            doc->getBufferManager().sampleToTime(marker->getPosition()));
 
         // Select the marker
         doc->getMarkerManager().setSelectedMarkerIndex(markerIndex);
@@ -768,21 +791,32 @@ void MarkerController::importMarkers(Document* doc, juce::Component* /*parent*/)
 
             // Append imported markers to the existing list — non-destructive.
             // The user can clear first if they want to replace.
-            auto& mgr = docCapture->getMarkerManager();
-            int imported = 0;
+            // C4: collect into one undoable bulk-add instead of mutating the
+            // manager directly (which left the import un-undoable).
+            juce::Array<Marker> imported;
             for (const auto& mVar : *markersVar.getArray())
+                imported.add(Marker::fromJSON(mVar));
+
+            if (imported.isEmpty())
             {
-                Marker m = Marker::fromJSON(mVar);
-                mgr.addMarker(m);
-                ++imported;
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::InfoIcon,
+                    "Import Markers", "No markers found in file.", "OK");
+                return;
             }
-            mgr.saveToFile(docCapture->getFile());
-            docCapture->getMarkerDisplay().repaint();
+
+            docCapture->getUndoManager().beginNewTransaction("Import markers");
+            docCapture->getUndoManager().perform(new ImportMarkersUndoAction(
+                docCapture->getMarkerManager(),
+                &docCapture->getMarkerDisplay(),
+                docCapture->getFile(),
+                imported));
+
             docCapture->setModified(true);
 
             juce::AlertWindow::showMessageBoxAsync(
                 juce::MessageBoxIconType::InfoIcon,
                 "Import Markers",
-                "Imported " + juce::String(imported) + " marker(s).", "OK");
+                "Imported " + juce::String(imported.size()) + " marker(s).", "OK");
         });
 }

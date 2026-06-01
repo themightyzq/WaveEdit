@@ -33,7 +33,8 @@
  * This component follows Sound Forge Pro's transport control design.
  */
 class TransportControls : public juce::Component,
-                          public juce::Timer
+                          public juce::Timer,
+                          private juce::ChangeListener
 {
 public:
     /**
@@ -115,15 +116,30 @@ private:
     /**
      * Creates icon drawables for transport buttons.
      */
-    static std::unique_ptr<juce::Drawable> createPlayIcon();
-    static std::unique_ptr<juce::Drawable> createPauseIcon();
-    static std::unique_ptr<juce::Drawable> createStopIcon();
-    static std::unique_ptr<juce::Drawable> createLoopIcon();
+    static std::unique_ptr<juce::Drawable> createPlayIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createPauseIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createStopIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createLoopIcon(juce::Colour colour);
 
     /**
      * Updates button visual states based on current playback state.
      */
     void updateButtonStates();
+
+    /**
+     * Re-applies all theme-derived colours to icons and labels.
+     * Called on construction and whenever the active theme changes.
+     */
+    void applyThemeColours();
+
+    /**
+     * Recolors the loop icon to reflect the current toggle state
+     * (accent when ON, text when OFF) so the active state is visible.
+     */
+    void updateLoopButtonAppearance();
+
+    /** ChangeListener override (theme switches). */
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     /**
      * Updates the position display with current time and sample position.

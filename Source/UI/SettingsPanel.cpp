@@ -458,7 +458,6 @@ juce::Component* SettingsPanel::createDisplaySettingsTab()
 {
     // Theme picker (top)
     m_themeLabel.setText("Theme:", juce::dontSendNotification);
-    m_themeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
     m_themeCombo.onChange = [this]()
     {
@@ -472,7 +471,8 @@ juce::Component* SettingsPanel::createDisplaySettingsTab()
                              "command palette. High Contrast is tuned for accessibility.",
                              juce::dontSendNotification);
     m_themeNoteLabel.setFont(juce::FontOptions(11.0f).withStyle("Italic"));
-    m_themeNoteLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    m_themeNoteLabel.setColour(juce::Label::textColourId,
+                               waveedit::ThemeManager::getInstance().getCurrent().textMuted);
 
     auto refreshThemeCombo = [this]()
     {
@@ -540,13 +540,11 @@ juce::Component* SettingsPanel::createDisplaySettingsTab()
 
     // Waveform color
     m_waveformColorLabel.setText("Waveform Color:", juce::dontSendNotification);
-    m_waveformColorLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
     m_waveformColorSelector.setCurrentColour(juce::Colours::green, juce::dontSendNotification);
 
     // Selection color
     m_selectionColorLabel.setText("Selection Color:", juce::dontSendNotification);
-    m_selectionColorLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
     m_selectionColorSelector.setCurrentColour(juce::Colour(0x8800ff00), juce::dontSendNotification);
 
@@ -606,14 +604,12 @@ juce::Component* SettingsPanel::createAutoSaveSettingsTab()
 {
     // Auto-save enabled checkbox
     m_autoSaveLabel.setText("Enable Auto-Save:", juce::dontSendNotification);
-    m_autoSaveLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
     m_autoSaveEnabled.setButtonText("Auto-Save Enabled");
     m_autoSaveEnabled.setToggleState(true, juce::dontSendNotification);
 
     // Auto-save interval combo box
     m_autoSaveIntervalLabel.setText("Auto-Save Interval:", juce::dontSendNotification);
-    m_autoSaveIntervalLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
     m_autoSaveInterval.addItem("1 minute", 1);
     m_autoSaveInterval.addItem("5 minutes", 2);
@@ -685,7 +681,6 @@ juce::Component* SettingsPanel::createKeyboardShortcutsTab()
     {
         // Template selector label
         m_templateLabel.setText("Keyboard Template:", juce::dontSendNotification);
-        m_templateLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
         // Template selector combo box
         auto availableTemplates = m_keymapManager.getAvailableTemplates();
@@ -750,7 +745,8 @@ juce::Component* SettingsPanel::createKeyboardShortcutsTab()
         // Return a simple error message component
         auto* errorLabel = new juce::Label();
         errorLabel->setText("Error loading keyboard shortcuts tab: " + juce::String(e.what()), juce::dontSendNotification);
-        errorLabel->setColour(juce::Label::textColourId, juce::Colours::red);
+        errorLabel->setColour(juce::Label::textColourId,
+                              waveedit::ThemeManager::getInstance().getCurrent().error);
         errorLabel->setSize(650, 400);
         return errorLabel;
     }
@@ -761,7 +757,8 @@ juce::Component* SettingsPanel::createKeyboardShortcutsTab()
         // Return a simple error message component
         auto* errorLabel = new juce::Label();
         errorLabel->setText("Unknown error loading keyboard shortcuts tab", juce::dontSendNotification);
-        errorLabel->setColour(juce::Label::textColourId, juce::Colours::red);
+        errorLabel->setColour(juce::Label::textColourId,
+                              waveedit::ThemeManager::getInstance().getCurrent().error);
         errorLabel->setSize(650, 400);
         return errorLabel;
     }

@@ -281,7 +281,7 @@ void PluginScanSummaryDialog::paint(juce::Graphics& g)
     {
         g.setColour(juce::Colours::lightgreen);
         g.setFont(juce::FontOptions(32.0f));
-        g.drawText(juce::CharPointer_UTF8("\xe2\x9c\x93"), iconBounds, juce::Justification::centred); // ✓
+        g.drawText("OK", iconBounds, juce::Justification::centred);
     }
     else
     {
@@ -583,7 +583,7 @@ void PluginTimeoutDialog::paint(juce::Graphics& g)
     auto iconBounds = getLocalBounds().removeFromTop(50).reduced(10);
     g.setColour(juce::Colours::orange);
     g.setFont(juce::FontOptions(32.0f));
-    g.drawText(juce::CharPointer_UTF8("\xe2\x8f\xb1"), iconBounds, juce::Justification::centred); // hourglass
+    g.drawText("scan", iconBounds, juce::Justification::centred); // scan timeout indicator
 }
 
 void PluginTimeoutDialog::resized()

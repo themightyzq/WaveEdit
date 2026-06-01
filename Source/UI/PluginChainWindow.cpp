@@ -14,7 +14,6 @@
 */
 
 #include "PluginChainWindow.h"
-#include "UIConstants.h"
 #include "ThemeManager.h"
 
 #include "../Automation/AutomationManager.h"
@@ -30,8 +29,6 @@ PluginChainWindow::PluginRowComponent::PluginRowComponent(PluginChainWindow& own
     m_moveUpButton.setButtonText("^");
     m_moveUpButton.setTooltip("Move plugin up in chain");
     m_moveUpButton.setMouseClickGrabsKeyboardFocus(false);
-    m_moveUpButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff505050));
-    m_moveUpButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     m_moveUpButton.onClick = [this]()
     {
         if (m_index > 0 && m_owner.m_listener != nullptr)
@@ -45,8 +42,6 @@ PluginChainWindow::PluginRowComponent::PluginRowComponent(PluginChainWindow& own
     m_moveDownButton.setButtonText("v");
     m_moveDownButton.setTooltip("Move plugin down in chain");
     m_moveDownButton.setMouseClickGrabsKeyboardFocus(false);
-    m_moveDownButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff505050));
-    m_moveDownButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     m_moveDownButton.onClick = [this]()
     {
         // Simply check if button is enabled - updateMoveButtonStates() handles the logic
@@ -62,7 +57,6 @@ PluginChainWindow::PluginRowComponent::PluginRowComponent(PluginChainWindow& own
 
     m_bypassButton.setButtonText("Bypass");
     m_bypassButton.setTooltip("Bypass this plugin (disable effect processing)");
-    m_bypassButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff505050));
     m_bypassButton.onClick = [this]()
     {
         if (m_node != nullptr && m_index >= 0)
@@ -78,8 +72,6 @@ PluginChainWindow::PluginRowComponent::PluginRowComponent(PluginChainWindow& own
 
     m_editButton.setButtonText("Edit");
     m_editButton.setTooltip("Open plugin editor");
-    m_editButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff404040));
-    m_editButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff505050));
     m_editButton.onClick = [this]()
     {
         if (m_index >= 0 && m_owner.m_listener != nullptr)
@@ -89,8 +81,6 @@ PluginChainWindow::PluginRowComponent::PluginRowComponent(PluginChainWindow& own
 
     m_removeButton.setButtonText("X");
     m_removeButton.setTooltip("Remove plugin from chain");
-    m_removeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff404040));
-    m_removeButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff605050));
     m_removeButton.onClick = [this]()
     {
         if (m_index >= 0 && m_owner.m_listener != nullptr)
@@ -99,20 +89,24 @@ PluginChainWindow::PluginRowComponent::PluginRowComponent(PluginChainWindow& own
     addAndMakeVisible(m_removeButton);
 
     m_nameLabel.setFont(juce::FontOptions(14.0f));
-    m_nameLabel.setColour(juce::Label::textColourId, juce::Colour(0xffe0e0e0));
     m_nameLabel.setInterceptsMouseClicks(false, false);  // Allow drag-through
     addAndMakeVisible(m_nameLabel);
 
     m_latencyLabel.setFont(juce::FontOptions(11.0f));
-    m_latencyLabel.setColour(juce::Label::textColourId, juce::Colour(0xff909090));
     m_latencyLabel.setInterceptsMouseClicks(false, false);  // Allow drag-through
     addAndMakeVisible(m_latencyLabel);
+
+    // Apply theme colours to row controls (re-applied via applyRowTheme()
+    // from update() so a theme switch re-skins existing rows).
+    applyRowTheme();
 }
 
 void PluginChainWindow::PluginRowComponent::update(int index, PluginChainNode* node, int totalCount)
 {
     m_index = index;
     m_node = node;
+
+    applyRowTheme();
 
     if (node != nullptr)
     {
@@ -144,25 +138,48 @@ void PluginChainWindow::PluginRowComponent::updateMoveButtonStates(int index, in
 
 void PluginChainWindow::PluginRowComponent::updateBypassButtonAppearance(bool isBypassed)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     if (isBypassed)
     {
-        // Bypassed state: orange background (consistent with PluginChainPanel)
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffcc8800));
-        m_bypassButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffdd9900));
+        // Bypassed state: warning surface (consistent with PluginChainPanel)
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
+        m_bypassButton.setColour(juce::TextButton::buttonOnColourId, theme.warning.brighter(0.1f));
         m_bypassButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     }
     else
     {
         // Active state: normal button appearance
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff404040));
-        m_bypassButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff505050));
-        m_bypassButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe0e0e0));
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.panel);
+        m_bypassButton.setColour(juce::TextButton::buttonOnColourId, theme.panelAlternate);
+        m_bypassButton.setColour(juce::TextButton::textColourOffId, theme.text);
     }
+}
+
+void PluginChainWindow::PluginRowComponent::applyRowTheme()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    m_moveUpButton.setColour(juce::TextButton::buttonColourId, theme.panelAlternate);
+    m_moveUpButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_moveDownButton.setColour(juce::TextButton::buttonColourId, theme.panelAlternate);
+    m_moveDownButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+
+    m_editButton.setColour(juce::TextButton::buttonColourId, theme.panel);
+    m_editButton.setColour(juce::TextButton::buttonOnColourId, theme.panelAlternate);
+    m_removeButton.setColour(juce::TextButton::buttonColourId, theme.panel);
+    m_removeButton.setColour(juce::TextButton::buttonOnColourId, theme.panelAlternate);
+
+    m_nameLabel.setColour(juce::Label::textColourId, theme.text);
+    m_latencyLabel.setColour(juce::Label::textColourId, theme.textMuted);
+
+    // Re-skin the bypass button to match its current bypass state.
+    updateBypassButtonAppearance(m_node != nullptr && m_node->isBypassed());
 }
 
 void PluginChainWindow::PluginRowComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().panel);
 }
 
 void PluginChainWindow::PluginRowComponent::resized()
@@ -322,13 +339,11 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain, AutomationManager* auto
     m_emptyChainLabel.setText("No plugins in chain.\nDouble-click a plugin in the browser\nto add it to the chain.",
                                juce::dontSendNotification);
     m_emptyChainLabel.setJustificationType(juce::Justification::centred);
-    m_emptyChainLabel.setColour(juce::Label::textColourId, juce::Colour(0xff909090));
     addAndMakeVisible(m_emptyChainLabel);
 
     // Latency display
     m_latencyLabel.setText("Total Latency: 0 samples", juce::dontSendNotification);
     m_latencyLabel.setFont(juce::FontOptions(12.0f));
-    m_latencyLabel.setColour(juce::Label::textColourId, juce::Colour(0xff909090));
     addAndMakeVisible(m_latencyLabel);
 
     // Bypass all toggle
@@ -341,7 +356,6 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain, AutomationManager* auto
     m_presetsButton.setButtonText("Presets...");
     m_presetsButton.setTooltip("Save / load / manage plugin chain presets (includes automation lanes)");
     m_presetsButton.onClick = [this]() { onPresetsButtonClicked(); };
-    m_presetsButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff404040));
     addAndMakeVisible(m_presetsButton);
 
     m_applyToSelectionButton.setButtonText("Apply to Selection (Cmd+P)");
@@ -351,7 +365,6 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain, AutomationManager* auto
 
     // Render Options group
     m_renderOptionsGroup.setText("Render Options");
-    m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, juce::Colour(waveedit::ui::kBorderVisible));
     addAndMakeVisible(m_renderOptionsGroup);
 
     m_convertToStereoCheckbox.setButtonText("Convert to Stereo");
@@ -433,15 +446,12 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain, AutomationManager* auto
     m_emptySearchLabel.setText("No plugins match your search.\nTry adjusting your filters.",
                                 juce::dontSendNotification);
     m_emptySearchLabel.setJustificationType(juce::Justification::centred);
-    m_emptySearchLabel.setColour(juce::Label::textColourId, juce::Colour(0xff909090));
     m_emptySearchLabel.setVisible(false);
     addAndMakeVisible(m_emptySearchLabel);
 
     // Rescan button
     m_rescanButton.setButtonText("Rescan Plugins");
     m_rescanButton.setTooltip("Scan for new or updated plugins");
-    m_rescanButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff404040));
-    m_rescanButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff505050));
     m_rescanButton.onClick = [this]() { onRescanClicked(); };
     addAndMakeVisible(m_rescanButton);
 
@@ -619,7 +629,7 @@ juce::DocumentWindow* PluginChainWindow::showInWindow(juce::ApplicationCommandMa
 
     auto* window = new PluginChainDocumentWindow(
         "Plugin Chain",
-        juce::Colour(0xff1e1e1e),
+        waveedit::ThemeManager::getInstance().getCurrent().background,
         juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton,
         commandManager);
 
@@ -661,7 +671,7 @@ juce::Colour PluginChainWindow::alternateRowColour() const
 
 juce::Colour PluginChainWindow::selectedRowColour() const
 {
-    return waveedit::ThemeManager::getInstance().getCurrent().border;
+    return waveedit::ThemeManager::getInstance().getCurrent().selection;
 }
 
 juce::Colour PluginChainWindow::textColour() const
@@ -683,16 +693,30 @@ void PluginChainWindow::applyThemeColours()
 {
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
 
+    m_chainTitleLabel.setColour(juce::Label::textColourId, theme.text);
+    m_browserTitleLabel.setColour(juce::Label::textColourId, theme.text);
+    m_emptyChainLabel.setColour(juce::Label::textColourId, theme.textMuted);
+    m_emptySearchLabel.setColour(juce::Label::textColourId, theme.textMuted);
+    m_latencyLabel.setColour(juce::Label::textColourId, theme.textMuted);
+
     m_chainListBox.setColour(juce::ListBox::backgroundColourId, theme.background);
     m_bypassAllButton.setColour(juce::ToggleButton::tickColourId, theme.accent);
     m_applyToSelectionButton.setColour(juce::TextButton::buttonColourId, theme.accent);
     m_applyToSelectionButton.setColour(juce::TextButton::buttonOnColourId,
                                         theme.accent.brighter(0.2f));
+    m_presetsButton.setColour(juce::TextButton::buttonColourId, theme.panel);
+    m_rescanButton.setColour(juce::TextButton::buttonColourId, theme.panel);
+    m_rescanButton.setColour(juce::TextButton::buttonOnColourId, theme.panelAlternate);
+    m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, theme.border);
     m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, theme.text);
     m_browserTable.setColour(juce::ListBox::backgroundColourId, theme.background);
     m_scanProgressBar.setColour(juce::ProgressBar::backgroundColourId,
                                  theme.background.brighter(0.1f));
     m_scanProgressBar.setColour(juce::ProgressBar::foregroundColourId, theme.accent);
+
+    // Re-skin existing chain rows: updateContent() re-runs
+    // refreshComponentForRow() -> PluginRowComponent::update() -> applyRowTheme().
+    m_chainListBox.updateContent();
 }
 
 void PluginChainWindow::resized()

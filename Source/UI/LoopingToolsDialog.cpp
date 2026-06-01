@@ -15,6 +15,9 @@
 
 #include "LoopingToolsDialog.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+
+namespace ui = waveedit::ui;
 
 //==============================================================================
 // WaveformPreview implementation
@@ -58,7 +61,9 @@ void LoopingToolsDialog::WaveformPreview::paint(juce::Graphics& g)
                            * (float)m_crossfadeLen
                            / (float)m_buffer->getNumSamples();
 
-        g.setColour(juce::Colour(0xff4488ff).withAlpha(0.15f));
+        // L5: Use theme accent token instead of hardcoded 0xff4488ff.
+        const auto& xfTheme = waveedit::ThemeManager::getInstance().getCurrent();
+        g.setColour(xfTheme.accent.withAlpha(0.15f));
         g.fillRect((float)bounds.getX(), (float)bounds.getY(),
                    xfadeWidth, (float)bounds.getHeight());
     }
@@ -72,7 +77,8 @@ void LoopingToolsDialog::WaveformPreview::paint(juce::Graphics& g)
                            * (float)m_crossfadeLen
                            / (float)m_buffer->getNumSamples();
 
-        g.setColour(juce::Colour(0xff4488ff).withAlpha(0.6f));
+        const auto& xfTheme2 = waveedit::ThemeManager::getInstance().getCurrent();
+        g.setColour(xfTheme2.accent.withAlpha(0.6f));
         float lineX = (float)bounds.getX() + xfadeWidth;
         g.drawLine(lineX, (float)bounds.getY(),
                    lineX, (float)bounds.getBottom(), 1.0f);
@@ -307,7 +313,7 @@ LoopingToolsDialog::LoopingToolsDialog(const juce::AudioBuffer<float>& buffer,
     };
     addAndMakeVisible(m_shepardRampCombo);
 
-    m_shepardConstraintLabel.setFont(juce::FontOptions(11.0f));
+    m_shepardConstraintLabel.setFont(ui::smallFont());
     m_shepardConstraintLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(m_shepardConstraintLabel);
 
@@ -369,7 +375,7 @@ LoopingToolsDialog::LoopingToolsDialog(const juce::AudioBuffer<float>& buffer,
     addAndMakeVisible(m_filePreviewHeaderLabel);
 
     m_filePreviewLabel.setJustificationType(juce::Justification::centredLeft);
-    m_filePreviewLabel.setFont(juce::FontOptions(11.0f));
+    m_filePreviewLabel.setFont(ui::smallFont());
     addAndMakeVisible(m_filePreviewLabel);
 
     //--------------------------------------------------------------------------
@@ -379,14 +385,14 @@ LoopingToolsDialog::LoopingToolsDialog(const juce::AudioBuffer<float>& buffer,
     addAndMakeVisible(m_waveformPreview.get());
 
     m_diagnosticsLabel.setJustificationType(juce::Justification::topLeft);
-    m_diagnosticsLabel.setFont(juce::FontOptions(11.0f));
+    m_diagnosticsLabel.setFont(ui::smallFont());
     m_diagnosticsLabel.setText("(no preview yet)", juce::dontSendNotification);
     addAndMakeVisible(m_diagnosticsLabel);
 
     //--------------------------------------------------------------------------
     // Buttons
 
-    m_previewPlaybackButton.setButtonText("\xe2\x96\xb6 Preview");
+    m_previewPlaybackButton.setButtonText("Preview");
     m_previewPlaybackButton.onClick = [this]() { togglePreviewPlayback(); };
     addAndMakeVisible(m_previewPlaybackButton);
 
@@ -423,6 +429,15 @@ LoopingToolsDialog::LoopingToolsDialog(const juce::AudioBuffer<float>& buffer,
     updateFilePreview();
 
     setSize(760, 800);
+
+    // Keyboard-first: grab focus on the primary control after construction
+    setWantsKeyboardFocus(true);
+    juce::Component::SafePointer<juce::Slider> safeSlider(&m_loopCountSlider);
+    juce::MessageManager::callAsync([safeSlider]()
+    {
+        if (safeSlider != nullptr)
+            safeSlider->grabKeyboardFocus();
+    });
 }
 
 LoopingToolsDialog::~LoopingToolsDialog()
@@ -431,6 +446,21 @@ LoopingToolsDialog::~LoopingToolsDialog()
 
     if (m_isPreviewPlaying && onPreviewStopped)
         onPreviewStopped();
+}
+
+bool LoopingToolsDialog::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        m_exportButton.triggerClick();
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        m_cancelButton.triggerClick();
+        return true;
+    }
+    return false;
 }
 
 //==============================================================================
@@ -444,7 +474,7 @@ void LoopingToolsDialog::paint(juce::Graphics& g)
 
     // Title
     g.setColour(theme.text);
-    g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+    g.setFont(ui::sectionHeaderFont());
     g.drawText("Looping Tools", getLocalBounds().removeFromTop(36),
                juce::Justification::centred, true);
 
@@ -497,7 +527,7 @@ void LoopingToolsDialog::paint(juce::Graphics& g)
                             (float)sectionW, (float)kSectionBandH, 3.0f);
 
     g.setColour(theme.textMuted);
-    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.setFont(ui::smallFont().boldened());
     g.drawText("LOOP SETTINGS",
                juce::Rectangle<int>(kMargin + 4, sec1Y, 200, kSectionBandH),
                juce::Justification::centredLeft, true);
@@ -670,20 +700,25 @@ void LoopingToolsDialog::resized()
     m_diagnosticsLabel.setBounds(area.removeFromTop(60));
 
     //--------------------------------------------------------------------------
-    // Button row — four centred buttons
+    // Button row — right-aligned convention:
+    // Left: Preview (playback) + Preview (waveform) | Right: Cancel, Export
+    // (Export rightmost, primary action)
 
     area.removeFromTop(kGap);
-    auto buttonRow = area.removeFromTop(32);
+    auto buttonRow = area.removeFromTop(ui::kButtonHeight);
 
-    const int kBtnW   = 100;
-    const int kBtnGap = 10;
-    const int totalBW = kBtnW * 4 + kBtnGap * 3;
-    const int startX  = buttonRow.getX() + (buttonRow.getWidth() - totalBW) / 2;
+    const int kBtnW   = ui::kButtonWidth;
+    const int kBtnGap = ui::kButtonGap;
 
-    m_previewPlaybackButton.setBounds(startX,                          buttonRow.getY(), kBtnW, 32);
-    m_previewButton.setBounds        (startX + (kBtnW + kBtnGap),     buttonRow.getY(), kBtnW, 32);
-    m_exportButton.setBounds         (startX + (kBtnW + kBtnGap) * 2, buttonRow.getY(), kBtnW, 32);
-    m_cancelButton.setBounds         (startX + (kBtnW + kBtnGap) * 3, buttonRow.getY(), kBtnW, 32);
+    // Left side: real-time preview playback, then waveform preview
+    m_previewPlaybackButton.setBounds(buttonRow.removeFromLeft(kBtnW));
+    buttonRow.removeFromLeft(kBtnGap);
+    m_previewButton.setBounds(buttonRow.removeFromLeft(kBtnW));
+
+    // Right side: Export (rightmost) then Cancel
+    m_exportButton.setBounds(buttonRow.removeFromRight(kBtnW));
+    buttonRow.removeFromRight(kBtnGap);
+    m_cancelButton.setBounds(buttonRow.removeFromRight(kBtnW));
 }
 
 //==============================================================================
@@ -794,7 +829,7 @@ void LoopingToolsDialog::updatePreview()
         // Discontinuity with color-coded quality rating
         diag += "Discontinuity: "
               + juce::String(result.discontinuityBefore, 4)
-              + " \xe2\x86\x92 "
+              + " -> "
               + juce::String(result.discontinuityAfter, 4);
 
         if (result.discontinuityBefore > 0.0001f)
@@ -855,7 +890,7 @@ void LoopingToolsDialog::togglePreviewPlayback()
         // Stop playback
         stopTimer();
         m_isPreviewPlaying = false;
-        m_previewPlaybackButton.setButtonText("\xe2\x96\xb6 Preview");
+        m_previewPlaybackButton.setButtonText("Preview");
         m_previewPlaybackButton.setColour(juce::TextButton::buttonColourId,
             getLookAndFeel().findColour(juce::TextButton::buttonColourId));
 
@@ -871,9 +906,9 @@ void LoopingToolsDialog::togglePreviewPlayback()
             return;
 
         m_isPreviewPlaying = true;
-        m_previewPlaybackButton.setButtonText("\xe2\x96\xa0 Stop Preview");
+        m_previewPlaybackButton.setButtonText("Stop Preview");
         m_previewPlaybackButton.setColour(juce::TextButton::buttonColourId,
-            juce::Colour(0xff882222));
+            ui::colour(ui::kButtonPreviewActive));
 
         if (onPreviewRequested)
             onPreviewRequested(m_previewResult.loopBuffer, m_sampleRate);

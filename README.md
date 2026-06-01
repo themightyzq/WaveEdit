@@ -87,7 +87,9 @@ open ./build/WaveEdit_artefacts/Release/WaveEdit.app
 
 ### Basic Usage
 
-1. **Open**: Drag & drop WAV file or press `Cmd+O`
+1. **Open**: Drag & drop a file, press `Cmd+O`, or double-click a
+   WAV/FLAC/OGG/MP3 in your file manager ("Open With → WaveEdit", or set
+   WaveEdit as the default handler). Files open as tabs in one window.
 2. **Select**: Click and drag on waveform
 3. **Edit**: `Delete`, `Cmd+X` (cut), `Cmd+C` (copy), `Cmd+V` (paste)
 4. **Play**: Press `Space`
@@ -518,7 +520,7 @@ editor.
 ### Help
 | Action | Shortcut |
 |--------|----------|
-| Keyboard Shortcuts Reference | `Cmd+/` |
+| Keyboard Shortcuts | `Cmd+/` |
 | Command Palette | `Cmd+Shift+A` |
 
 > **Note**: `Cmd` key on macOS = `Ctrl` key on Windows/Linux.

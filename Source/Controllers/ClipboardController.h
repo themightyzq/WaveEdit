@@ -16,6 +16,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_audio_basics/juce_audio_basics.h>
 
 class Document;
 class DocumentManager;
@@ -75,6 +76,27 @@ public:
      * When all channels are focused (normal mode), performs a full delete.
      */
     void deleteSelection(Document* doc);
+
+    /**
+     * Conform a clipboard buffer to a target channel count so it can be pasted
+     * into a document with a different channel layout (C12 / H5).
+     *
+     * Rules:
+     *  - Equal channel counts: returned unchanged.
+     *  - Mono source -> N channels: the mono channel is duplicated to all N.
+     *  - N-channel source -> mono: all source channels are averaged (downmix).
+     *  - Any other mismatch (e.g. stereo -> 4ch, 4ch -> stereo): no deterministic
+     *    mapping, returns false so the caller can abort with a user-facing error.
+     *
+     * @param source           the clipboard audio
+     * @param targetChannels   the document's channel count
+     * @param out              receives the conformed buffer on success
+     * @return true if a deterministic conversion was produced (or none needed),
+     *         false if the mismatch cannot be safely reconciled.
+     */
+    static bool conformChannels(const juce::AudioBuffer<float>& source,
+                                int targetChannels,
+                                juce::AudioBuffer<float>& out);
 
 private:
     DocumentManager& m_documentManager;

@@ -39,11 +39,24 @@ class AudioEngine;
  * - Color coding: Green (safe) → Yellow (approaching limit) → Red (clipping)
  */
 class Meters : public juce::Component,
-               public juce::Timer
+               public juce::Timer,
+               private juce::ChangeListener
 {
 public:
     Meters();
     ~Meters() override;
+
+    //==============================================================================
+    // Channel Configuration
+
+    /**
+     * Sets how many channels the meter should display (1..MAX_CHANNELS).
+     * Bars are labeled generically: mono = "M", stereo = "L"/"R",
+     * 3+ channels = "L"/"R"/"C"/"4"/"5"... The default is stereo.
+     *
+     * @param numChannels Active channel count (clamped to [1, MAX_CHANNELS])
+     */
+    void setNumChannels(int numChannels);
 
     //==============================================================================
     // Level Setting (called from audio thread via atomic operations)
@@ -89,7 +102,7 @@ private:
     //==============================================================================
     // Meter State (thread-safe atomic values)
 
-    static constexpr int MAX_CHANNELS = 2;  // Stereo support for MVP
+    static constexpr int MAX_CHANNELS = 8;  // Support mono through 8-channel
 
     std::atomic<float> m_peakLevels[MAX_CHANNELS];      // Current peak levels [0.0, 1.0+]
     std::atomic<float> m_rmsLevels[MAX_CHANNELS];       // Current RMS levels [0.0, 1.0+]
@@ -102,15 +115,20 @@ private:
     int m_peakHoldTime[MAX_CHANNELS];                   // Peak hold timer (in timer callbacks)
     int m_clippingTime[MAX_CHANNELS];                   // Clipping indicator hold timer
 
+    int m_numChannels;                                  // Active channel count to display
+
     // Audio source (not owned)
     AudioEngine* m_audioEngine;
 
     //==============================================================================
     // Visual Constants
 
-    static constexpr float CLIPPING_THRESHOLD = 1.0f;   // Level at which clipping is detected
-    static constexpr float WARNING_THRESHOLD = 0.8f;    // Level at which meter turns yellow
-    static constexpr float SAFE_THRESHOLD = 0.6f;       // Level at which meter is green
+    static constexpr float CLIPPING_THRESHOLD = 1.0f;   // Linear level at which clipping is detected
+
+    // Colour-zone thresholds expressed in dBFS so the zones map to how
+    // engineers read meters (perceptually linear), instead of raw amplitude.
+    static constexpr float WARNING_THRESHOLD_DB = -6.0f;  // Yellow/red boundary
+    static constexpr float SAFE_THRESHOLD_DB    = -18.0f; // Green/yellow boundary
 
     static constexpr float PEAK_DECAY_RATE = 0.95f;     // Ballistic decay rate for peak smoothing
     static constexpr float RMS_SMOOTHING = 0.85f;       // Smoothing factor for RMS display
@@ -157,6 +175,19 @@ private:
      * @param bounds Area for scale markings
      */
     void drawScale(juce::Graphics& g, juce::Rectangle<float> bounds);
+
+    /**
+     * @return A display label for a meter bar based on channel index and
+     *         the active channel count (mono "M"; stereo L/R; 3+ uses
+     *         L/R/C then numeric).
+     */
+    juce::String channelLabel(int channel) const;
+
+    /** @return true when no audio engine is attached (metering inactive). */
+    bool isMeteringActive() const { return m_audioEngine != nullptr; }
+
+    /** ChangeListener override (theme switches). */
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Meters)
 };

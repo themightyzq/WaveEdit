@@ -15,6 +15,9 @@
 
 #include "NewFileDialog.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+
+namespace ui = waveedit::ui;
 
 NewFileDialog::NewFileDialog()
     : m_titleLabel("titleLabel", "New Audio File"),
@@ -29,7 +32,7 @@ NewFileDialog::NewFileDialog()
       m_cancelButton("Cancel")
 {
     // Title label
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
+    m_titleLabel.setFont(ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -100,6 +103,9 @@ NewFileDialog::NewFileDialog()
     // Initial calculation
     updateSamplesFromDuration();
 
+    // Allow component-level Enter/Escape handling (REVIEW-DESIGN H8).
+    setWantsKeyboardFocus(true);
+
     setSize(400, 340);
 }
 
@@ -132,7 +138,7 @@ void NewFileDialog::paint(juce::Graphics& g)
 
 void NewFileDialog::resized()
 {
-    auto bounds = getLocalBounds().reduced(20);
+    auto bounds = getLocalBounds().reduced(ui::kDialogPadding);
 
     // Title
     m_titleLabel.setBounds(bounds.removeFromTop(30));
@@ -189,6 +195,23 @@ void NewFileDialog::resized()
     m_cancelButton.setBounds(row.removeFromLeft(buttonWidth));
 }
 
+bool NewFileDialog::keyPressed(const juce::KeyPress& key)
+{
+    // Component-level Enter/Escape so they work from any focused control, not
+    // just the duration field (REVIEW-DESIGN H8).
+    if (key == juce::KeyPress::returnKey)
+    {
+        onCreateClicked();
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        onCancelClicked();
+        return true;
+    }
+    return false;
+}
+
 void NewFileDialog::onCreateClicked()
 {
     // Get sample rate from combo selection
@@ -235,6 +258,33 @@ void NewFileDialog::onCreateClicked()
             "Duration Too Long",
             "Duration cannot exceed 10 hours.");
         return;
+    }
+
+    // L3: Warn and refuse if the allocation would exhaust available memory.
+    // Estimate: channels * rate * duration * 4 bytes (float32).
+    // Limit to 50% of reported physical RAM to leave headroom for the OS and
+    // for the fact that reported RAM may be larger than addressable on 32-bit.
+    {
+        const double estimatedMB = static_cast<double>(numChannels)
+                                 * sampleRate
+                                 * durationSeconds
+                                 * 4.0            // bytes per float sample
+                                 / (1024.0 * 1024.0);
+        const int availableMB = juce::SystemStats::getMemorySizeInMegabytes();
+        const double limitMB  = availableMB * 0.5;
+
+        if (estimatedMB > limitMB)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Allocation Too Large",
+                "The requested file would require approximately "
+                    + juce::String(static_cast<int>(estimatedMB)) + " MB of memory, "
+                    "which exceeds 50% of available system RAM ("
+                    + juce::String(availableMB) + " MB). "
+                    "Please reduce the duration or channel count.");
+            return;
+        }
     }
 
     m_result = NewFileSettings{sampleRate, numChannels, durationSeconds, bitDepth};

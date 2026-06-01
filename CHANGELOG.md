@@ -8,7 +8,112 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Open files from Finder.** Double-click a WAV/FLAC/OGG/MP3, use
+  "Open With → WaveEdit", or drop a file on the app icon — WaveEdit now
+  registers as a handler for those types and opens the file. (Previously
+  only Cmd+O or drag-onto-window worked; launching with a file did nothing.)
+- **"Open File..." button** in the empty state, so a fresh window has an
+  obvious way in instead of just a text hint.
+- **Live recording indicator** on the toolbar transport — the REC badge
+  now reflects when audio is actually being captured, not just when the
+  Recording dialog is open.
+- **Empty-state messages** in the Region and Marker panels (e.g. "No
+  regions yet — select a range and press R to create one", and a distinct
+  "no matches" message when a search filters everything out).
+- **Keyboard operation for dialogs** — Enter confirms / Esc cancels, with
+  initial focus on the primary field, across the processing and metadata
+  dialogs.
+
+### Fixed
+- **QA hardening pass (data-integrity, crash, and correctness fixes).** A
+  full adversarial QA sweep found and fixed a large batch of latent defects;
+  the most user-visible:
+  - **Trim to Selection** kept the wrong range (it preserved audio past the
+    selection end, and silently did nothing for some selections). Trim now
+    keeps exactly the selected range.
+  - **Jump to Next/Previous Marker** sent the playhead to a nonsensical
+    position (a units bug); it now seeks to the marker correctly. The Loop
+    Region selection highlight had the same units bug and is fixed.
+  - **Save As with a sample-rate change** corrupted audio after the first
+    few thousand samples; resampling now produces correct audio for the
+    whole file.
+  - **Saving no longer risks your file.** WAV saves are now atomic (written
+    to a temp file then swapped in), so a crash or full disk mid-save can no
+    longer truncate or destroy the original. Region sidecars save the same way.
+  - **BWF (bext) metadata is no longer destroyed** when a file also has iXML
+    metadata; both now survive a save/reload round-trip. iXML fields with
+    `&`, `<`, or `>` no longer silently wipe all iXML on reload.
+  - **Pasting audio between files** with different channel counts no longer
+    silently fails or leaves a phantom undo step -- it converts the clipboard
+    to match, or tells you why it can't.
+  - **Region/marker edits undo correctly** even after you've added or deleted
+    other regions/markers in between (undo previously could modify the wrong
+    item). Pasting regions, importing markers, and dragging/renaming markers
+    in the waveform are now undoable.
+  - **Batch/region export** no longer silently overwrites files whose names
+    collide, and avoids names that are invalid on Windows.
+  - **Recovered auto-saves** for same-named files in different folders no
+    longer get mixed up; recovery validates the file before discarding the
+    backup; and older auto-saves are still recoverable.
+  - **Dialogs reject bad input** (NaN/Infinity/garbage) instead of writing
+    corrupt samples or jumping to an invalid position; the Apply Gain and
+    Normalize dialogs no longer push invalid values into the audio.
+  - **Crash fixes** around closing the EQ/Spectrum window during playback,
+    closing a document mid-recording, and closing plugin/batch windows while
+    work is in flight.
+  - **EQ now processes all channels** of multichannel (3-8 ch) files instead
+    of only the first two.
+  - **Several keyboard shortcuts** (Tools/Process menus, Looping Tools, etc.)
+    that were defined but never actually bound now work; a stale binding and
+    a few documentation mismatches were corrected.
+  - **File Properties / Graphical EQ** text is now readable on the Light and
+    High-Contrast themes (it was hardcoded for Dark).
+  - Removed stray debug output that printed on every paste.
+- **Duplicate menu bar on macOS removed.** The app showed the menus both in
+  the native top-of-screen bar and again inside the window; the in-window
+  copy is gone on macOS, reclaiming a row.
+- **macOS menu conventions.** Preferences now lives in the application menu
+  as the native "Settings…" item (no longer under File); the Windows-style
+  "Exit" item is gone from File on macOS; "Head & Tail..." no longer shows a
+  stray double ampersand.
+- **About box version.** It read "Version 1.0"; it now shows the real
+  application version (0.1.0), pulled dynamically so it can't drift.
+- **Light and High Contrast themes now apply to the entire UI.** Previously
+  only the waveform area re-skinned; dialogs, panels, toolbar, transport,
+  plugin windows, and the command palette stayed dark (and Settings labels
+  were invisible on Light — the panel you switch themes from). All chrome
+  now follows the active theme and updates live on switch.
+- **Unreadable symbols replaced with legible text.** File-tab names, status
+  icons, validation marks, menu items ("Regions -> Markers"), Looping Tools
+  and Progress dialogs, and panel empty-states used Unicode glyphs that
+  showed as empty boxes in some fonts / remote sessions. All rendered text is
+  now ASCII, and a CI check (`scripts/check_rendered_ascii.py`) keeps it that
+  way — it catches both raw bytes and the `\xNN` escape form that slipped
+  past earlier passes.
+- **Graphical EQ**: control points are now grabbed exactly where they are
+  drawn (previously offset ~20px vertically).
+- **Recording dialog** no longer stacks dozens of modal warnings when the
+  capture buffer fills; it warns once, stops, and disables the control.
+- **File Properties** section headers ("File Information", "Audio
+  Information", …) now render instead of leaving blank gaps.
+- **Error/warning text contrast** raised to meet WCAG AA (status text now
+  uses the theme's tuned error/warning colours instead of pure red).
+
 ### Changed
+- **WaveEdit is now single-instance.** Because it's tab-based, opening more
+  files (from Finder or a second launch) routes them into the running window
+  as new tabs instead of spawning separate app instances.
+- **Tabs compress to fit** the available width before falling back to
+  horizontal scrolling, and icon-only toolbar/transport buttons now expose
+  accessible names for screen readers.
+- **UI/UX polish pass.** Dialog fonts and padding unified to the shared
+  UIConstants tokens; consistent footer button order (Cancel left of the
+  primary action); transport time readouts use a monospaced font (no digit
+  jitter); level meters are now dB-scaled with mono and idle/no-signal
+  states; the keyboard cheat sheet is generated from the command manager
+  (so it can no longer drift out of date); non-functional recording
+  device/sample-rate combos are disabled rather than silently ignored.
 - **WaveformDisplay split for §7.5 file-size cap.** `UI/
   WaveformDisplay.cpp` (2,799 lines → 1,300 over the 1,500 cap) is
   now 1,277 lines plus two new sibling files:

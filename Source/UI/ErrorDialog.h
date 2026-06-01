@@ -84,6 +84,13 @@ private:
     static juce::MessageBoxIconType getIconType(Severity severity);
 
     /**
+     * Prefixes the dialog heading with "Error: " / "Warning: " so errors and
+     * warnings are visually distinct even though JUCE's stock alert offers no
+     * dedicated error glyph. Info titles are returned unchanged.
+     */
+    static juce::String decorateTitle(const juce::String& title, Severity severity);
+
+    /**
      * Formats technical details for display
      */
     static juce::String formatTechnicalDetails(const juce::String& details);

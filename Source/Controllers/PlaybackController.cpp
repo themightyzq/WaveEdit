@@ -106,8 +106,10 @@ void PlaybackController::loopRegion(Document* doc)
     const double startTime  = region->getStartSample() / sampleRate;
     const double endTime    = region->getEndSample()   / sampleRate;
 
-    doc->getWaveformDisplay().setSelection(region->getStartSample(),
-                                           region->getEndSample());
+    // H2: setSelection takes seconds, not raw samples. Use the same divided
+    // times we pass to setLoopPoints below so the highlighted selection matches
+    // the actual loop range instead of spanning the whole file.
+    doc->getWaveformDisplay().setSelection(startTime, endTime);
     engine.setLoopPoints(startTime, endTime);
     engine.setLooping(true);
     engine.setPosition(startTime);

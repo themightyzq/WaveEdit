@@ -18,7 +18,8 @@
  * Modal dialog that collects all save parameters before showing the file chooser.
  * Provides format selection, quality settings, and sample rate conversion options.
  */
-class SaveAsOptionsPanel : public juce::Component
+class SaveAsOptionsPanel : public juce::Component,
+                           public juce::ChangeListener
 {
 public:
     /**
@@ -51,6 +52,9 @@ public:
      */
     static bool isMP3EncoderAvailable();
 
+    /** Public so the managing unique_ptr can destroy it (ctor stays private). */
+    ~SaveAsOptionsPanel() override;
+
 private:
     /**
      * @brief Private constructor (use showDialog() instead)
@@ -65,6 +69,9 @@ private:
     // Component overrides
     void resized() override;
     void paint(juce::Graphics& g) override;
+
+    // ChangeListener (theme changes)
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
 private:
     // UI Components - File selection
@@ -105,7 +112,12 @@ private:
     std::optional<SaveSettings> m_result;
     std::unique_ptr<juce::FileChooser> m_fileChooser;
 
+    // Y of the separator line drawn above the action-button row. Set in
+    // resized() so paint() and the layout stay in sync (no magic number).
+    int m_separatorY {0};
+
     // Helpers
+    void applyTheme();  ///< (Re-)applies theme colours to cached-colour labels.
     void updateUIForFormat();
     void updatePreview();
     void onBrowseClicked();

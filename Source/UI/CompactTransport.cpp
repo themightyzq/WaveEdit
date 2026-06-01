@@ -15,11 +15,13 @@
 
 #include "CompactTransport.h"
 #include "WaveformDisplay.h"
+#include "ThemeManager.h"
+#include "UIConstants.h"
 
 //==============================================================================
 // Icon Creation - Compact 16x16 icons for 24px buttons
 
-std::unique_ptr<juce::Drawable> CompactTransport::createRecordIcon()
+std::unique_ptr<juce::Drawable> CompactTransport::createRecordIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -28,11 +30,11 @@ std::unique_ptr<juce::Drawable> CompactTransport::createRecordIcon()
     path.addEllipse(4.0f, 4.0f, 8.0f, 8.0f);
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::red);
+    drawable->setFill(colour);
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> CompactTransport::createRewindIcon()
+std::unique_ptr<juce::Drawable> CompactTransport::createRewindIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -49,11 +51,11 @@ std::unique_ptr<juce::Drawable> CompactTransport::createRewindIcon()
     path.closeSubPath();
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::white);
+    drawable->setFill(colour);
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> CompactTransport::createStopIcon()
+std::unique_ptr<juce::Drawable> CompactTransport::createStopIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -62,11 +64,11 @@ std::unique_ptr<juce::Drawable> CompactTransport::createStopIcon()
     path.addRectangle(4.0f, 4.0f, 8.0f, 8.0f);
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::white);
+    drawable->setFill(colour);
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> CompactTransport::createPlayIcon()
+std::unique_ptr<juce::Drawable> CompactTransport::createPlayIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -78,11 +80,11 @@ std::unique_ptr<juce::Drawable> CompactTransport::createPlayIcon()
     path.closeSubPath();
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::white);
+    drawable->setFill(colour);
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> CompactTransport::createPauseIcon()
+std::unique_ptr<juce::Drawable> CompactTransport::createPauseIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -92,11 +94,11 @@ std::unique_ptr<juce::Drawable> CompactTransport::createPauseIcon()
     path.addRectangle(9.0f, 3.0f, 3.0f, 10.0f);
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::white);
+    drawable->setFill(colour);
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> CompactTransport::createForwardIcon()
+std::unique_ptr<juce::Drawable> CompactTransport::createForwardIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -113,11 +115,11 @@ std::unique_ptr<juce::Drawable> CompactTransport::createForwardIcon()
     path.addRectangle(12.0f, 3.0f, 2.0f, 10.0f);  // Bar
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::white);
+    drawable->setFill(colour);
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> CompactTransport::createLoopIcon()
+std::unique_ptr<juce::Drawable> CompactTransport::createLoopIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -142,7 +144,7 @@ std::unique_ptr<juce::Drawable> CompactTransport::createLoopIcon()
 
     drawable->setPath(path);
     drawable->setFill(juce::FillType());
-    drawable->setStrokeFill(juce::Colours::white);
+    drawable->setStrokeFill(colour);
     drawable->setStrokeThickness(1.5f);
     return drawable;
 }
@@ -155,61 +157,76 @@ CompactTransport::CompactTransport()
       m_timeFormat(TimeFormat::CompactTime),
       m_lastState(PlaybackState::STOPPED),
       m_lastPosition(-1.0),
-      m_recordPulse(false)
+      m_recordPulse(false),
+      m_isRecording(false)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Create Record button
     m_recordButton = std::make_unique<juce::DrawableButton>("Record", juce::DrawableButton::ImageFitted);
-    m_recordButton->setImages(createRecordIcon().get());
+    m_recordButton->setImages(createRecordIcon(theme.error).get());
     m_recordButton->onClick = [this] { onRecordClicked(); };
     m_recordButton->setTooltip("Record (R)");
+    m_recordButton->setTitle("Record"); // Accessible name for screen readers
     addAndMakeVisible(m_recordButton.get());
 
     // Create Rewind button
     m_rewindButton = std::make_unique<juce::DrawableButton>("Rewind", juce::DrawableButton::ImageFitted);
-    m_rewindButton->setImages(createRewindIcon().get());
+    m_rewindButton->setImages(createRewindIcon(theme.text).get());
     m_rewindButton->onClick = [this] { onRewindClicked(); };
     m_rewindButton->setTooltip("Go to Start (Home)");
+    m_rewindButton->setTitle("Go to Start"); // Accessible name for screen readers
     addAndMakeVisible(m_rewindButton.get());
 
     // Create Stop button
     m_stopButton = std::make_unique<juce::DrawableButton>("Stop", juce::DrawableButton::ImageFitted);
-    m_stopButton->setImages(createStopIcon().get());
+    m_stopButton->setImages(createStopIcon(theme.text).get());
     m_stopButton->onClick = [this] { onStopClicked(); };
     m_stopButton->setTooltip("Stop");
+    m_stopButton->setTitle("Stop"); // Accessible name for screen readers
     addAndMakeVisible(m_stopButton.get());
 
     // Create Play/Pause toggle button (starts showing Play icon)
     m_playPauseButton = std::make_unique<juce::DrawableButton>("PlayPause", juce::DrawableButton::ImageFitted);
-    m_playPauseButton->setImages(createPlayIcon().get());
+    m_playPauseButton->setImages(createPlayIcon(theme.text).get());
     m_playPauseButton->onClick = [this] { onPlayPauseClicked(); };
     m_playPauseButton->setTooltip("Play/Pause (Space)");
+    m_playPauseButton->setTitle("Play/Pause"); // Accessible name for screen readers
     addAndMakeVisible(m_playPauseButton.get());
 
     // Create Forward button
     m_forwardButton = std::make_unique<juce::DrawableButton>("Forward", juce::DrawableButton::ImageFitted);
-    m_forwardButton->setImages(createForwardIcon().get());
+    m_forwardButton->setImages(createForwardIcon(theme.text).get());
     m_forwardButton->onClick = [this] { onForwardClicked(); };
     m_forwardButton->setTooltip("Go to End (End)");
+    m_forwardButton->setTitle("Go to End"); // Accessible name for screen readers
     addAndMakeVisible(m_forwardButton.get());
 
-    // Create Loop button
+    // Create Loop button (icon colour reflects toggle state)
     m_loopButton = std::make_unique<juce::DrawableButton>("Loop", juce::DrawableButton::ImageFitted);
-    m_loopButton->setImages(createLoopIcon().get());
+    m_loopButton->setImages(createLoopIcon(theme.text).get());
     m_loopButton->onClick = [this] { onLoopClicked(); };
     m_loopButton->setTooltip("Toggle Loop (L)");
+    m_loopButton->setTitle("Loop"); // Accessible name for screen readers
     m_loopButton->setClickingTogglesState(true);
     addAndMakeVisible(m_loopButton.get());
 
-    // Create compact time display
+    // Create compact time display.
+    // Monospaced font keeps digit columns fixed so the readout doesn't
+    // jitter horizontally as it ticks (REVIEW-DESIGN H12).
     m_timeLabel = std::make_unique<juce::Label>("Time", "00:00.00");
     m_timeLabel->setJustificationType(juce::Justification::centred);
-    m_timeLabel->setFont(juce::FontOptions(11.0f, juce::Font::bold));
-    m_timeLabel->setColour(juce::Label::textColourId, juce::Colours::lightgreen);
-    m_timeLabel->setColour(juce::Label::backgroundColourId, juce::Colour(0xff1a1a1a));
+    m_timeLabel->setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::bold));
     m_timeLabel->setEditable(false, false, false);
-    // Make label clickable to cycle time format
+    // Make label clickable to cycle time format, with discoverable affordance.
     m_timeLabel->addMouseListener(this, false);
+    m_timeLabel->setTooltip("Click to change time format");
+    m_timeLabel->setMouseCursor(juce::MouseCursor::PointingHandCursor);
     addAndMakeVisible(m_timeLabel.get());
+
+    // Apply theme colours (icons + time label) and reflect initial loop state.
+    applyThemeColours();
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
 
     // Start timer for position updates
     startTimer(50);
@@ -221,6 +238,7 @@ CompactTransport::CompactTransport()
 CompactTransport::~CompactTransport()
 {
     stopTimer();
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
 }
 
 //==============================================================================
@@ -240,16 +258,37 @@ void CompactTransport::setWaveformDisplay(WaveformDisplay* waveformDisplay)
 //==============================================================================
 void CompactTransport::paint(juce::Graphics& g)
 {
-    // Subtle dark background
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Subtle panel background (matches the toolbar above for a seamless join)
+    g.fillAll(theme.panel);
 
     // Border on bottom only to separate from content below
-    g.setColour(juce::Colour(0xff3a3a3a));
+    g.setColour(theme.border);
     g.drawLine(0.0f, static_cast<float>(getHeight() - 1),
                static_cast<float>(getWidth()), static_cast<float>(getHeight() - 1), 1.0f);
 
-    // Pulsing record indicator (recording state managed by command system)
-    // Visual recording indicator would go here if AudioEngine exposes isRecording()
+    // Recording indicator: a filled red dot + "REC" badge at the right edge,
+    // pulsing in step with the timer. Clearly distinct from idle (H11).
+    if (m_isRecording)
+    {
+        const float dotSize = 8.0f;
+        const float recTextWidth = 26.0f;
+        auto bounds = getLocalBounds().toFloat().reduced(4.0f, 2.0f);
+        auto badge = bounds.removeFromRight(recTextWidth + dotSize + 6.0f);
+
+        // Pulse the dot's alpha so it reads as "live".
+        const float alpha = m_recordPulse ? 1.0f : 0.45f;
+        auto dotArea = badge.removeFromLeft(dotSize)
+                            .withSizeKeepingCentre(dotSize, dotSize);
+        g.setColour(theme.error.withAlpha(alpha));
+        g.fillEllipse(dotArea);
+
+        badge.removeFromLeft(2.0f);
+        g.setColour(theme.error);
+        g.setFont(waveedit::ui::monospaceFont());
+        g.drawText("REC", badge, juce::Justification::centredLeft, false);
+    }
 }
 
 void CompactTransport::resized()
@@ -298,6 +337,15 @@ void CompactTransport::mouseDown(const juce::MouseEvent& event)
 //==============================================================================
 void CompactTransport::timerCallback()
 {
+    // Record pulse animation: blink the REC indicator while recording.
+    // Handled before the engine check so the indicator animates regardless
+    // of playback engine state.
+    if (m_isRecording)
+    {
+        m_recordPulse = !m_recordPulse;
+        repaint();
+    }
+
     // Early return if no audio engine
     if (m_audioEngine == nullptr)
         return;
@@ -305,8 +353,6 @@ void CompactTransport::timerCallback()
     auto currentState = m_audioEngine->getPlaybackState();
     double currentPosition = m_audioEngine->getCurrentPosition();
     double totalLength = m_audioEngine->getTotalLength();
-
-    // Record pulse animation (recording state managed by command system)
 
     // Selection-bounded playback handling
     if (m_audioEngine->isPlaying() && m_waveformDisplay != nullptr && m_waveformDisplay->hasSelection() &&
@@ -363,6 +409,53 @@ void CompactTransport::setLoopEnabled(bool shouldLoop)
 {
     m_loopEnabled = shouldLoop;
     m_loopButton->setToggleState(m_loopEnabled, juce::dontSendNotification);
+    updateLoopButtonAppearance();
+}
+
+void CompactTransport::setRecording(bool isRecording)
+{
+    if (m_isRecording == isRecording)
+        return;
+
+    m_isRecording = isRecording;
+    m_recordPulse = isRecording;  // start visible
+    repaint();
+}
+
+void CompactTransport::applyThemeColours()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Re-tint static icons to the current theme.
+    m_recordButton->setImages(createRecordIcon(theme.error).get());
+    m_rewindButton->setImages(createRewindIcon(theme.text).get());
+    m_stopButton->setImages(createStopIcon(theme.text).get());
+    m_forwardButton->setImages(createForwardIcon(theme.text).get());
+
+    // Time readout colours.
+    m_timeLabel->setColour(juce::Label::textColourId, theme.success);
+    m_timeLabel->setColour(juce::Label::backgroundColourId, theme.panelAlternate);
+
+    // Play/pause + loop depend on dynamic state.
+    updatePlayPauseIcon();
+    updateLoopButtonAppearance();
+
+    repaint();
+}
+
+void CompactTransport::updateLoopButtonAppearance()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Accent when looping is ON, plain text colour when OFF.
+    const juce::Colour iconColour = m_loopEnabled ? theme.accent : theme.text;
+    m_loopButton->setImages(createLoopIcon(iconColour).get());
+}
+
+void CompactTransport::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+        applyThemeColours();
 }
 
 void CompactTransport::toggleLoop()
@@ -436,9 +529,11 @@ void CompactTransport::updatePositionDisplay()
 
 void CompactTransport::updatePlayPauseIcon()
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     if (m_audioEngine == nullptr)
     {
-        m_playPauseButton->setImages(createPlayIcon().get());
+        m_playPauseButton->setImages(createPlayIcon(theme.text).get());
         return;
     }
 
@@ -447,12 +542,12 @@ void CompactTransport::updatePlayPauseIcon()
     if (state == PlaybackState::PLAYING)
     {
         // Show pause icon when playing
-        m_playPauseButton->setImages(createPauseIcon().get());
+        m_playPauseButton->setImages(createPauseIcon(theme.text).get());
     }
     else
     {
         // Show play icon when stopped or paused
-        m_playPauseButton->setImages(createPlayIcon().get());
+        m_playPauseButton->setImages(createPlayIcon(theme.text).get());
     }
 }
 

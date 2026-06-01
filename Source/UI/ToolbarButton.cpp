@@ -122,11 +122,10 @@ ToolbarButton::ToolbarButton(const ToolbarButtonConfig& config,
     m_button = std::make_unique<juce::DrawableButton>(
         m_config.id, juce::DrawableButton::ImageFitted);
 
-    auto icon = createIconForCommand(m_config.commandName);
-    if (icon != nullptr)
-        m_button->setImages(icon.get());
+    updateIcon();
 
     m_button->setTooltip(getTooltipText());
+    m_button->setTitle(getTooltipText()); // Accessible name for screen readers (icon-only button)
     m_button->onClick = [this] { executeCommand(); };
 
     // Make DrawableButton click-through so parent ToolbarButton receives all mouse events
@@ -134,10 +133,14 @@ ToolbarButton::ToolbarButton(const ToolbarButtonConfig& config,
     m_button->setInterceptsMouseClicks(false, false);
 
     addAndMakeVisible(m_button.get());
+
+    // Re-skin the icon when the active theme changes
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
 }
 
 ToolbarButton::~ToolbarButton()
 {
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
 }
 
 //==============================================================================
@@ -242,235 +245,268 @@ void ToolbarButton::executeCommand()
     }
 }
 
+void ToolbarButton::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+        updateIcon();
+}
+
+void ToolbarButton::updateIcon()
+{
+    if (m_button == nullptr)
+        return;
+
+    auto icon = createIconForCommand(m_config.commandName);
+    if (icon != nullptr)
+        m_button->setImages(icon.get());
+}
+
 std::unique_ptr<juce::Drawable> ToolbarButton::createIconForCommand(const juce::String& commandName)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
 
-    // Create 16x16 icons based on command type
-    if (commandName.containsIgnoreCase("undo"))
+    // Dispatch on the resolved CommandID rather than fragile substring
+    // matching. This guarantees distinct commands map to distinct glyphs
+    // and removes false-positive hits (e.g. "dc"/"new"/"open" inside
+    // unrelated names). Plugin buttons carry no command name, so they
+    // resolve to 0 and fall through to the plugin/generic glyph below.
+    const juce::CommandID cmdId = getCommandIDForName(commandName);
+
+    // Create 16x16 icons based on the command.
+    switch (cmdId)
     {
-        // Undo: curved arrow left
-        path.startNewSubPath(12.0f, 4.0f);
-        path.cubicTo(8.0f, 4.0f, 4.0f, 6.0f, 4.0f, 10.0f);
-        path.lineTo(4.0f, 12.0f);
-        path.startNewSubPath(4.0f, 10.0f);
-        path.lineTo(2.0f, 8.0f);
-        path.lineTo(6.0f, 8.0f);
-    }
-    else if (commandName.containsIgnoreCase("redo"))
-    {
-        // Redo: curved arrow right
-        path.startNewSubPath(4.0f, 4.0f);
-        path.cubicTo(8.0f, 4.0f, 12.0f, 6.0f, 12.0f, 10.0f);
-        path.lineTo(12.0f, 12.0f);
-        path.startNewSubPath(12.0f, 10.0f);
-        path.lineTo(14.0f, 8.0f);
-        path.lineTo(10.0f, 8.0f);
-    }
-    else if (commandName.containsIgnoreCase("zoomIn"))
-    {
-        // Magnifier with +
-        path.addEllipse(3.0f, 3.0f, 8.0f, 8.0f);
-        path.startNewSubPath(10.0f, 10.0f);
-        path.lineTo(14.0f, 14.0f);
-        path.startNewSubPath(5.0f, 7.0f);
-        path.lineTo(9.0f, 7.0f);
-        path.startNewSubPath(7.0f, 5.0f);
-        path.lineTo(7.0f, 9.0f);
-    }
-    else if (commandName.containsIgnoreCase("zoomOut"))
-    {
-        // Magnifier with -
-        path.addEllipse(3.0f, 3.0f, 8.0f, 8.0f);
-        path.startNewSubPath(10.0f, 10.0f);
-        path.lineTo(14.0f, 14.0f);
-        path.startNewSubPath(5.0f, 7.0f);
-        path.lineTo(9.0f, 7.0f);
-    }
-    else if (commandName.containsIgnoreCase("zoomFit") || commandName.containsIgnoreCase("zoomSelection"))
-    {
-        // Four arrows pointing outward
-        path.startNewSubPath(2.0f, 2.0f);
-        path.lineTo(5.0f, 2.0f);
-        path.lineTo(2.0f, 5.0f);
-        path.startNewSubPath(14.0f, 2.0f);
-        path.lineTo(11.0f, 2.0f);
-        path.lineTo(14.0f, 5.0f);
-        path.startNewSubPath(2.0f, 14.0f);
-        path.lineTo(5.0f, 14.0f);
-        path.lineTo(2.0f, 11.0f);
-        path.startNewSubPath(14.0f, 14.0f);
-        path.lineTo(11.0f, 14.0f);
-        path.lineTo(14.0f, 11.0f);
-    }
-    else if (commandName.containsIgnoreCase("fadeIn"))
-    {
-        // Rising diagonal line
-        path.startNewSubPath(2.0f, 14.0f);
-        path.lineTo(14.0f, 2.0f);
-        path.lineTo(14.0f, 14.0f);
-        path.closeSubPath();
-    }
-    else if (commandName.containsIgnoreCase("fadeOut"))
-    {
-        // Falling diagonal line
-        path.startNewSubPath(2.0f, 2.0f);
-        path.lineTo(14.0f, 14.0f);
-        path.lineTo(2.0f, 14.0f);
-        path.closeSubPath();
-    }
-    else if (commandName.containsIgnoreCase("normalize"))
-    {
-        // Waveform going to max
-        path.startNewSubPath(2.0f, 8.0f);
-        path.lineTo(4.0f, 4.0f);
-        path.lineTo(6.0f, 12.0f);
-        path.lineTo(8.0f, 2.0f);
-        path.lineTo(10.0f, 14.0f);
-        path.lineTo(12.0f, 4.0f);
-        path.lineTo(14.0f, 8.0f);
-    }
-    else if (commandName.containsIgnoreCase("gain"))
-    {
-        // dB meter
-        path.addRectangle(4.0f, 6.0f, 3.0f, 8.0f);
-        path.addRectangle(9.0f, 3.0f, 3.0f, 11.0f);
-    }
-    else if (commandName.containsIgnoreCase("cut"))
-    {
-        // Scissors
-        path.addEllipse(3.0f, 2.0f, 4.0f, 4.0f);
-        path.addEllipse(9.0f, 2.0f, 4.0f, 4.0f);
-        path.startNewSubPath(5.0f, 6.0f);
-        path.lineTo(11.0f, 14.0f);
-        path.startNewSubPath(11.0f, 6.0f);
-        path.lineTo(5.0f, 14.0f);
-    }
-    else if (commandName.containsIgnoreCase("copy"))
-    {
-        // Two documents
-        path.addRectangle(2.0f, 4.0f, 8.0f, 10.0f);
-        path.addRectangle(6.0f, 2.0f, 8.0f, 10.0f);
-    }
-    else if (commandName.containsIgnoreCase("paste"))
-    {
-        // Clipboard
-        path.addRectangle(3.0f, 4.0f, 10.0f, 10.0f);
-        path.addRectangle(5.0f, 2.0f, 6.0f, 3.0f);
-    }
-    else if (commandName.containsIgnoreCase("delete"))
-    {
-        // X
-        path.startNewSubPath(4.0f, 4.0f);
-        path.lineTo(12.0f, 12.0f);
-        path.startNewSubPath(12.0f, 4.0f);
-        path.lineTo(4.0f, 12.0f);
-    }
-    else if (commandName.containsIgnoreCase("trim"))
-    {
-        // Crop marks
-        path.startNewSubPath(2.0f, 6.0f);
-        path.lineTo(2.0f, 2.0f);
-        path.lineTo(6.0f, 2.0f);
-        path.startNewSubPath(10.0f, 2.0f);
-        path.lineTo(14.0f, 2.0f);
-        path.lineTo(14.0f, 6.0f);
-        path.startNewSubPath(14.0f, 10.0f);
-        path.lineTo(14.0f, 14.0f);
-        path.lineTo(10.0f, 14.0f);
-        path.startNewSubPath(6.0f, 14.0f);
-        path.lineTo(2.0f, 14.0f);
-        path.lineTo(2.0f, 10.0f);
-    }
-    else if (commandName.containsIgnoreCase("silence"))
-    {
-        // Flat line
-        path.startNewSubPath(2.0f, 8.0f);
-        path.lineTo(14.0f, 8.0f);
-    }
-    else if (commandName.containsIgnoreCase("plugin"))
-    {
-        // Plug icon
-        path.addRectangle(5.0f, 2.0f, 2.0f, 6.0f);
-        path.addRectangle(9.0f, 2.0f, 2.0f, 6.0f);
-        path.addRoundedRectangle(3.0f, 8.0f, 10.0f, 6.0f, 2.0f);
-    }
-    else if (commandName.containsIgnoreCase("EQ"))
-    {
-        // EQ sliders
-        path.addRectangle(3.0f, 4.0f, 2.0f, 10.0f);
-        path.addRectangle(7.0f, 2.0f, 2.0f, 12.0f);
-        path.addRectangle(11.0f, 6.0f, 2.0f, 8.0f);
-    }
-    else if (commandName.containsIgnoreCase("fileNew") || commandName.containsIgnoreCase("new"))
-    {
-        // New document icon
-        path.addRectangle(4.0f, 2.0f, 8.0f, 12.0f);
-        path.startNewSubPath(4.0f, 2.0f);
-        path.lineTo(9.0f, 2.0f);
-        path.lineTo(12.0f, 5.0f);
-        path.lineTo(12.0f, 14.0f);
-    }
-    else if (commandName.containsIgnoreCase("fileOpen") || commandName.containsIgnoreCase("open"))
-    {
-        // Folder icon
-        path.startNewSubPath(2.0f, 5.0f);
-        path.lineTo(6.0f, 5.0f);
-        path.lineTo(7.0f, 3.0f);
-        path.lineTo(14.0f, 3.0f);
-        path.lineTo(14.0f, 13.0f);
-        path.lineTo(2.0f, 13.0f);
-        path.closeSubPath();
-    }
-    else if (commandName.containsIgnoreCase("fileSave") || commandName.containsIgnoreCase("save"))
-    {
-        // Floppy disk icon
-        path.addRoundedRectangle(2.0f, 2.0f, 12.0f, 12.0f, 1.0f);
-        path.addRectangle(4.0f, 2.0f, 8.0f, 5.0f);
-        path.addRectangle(5.0f, 9.0f, 6.0f, 4.0f);
-    }
-    else if (commandName.containsIgnoreCase("DCOffset") || commandName.containsIgnoreCase("dc"))
-    {
-        // DC offset - horizontal line with arrows up/down
-        path.startNewSubPath(2.0f, 8.0f);
-        path.lineTo(14.0f, 8.0f);
-        path.startNewSubPath(6.0f, 4.0f);
-        path.lineTo(8.0f, 2.0f);
-        path.lineTo(10.0f, 4.0f);
-        path.startNewSubPath(6.0f, 12.0f);
-        path.lineTo(8.0f, 14.0f);
-        path.lineTo(10.0f, 12.0f);
-    }
-    else if (commandName.containsIgnoreCase("apply"))
-    {
-        // Checkmark
-        path.startNewSubPath(3.0f, 8.0f);
-        path.lineTo(6.0f, 11.0f);
-        path.lineTo(13.0f, 4.0f);
-    }
-    else if (commandName.containsIgnoreCase("offline"))
-    {
-        // Render/process icon (gear)
-        path.addEllipse(4.0f, 4.0f, 8.0f, 8.0f);
-        path.startNewSubPath(8.0f, 2.0f);
-        path.lineTo(8.0f, 4.0f);
-        path.startNewSubPath(8.0f, 12.0f);
-        path.lineTo(8.0f, 14.0f);
-        path.startNewSubPath(2.0f, 8.0f);
-        path.lineTo(4.0f, 8.0f);
-        path.startNewSubPath(12.0f, 8.0f);
-        path.lineTo(14.0f, 8.0f);
-    }
-    else
-    {
-        // Default: generic circle button
-        path.addEllipse(4.0f, 4.0f, 8.0f, 8.0f);
+        case CommandIDs::editUndo:
+            // Undo: curved arrow left
+            path.startNewSubPath(12.0f, 4.0f);
+            path.cubicTo(8.0f, 4.0f, 4.0f, 6.0f, 4.0f, 10.0f);
+            path.lineTo(4.0f, 12.0f);
+            path.startNewSubPath(4.0f, 10.0f);
+            path.lineTo(2.0f, 8.0f);
+            path.lineTo(6.0f, 8.0f);
+            break;
+
+        case CommandIDs::editRedo:
+            // Redo: curved arrow right
+            path.startNewSubPath(4.0f, 4.0f);
+            path.cubicTo(8.0f, 4.0f, 12.0f, 6.0f, 12.0f, 10.0f);
+            path.lineTo(12.0f, 12.0f);
+            path.startNewSubPath(12.0f, 10.0f);
+            path.lineTo(14.0f, 8.0f);
+            path.lineTo(10.0f, 8.0f);
+            break;
+
+        case CommandIDs::viewZoomIn:
+            // Magnifier with +
+            path.addEllipse(3.0f, 3.0f, 8.0f, 8.0f);
+            path.startNewSubPath(10.0f, 10.0f);
+            path.lineTo(14.0f, 14.0f);
+            path.startNewSubPath(5.0f, 7.0f);
+            path.lineTo(9.0f, 7.0f);
+            path.startNewSubPath(7.0f, 5.0f);
+            path.lineTo(7.0f, 9.0f);
+            break;
+
+        case CommandIDs::viewZoomOut:
+            // Magnifier with -
+            path.addEllipse(3.0f, 3.0f, 8.0f, 8.0f);
+            path.startNewSubPath(10.0f, 10.0f);
+            path.lineTo(14.0f, 14.0f);
+            path.startNewSubPath(5.0f, 7.0f);
+            path.lineTo(9.0f, 7.0f);
+            break;
+
+        case CommandIDs::viewZoomFit:
+        case CommandIDs::viewZoomSelection:
+            // Four arrows pointing outward
+            path.startNewSubPath(2.0f, 2.0f);
+            path.lineTo(5.0f, 2.0f);
+            path.lineTo(2.0f, 5.0f);
+            path.startNewSubPath(14.0f, 2.0f);
+            path.lineTo(11.0f, 2.0f);
+            path.lineTo(14.0f, 5.0f);
+            path.startNewSubPath(2.0f, 14.0f);
+            path.lineTo(5.0f, 14.0f);
+            path.lineTo(2.0f, 11.0f);
+            path.startNewSubPath(14.0f, 14.0f);
+            path.lineTo(11.0f, 14.0f);
+            path.lineTo(14.0f, 11.0f);
+            break;
+
+        case CommandIDs::processFadeIn:
+            // Rising diagonal line
+            path.startNewSubPath(2.0f, 14.0f);
+            path.lineTo(14.0f, 2.0f);
+            path.lineTo(14.0f, 14.0f);
+            path.closeSubPath();
+            break;
+
+        case CommandIDs::processFadeOut:
+            // Falling diagonal line
+            path.startNewSubPath(2.0f, 2.0f);
+            path.lineTo(14.0f, 14.0f);
+            path.lineTo(2.0f, 14.0f);
+            path.closeSubPath();
+            break;
+
+        case CommandIDs::processNormalize:
+            // Waveform going to max
+            path.startNewSubPath(2.0f, 8.0f);
+            path.lineTo(4.0f, 4.0f);
+            path.lineTo(6.0f, 12.0f);
+            path.lineTo(8.0f, 2.0f);
+            path.lineTo(10.0f, 14.0f);
+            path.lineTo(12.0f, 4.0f);
+            path.lineTo(14.0f, 8.0f);
+            break;
+
+        case CommandIDs::processGain:
+        case CommandIDs::processIncreaseGain:
+        case CommandIDs::processDecreaseGain:
+            // dB meter
+            path.addRectangle(4.0f, 6.0f, 3.0f, 8.0f);
+            path.addRectangle(9.0f, 3.0f, 3.0f, 11.0f);
+            break;
+
+        case CommandIDs::editCut:
+            // Scissors
+            path.addEllipse(3.0f, 2.0f, 4.0f, 4.0f);
+            path.addEllipse(9.0f, 2.0f, 4.0f, 4.0f);
+            path.startNewSubPath(5.0f, 6.0f);
+            path.lineTo(11.0f, 14.0f);
+            path.startNewSubPath(11.0f, 6.0f);
+            path.lineTo(5.0f, 14.0f);
+            break;
+
+        case CommandIDs::editCopy:
+            // Two documents
+            path.addRectangle(2.0f, 4.0f, 8.0f, 10.0f);
+            path.addRectangle(6.0f, 2.0f, 8.0f, 10.0f);
+            break;
+
+        case CommandIDs::editPaste:
+            // Clipboard
+            path.addRectangle(3.0f, 4.0f, 10.0f, 10.0f);
+            path.addRectangle(5.0f, 2.0f, 6.0f, 3.0f);
+            break;
+
+        case CommandIDs::editDelete:
+            // X
+            path.startNewSubPath(4.0f, 4.0f);
+            path.lineTo(12.0f, 12.0f);
+            path.startNewSubPath(12.0f, 4.0f);
+            path.lineTo(4.0f, 12.0f);
+            break;
+
+        case CommandIDs::editTrim:
+            // Crop marks
+            path.startNewSubPath(2.0f, 6.0f);
+            path.lineTo(2.0f, 2.0f);
+            path.lineTo(6.0f, 2.0f);
+            path.startNewSubPath(10.0f, 2.0f);
+            path.lineTo(14.0f, 2.0f);
+            path.lineTo(14.0f, 6.0f);
+            path.startNewSubPath(14.0f, 10.0f);
+            path.lineTo(14.0f, 14.0f);
+            path.lineTo(10.0f, 14.0f);
+            path.startNewSubPath(6.0f, 14.0f);
+            path.lineTo(2.0f, 14.0f);
+            path.lineTo(2.0f, 10.0f);
+            break;
+
+        case CommandIDs::editSilence:
+            // Flat line
+            path.startNewSubPath(2.0f, 8.0f);
+            path.lineTo(14.0f, 8.0f);
+            break;
+
+        case CommandIDs::processParametricEQ:
+        case CommandIDs::processGraphicalEQ:
+            // EQ sliders
+            path.addRectangle(3.0f, 4.0f, 2.0f, 10.0f);
+            path.addRectangle(7.0f, 2.0f, 2.0f, 12.0f);
+            path.addRectangle(11.0f, 6.0f, 2.0f, 8.0f);
+            break;
+
+        case CommandIDs::fileNew:
+            // New document icon
+            path.addRectangle(4.0f, 2.0f, 8.0f, 12.0f);
+            path.startNewSubPath(4.0f, 2.0f);
+            path.lineTo(9.0f, 2.0f);
+            path.lineTo(12.0f, 5.0f);
+            path.lineTo(12.0f, 14.0f);
+            break;
+
+        case CommandIDs::fileOpen:
+            // Folder icon
+            path.startNewSubPath(2.0f, 5.0f);
+            path.lineTo(6.0f, 5.0f);
+            path.lineTo(7.0f, 3.0f);
+            path.lineTo(14.0f, 3.0f);
+            path.lineTo(14.0f, 13.0f);
+            path.lineTo(2.0f, 13.0f);
+            path.closeSubPath();
+            break;
+
+        case CommandIDs::fileSave:
+        case CommandIDs::fileSaveAs:
+            // Floppy disk icon
+            path.addRoundedRectangle(2.0f, 2.0f, 12.0f, 12.0f, 1.0f);
+            path.addRectangle(4.0f, 2.0f, 8.0f, 5.0f);
+            path.addRectangle(5.0f, 9.0f, 6.0f, 4.0f);
+            break;
+
+        case CommandIDs::processDCOffset:
+            // DC offset - horizontal line with arrows up/down
+            path.startNewSubPath(2.0f, 8.0f);
+            path.lineTo(14.0f, 8.0f);
+            path.startNewSubPath(6.0f, 4.0f);
+            path.lineTo(8.0f, 2.0f);
+            path.lineTo(10.0f, 4.0f);
+            path.startNewSubPath(6.0f, 12.0f);
+            path.lineTo(8.0f, 14.0f);
+            path.lineTo(10.0f, 12.0f);
+            break;
+
+        case CommandIDs::pluginApplyChain:
+            // Checkmark (apply)
+            path.startNewSubPath(3.0f, 8.0f);
+            path.lineTo(6.0f, 11.0f);
+            path.lineTo(13.0f, 4.0f);
+            break;
+
+        case CommandIDs::pluginShowChain:
+        case CommandIDs::pluginAddPlugin:
+        case CommandIDs::pluginBypassAll:
+            // Plug icon
+            path.addRectangle(5.0f, 2.0f, 2.0f, 6.0f);
+            path.addRectangle(9.0f, 2.0f, 2.0f, 6.0f);
+            path.addRoundedRectangle(3.0f, 8.0f, 10.0f, 6.0f, 2.0f);
+            break;
+
+        default:
+            // Unmapped commands and plugin buttons (no command name).
+            // Plugin buttons get the plug glyph; everything else a
+            // generic circle so distinct icons are at least visibly
+            // present rather than silently identical.
+            if (m_config.type == ToolbarButtonType::PLUGIN)
+            {
+                path.addRectangle(5.0f, 2.0f, 2.0f, 6.0f);
+                path.addRectangle(9.0f, 2.0f, 2.0f, 6.0f);
+                path.addRoundedRectangle(3.0f, 8.0f, 10.0f, 6.0f, 2.0f);
+            }
+            else
+            {
+                path.addEllipse(4.0f, 4.0f, 8.0f, 8.0f);
+            }
+            break;
     }
 
     drawable->setPath(path);
     drawable->setFill(juce::FillType());
-    drawable->setStrokeFill(juce::Colours::white);
+    // Use the theme's text colour so icons recolour with the active
+    // theme (white icons would vanish on the Light theme).
+    drawable->setStrokeFill(waveedit::ThemeManager::getInstance().getCurrent().text);
     drawable->setStrokeThickness(1.5f);
 
     return drawable;

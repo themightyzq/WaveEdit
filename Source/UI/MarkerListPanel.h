@@ -239,6 +239,12 @@ private:
     void finishEditingName(bool applyChanges);
     juce::String formatTimeForDisplay(double timeInSeconds) const;
 
+    // Empty-state message (no markers / no matches) shown over the table.
+    void updateEmptyState();
+
+    // Re-applies theme-driven one-shot colours (search box, table, header).
+    void applyThemeColours();
+
     //==============================================================================
     // Member variables
     MarkerManager* m_markerManager;
@@ -252,6 +258,7 @@ private:
     juce::TextButton m_exportButton;
     juce::TextButton m_importButton;
     juce::TableListBox m_table;
+    juce::Label m_emptyLabel;  // Centered hint shown when the table has no rows
 
     // Filtered and sorted markers
     juce::Array<FilteredMarker> m_filteredMarkers;

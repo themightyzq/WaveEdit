@@ -40,7 +40,20 @@ namespace
                                 double sampleRate,
                                 int numChannels) override
         {
-            if (m_appendMode && m_targetDocument != nullptr)
+            // H19: m_targetDocument is a raw pointer captured when the
+            // dialog opened; the user may have closed that file mid-
+            // recording. Verify it is still open via the DocumentManager
+            // (getDocumentIndex returns -1 for a closed/unknown doc)
+            // before touching it — otherwise we'd dereference freed
+            // memory. If it's gone, fall back to creating a new document
+            // so the take isn't silently lost.
+            const bool targetStillOpen =
+                m_appendMode
+                && m_targetDocument != nullptr
+                && m_documentManager != nullptr
+                && m_documentManager->getDocumentIndex(m_targetDocument) >= 0;
+
+            if (targetStillOpen)
                 appendToDocument(m_targetDocument, audioBuffer, sampleRate, numChannels);
             else
                 createNewDocument(audioBuffer, sampleRate, numChannels);
@@ -134,7 +147,8 @@ namespace
 
 void RecordingController::handleRecordCommand(juce::Component* parent,
                                               DocumentManager& documentManager,
-                                              juce::AudioDeviceManager& audioDeviceManager)
+                                              juce::AudioDeviceManager& audioDeviceManager,
+                                              std::function<void(bool)> recordingStateCallback)
 {
     auto* currentDoc = documentManager.getCurrentDocument();
     bool appendToExisting = false;
@@ -145,9 +159,9 @@ void RecordingController::handleRecordCommand(juce::Component* parent,
             juce::AlertWindow::QuestionIcon,
             "Recording Destination",
             "A file is currently open. Where would you like to place the recording?\n\n"
-            "• YES: Insert at cursor position (punch-in)\n"
-            "• NO: Create new file with recording\n"
-            "• CANCEL: Don't record",
+            "- YES: Insert at cursor position (punch-in)\n"
+            "- NO: Create new file with recording\n"
+            "- CANCEL: Don't record",
             "Insert at Cursor",
             "Create New File",
             "Cancel");
@@ -161,5 +175,6 @@ void RecordingController::handleRecordCommand(juce::Component* parent,
                                 audioDeviceManager,
                                 new RecordingApplyListener(&documentManager,
                                                            currentDoc,
-                                                           appendToExisting));
+                                                           appendToExisting),
+                                std::move(recordingStateCallback));
 }

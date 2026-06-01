@@ -30,8 +30,8 @@ DSPOperationComponent::DSPOperationComponent(int index)
     , m_enabledToggle("Enabled")
     , m_paramLabel("paramLabel", "Value:")
     , m_detailsButton("...")
-    , m_moveUpButton(juce::String(juce::CharPointer_UTF8("\xe2\x96\xb2")))    // ▲
-    , m_moveDownButton(juce::String(juce::CharPointer_UTF8("\xe2\x96\xbc")))  // ▼
+    , m_moveUpButton("^")
+    , m_moveDownButton("v")
     , m_removeButton("X")
 {
     // Enabled toggle
@@ -208,10 +208,10 @@ void DSPOperationComponent::showDetailsPopup()
             title = "Fade In";
             description = "Gradually increases volume from silence at the start.\n\n"
                           "Curve types:\n"
-                          "• Linear: Constant rate of change\n"
-                          "• Exponential: Starts slow, ends fast\n"
-                          "• Logarithmic: Starts fast, ends slow\n"
-                          "• S-Curve: Smooth start and end";
+                          "- Linear: Constant rate of change\n"
+                          "- Exponential: Starts slow, ends fast\n"
+                          "- Logarithmic: Starts fast, ends slow\n"
+                          "- S-Curve: Smooth start and end";
             currentValue = "Duration: " + juce::String(m_paramSlider.getValue(), 0) + " ms\n"
                           "Curve: " + m_curveCombo.getText();
             break;
@@ -220,10 +220,10 @@ void DSPOperationComponent::showDetailsPopup()
             title = "Fade Out";
             description = "Gradually decreases volume to silence at the end.\n\n"
                           "Curve types:\n"
-                          "• Linear: Constant rate of change\n"
-                          "• Exponential: Starts slow, ends fast\n"
-                          "• Logarithmic: Starts fast, ends slow\n"
-                          "• S-Curve: Smooth start and end";
+                          "- Linear: Constant rate of change\n"
+                          "- Exponential: Starts slow, ends fast\n"
+                          "- Logarithmic: Starts fast, ends slow\n"
+                          "- S-Curve: Smooth start and end";
             currentValue = "Duration: " + juce::String(m_paramSlider.getValue(), 0) + " ms\n"
                           "Curve: " + m_curveCombo.getText();
             break;
@@ -705,25 +705,25 @@ void BatchProcessorDialog::FileListModel::paintListBoxItem(int rowNumber, juce::
     {
         case BatchJobStatus::PENDING:
             statusColour = juce::Colour(ui::kStatusPending);
-            statusIcon = juce::CharPointer_UTF8("\xe2\x97\x8b");  // ○
+            statusIcon = "o";
             break;
         case BatchJobStatus::LOADING:
         case BatchJobStatus::PROCESSING:
         case BatchJobStatus::SAVING:
             statusColour = juce::Colour(0xffffaa00);
-            statusIcon = juce::CharPointer_UTF8("\xe2\x8f\xb3");  // ⏳
+            statusIcon = "..";
             break;
         case BatchJobStatus::COMPLETED:
             statusColour = juce::Colour(0xff00cc00);
-            statusIcon = juce::CharPointer_UTF8("\xe2\x9c\x93");  // ✓
+            statusIcon = "OK";
             break;
         case BatchJobStatus::FAILED:
             statusColour = juce::Colour(0xffff4444);
-            statusIcon = juce::CharPointer_UTF8("\xe2\x9c\x97");  // ✗
+            statusIcon = "X";
             break;
         case BatchJobStatus::SKIPPED:
             statusColour = juce::Colour(0xffaaaa00);
-            statusIcon = juce::CharPointer_UTF8("\xe2\x86\x92");  // →
+            statusIcon = ">>";
             break;
     }
 

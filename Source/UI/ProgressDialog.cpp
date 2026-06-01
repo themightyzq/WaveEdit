@@ -14,6 +14,10 @@
 */
 
 #include "ProgressDialog.h"
+#include "ThemeManager.h"
+#include "UIConstants.h"
+
+namespace ui = waveedit::ui;
 
 //==============================================================================
 // Worker Thread Class
@@ -94,23 +98,28 @@ private:
 //==============================================================================
 ProgressDialog::ProgressDialog(const juce::String& title)
     : m_titleLabel("titleLabel", title),
-      m_statusLabel("statusLabel", "Preparing..."),
+      m_statusLabel("statusLabel", "Working..."),
       m_progressBar(m_progressValue),
       m_cancelButton("Cancel"),
       m_elapsedTimeLabel("elapsedLabel", "Elapsed: 0:00")
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Title label
-    m_titleLabel.setFont(juce::FontOptions(16.0f).withStyle("Bold"));
+    m_titleLabel.setFont(ui::sectionHeaderFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
     // Status label
-    m_statusLabel.setFont(juce::FontOptions(13.0f));
+    m_statusLabel.setFont(ui::smallFont());
     m_statusLabel.setJustificationType(juce::Justification::centredLeft);
-    m_statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    m_statusLabel.setColour(juce::Label::textColourId, theme.text);
     addAndMakeVisible(m_statusLabel);
 
-    // Progress bar
+    // Progress bar — start in indeterminate mode (negative value) so that if
+    // the work never reports progress, the bar animates rather than sitting
+    // at a stale 0% with a stale "Preparing…" label (REVIEW-DESIGN, Progress).
+    m_progressValue = -1.0;
     m_progressBar.setPercentageDisplay(true);
     addAndMakeVisible(m_progressBar);
 
@@ -119,9 +128,9 @@ ProgressDialog::ProgressDialog(const juce::String& title)
     addAndMakeVisible(m_cancelButton);
 
     // Elapsed time label
-    m_elapsedTimeLabel.setFont(juce::FontOptions(12.0f));
+    m_elapsedTimeLabel.setFont(ui::smallFont());
     m_elapsedTimeLabel.setJustificationType(juce::Justification::centredRight);
-    m_elapsedTimeLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_elapsedTimeLabel.setColour(juce::Label::textColourId, theme.textMuted);
     addAndMakeVisible(m_elapsedTimeLabel);
 
     setSize(400, 160);
@@ -156,7 +165,7 @@ void ProgressDialog::runWithProgress(const juce::String& title,
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(dialog);
     options.dialogTitle = title;
-    options.dialogBackgroundColour = juce::Colour(0xff2b2b2b);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().background;
     options.escapeKeyTriggersCloseButton = false;
     options.useNativeTitleBar = false;
     options.resizable = false;
@@ -196,13 +205,17 @@ void ProgressDialog::startWork(WorkFunction work, CompletionCallback onComplete)
 
 void ProgressDialog::timerCallback()
 {
-    // Update progress bar
-    m_progressValue = static_cast<double>(m_progress.load());
+    // Update progress bar. While no progress has been reported (sentinel < 0),
+    // keep the bar in indeterminate/animated mode rather than a stale 0%.
+    const float reported = m_progress.load();
+    m_progressValue = (reported < 0.0f) ? -1.0 : static_cast<double>(reported);
 
-    // Update status text
+    // Update status text. If the work hasn't supplied a status yet, show a
+    // neutral "Working…" rather than a stale "Preparing…".
     {
         const juce::SpinLock::ScopedLockType lock(m_statusLock);
-        m_statusLabel.setText(m_currentStatus, juce::dontSendNotification);
+        if (m_currentStatus.isNotEmpty())
+            m_statusLabel.setText(m_currentStatus, juce::dontSendNotification);
     }
 
     // Update elapsed time
@@ -279,12 +292,12 @@ void ProgressDialog::onWorkComplete(bool success)
 
 void ProgressDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2b2b2b));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().background);
 }
 
 void ProgressDialog::resized()
 {
-    auto bounds = getLocalBounds().reduced(20);
+    auto bounds = getLocalBounds().reduced(ui::kDialogPadding);
 
     // Title at top
     m_titleLabel.setBounds(bounds.removeFromTop(25));

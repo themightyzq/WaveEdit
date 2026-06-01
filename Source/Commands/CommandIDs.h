@@ -44,7 +44,7 @@ namespace CommandIDs
         editPaste       = 0x2004,
         editDelete      = 0x2005,
         editSelectAll   = 0x2006,
-        editSilence     = 0x2007,  // Ctrl+L - Fill selection with silence
+        editSilence     = 0x2007,  // Alt+Shift+S - Fill selection with silence
         editTrim        = 0x2008,  // Ctrl+T - Delete everything OUTSIDE selection
 
         // Playback Operations (0x3000 - 0x30FF)
@@ -59,7 +59,7 @@ namespace CommandIDs
         viewZoomIn      = 0x4000,
         viewZoomOut     = 0x4001,
         viewZoomFit     = 0x4002,
-        viewZoomSelection = 0x4003,
+        viewZoomSelection = 0x4003,  // Cmd+E - Zoom to current selection
         viewZoomOneToOne  = 0x4004,
         viewCycleTimeFormat = 0x4005,  // Phase 3.5 - Cycle through time formats
         viewAutoScroll    = 0x4006,  // Phase 3 Tier 2 - Auto-scroll during playback (Cmd+Shift+F)
@@ -117,7 +117,11 @@ namespace CommandIDs
         // Snap Operations (0x8000 - 0x80FF)
         snapCycleMode        = 0x8000,  // G key - toggle snap on/off (maintains last increment)
         snapToggleZeroCrossing = 0x8001, // Z key - quick toggle zero crossing
-        snapPreferences      = 0x8002,  // Shift+G - open snap preferences
+        // NOTE (L7): snapPreferences is NOT registered in getAllCommands()/perform();
+        // it is referenced by Source/UI/ShortcutEditorPanel.cpp and Templates/Keymaps/
+        // ProTools.json, so the ID is retained rather than removed. It is intentionally
+        // absent from any keypress binding in Default.json.
+        snapPreferences      = 0x8002,  // (unregistered) open snap preferences
 
         // Help Operations (0x9000 - 0x90FF)
         helpAbout       = 0x9000,
@@ -146,9 +150,9 @@ namespace CommandIDs
         regionPrevious  = 0xB003,  // [ - Jump to and select previous region
         regionSelectInverse = 0xB004,  // Cmd+Shift+I - Select everything NOT in regions
         regionSelectAll = 0xB005,  // Cmd+Alt+A - Select union of all regions (moved from Cmd+Shift+A)
-        regionStripSilence = 0xB006,  // Cmd+Shift+R - Auto-create regions from non-silent sections (Strip Silence)
-        regionExportAll = 0xB007,  // Cmd+Shift+E - Export each region as separate file (Batch Export)
-        regionShowList  = 0xB008,  // Cmd+Shift+M - Show/hide Region List Panel
+        regionStripSilence = 0xB006,  // Shift+R - Auto-create regions from non-silent sections (Strip Silence)
+        regionExportAll = 0xB007,  // Cmd+Alt+R - Export each region as separate file (Batch Export)
+        regionShowList  = 0xB008,  // Cmd+Shift+R - Show/hide Region List Panel
         regionSnapToZeroCrossing = 0xB009,  // Phase 3.3 - Toggle region zero-crossing snap preference
         regionNudgeStartLeft = 0xB00A,  // Cmd+Shift+Left - Nudge region start boundary left by snap increment
         regionNudgeStartRight = 0xB00B,  // Cmd+Shift+Right - Nudge region start boundary right by snap increment
@@ -173,7 +177,10 @@ namespace CommandIDs
 
         // Plugin Operations (0xD000 - 0xD0FF) - VST3/AU plugin chain support
         pluginShowChain     = 0xD000,  // Cmd+Shift+P - Show Plugin Chain panel
-        pluginAddPlugin     = 0xD001,  // Cmd+Alt+P - Open Plugin Manager dialog
+        // NOTE (L7): pluginAddPlugin is NOT registered in getAllCommands()/perform();
+        // it is referenced by Source/UI/ToolbarButton.cpp, so the ID is retained
+        // rather than removed. It is intentionally unbound in Default.json.
+        pluginAddPlugin     = 0xD001,  // (unregistered) Open Plugin Manager dialog
         pluginApplyChain    = 0xD002,  // Cmd+P - Apply chain to selection (offline render)
         pluginBypassAll     = 0xD003,  // Cmd+B - Bypass all plugins in chain
         pluginRescan        = 0xD004,  // Rescan VST3/AU plugins

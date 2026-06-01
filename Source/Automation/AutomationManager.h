@@ -150,5 +150,17 @@ private:
     juce::ListenerList<Listener> m_listeners;
     std::unique_ptr<AutomationRecorder> m_recorder;
 
+    // C7 fix: protects m_lanes (the vector itself + each lane's
+    // enabled/pluginIndex/parameterIndex fields) against the audio
+    // thread reading it in applyAutomation() while the message thread
+    // mutates it. AutomationLane is move-only (its AutomationCurve is
+    // COW + non-copyable), so a published-snapshot copy is not viable;
+    // instead the audio thread try-locks and SKIPS automation for one
+    // buffer on contention rather than blocking (§6.4). Message-thread
+    // mutators take the lock with a plain ScopedLock; they hold it only
+    // for the brief structural edit, and the audio thread holds it only
+    // for the lock-free curve reads (no allocation/no blocking inside).
+    mutable juce::CriticalSection m_lanesLock;
+
     void notifyListeners();
 };

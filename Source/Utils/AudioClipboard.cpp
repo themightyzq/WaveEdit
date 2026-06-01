@@ -42,6 +42,13 @@ void AudioClipboard::copyAudio(const juce::AudioBuffer<float>& buffer, double sa
 
 const juce::AudioBuffer<float>& AudioClipboard::getAudio() const
 {
+    // Take the same lock the sibling accessors take, for consistent access.
+    // NOTE: the returned reference is only valid while the caller does not race
+    // a concurrent copyAudio()/clear(). Clipboard ops are message-thread only,
+    // so this holds in practice; the lock guards against a torn read against a
+    // concurrent writer. Callers that need to retain the data across a possible
+    // mutation should makeCopyOf() it.
+    juce::ScopedLock sl(m_lock);
     return m_buffer;
 }
 

@@ -15,13 +15,17 @@
 
 #include "GoToPositionDialog.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+#include <cctype>
+#include <cmath>
+#include <string>
 
 namespace
 {
     // UI Constants
     constexpr int DIALOG_WIDTH = 400;
     constexpr int DIALOG_HEIGHT = 280;
-    constexpr int PADDING = 20;
+    constexpr int PADDING = waveedit::ui::kDialogPadding;
     constexpr int LABEL_HEIGHT = 24;
     constexpr int BUTTON_HEIGHT = 32;
     constexpr int BUTTON_WIDTH = 100;
@@ -60,20 +64,20 @@ GoToPositionDialog::GoToPositionDialog(AudioUnits::TimeFormat currentFormat,
 
     // Title label
     m_titleLabel.setText("Go To Position", juce::dontSendNotification);
-    m_titleLabel.setFont(juce::Font(20.0f, juce::Font::bold));
+    m_titleLabel.setFont(waveedit::ui::dialogTitleFont());
     m_titleLabel.setColour(juce::Label::textColourId, textFn());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
     // Instruction label
     m_instructionLabel.setText("Enter position to jump to:", juce::dontSendNotification);
-    m_instructionLabel.setFont(juce::Font(14.0f));
+    m_instructionLabel.setFont(waveedit::ui::bodyFont());
     m_instructionLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_instructionLabel);
 
     // Format label ("Format:")
     m_formatLabel.setText("Format:", juce::dontSendNotification);
-    m_formatLabel.setFont(juce::Font(14.0f));
+    m_formatLabel.setFont(waveedit::ui::bodyFont());
     m_formatLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_formatLabel);
 
@@ -84,15 +88,17 @@ GoToPositionDialog::GoToPositionDialog(AudioUnits::TimeFormat currentFormat,
     m_formatComboBox.addItem("Frames", static_cast<int>(AudioUnits::TimeFormat::Frames) + 1);
     m_formatComboBox.setSelectedId(static_cast<int>(m_timeFormat) + 1, juce::dontSendNotification);
     m_formatComboBox.addListener(this);
-    m_formatComboBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1a1a1a));
+    m_formatComboBox.setColour(juce::ComboBox::backgroundColourId,
+                               waveedit::ThemeManager::getInstance().getCurrent().panelAlternate);
     m_formatComboBox.setColour(juce::ComboBox::textColourId, textFn());
     m_formatComboBox.setColour(juce::ComboBox::outlineColourId, accentFn());
     addAndMakeVisible(m_formatComboBox);
 
     // Example label
     m_exampleLabel.setText(getFormatExample(), juce::dontSendNotification);
-    m_exampleLabel.setFont(juce::Font(12.0f));
-    m_exampleLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_exampleLabel.setFont(waveedit::ui::smallFont());
+    m_exampleLabel.setColour(juce::Label::textColourId,
+                             waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     addAndMakeVisible(m_exampleLabel);
 
     // Position text editor
@@ -101,8 +107,9 @@ GoToPositionDialog::GoToPositionDialog(AudioUnits::TimeFormat currentFormat,
     m_positionEditor.setScrollbarsShown(false);
     m_positionEditor.setCaretVisible(true);
     m_positionEditor.setPopupMenuEnabled(true);
-    m_positionEditor.setFont(juce::Font(16.0f));
-    m_positionEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff1a1a1a));
+    m_positionEditor.setFont(waveedit::ui::bodyFont());
+    m_positionEditor.setColour(juce::TextEditor::backgroundColourId,
+                               waveedit::ThemeManager::getInstance().getCurrent().panelAlternate);
     m_positionEditor.setColour(juce::TextEditor::textColourId, textFn());
     m_positionEditor.setColour(juce::TextEditor::outlineColourId, accentFn());
     m_positionEditor.setColour(juce::TextEditor::focusedOutlineColourId, accentFn().brighter());
@@ -111,7 +118,7 @@ GoToPositionDialog::GoToPositionDialog(AudioUnits::TimeFormat currentFormat,
 
     // Validation label (error/success messages)
     m_validationLabel.setText("", juce::dontSendNotification);
-    m_validationLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    m_validationLabel.setFont(waveedit::ui::smallFont());
     m_validationLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_validationLabel);
 
@@ -176,11 +183,11 @@ void GoToPositionDialog::resized()
     m_validationLabel.setBounds(bounds.removeFromTop(LABEL_HEIGHT));
     bounds.removeFromTop(SPACING * 2);
 
-    // Buttons (right-aligned)
+    // Buttons (right-aligned) - §6.8: Cancel left of primary action (Go rightmost)
     auto buttonRow = bounds.removeFromTop(BUTTON_HEIGHT);
-    m_cancelButton.setBounds(buttonRow.removeFromRight(BUTTON_WIDTH));
-    buttonRow.removeFromRight(SPACING);
     m_goButton.setBounds(buttonRow.removeFromRight(BUTTON_WIDTH));
+    buttonRow.removeFromRight(SPACING);
+    m_cancelButton.setBounds(buttonRow.removeFromRight(BUTTON_WIDTH));
 }
 
 //==============================================================================
@@ -284,29 +291,40 @@ int64_t GoToPositionDialog::parseInput(const juce::String& input) const
         {
             case AudioUnits::TimeFormat::Samples:
             {
-                // Parse as integer sample count
+                // H17: Reject non-integer input ("1e5" silently becomes 1 via
+                // getLargeIntValue). Accept only an optional leading minus
+                // followed by digits. This also blocks "NaN"/"Inf"/float notation.
+                const std::string stdStr = trimmed.toStdString();
+                if (stdStr.empty())
+                    return -1;
+                const size_t start = (stdStr[0] == '-') ? 1 : 0;
+                if (stdStr.size() <= start)
+                    return -1;
+                for (size_t k = start; k < stdStr.size(); ++k)
+                    if (!std::isdigit(static_cast<unsigned char>(stdStr[k])))
+                        return -1;
                 int64_t samples = trimmed.getLargeIntValue();
                 return (samples >= 0 && samples <= m_maxSamples) ? samples : -1;
             }
 
             case AudioUnits::TimeFormat::Milliseconds:
             {
-                // Parse as decimal milliseconds
+                // H17: Guard against NaN/Inf from std parsing before any cast.
                 double ms = trimmed.getDoubleValue();
-                if (ms < 0.0)
+                if (!std::isfinite(ms) || ms < 0.0)
                     return -1;
                 int64_t samples = AudioUnits::millisecondsToSamples(ms, m_sampleRate);
-                return (samples <= m_maxSamples) ? samples : -1;
+                return (samples >= 0 && samples <= m_maxSamples) ? samples : -1;
             }
 
             case AudioUnits::TimeFormat::Seconds:
             {
-                // Parse as decimal seconds
+                // H17: Guard against NaN/Inf from std parsing before any cast.
                 double seconds = trimmed.getDoubleValue();
-                if (seconds < 0.0)
+                if (!std::isfinite(seconds) || seconds < 0.0)
                     return -1;
                 int64_t samples = AudioUnits::secondsToSamples(seconds, m_sampleRate);
-                return (samples <= m_maxSamples) ? samples : -1;
+                return (samples >= 0 && samples <= m_maxSamples) ? samples : -1;
             }
 
             case AudioUnits::TimeFormat::Frames:
@@ -346,7 +364,7 @@ void GoToPositionDialog::validateInput()
     {
         // Valid input
         double timeInSeconds = AudioUnits::samplesToSeconds(m_cachedPosition, m_sampleRate);
-        juce::String validMsg = juce::String::formatted("✓ Valid position: %.3f seconds", timeInSeconds);
+        juce::String validMsg = juce::String::formatted("Valid position: %.3f seconds", timeInSeconds);
         m_validationLabel.setText(validMsg, juce::dontSendNotification);
         m_validationLabel.setColour(juce::Label::textColourId, successFn());
         m_goButton.setEnabled(true);
@@ -354,7 +372,7 @@ void GoToPositionDialog::validateInput()
     else
     {
         // Invalid input
-        m_validationLabel.setText("✗ Invalid format or out of range", juce::dontSendNotification);
+        m_validationLabel.setText("Invalid format or out of range", juce::dontSendNotification);
         m_validationLabel.setColour(juce::Label::textColourId, errorFn());
         m_goButton.setEnabled(false);
     }

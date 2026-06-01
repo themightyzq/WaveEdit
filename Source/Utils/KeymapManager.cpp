@@ -369,7 +369,34 @@ bool KeymapManager::loadTemplate(const juce::String& templateName)
     auto userIt = m_userTemplates.find(templateName);
     if (userIt != m_userTemplates.end())
     {
-        m_currentTemplate = Template::fromJSON(userIt->second);
+        Template loaded = Template::fromJSON(userIt->second);
+
+        // L10: A corrupt or truncated user keymap parses to an empty shortcut set.
+        // Rather than silently loading an empty keymap (no shortcuts at all), fall
+        // back to the built-in Default template so the user keeps a working keymap.
+        if (loaded.shortcuts.empty())
+        {
+            juce::Logger::writeToLog(
+                "KeymapManager::loadTemplate: user keymap '" + templateName +
+                "' is empty or failed to parse (" + userIt->second.getFullPathName() +
+                ") - falling back to Default");
+
+            auto defaultIt = m_builtInTemplates.find("Default");
+            if (defaultIt != m_builtInTemplates.end())
+            {
+                m_currentTemplate = defaultIt->second;
+                m_currentTemplateName = "Default";
+                applyTemplateToCommandManager();
+                saveToSettings();
+                return true;
+            }
+
+            // No built-in Default available either; report failure instead of
+            // installing an empty keymap.
+            return false;
+        }
+
+        m_currentTemplate = loaded;
         m_currentTemplateName = templateName;
 
         // Apply shortcuts to ApplicationCommandManager (THIS IS THE FIX!)
@@ -410,7 +437,10 @@ bool KeymapManager::importTemplate(const juce::File& file, bool makeActive)
     {
         DBG("KeymapManager: Template validation failed:");
         for (const auto& error : errors)
+        {
             DBG("  " + error);
+            juce::ignoreUnused(error); // only read in DBG (Release-stripped)
+        }
         return false;
     }
 
@@ -636,6 +666,7 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::viewAutoScroll] = "viewAutoScroll";
         commandNameMap[CommandIDs::viewZoomToRegion] = "viewZoomToRegion";
         commandNameMap[CommandIDs::viewAutoPreviewRegions] = "viewAutoPreviewRegions";
+        commandNameMap[CommandIDs::viewToggleRegions] = "viewToggleRegions";
         commandNameMap[CommandIDs::viewSpectrumAnalyzer] = "viewSpectrumAnalyzer";
 
         // Processing operations
@@ -648,6 +679,17 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::processDecreaseGain] = "processDecreaseGain";
         commandNameMap[CommandIDs::processParametricEQ] = "processParametricEQ";
         commandNameMap[CommandIDs::processGraphicalEQ] = "processGraphicalEQ";
+        commandNameMap[CommandIDs::processReverse] = "processReverse";
+        commandNameMap[CommandIDs::processInvert] = "processInvert";
+        commandNameMap[CommandIDs::processResample] = "processResample";
+        commandNameMap[CommandIDs::processTimeStretch] = "processTimeStretch";
+        commandNameMap[CommandIDs::processPitchShift] = "processPitchShift";
+
+        // Tools operations
+        commandNameMap[CommandIDs::toolsChannelConverter] = "toolsChannelConverter";
+        commandNameMap[CommandIDs::toolsChannelExtractor] = "toolsChannelExtractor";
+        commandNameMap[CommandIDs::toolsHeadTail] = "toolsHeadTail";
+        commandNameMap[CommandIDs::toolsLoopingTools] = "toolsLoopingTools";
 
         // Navigation operations
         commandNameMap[CommandIDs::navigateLeft] = "navigateLeft";
@@ -714,6 +756,7 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::regionSplit] = "regionSplit";
         commandNameMap[CommandIDs::regionCopy] = "regionCopy";
         commandNameMap[CommandIDs::regionPaste] = "regionPaste";
+        commandNameMap[CommandIDs::regionConvertToMarkers] = "regionConvertToMarkers";
 
         // Marker operations
         commandNameMap[CommandIDs::markerAdd] = "markerAdd";
@@ -721,6 +764,7 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::markerNext] = "markerNext";
         commandNameMap[CommandIDs::markerPrevious] = "markerPrevious";
         commandNameMap[CommandIDs::markerShowList] = "markerShowList";
+        commandNameMap[CommandIDs::markerConvertToRegions] = "markerConvertToRegions";
 
         // Plugin operations
         commandNameMap[CommandIDs::pluginShowChain] = "pluginShowChain";
@@ -730,8 +774,16 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::pluginRescan] = "pluginRescan";
         commandNameMap[CommandIDs::pluginShowSettings] = "pluginShowSettings";
         commandNameMap[CommandIDs::pluginClearCache] = "pluginClearCache";
+        commandNameMap[CommandIDs::pluginOffline] = "pluginOffline";
         commandNameMap[CommandIDs::automationToggleRecordArm] = "automationToggleRecordArm";
         commandNameMap[CommandIDs::pluginShowAutomationLanes] = "pluginShowAutomationLanes";
+
+        // Toolbar operations
+        commandNameMap[CommandIDs::toolbarCustomize] = "toolbarCustomize";
+        commandNameMap[CommandIDs::toolbarReset] = "toolbarReset";
+
+        // Batch operations
+        commandNameMap[CommandIDs::fileBatchProcessor] = "fileBatchProcessor";
     }
 
     auto it = commandNameMap.find(commandID);
@@ -772,14 +824,16 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::viewZoomSelection, CommandIDs::viewZoomOneToOne,
             CommandIDs::viewCycleTimeFormat, CommandIDs::viewAutoScroll,
             CommandIDs::viewZoomToRegion, CommandIDs::viewAutoPreviewRegions,
-            CommandIDs::viewSpectrumAnalyzer,
+            CommandIDs::viewToggleRegions, CommandIDs::viewSpectrumAnalyzer,
 
             // Processing operations (0x5000-0x50FF)
             CommandIDs::processFadeIn, CommandIDs::processFadeOut,
             CommandIDs::processNormalize, CommandIDs::processDCOffset,
             CommandIDs::processGain, CommandIDs::processIncreaseGain,
             CommandIDs::processDecreaseGain, CommandIDs::processParametricEQ,
-            CommandIDs::processGraphicalEQ,
+            CommandIDs::processGraphicalEQ, CommandIDs::processReverse,
+            CommandIDs::processInvert, CommandIDs::processResample,
+            CommandIDs::processTimeStretch, CommandIDs::processPitchShift,
 
             // Navigation operations (0x6000-0x60FF)
             CommandIDs::navigateLeft, CommandIDs::navigateRight,
@@ -817,19 +871,30 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::regionNudgeEndLeft, CommandIDs::regionNudgeEndRight,
             CommandIDs::regionBatchRename, CommandIDs::regionMerge,
             CommandIDs::regionSplit, CommandIDs::regionCopy, CommandIDs::regionPaste,
+            CommandIDs::regionConvertToMarkers,
 
             // Marker operations (0xC000-0xC0FF)
             CommandIDs::markerAdd, CommandIDs::markerDelete,
             CommandIDs::markerNext, CommandIDs::markerPrevious,
-            CommandIDs::markerShowList,
+            CommandIDs::markerShowList, CommandIDs::markerConvertToRegions,
 
             // Plugin operations (0xD000-0xD0FF)
             CommandIDs::pluginShowChain, CommandIDs::pluginAddPlugin,
             CommandIDs::pluginApplyChain, CommandIDs::pluginBypassAll,
             CommandIDs::pluginRescan, CommandIDs::pluginShowSettings,
-            CommandIDs::pluginClearCache,
+            CommandIDs::pluginClearCache, CommandIDs::pluginOffline,
             CommandIDs::automationToggleRecordArm,
-            CommandIDs::pluginShowAutomationLanes
+            CommandIDs::pluginShowAutomationLanes,
+
+            // Toolbar operations (0xE000-0xE0FF)
+            CommandIDs::toolbarCustomize, CommandIDs::toolbarReset,
+
+            // Batch operations (0xF000-0xF0FF)
+            CommandIDs::fileBatchProcessor,
+
+            // Tools operations (0xF100-0xF1FF)
+            CommandIDs::toolsChannelConverter, CommandIDs::toolsChannelExtractor,
+            CommandIDs::toolsHeadTail, CommandIDs::toolsLoopingTools
         };
 
         for (const auto& id : allCommandIDs)
@@ -906,4 +971,5 @@ void KeymapManager::applyTemplateToCommandManager()
 
     DBG("KeymapManager: Applied " + juce::String(shortcutsApplied) +
                             " shortcuts (" + juce::String(shortcutsFailed) + " failed)");
+    juce::ignoreUnused(shortcutsApplied, shortcutsFailed); // only read in DBG (Release-stripped)
 }
