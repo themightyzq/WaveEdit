@@ -19,6 +19,8 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "../DSP/HeadTailRecipe.h"
 
+class AudioEngine; // full include in the .cpp (preview playback)
+
 /**
  * Head & Tail Processing Dialog.
  *
@@ -38,7 +40,8 @@
  *   - Recipe summary text editor (80px)
  *   - Button row: Preview | Apply | Cancel (centred)
  */
-class HeadTailDialog : public juce::Component
+class HeadTailDialog : public juce::Component,
+                       private juce::Timer
 {
 public:
     /**
@@ -46,9 +49,12 @@ public:
      *
      * @param audioBuffer   Source audio buffer (not modified by dialog)
      * @param sampleRate    Sample rate for time calculations
+     * @param audioEngine   Engine used for §6.8 audio preview (may be null,
+     *                      in which case the preview footer is inert).
      */
     HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
-                   double sampleRate);
+                   double sampleRate,
+                   AudioEngine* audioEngine = nullptr);
 
     ~HeadTailDialog() override;
 
@@ -192,6 +198,30 @@ private:
 
     const juce::AudioBuffer<float>& m_audioBuffer;
     double                           m_sampleRate;
+
+    //==========================================================================
+    // Audio preview (§6.8) — offline-render the recipe, play via OFFLINE_BUFFER.
+
+    AudioEngine*             m_audioEngine = nullptr;
+    juce::AudioBuffer<float> m_originalBuffer;   // owned copy for A/B + async lifetime
+    juce::AudioBuffer<float> m_processedBuffer;  // last offline render
+    bool m_processedPlayable = false;
+    bool m_previewActive     = false;
+    bool m_bypassActive      = false;
+
+    static constexpr int kPreviewDebounceMs = 200;
+
+    /** Recompute and render the offline preview buffer from the current recipe. */
+    void renderProcessed();
+    /** Begin audio preview (render + load + loop + play). No-op if not playable. */
+    void startPreview();
+    /** Stop audio preview and restore the engine to normal. Idempotent. */
+    void stopPreview();
+    /** (Re)load the active (processed or bypassed) buffer + loop points and seek to 0. */
+    void reloadActiveBuffer();
+    /** Refresh the waveform overlay (detection + trim region) from the recipe. */
+    void updateOverlay();
+    void timerCallback() override;
 
     //==========================================================================
     // Shared layout constants
