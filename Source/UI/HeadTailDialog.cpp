@@ -554,7 +554,7 @@ void HeadTailDialog::startPreview()
     }
     m_audioEngine->play();
 
-    m_previewButton.setButtonText("Stop Preview");
+    m_previewButton.setButtonText("STOP");   // short label: "Stop Preview" was clipped
     m_previewButton.setColour(juce::TextButton::buttonColourId,
                               ui::colour(ui::kButtonPreviewActive));
     m_bypassButton.setEnabled(true);
