@@ -16,7 +16,9 @@
 #include "CommandPalette.h"
 #include "../Commands/CommandIDs.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 #include <algorithm>
+#include <map>
 
 //==============================================================================
 CommandPalette::CommandPalette(juce::ApplicationCommandManager& commandManager)
@@ -24,7 +26,7 @@ CommandPalette::CommandPalette(juce::ApplicationCommandManager& commandManager)
 {
     setWantsKeyboardFocus(false);
 
-    m_searchField.setFont(juce::FontOptions(16.0f));
+    m_searchField.setFont(juce::FontOptions(waveedit::ui::kFontSectionHeader));
     {
         const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
         m_searchField.setTextToShowWhenEmpty("Type a command...", theme.textMuted);
@@ -56,6 +58,7 @@ void CommandPalette::show()
     updateFilteredList();
     m_selectedIndex = 0;
     m_scrollOffset = 0;
+    m_hoveredIndex = -1;
 
     // Position at top-center of parent
     if (auto* parent = getParentComponent())
@@ -107,7 +110,7 @@ void CommandPalette::paint(juce::Graphics& g)
     if (m_filteredCommands.empty())
     {
         g.setColour(theme.textMuted);
-        g.setFont(juce::FontOptions(13.0f));
+        g.setFont(juce::FontOptions(waveedit::ui::kFontSmall));
         g.drawText("No matching commands", listArea,
                    juce::Justification::centred);
         return;
@@ -123,8 +126,13 @@ void CommandPalette::paint(juce::Graphics& g)
         int y = kSearchHeight + (i - m_scrollOffset) * kItemHeight;
         auto rowBounds = juce::Rectangle<int>(0, y, getWidth(), kItemHeight);
 
-        // Selected row highlight
+        // Selected / hovered row highlight (selection wins).
         if (i == m_selectedIndex)
+        {
+            g.setColour(theme.selection);
+            g.fillRect(rowBounds);
+        }
+        else if (i == m_hoveredIndex)
         {
             g.setColour(theme.border);
             g.fillRect(rowBounds);
@@ -136,7 +144,7 @@ void CommandPalette::paint(juce::Graphics& g)
         if (entry.category.isNotEmpty())
         {
             auto categoryColour = getCategoryColour(entry.category);
-            g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+            g.setFont(juce::FontOptions(waveedit::ui::kFontTiny, juce::Font::bold));
             int badgeWidth = g.getCurrentFont().getStringWidth(entry.category) + 10;
             auto badgeBounds = contentBounds.removeFromLeft(badgeWidth)
                                    .withSizeKeepingCentre(badgeWidth, 18);
@@ -152,7 +160,7 @@ void CommandPalette::paint(juce::Graphics& g)
         // Shortcut text (right-aligned)
         if (entry.shortcutText.isNotEmpty())
         {
-            g.setFont(juce::FontOptions(11.0f));
+            g.setFont(juce::FontOptions(waveedit::ui::kFontMonospace));
             g.setColour(entry.isActive ? theme.textMuted : theme.textMuted.darker(0.4f));
             auto shortcutBounds = contentBounds.removeFromRight(120);
             g.drawText(entry.shortcutText, shortcutBounds,
@@ -160,10 +168,37 @@ void CommandPalette::paint(juce::Graphics& g)
         }
 
         // Command name
-        g.setFont(juce::FontOptions(14.0f));
+        g.setFont(juce::FontOptions(waveedit::ui::kFontBody));
         g.setColour(entry.isActive ? theme.text : theme.textMuted);
         g.drawText(entry.name, contentBounds,
                    juce::Justification::centredLeft);
+    }
+
+    // Scroll indicator: a themed thumb on the right edge of the list when
+    // there are more results than fit on screen.
+    if (hasOverflow())
+    {
+        const int total = static_cast<int>(m_filteredCommands.size());
+        const int trackTop = kSearchHeight + 2;
+        const int trackHeight = getHeight() - trackTop - 2;
+
+        g.setColour(theme.border.withAlpha(0.4f));
+        const int trackX = getWidth() - kScrollbarWidth - 2;
+        g.fillRoundedRectangle(static_cast<float>(trackX), static_cast<float>(trackTop),
+                               static_cast<float>(kScrollbarWidth), static_cast<float>(trackHeight),
+                               static_cast<float>(kScrollbarWidth) * 0.5f);
+
+        const float thumbFrac = static_cast<float>(kMaxVisibleItems) / static_cast<float>(total);
+        const float thumbHeight = juce::jmax(16.0f, trackHeight * thumbFrac);
+        const float scrollFrac = (total > kMaxVisibleItems)
+            ? static_cast<float>(m_scrollOffset) / static_cast<float>(total - kMaxVisibleItems)
+            : 0.0f;
+        const float thumbY = trackTop + scrollFrac * (trackHeight - thumbHeight);
+
+        g.setColour(theme.accent.withAlpha(0.7f));
+        g.fillRoundedRectangle(static_cast<float>(trackX), thumbY,
+                               static_cast<float>(kScrollbarWidth), thumbHeight,
+                               static_cast<float>(kScrollbarWidth) * 0.5f);
     }
 }
 
@@ -183,6 +218,67 @@ void CommandPalette::parentSizeChanged()
 }
 
 //==============================================================================
+// Mouse handling
+//==============================================================================
+
+int CommandPalette::rowIndexAt(juce::Point<int> position) const
+{
+    if (position.y < kSearchHeight)
+        return -1;
+
+    int row = m_scrollOffset + (position.y - kSearchHeight) / kItemHeight;
+    if (row < 0 || row >= static_cast<int>(m_filteredCommands.size()))
+        return -1;
+
+    // Ignore rows below the visible window.
+    if (row >= m_scrollOffset + kMaxVisibleItems)
+        return -1;
+
+    return row;
+}
+
+bool CommandPalette::hasOverflow() const
+{
+    return static_cast<int>(m_filteredCommands.size()) > kMaxVisibleItems;
+}
+
+void CommandPalette::mouseMove(const juce::MouseEvent& event)
+{
+    int row = rowIndexAt(event.getPosition());
+    if (row != m_hoveredIndex)
+    {
+        m_hoveredIndex = row;
+        repaint();
+    }
+}
+
+void CommandPalette::mouseExit(const juce::MouseEvent&)
+{
+    if (m_hoveredIndex != -1)
+    {
+        m_hoveredIndex = -1;
+        repaint();
+    }
+}
+
+void CommandPalette::mouseDown(const juce::MouseEvent& event)
+{
+    int row = rowIndexAt(event.getPosition());
+    if (row >= 0)
+    {
+        m_selectedIndex = row;
+        repaint();
+    }
+}
+
+void CommandPalette::mouseUp(const juce::MouseEvent& event)
+{
+    int row = rowIndexAt(event.getPosition());
+    if (row >= 0 && row == m_selectedIndex)
+        executeSelectedCommand();
+}
+
+//==============================================================================
 // TextEditor::Listener
 //==============================================================================
 
@@ -191,6 +287,7 @@ void CommandPalette::textEditorTextChanged(juce::TextEditor&)
     updateFilteredList();
     m_selectedIndex = 0;
     m_scrollOffset = 0;
+    m_hoveredIndex = -1;
 
     // Resize to fit content
     int visibleItems = std::min(static_cast<int>(m_filteredCommands.size()),
@@ -355,7 +452,15 @@ void CommandPalette::executeSelectedCommand()
     if (m_selectedIndex >= 0
         && m_selectedIndex < static_cast<int>(m_filteredCommands.size()))
     {
-        auto id = m_filteredCommands[static_cast<size_t>(m_selectedIndex)]->commandID;
+        const auto* entry = m_filteredCommands[static_cast<size_t>(m_selectedIndex)];
+
+        // Disabled commands can't be executed; ignore the activation so
+        // Return/click on a greyed-out row is a no-op rather than a
+        // silent failure.
+        if (!entry->isActive)
+            return;
+
+        auto id = entry->commandID;
         dismiss();
         m_commandManager.invokeDirectly(id, true);
     }
@@ -446,25 +551,33 @@ int CommandPalette::fuzzyMatch(const juce::String& query, const juce::String& te
 
 juce::Colour CommandPalette::getCategoryColour(const juce::String& category)
 {
-    juce::String lower = category.toLowerCase();
+    // Single deduplicated table with visually distinct hues per category.
+    // Built once and reused. Hues are spread around the wheel so adjacent
+    // workflows (e.g. playback vs region) don't collide. Theme-agnostic:
+    // these are workflow accent colours, rendered behind 0.2-alpha badges,
+    // chosen bright enough to stay legible on dark and light panels.
+    static const std::map<juce::String, juce::Colour> kCategoryColours = {
+        { "file",       juce::Colour(0xff5599dd) },  // blue
+        { "edit",       juce::Colour(0xffe0709a) },  // pink (was gray)
+        { "view",       juce::Colour(0xff35c2b0) },  // teal
+        { "process",    juce::Colour(0xffaa77cc) },  // purple
+        { "playback",   juce::Colour(0xff4ec24e) },  // green
+        { "navigation", juce::Colour(0xff77aadd) },  // light blue
+        { "selection",  juce::Colour(0xff5e74c4) },  // indigo
+        { "plugin",     juce::Colour(0xffdd7766) },  // coral
+        { "plugins",    juce::Colour(0xffdd7766) },  // coral (alias)
+        { "region",     juce::Colour(0xff9ad24a) },  // lime (distinct from playback)
+        { "marker",     juce::Colour(0xffddaa44) },  // amber
+        { "snap",       juce::Colour(0xffcc9966) },  // tan
+        { "tools",      juce::Colour(0xff7fae3a) },  // olive
+        { "help",       juce::Colour(0xff6699cc) },  // sky blue
+        { "tab",        juce::Colour(0xff9b7ec4) },  // muted purple
+        { "toolbar",    juce::Colour(0xffc78f4a) },  // bronze (was gray)
+        { "batch",      juce::Colour(0xffd97746) }   // orange
+    };
 
-    if (lower == "file")        return juce::Colour(0xff5599dd);  // blue
-    if (lower == "edit")        return juce::Colour(0xff999999);  // gray
-    if (lower == "view")        return juce::Colour(0xff55bbaa);  // teal
-    if (lower == "process")     return juce::Colour(0xffaa77cc);  // purple
-    if (lower == "playback")    return juce::Colour(0xff55cc77);  // green
-    if (lower == "navigation")  return juce::Colour(0xff77aadd);  // light blue
-    if (lower == "selection")   return juce::Colour(0xff88aacc);  // steel blue
-    if (lower == "plugin")      return juce::Colour(0xffdd7766);  // coral
-    if (lower == "plugins")     return juce::Colour(0xffdd7766);  // coral
-    if (lower == "region")      return juce::Colour(0xff66cc66);  // green
-    if (lower == "marker")      return juce::Colour(0xffddaa44);  // amber
-    if (lower == "snap")        return juce::Colour(0xffcc9966);  // tan
-    if (lower == "tools")       return juce::Colour(0xff99bb55);  // olive
-    if (lower == "help")        return juce::Colour(0xff6699cc);  // sky blue
-    if (lower == "tab")         return juce::Colour(0xff8888aa);  // muted purple
-    if (lower == "toolbar")     return juce::Colour(0xff888888);  // gray
-    if (lower == "batch")       return juce::Colour(0xffbb8855);  // orange
+    static const juce::Colour kDefaultColour(0xffaaaaaa);  // neutral grey default
 
-    return juce::Colour(0xff888888);  // default gray
+    auto it = kCategoryColours.find(category.toLowerCase());
+    return (it != kCategoryColours.end()) ? it->second : kDefaultColour;
 }

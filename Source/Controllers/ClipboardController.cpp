@@ -26,6 +26,52 @@ ClipboardController::ClipboardController(DocumentManager& docManager)
 {
 }
 
+bool ClipboardController::conformChannels(const juce::AudioBuffer<float>& source,
+                                          int targetChannels,
+                                          juce::AudioBuffer<float>& out)
+{
+    const int srcChannels = source.getNumChannels();
+    const int numSamples = source.getNumSamples();
+
+    if (srcChannels <= 0 || numSamples <= 0 || targetChannels <= 0)
+    {
+        return false;
+    }
+
+    // No conversion needed.
+    if (srcChannels == targetChannels)
+    {
+        out = source;
+        return true;
+    }
+
+    // Mono source -> N channels: duplicate the single channel to every target.
+    if (srcChannels == 1)
+    {
+        out.setSize(targetChannels, numSamples);
+        for (int ch = 0; ch < targetChannels; ++ch)
+        {
+            out.copyFrom(ch, 0, source, 0, 0, numSamples);
+        }
+        return true;
+    }
+
+    // N-channel source -> mono: average all source channels (downmix).
+    if (targetChannels == 1)
+    {
+        out.setSize(1, numSamples);
+        out.clear();
+        for (int ch = 0; ch < srcChannels; ++ch)
+        {
+            out.addFrom(0, 0, source, ch, 0, numSamples, 1.0f / static_cast<float>(srcChannels));
+        }
+        return true;
+    }
+
+    // Any other mismatch (e.g. stereo <-> 4ch) has no deterministic mapping.
+    return false;
+}
+
 void ClipboardController::selectAll(Document* doc)
 {
     if (!doc || !doc->getAudioEngine().isFileLoaded())
@@ -223,8 +269,9 @@ void ClipboardController::pasteAtCursor(Document* doc)
             }
         }
 
-        // Get clipboard audio
-        auto clipboardAudio = AudioClipboard::getInstance().getAudio();
+        // Get clipboard audio (copy: we may mutate channel layout below)
+        juce::AudioBuffer<float> clipboardAudio;
+        clipboardAudio.makeCopyOf(AudioClipboard::getInstance().getAudio());
 
         if (clipboardAudio.getNumSamples() <= 0)
         {
@@ -236,8 +283,35 @@ void ClipboardController::pasteAtCursor(Document* doc)
 
         if (focusedChannels != -1)
         {
-            // Per-channel mode: replace focused channels only (no length change)
-            doc->getUndoManager().beginNewTransaction("Paste to Channels");
+            // ----------------------------------------------------------------
+            // Per-channel mode (H5/M2): reconcile clipboard channel count
+            // against the number of focused channels BEFORE opening a
+            // transaction, so we never silently drop/partial-write and never
+            // leave a phantom undo entry.
+            // ----------------------------------------------------------------
+            int focusedCount = 0;
+            for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
+                if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
+
+            const int clipChannels = clipboardAudio.getNumChannels();
+
+            // Deterministic cases:
+            //  - clipChannels == focusedCount : 1:1 mapping (exact).
+            //  - clipChannels == 1            : duplicate mono to all focused.
+            // Anything else has no safe mapping -> abort cleanly, no transaction.
+            if (clipChannels != focusedCount && clipChannels != 1)
+            {
+                ErrorDialog::show(
+                    "Paste Channel Mismatch",
+                    juce::String::formatted(
+                        "The clipboard has %d channel%s but %d channel%s "
+                        "selected for per-channel paste.\n\n"
+                        "Select a matching number of channels (or copy mono audio "
+                        "to paste into any selection).",
+                        clipChannels, clipChannels != 1 ? "s" : "",
+                        focusedCount, focusedCount != 1 ? "s" : ""));
+                return;
+            }
 
             // Determine paste location and length
             int64_t startSample = insertSample;
@@ -261,6 +335,11 @@ void ClipboardController::pasteAtCursor(Document* doc)
                 DBG("Paste: No room at cursor position");
                 return;
             }
+
+            // M2: validation passed and the action is known to perform
+            // successfully (deterministic channel mapping checked above, room
+            // confirmed here), so it is now safe to open the transaction.
+            doc->getUndoManager().beginNewTransaction("Paste to Channels");
 
             // Truncate clipboard if necessary
             juce::AudioBuffer<float> pasteAudio;
@@ -295,11 +374,6 @@ void ClipboardController::pasteAtCursor(Document* doc)
             // Perform the replace and add to undo manager
             doc->getUndoManager().perform(replaceAction);
 
-            // Count focused channels for log message
-            int focusedCount = 0;
-            for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
-                if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
-
             DBG(juce::String::formatted(
                 "Pasted %.2f seconds to %d channel%s (per-channel paste)",
                 pasteAudio.getNumSamples() / currentSampleRate,
@@ -307,7 +381,30 @@ void ClipboardController::pasteAtCursor(Document* doc)
         }
         else
         {
-            // Normal mode: insert or replace selection
+            // ----------------------------------------------------------------
+            // Normal mode (C12/M2): the insert/replace primitives require the
+            // pasted audio to match the document's channel count. Conform the
+            // clipboard layout BEFORE opening any transaction. If the mismatch
+            // has no deterministic mapping, abort with a user-facing error and
+            // leave the undo history untouched (no phantom "Paste" entry).
+            // ----------------------------------------------------------------
+            const int docChannels = doc->getBufferManager().getNumChannels();
+            juce::AudioBuffer<float> conformed;
+            if (!conformChannels(clipboardAudio, docChannels, conformed))
+            {
+                ErrorDialog::show(
+                    "Paste Channel Mismatch",
+                    juce::String::formatted(
+                        "The clipboard has %d channels but this file has %d.\n\n"
+                        "Pasting is only supported when channel counts match, or "
+                        "between mono and multi-channel audio. Convert the channel "
+                        "layout first (Process menu) and try again.",
+                        clipboardAudio.getNumChannels(), docChannels));
+                return;
+            }
+
+            // Validation passed: the action will perform successfully, so it is
+            // now safe to open the transaction (M2).
             doc->getUndoManager().beginNewTransaction("Paste");
 
             // If there's a selection, replace it; otherwise insert at cursor
@@ -325,7 +422,7 @@ void ClipboardController::pasteAtCursor(Document* doc)
                     doc->getWaveformDisplay(),
                     startSample,
                     endSample - startSample,
-                    clipboardAudio
+                    conformed
                 );
 
                 // Perform the replace and add to undo manager
@@ -333,7 +430,7 @@ void ClipboardController::pasteAtCursor(Document* doc)
 
                 DBG(juce::String::formatted(
                     "Pasted %.2f seconds from clipboard, replacing selection (undoable)",
-                    clipboardAudio.getNumSamples() / currentSampleRate));
+                    conformed.getNumSamples() / currentSampleRate));
             }
             else
             {
@@ -343,7 +440,7 @@ void ClipboardController::pasteAtCursor(Document* doc)
                     doc->getAudioEngine(),
                     doc->getWaveformDisplay(),
                     insertSample,
-                    clipboardAudio
+                    conformed
                 );
 
                 // Perform the insert and add to undo manager
@@ -351,7 +448,7 @@ void ClipboardController::pasteAtCursor(Document* doc)
 
                 DBG(juce::String::formatted(
                     "Pasted %.2f seconds from clipboard (undoable)",
-                    clipboardAudio.getNumSamples() / currentSampleRate));
+                    conformed.getNumSamples() / currentSampleRate));
             }
         }
 

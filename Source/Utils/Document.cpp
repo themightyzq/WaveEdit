@@ -79,6 +79,13 @@ Document::~Document()
     // destruction with half-destroyed members.
     m_audioEngine.getPluginChain().removeChangeListener(this);
 
+    // Clear undo history before members tear down. Undo actions may hold
+    // references to sibling members (buffer manager, region/marker managers);
+    // closeFile() does this, but a Document destroyed without an explicit
+    // closeFile() would otherwise let those actions outlive (and potentially
+    // dereference) siblings during destruction (L13).
+    m_undoManager.clearUndoHistory();
+
     // Ensure audio engine is properly closed
     m_audioEngine.closeAudioFile();
 }
@@ -297,15 +304,13 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
     // Update origination date/time to now
     m_bwfMetadata.setOriginationDateTime(juce::Time::getCurrentTime());
 
-    // Convert BWF metadata to JUCE format
+    // Convert BWF metadata to JUCE format. (The iXML chunk is appended
+    // separately by appendiXMLChunk below: JUCE's WAV writer ignores an
+    // "iXML" metadata key, so setting it here was dead code that also
+    // misled readers into thinking iXML round-trips through JUCE. The
+    // appendiXMLChunk path now preserves the bext chunk JUCE writes, so
+    // BOTH BWF and iXML survive the save (C11).)
     juce::StringPairArray metadata = m_bwfMetadata.toJUCEMetadata();
-
-    // Add iXML metadata (Phase 4 Tier 1 - UCS/SoundMiner compatibility)
-    if (m_ixmlMetadata.hasMetadata())
-    {
-        metadata.set("iXML", m_ixmlMetadata.toXMLString());
-        DBG("Embedding iXML metadata in file");
-    }
 
     // Save using AudioFileManager
     AudioFileManager fileManager;

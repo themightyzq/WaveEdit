@@ -31,6 +31,7 @@
 #include "Audio/ChannelLayout.h"
 #include "Automation/AutomationRecorder.h"
 #include "Commands/CommandIDs.h"
+#include "UI/ThemeManager.h"
 #include "Commands/CommandHandler.h"
 #include "Commands/MenuBuilder.h"
 #include "Utils/Settings.h"
@@ -355,11 +356,17 @@ public:
         addAndMakeVisible(m_tabComponent);
 
         // Setup no-file label
-        m_noFileLabel.setText("No file open", juce::dontSendNotification);
+        m_noFileLabel.setText("No audio file loaded", juce::dontSendNotification);
         m_noFileLabel.setFont(juce::Font(20.0f));
         m_noFileLabel.setJustificationType(juce::Justification::centred);
-        m_noFileLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+        m_noFileLabel.setColour(juce::Label::textColourId,
+                                waveedit::ThemeManager::getInstance().getCurrent().textMuted);
         addAndMakeVisible(m_noFileLabel);
+
+        // Empty-state call to action so the first 5 seconds aren't a dead end.
+        m_openFileButton.setButtonText("Open File...");
+        m_openFileButton.onClick = [this] { openFile(); };
+        addAndMakeVisible(m_openFileButton);
 
         // Create container for current document components
         m_currentDocumentContainer = std::make_unique<juce::Component>();
@@ -375,9 +382,13 @@ public:
         addKeyListener(m_commandManager.getKeyMappings());
 
         #if JUCE_MAC
-        // Register menu bar with macOS native menu system
-        // CRITICAL: This enables Cmd+, and other macOS system shortcuts to work
-        juce::MenuBarModel::setMacMainMenu(this);
+        // Register menu bar with macOS native menu system.
+        // CRITICAL: This enables Cmd+, and other macOS system shortcuts to work.
+        // Put Preferences under the application (WaveEdit) menu where Mac users
+        // expect it, rather than in the File menu (see MenuBuilder).
+        juce::PopupMenu extraAppleMenuItems;
+        extraAppleMenuItems.addCommandItem(&m_commandManager, CommandIDs::filePreferences, "Preferences...");
+        juce::MenuBarModel::setMacMainMenu(this, &extraAppleMenuItems);
         #endif
 
         // Start timer to update playback position
@@ -658,6 +669,14 @@ public:
 
     void documentRemoved(Document* document, int /*index*/) override
     {
+        // C14: Prevent a dangling raw pointer. If the document being removed is
+        // the one tracked as "previous", null it so a later document switch does
+        // not call into freed memory (UAF).
+        if (m_previousDocument == document)
+        {
+            m_previousDocument = nullptr;
+        }
+
         m_pluginController.notifyDocumentClosed(document);
         updateComponentVisibility();
     }
@@ -795,6 +814,7 @@ public:
         // Show/hide tab bar and no-file label
         m_tabComponent.setVisible(hasDoc);
         m_noFileLabel.setVisible(!hasDoc);
+        m_openFileButton.setVisible(!hasDoc);
         m_currentDocumentContainer->setVisible(hasDoc);
 
         // Clear current container
@@ -991,7 +1011,7 @@ public:
             m_formatIndicatorBounds = formatSection;
 
             juce::String formatName = AudioUnits::timeFormatToString(m_timeFormat);
-            juce::String formatText = "[" + formatName + " ▼]";
+            juce::String formatText = "[" + formatName + "]";
 
             g.setColour(juce::Colours::lightgreen);
             g.setFont(12.0f);
@@ -1047,9 +1067,9 @@ public:
             g.setColour(juce::Colours::grey);
             g.setFont(12.0f);
            #if JUCE_MAC
-            const char* openHint = "No file loaded - Press Cmd+O to open or drag & drop a WAV file";
+            const char* openHint = "Press Cmd+O or drag in a file to open";
            #else
-            const char* openHint = "No file loaded - Press Ctrl+O to open or drag & drop a WAV file";
+            const char* openHint = "Press Ctrl+O or drag in a file to open";
            #endif
             g.drawText(openHint, statusBar.reduced(10, 0), juce::Justification::centredLeft, true);
         }
@@ -1103,8 +1123,11 @@ public:
             if (m_toolbar)
                 m_toolbar->setBounds(0, 0, 0, 0);
 
-            // Center the no-file label
+            // Center the no-file label, with an Open button just below it.
             m_noFileLabel.setBounds(bounds);
+            m_openFileButton.setBounds(
+                juce::Rectangle<int>(0, 0, 150, 34)
+                    .withCentre({ bounds.getCentreX(), bounds.getCentreY() + 44 }));
         }
 
         // Command palette overlay (always positioned at top-center)
@@ -1228,7 +1251,19 @@ public:
 
     void handleRecordCommand()
     {
-        m_recordingController.handleRecordCommand(this, m_documentManager, m_audioDeviceManager);
+        // Mirror the dialog's live capture state on the persistent toolbar
+        // transport so the REC indicator is driven by real recording, not just
+        // the (non-modal) dialog being open.
+        juce::Component::SafePointer<MainComponent> safeThis(this);
+        m_recordingController.handleRecordCommand(
+            this, m_documentManager, m_audioDeviceManager,
+            [safeThis](bool isRecording)
+            {
+                if (safeThis == nullptr)
+                    return;
+                if (auto* transport = safeThis->m_toolbar->getCompactTransport())
+                    transport->setRecording(isRecording);
+            });
     }
 
     /**
@@ -1888,6 +1923,7 @@ private:
 
     // "No file open" label
     juce::Label m_noFileLabel;
+    juce::TextButton m_openFileButton;
 
     // Current document display containers (for showing active document's components)
     std::unique_ptr<juce::Component> m_currentDocumentContainer;

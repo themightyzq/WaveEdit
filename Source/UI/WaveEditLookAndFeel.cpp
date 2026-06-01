@@ -15,22 +15,63 @@ namespace waveedit
 
 WaveEditLookAndFeel::WaveEditLookAndFeel()
 {
-    // Set default dark theme colors
-    setColour(juce::ResizableWindow::backgroundColourId, juce::Colour(ui::kBackgroundPrimary));
-    setColour(juce::TextButton::buttonColourId, juce::Colour(ui::kSurface));
-    setColour(juce::TextButton::textColourOffId, juce::Colour(ui::kTextPrimary));
-    setColour(juce::TextButton::textColourOnId, juce::Colour(ui::kTextPrimary));
-    setColour(juce::ComboBox::backgroundColourId, juce::Colour(ui::kBackgroundSecondary));
-    setColour(juce::ComboBox::textColourId, juce::Colour(ui::kTextPrimary));
-    setColour(juce::ComboBox::outlineColourId, juce::Colour(ui::kBorder));
-    setColour(juce::TextEditor::backgroundColourId, juce::Colour(ui::kBackgroundSecondary));
-    setColour(juce::TextEditor::textColourId, juce::Colour(ui::kTextPrimary));
-    setColour(juce::TextEditor::outlineColourId, juce::Colour(ui::kBorder));
-    setColour(juce::TextEditor::focusedOutlineColourId, juce::Colour(ui::kAccentPrimary));
-    setColour(juce::Label::textColourId, juce::Colour(ui::kTextPrimary));
-    setColour(juce::Slider::thumbColourId, juce::Colour(ui::kTextPrimary));
-    setColour(juce::Slider::trackColourId, juce::Colour(ui::kSurface));
-    setColour(juce::Slider::backgroundColourId, juce::Colour(ui::kBackgroundSecondary));
+    applyThemeColours();
+
+    // Re-skin live when the user switches Dark / Light / High Contrast.
+    ThemeManager::getInstance().addChangeListener(this);
+}
+
+WaveEditLookAndFeel::~WaveEditLookAndFeel()
+{
+    ThemeManager::getInstance().removeChangeListener(this);
+}
+
+void WaveEditLookAndFeel::applyThemeColours()
+{
+    const auto& t = theme();
+
+    setColour(juce::ResizableWindow::backgroundColourId, t.background);
+
+    setColour(juce::TextButton::buttonColourId, t.panel);
+    setColour(juce::TextButton::textColourOffId, t.text);
+    setColour(juce::TextButton::textColourOnId, t.text);
+
+    setColour(juce::ComboBox::backgroundColourId, t.panelAlternate);
+    setColour(juce::ComboBox::textColourId, t.text);
+    setColour(juce::ComboBox::outlineColourId, t.border);
+    setColour(juce::ComboBox::arrowColourId, t.textMuted);
+
+    setColour(juce::TextEditor::backgroundColourId, t.panelAlternate);
+    setColour(juce::TextEditor::textColourId, t.text);
+    setColour(juce::TextEditor::outlineColourId, t.border);
+    setColour(juce::TextEditor::focusedOutlineColourId, t.accent);
+    setColour(juce::TextEditor::highlightColourId, t.accent.withAlpha(0.30f));
+    setColour(juce::TextEditor::highlightedTextColourId, t.text);
+
+    setColour(juce::Label::textColourId, t.text);
+
+    setColour(juce::Slider::thumbColourId, t.accent);
+    setColour(juce::Slider::trackColourId, t.panel);
+    setColour(juce::Slider::backgroundColourId, t.panelAlternate);
+
+    // Menus inherit the theme so right-click / dropdown surfaces re-skin too.
+    setColour(juce::PopupMenu::backgroundColourId, t.panel);
+    setColour(juce::PopupMenu::textColourId, t.text);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, t.accent);
+    setColour(juce::PopupMenu::highlightedTextColourId, t.background);
+}
+
+void WaveEditLookAndFeel::changeListenerCallback(juce::ChangeBroadcaster* /*source*/)
+{
+    applyThemeColours();
+
+    // As the default LookAndFeel, refreshing every top-level window cascades a
+    // repaint to all children, re-skinning all standard controls at once.
+    for (int i = juce::TopLevelWindow::getNumTopLevelWindows(); --i >= 0;)
+    {
+        if (auto* w = juce::TopLevelWindow::getTopLevelWindow(i))
+            w->repaint();
+    }
 }
 
 void WaveEditLookAndFeel::drawButtonBackground(juce::Graphics& g,
@@ -42,17 +83,21 @@ void WaveEditLookAndFeel::drawButtonBackground(juce::Graphics& g,
     auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
     auto baseColour = backgroundColour;
 
+    // Luminance-aware so hover/press stay visible on both dark and light
+    // surfaces (brighter() is a no-op on a white button).
+    const bool isLightSurface = baseColour.getPerceivedBrightness() > 0.5f;
+
     if (shouldDrawButtonAsDown)
-        baseColour = baseColour.darker(0.2f);
+        baseColour = isLightSurface ? baseColour.darker(0.18f) : baseColour.brighter(0.30f);
     else if (shouldDrawButtonAsHighlighted)
-        baseColour = baseColour.brighter(0.1f);
+        baseColour = isLightSurface ? baseColour.darker(0.08f) : baseColour.brighter(0.18f);
 
     // Draw button background
     g.setColour(baseColour);
     g.fillRoundedRectangle(bounds, 4.0f);
 
     // Draw border
-    g.setColour(juce::Colour(ui::kBorder));
+    g.setColour(theme().border);
     g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
 
     // Draw focus ring if button has keyboard focus
@@ -75,7 +120,7 @@ void WaveEditLookAndFeel::drawButtonText(juce::Graphics& g,
                                          : juce::TextButton::textColourOffId);
 
     if (!button.isEnabled())
-        textColour = juce::Colour(ui::kTextDisabled);
+        textColour = theme().textMuted;
 
     g.setColour(textColour);
 
@@ -88,6 +133,8 @@ void WaveEditLookAndFeel::drawToggleButton(juce::Graphics& g,
                                             bool shouldDrawButtonAsHighlighted,
                                             bool shouldDrawButtonAsDown)
 {
+    const auto& t = theme();
+
     auto fontSize = juce::jmin(15.0f, static_cast<float>(button.getHeight()) * 0.75f);
     auto tickWidth = fontSize * 1.1f;
 
@@ -95,16 +142,16 @@ void WaveEditLookAndFeel::drawToggleButton(juce::Graphics& g,
     auto tickBounds = juce::Rectangle<float>(4.0f, (static_cast<float>(button.getHeight()) - tickWidth) * 0.5f,
                                               tickWidth, tickWidth);
 
-    g.setColour(juce::Colour(ui::kBackgroundSecondary));
+    g.setColour(t.panelAlternate);
     g.fillRoundedRectangle(tickBounds, 3.0f);
 
-    g.setColour(juce::Colour(ui::kBorder));
+    g.setColour(t.border);
     g.drawRoundedRectangle(tickBounds, 3.0f, 1.0f);
 
     // Draw checkmark if toggled
     if (button.getToggleState())
     {
-        g.setColour(juce::Colour(ui::kAccentPrimary));
+        g.setColour(t.accent);
         auto tick = tickBounds.reduced(4.0f);
         g.drawLine(tick.getX(), tick.getCentreY(),
                    tick.getCentreX(), tick.getBottom(), 2.0f);
@@ -113,8 +160,7 @@ void WaveEditLookAndFeel::drawToggleButton(juce::Graphics& g,
     }
 
     // Draw text
-    g.setColour(button.isEnabled() ? juce::Colour(ui::kTextPrimary)
-                                    : juce::Colour(ui::kTextDisabled));
+    g.setColour(button.isEnabled() ? t.text : t.textMuted);
 
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -141,14 +187,15 @@ void WaveEditLookAndFeel::drawComboBox(juce::Graphics& g,
                                         int buttonH,
                                         juce::ComboBox& box)
 {
+    const auto& t = theme();
     auto bounds = juce::Rectangle<int>(0, 0, width, height).toFloat().reduced(0.5f);
 
     // Background
-    g.setColour(juce::Colour(ui::kBackgroundSecondary));
+    g.setColour(t.panelAlternate);
     g.fillRoundedRectangle(bounds, 4.0f);
 
     // Border
-    g.setColour(juce::Colour(ui::kBorder));
+    g.setColour(t.border);
     g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
 
     // Arrow
@@ -162,7 +209,7 @@ void WaveEditLookAndFeel::drawComboBox(juce::Graphics& g,
     path.lineTo(arrowX, arrowY + 2.0f);
     path.lineTo(arrowX + 4.0f, arrowY - 2.0f);
 
-    g.setColour(juce::Colour(ui::kTextSecondary));
+    g.setColour(t.textMuted);
     g.strokePath(path, juce::PathStrokeType(2.0f));
 
     // Draw focus ring if focused
@@ -212,19 +259,19 @@ void WaveEditLookAndFeel::drawTextEditorOutline(juce::Graphics& g,
     if (hasFocus(textEditor))
     {
         // Use accent color for focused state
-        g.setColour(juce::Colour(ui::kAccentPrimary));
+        g.setColour(theme().accent);
         g.drawRoundedRectangle(bounds, 4.0f, 2.0f);
     }
     else
     {
-        g.setColour(juce::Colour(ui::kBorder));
+        g.setColour(theme().border);
         g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
     }
 }
 
 void WaveEditLookAndFeel::drawFocusRing(juce::Graphics& g, juce::Rectangle<int> bounds)
 {
-    g.setColour(juce::Colour(ui::kAccentPrimary));
+    g.setColour(theme().focus);
     g.drawRoundedRectangle(bounds.toFloat().reduced(1.0f), 4.0f,
                            static_cast<float>(ui::kFocusRingWidth));
 }

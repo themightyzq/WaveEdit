@@ -19,6 +19,7 @@
 #include "../Audio/AudioProcessor.h"
 #include "../Utils/Settings.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 
 // Static state persistence for dialog reopens
 // These persist bypass and loop toggle states across dialog instances
@@ -57,7 +58,7 @@ FadeDialog::FadeDialog(FadeDirection direction,
 
     // Title
     m_titleLabel.setText(title, juce::dontSendNotification);
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
+    m_titleLabel.setFont(waveedit::ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -138,11 +139,11 @@ void FadeDialog::paint(juce::Graphics& g)
 
 void FadeDialog::resized()
 {
-    auto bounds = getLocalBounds().reduced(20);
+    auto bounds = getLocalBounds().reduced(waveedit::ui::kDialogPadding);
 
     // Title
     m_titleLabel.setBounds(bounds.removeFromTop(30));
-    bounds.removeFromTop(10); // Spacing
+    bounds.removeFromTop(waveedit::ui::kSectionGap); // Spacing
 
     // Instruction
     m_instructionLabel.setBounds(bounds.removeFromTop(50));
@@ -168,13 +169,13 @@ void FadeDialog::resized()
     // Left: Preview + Bypass + Loop | Right: Cancel + Apply
     bounds.removeFromTop(bounds.getHeight() - 40); // Push to bottom
     auto buttonRow = bounds.removeFromTop(40);
-    const int buttonWidth = 90;
-    const int buttonSpacing = 10;
+    const int buttonWidth = waveedit::ui::kButtonWidth;
+    const int buttonSpacing = waveedit::ui::kButtonGap;
 
     // Left side: Preview, Bypass, and Loop toggle (standardized order)
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
-    m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower for bypass
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(waveedit::ui::kButtonWidthNarrow));  // Slightly narrower for bypass
     buttonRow.removeFromLeft(buttonSpacing);
     m_loopToggle.setBounds(buttonRow.removeFromLeft(60));  // Loop toggle
 
@@ -184,9 +185,30 @@ void FadeDialog::resized()
     m_cancelButton.setBounds(buttonRow.removeFromRight(buttonWidth));
 }
 
+bool FadeDialog::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        onApplyClicked();
+        return true;
+    }
+    else if (key == juce::KeyPress::escapeKey)
+    {
+        onCancelClicked();
+        return true;
+    }
+
+    return false;
+}
+
 void FadeDialog::visibilityChanged()
 {
-    if (!isVisible())
+    if (isVisible())
+    {
+        // Grab keyboard focus on the primary input (curve type selector)
+        m_curveTypeBox.grabKeyboardFocus();
+    }
+    else
     {
         // Stop preview when dialog is hidden
         if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
@@ -267,7 +289,7 @@ void FadeDialog::onPreviewClicked()
     // 9. Update button state for toggle
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
-    m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    m_previewButton.setColour(juce::TextButton::buttonColourId, waveedit::ui::colour(waveedit::ui::kButtonPreviewActive));
 
     // 10. Enable bypass button during preview
     m_bypassButton.setEnabled(true);
@@ -275,6 +297,19 @@ void FadeDialog::onPreviewClicked()
 
 void FadeDialog::onApplyClicked()
 {
+    // M15: A zero-length selection produces a 0 ms fade which is a silent
+    // no-op that still consumes an undo slot.  Refuse to apply.
+    const int64_t numSamples = m_selectionEnd - m_selectionStart;
+    if (numSamples <= 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "No Selection",
+            "Please select an audio region before applying a fade.",
+            "OK");
+        return;
+    }
+
     // Stop any preview playback
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
     {
@@ -347,7 +382,7 @@ void FadeDialog::onBypassClicked()
     if (!bypassed)
     {
         m_bypassButton.setButtonText("Bypassed");
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, waveedit::ui::colour(waveedit::ui::kButtonBypassActive));
     }
     else
     {

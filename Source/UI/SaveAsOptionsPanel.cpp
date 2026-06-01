@@ -7,6 +7,10 @@
 //
 
 #include "SaveAsOptionsPanel.h"
+#include "ThemeManager.h"
+#include "UIConstants.h"
+
+#include <functional>
 
 // Static method to show dialog
 std::optional<SaveAsOptionsPanel::SaveSettings> SaveAsOptionsPanel::showDialog(
@@ -24,7 +28,7 @@ std::optional<SaveAsOptionsPanel::SaveSettings> SaveAsOptionsPanel::showDialog(
     juce::DialogWindow::LaunchOptions options;
     options.content.setNonOwned(content.get());  // Don't transfer ownership - prevents use-after-free
     options.dialogTitle = "Save Audio File As";
-    options.dialogBackgroundColour = juce::Colours::darkgrey;
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().background;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -67,10 +71,9 @@ SaveAsOptionsPanel::SaveAsOptionsPanel(double sourceSampleRate, int sourceChanne
     m_browseButton.onClick = [this]() { onBrowseClicked(); };
     addAndMakeVisible(m_browseButton);
 
-    // Folder location display
-    m_folderLocationLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    // Folder location display (colour applied in applyTheme())
     m_folderLocationLabel.setJustificationType(juce::Justification::centredLeft);
-    m_folderLocationLabel.setFont(juce::Font(11.0f));
+    m_folderLocationLabel.setFont(waveedit::ui::smallFont());
     m_folderLocationLabel.setText("Save to: " + m_targetDirectory.getFullPathName(), juce::dontSendNotification);
     addAndMakeVisible(m_folderLocationLabel);
 
@@ -165,15 +168,13 @@ SaveAsOptionsPanel::SaveAsOptionsPanel(double sourceSampleRate, int sourceChanne
     m_includeiXMLCheckbox.setToggleState(true, juce::dontSendNotification);
     addAndMakeVisible(m_includeiXMLCheckbox);
 
-    // Warning label (for MP3 without LAME)
-    m_warningLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+    // Warning label (for MP3 without LAME) - colour applied in applyTheme()
     m_warningLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_warningLabel);
 
-    // Preview label
-    m_previewLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    // Preview label (colour applied in applyTheme())
     m_previewLabel.setJustificationType(juce::Justification::centred);
-    m_previewLabel.setFont(juce::Font(12.0f, juce::Font::italic));
+    m_previewLabel.setFont(waveedit::ui::smallFont().withStyle(juce::Font::italic));
     addAndMakeVisible(m_previewLabel);
 
     // Action buttons
@@ -185,11 +186,38 @@ SaveAsOptionsPanel::SaveAsOptionsPanel(double sourceSampleRate, int sourceChanne
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
     addAndMakeVisible(m_cancelButton);
 
+    // Theme integration: subscribe + apply current theme.
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+    applyTheme();
+
     // Initial UI state
     updateUIForFormat();
     updatePreview();
 
     setSize(500, 400);
+}
+
+SaveAsOptionsPanel::~SaveAsOptionsPanel()
+{
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
+}
+
+void SaveAsOptionsPanel::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+    {
+        applyTheme();
+        repaint();
+    }
+}
+
+void SaveAsOptionsPanel::applyTheme()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    m_folderLocationLabel.setColour(juce::Label::textColourId, theme.textMuted);
+    m_previewLabel.setColour(juce::Label::textColourId, theme.textMuted);
+    m_warningLabel.setColour(juce::Label::textColourId, theme.warning);
 }
 
 SaveAsOptionsPanel::SaveSettings SaveAsOptionsPanel::getSettings() const
@@ -301,6 +329,17 @@ void SaveAsOptionsPanel::resized()
     int labelWidth = 100;
     int spacing = 8;
 
+    // Action buttons (bottom right) first, so the separator can follow the
+    // button row rather than a second hand-synced magic number.
+    auto buttonRow = bounds.removeFromBottom(30);
+    m_cancelButton.setBounds(buttonRow.removeFromRight(80));
+    buttonRow.removeFromRight(spacing);
+    m_saveButton.setBounds(buttonRow.removeFromRight(80));
+
+    // Separator sits half a section-gap above the button row.
+    m_separatorY = buttonRow.getY() - spacing * 2;
+    bounds.removeFromBottom(spacing * 2);  // breathing room above the separator
+
     // Filename row
     auto filenameRow = bounds.removeFromTop(rowHeight);
     m_filenameLabel.setBounds(filenameRow.removeFromLeft(labelWidth));
@@ -323,65 +362,78 @@ void SaveAsOptionsPanel::resized()
     m_formatDropdown.setBounds(formatRow);
     bounds.removeFromTop(spacing);
 
-    // Bit depth dropdown (WAV only)
-    auto bitDepthRow = bounds.removeFromTop(rowHeight);
-    m_bitDepthLabel.setBounds(bitDepthRow.removeFromLeft(labelWidth));
-    bitDepthRow.removeFromLeft(spacing);
-    m_bitDepthDropdown.setBounds(bitDepthRow);
-    bounds.removeFromTop(spacing);
+    // Lays out a label+control row only if the control is visible, so hidden
+    // format-specific rows don't leave ragged vertical gaps (N8).
+    auto layoutRow = [&](juce::Component& control, std::function<void(juce::Rectangle<int>)> place)
+    {
+        if (! control.isVisible())
+            return;
+        auto row = bounds.removeFromTop(rowHeight);
+        place(row);
+        bounds.removeFromTop(spacing);
+    };
 
-    // Sample rate dropdown
-    auto sampleRateRow = bounds.removeFromTop(rowHeight);
-    m_sampleRateLabel.setBounds(sampleRateRow.removeFromLeft(labelWidth));
-    sampleRateRow.removeFromLeft(spacing);
-    m_sampleRateDropdown.setBounds(sampleRateRow);
-    bounds.removeFromTop(spacing);
+    // Bit depth dropdown (WAV only)
+    layoutRow(m_bitDepthDropdown, [&](juce::Rectangle<int> row)
+    {
+        m_bitDepthLabel.setBounds(row.removeFromLeft(labelWidth));
+        row.removeFromLeft(spacing);
+        m_bitDepthDropdown.setBounds(row);
+    });
+
+    // Sample rate dropdown (always visible)
+    {
+        auto sampleRateRow = bounds.removeFromTop(rowHeight);
+        m_sampleRateLabel.setBounds(sampleRateRow.removeFromLeft(labelWidth));
+        sampleRateRow.removeFromLeft(spacing);
+        m_sampleRateDropdown.setBounds(sampleRateRow);
+        bounds.removeFromTop(spacing);
+    }
 
     // Quality slider (compressed formats only)
-    auto qualityRow = bounds.removeFromTop(rowHeight);
-    m_qualityLabel.setBounds(qualityRow.removeFromLeft(labelWidth));
-    qualityRow.removeFromLeft(spacing);
-    auto sliderArea = qualityRow.removeFromLeft(220);
-    m_qualitySlider.setBounds(sliderArea);
-    qualityRow.removeFromLeft(spacing);
-    m_qualityValueLabel.setBounds(qualityRow);
-    bounds.removeFromTop(spacing);
+    layoutRow(m_qualitySlider, [&](juce::Rectangle<int> row)
+    {
+        m_qualityLabel.setBounds(row.removeFromLeft(labelWidth));
+        row.removeFromLeft(spacing);
+        auto sliderArea = row.removeFromLeft(220);
+        m_qualitySlider.setBounds(sliderArea);
+        row.removeFromLeft(spacing);
+        m_qualityValueLabel.setBounds(row);
+    });
 
     // Metadata checkboxes (WAV only)
-    auto bwfRow = bounds.removeFromTop(rowHeight);
-    bwfRow.removeFromLeft(labelWidth + spacing);
-    m_includeBWFCheckbox.setBounds(bwfRow);
-    bounds.removeFromTop(spacing / 2);
+    layoutRow(m_includeBWFCheckbox, [&](juce::Rectangle<int> row)
+    {
+        row.removeFromLeft(labelWidth + spacing);
+        m_includeBWFCheckbox.setBounds(row);
+    });
+    layoutRow(m_includeiXMLCheckbox, [&](juce::Rectangle<int> row)
+    {
+        row.removeFromLeft(labelWidth + spacing);
+        m_includeiXMLCheckbox.setBounds(row);
+    });
 
-    auto ixmlRow = bounds.removeFromTop(rowHeight);
-    ixmlRow.removeFromLeft(labelWidth + spacing);
-    m_includeiXMLCheckbox.setBounds(ixmlRow);
-    bounds.removeFromTop(spacing * 2);
+    bounds.removeFromTop(spacing);
 
-    // Warning label
-    auto warningRow = bounds.removeFromTop(rowHeight);
-    m_warningLabel.setBounds(warningRow);
-    bounds.removeFromTop(spacing / 2);
+    // Warning label (only when visible)
+    layoutRow(m_warningLabel, [&](juce::Rectangle<int> row)
+    {
+        m_warningLabel.setBounds(row);
+    });
 
-    // Preview label
+    // Preview label (always visible)
     auto previewRow = bounds.removeFromTop(rowHeight);
     m_previewLabel.setBounds(previewRow);
-    bounds.removeFromTop(spacing * 2);
-
-    // Action buttons (bottom right)
-    auto buttonRow = bounds.removeFromBottom(30);
-    m_cancelButton.setBounds(buttonRow.removeFromRight(80));
-    buttonRow.removeFromRight(spacing);
-    m_saveButton.setBounds(buttonRow.removeFromRight(80));
 }
 
 void SaveAsOptionsPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.background);
 
-    // Draw separator line above buttons
-    g.setColour(juce::Colours::darkgrey);
-    g.drawHorizontalLine(getHeight() - 60, 15.0f, (float)(getWidth() - 15));
+    // Draw separator line above the action-button row (position set in resized()).
+    g.setColour(theme.border);
+    g.drawHorizontalLine(m_separatorY, 15.0f, (float)(getWidth() - 15));
 }
 
 void SaveAsOptionsPanel::updateUIForFormat()
@@ -403,6 +455,10 @@ void SaveAsOptionsPanel::updateUIForFormat()
 
     // Hide warning label (MP3 is no longer an option)
     m_warningLabel.setVisible(false);
+
+    // Reflow now that row visibility has changed (N8: hidden rows no longer
+    // consume layout height).
+    resized();
 }
 
 void SaveAsOptionsPanel::updatePreview()

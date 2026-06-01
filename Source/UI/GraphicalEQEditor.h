@@ -203,6 +203,15 @@ private:
     // Helper Methods - Coordinate Conversions
 
     /**
+     * Computes the EQ visualization (curve/graph) rectangle.
+     *
+     * Single source of truth for the graph area, shared by paint(), resized(),
+     * and all mouse/coordinate-mapping methods so that hit-testing stays aligned
+     * with the rendered curve.
+     */
+    juce::Rectangle<int> getVisualizationBounds() const;
+
+    /**
      * Converts frequency to X position (logarithmic scale).
      */
     float frequencyToX(float frequency, juce::Rectangle<float> bounds) const;

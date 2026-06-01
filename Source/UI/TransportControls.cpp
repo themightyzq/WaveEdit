@@ -15,11 +15,12 @@
 
 #include "TransportControls.h"
 #include "WaveformDisplay.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 // Icon Creation Helper Functions
 
-std::unique_ptr<juce::Drawable> TransportControls::createPlayIcon()
+std::unique_ptr<juce::Drawable> TransportControls::createPlayIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -31,14 +32,14 @@ std::unique_ptr<juce::Drawable> TransportControls::createPlayIcon()
     path.closeSubPath();
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::white);
-    drawable->setStrokeFill(juce::Colours::white);
+    drawable->setFill(colour);
+    drawable->setStrokeFill(colour);
     drawable->setStrokeThickness(2.0f);
 
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> TransportControls::createPauseIcon()
+std::unique_ptr<juce::Drawable> TransportControls::createPauseIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -48,13 +49,13 @@ std::unique_ptr<juce::Drawable> TransportControls::createPauseIcon()
     path.addRectangle(13.5f, 4.0f, 3.5f, 16.0f);
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::white);
-    drawable->setStrokeFill(juce::Colours::white);
+    drawable->setFill(colour);
+    drawable->setStrokeFill(colour);
 
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> TransportControls::createStopIcon()
+std::unique_ptr<juce::Drawable> TransportControls::createStopIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -63,13 +64,13 @@ std::unique_ptr<juce::Drawable> TransportControls::createStopIcon()
     path.addRectangle(6.0f, 6.0f, 12.0f, 12.0f);
 
     drawable->setPath(path);
-    drawable->setFill(juce::Colours::white);
-    drawable->setStrokeFill(juce::Colours::white);
+    drawable->setFill(colour);
+    drawable->setStrokeFill(colour);
 
     return drawable;
 }
 
-std::unique_ptr<juce::Drawable> TransportControls::createLoopIcon()
+std::unique_ptr<juce::Drawable> TransportControls::createLoopIcon(juce::Colour colour)
 {
     auto drawable = std::make_unique<juce::DrawablePath>();
     juce::Path path;
@@ -95,7 +96,7 @@ std::unique_ptr<juce::Drawable> TransportControls::createLoopIcon()
 
     drawable->setPath(path);
     drawable->setFill(juce::FillType());
-    drawable->setStrokeFill(juce::Colours::white);
+    drawable->setStrokeFill(colour);
     drawable->setStrokeThickness(2.0f);
 
     return drawable;
@@ -109,41 +110,52 @@ TransportControls::TransportControls(AudioEngine& audioEngine, WaveformDisplay& 
       m_lastState(PlaybackState::STOPPED),
       m_lastPosition(-1.0)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Create Play button with icon
     m_playButton = std::make_unique<juce::DrawableButton>("Play", juce::DrawableButton::ImageFitted);
-    m_playButton->setImages(createPlayIcon().get());
+    m_playButton->setImages(createPlayIcon(theme.text).get());
     m_playButton->onClick = [this] { onPlayClicked(); };
     m_playButton->setTooltip("Play (Space or F12)");
+    m_playButton->setTitle("Play"); // Accessible name for screen readers
     addAndMakeVisible(m_playButton.get());
 
     // Create Pause button with icon
     m_pauseButton = std::make_unique<juce::DrawableButton>("Pause", juce::DrawableButton::ImageFitted);
-    m_pauseButton->setImages(createPauseIcon().get());
+    m_pauseButton->setImages(createPauseIcon(theme.text).get());
     m_pauseButton->onClick = [this] { onPauseClicked(); };
     m_pauseButton->setTooltip("Pause (Enter or Ctrl+F12)");
+    m_pauseButton->setTitle("Pause"); // Accessible name for screen readers
     addAndMakeVisible(m_pauseButton.get());
 
     // Create Stop button with icon
     m_stopButton = std::make_unique<juce::DrawableButton>("Stop", juce::DrawableButton::ImageFitted);
-    m_stopButton->setImages(createStopIcon().get());
+    m_stopButton->setImages(createStopIcon(theme.text).get());
     m_stopButton->onClick = [this] { onStopClicked(); };
     m_stopButton->setTooltip("Stop playback");
+    m_stopButton->setTitle("Stop"); // Accessible name for screen readers
     addAndMakeVisible(m_stopButton.get());
 
-    // Create Loop button with icon
+    // Create Loop button with icon (icon colour reflects toggle state)
     m_loopButton = std::make_unique<juce::DrawableButton>("Loop", juce::DrawableButton::ImageFitted);
-    m_loopButton->setImages(createLoopIcon().get());
+    m_loopButton->setImages(createLoopIcon(theme.text).get());
     m_loopButton->onClick = [this] { onLoopClicked(); };
     m_loopButton->setTooltip("Toggle Loop (L)");
+    m_loopButton->setTitle("Loop"); // Accessible name for screen readers
     m_loopButton->setClickingTogglesState(true);
     addAndMakeVisible(m_loopButton.get());
 
-    // Create time display label
+    // Create time display label.
+    // Monospaced font keeps digit columns fixed so the readout doesn't
+    // jitter horizontally as it updates ~20x/sec (REVIEW-DESIGN H12).
     m_timeLabel = std::make_unique<juce::Label>("Time", "00:00:00.000");
     m_timeLabel->setJustificationType(juce::Justification::centred);
-    m_timeLabel->setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    m_timeLabel->setColour(juce::Label::textColourId, juce::Colours::lightgreen);
+    m_timeLabel->setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::bold));
     addAndMakeVisible(m_timeLabel.get());
+
+    // Apply theme colours (icons + time label) and reflect initial loop state.
+    applyThemeColours();
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
 
     // Start timer for position updates (20 times per second = 50ms)
     startTimer(50);
@@ -155,6 +167,7 @@ TransportControls::TransportControls(AudioEngine& audioEngine, WaveformDisplay& 
 TransportControls::~TransportControls()
 {
     stopTimer();
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
 }
 
 //==============================================================================
@@ -162,13 +175,14 @@ TransportControls::~TransportControls()
 
 void TransportControls::paint(juce::Graphics& g)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Background
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    g.fillAll(theme.panel);
 
     // Border
-    g.setColour(juce::Colour(0xff3a3a3a));
+    g.setColour(theme.border);
     g.drawRect(getLocalBounds(), 1);
-
 }
 
 void TransportControls::resized()
@@ -269,6 +283,7 @@ void TransportControls::setLoopEnabled(bool shouldLoop)
 {
     m_loopEnabled = shouldLoop;
     m_loopButton->setToggleState(m_loopEnabled, juce::dontSendNotification);
+    updateLoopButtonAppearance();
 }
 
 void TransportControls::toggleLoop()
@@ -293,6 +308,39 @@ void TransportControls::updateButtonStates()
     // 1. The colored LED indicator in the paint() method
     // 2. Button enabled/disabled states
     // DrawableButtons will use default JUCE button styling
+}
+
+void TransportControls::applyThemeColours()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Re-tint static icons to the current theme's text colour.
+    m_playButton->setImages(createPlayIcon(theme.text).get());
+    m_pauseButton->setImages(createPauseIcon(theme.text).get());
+    m_stopButton->setImages(createStopIcon(theme.text).get());
+
+    // Time readout uses the success token (green-by-default in Dark).
+    m_timeLabel->setColour(juce::Label::textColourId, theme.success);
+
+    // Loop icon colour depends on toggle state.
+    updateLoopButtonAppearance();
+
+    repaint();
+}
+
+void TransportControls::updateLoopButtonAppearance()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Accent when looping is ON, plain text colour when OFF.
+    const juce::Colour iconColour = m_loopEnabled ? theme.accent : theme.text;
+    m_loopButton->setImages(createLoopIcon(iconColour).get());
+}
+
+void TransportControls::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+        applyThemeColours();
 }
 
 void TransportControls::updatePositionDisplay()

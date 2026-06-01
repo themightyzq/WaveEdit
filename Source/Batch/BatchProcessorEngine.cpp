@@ -222,25 +222,31 @@ BatchJobResult BatchProcessorEngine::processJob(BatchJob& job, int jobIndex)
 void BatchProcessorEngine::notifyProgressChanged(float progress, int currentFile, int totalFiles,
                                                    const juce::String& message)
 {
-    // Notify on message thread
-    juce::MessageManager::callAsync([this, progress, currentFile, totalFiles, message]()
+    // Notify on message thread. Capture a weak ref so a queued callback that
+    // outlives this engine (dialog closed mid-batch) no-ops instead of touching
+    // m_listeners on freed memory (C16).
+    juce::WeakReference<BatchProcessorEngine> weak(this);
+    juce::MessageManager::callAsync([weak, progress, currentFile, totalFiles, message]()
     {
-        m_listeners.call([=](BatchProcessorListener& l)
-        {
-            l.batchProgressChanged(progress, currentFile, totalFiles, message);
-        });
+        if (auto* self = weak.get())
+            self->m_listeners.call([=](BatchProcessorListener& l)
+            {
+                l.batchProgressChanged(progress, currentFile, totalFiles, message);
+            });
     });
 }
 
 void BatchProcessorEngine::notifyJobCompleted(int jobIndex, const BatchJobResult& result)
 {
-    // Notify on message thread
-    juce::MessageManager::callAsync([this, jobIndex, result]()
+    // Notify on message thread (weak-ref guarded; see notifyProgressChanged).
+    juce::WeakReference<BatchProcessorEngine> weak(this);
+    juce::MessageManager::callAsync([weak, jobIndex, result]()
     {
-        m_listeners.call([=](BatchProcessorListener& l)
-        {
-            l.jobCompleted(jobIndex, result);
-        });
+        if (auto* self = weak.get())
+            self->m_listeners.call([=](BatchProcessorListener& l)
+            {
+                l.jobCompleted(jobIndex, result);
+            });
     });
 }
 
@@ -251,13 +257,15 @@ void BatchProcessorEngine::notifyBatchCompleted()
     int failedCount = m_summary.failedFiles;
     int skippedCount = m_summary.skippedFiles;
 
-    // Notify on message thread
-    juce::MessageManager::callAsync([this, cancelled, successCount, failedCount, skippedCount]()
+    // Notify on message thread (weak-ref guarded; see notifyProgressChanged).
+    juce::WeakReference<BatchProcessorEngine> weak(this);
+    juce::MessageManager::callAsync([weak, cancelled, successCount, failedCount, skippedCount]()
     {
-        m_listeners.call([=](BatchProcessorListener& l)
-        {
-            l.batchCompleted(cancelled, successCount, failedCount, skippedCount);
-        });
+        if (auto* self = weak.get())
+            self->m_listeners.call([=](BatchProcessorListener& l)
+            {
+                l.batchCompleted(cancelled, successCount, failedCount, skippedCount);
+            });
     });
 }
 

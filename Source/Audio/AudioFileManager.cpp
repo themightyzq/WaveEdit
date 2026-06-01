@@ -177,6 +177,49 @@ bool AudioFileManager::loadIntoBuffer(const juce::File& file, juce::AudioBuffer<
     return true;
 }
 
+bool AudioFileManager::loadIntoBufferUnchecked(const juce::File& file,
+                                               juce::AudioBuffer<float>& outBuffer)
+{
+    clearError();
+
+    if (!file.existsAsFile())
+    {
+        setError("File does not exist: " + file.getFullPathName());
+        return false;
+    }
+
+    // Decodable file is still required, but the sample-rate whitelist is
+    // intentionally skipped (M6) -- recovery must reload a file the app
+    // itself wrote.
+    std::unique_ptr<juce::AudioFormatReader> reader(m_formatManager.createReaderFor(file));
+    if (reader == nullptr)
+    {
+        setError("Failed to create reader for file: " + file.getFullPathName());
+        return false;
+    }
+
+    // Read into a temporary so a partial/failed read doesn't clobber
+    // outBuffer (the caller's existing audio).
+    juce::AudioBuffer<float> tmp(static_cast<int>(reader->numChannels),
+                                 static_cast<int>(reader->lengthInSamples));
+
+    bool readSuccess = reader->read(&tmp,
+                                    0,
+                                    static_cast<int>(reader->lengthInSamples),
+                                    0,
+                                    true,
+                                    true);
+
+    if (!readSuccess)
+    {
+        setError("Failed to read audio data from file: " + file.getFullPathName());
+        return false;
+    }
+
+    outBuffer = std::move(tmp);
+    return true;
+}
+
 juce::AudioFormatReader* AudioFileManager::createReaderFor(const juce::File& file)
 {
     clearError();
@@ -224,8 +267,14 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
         return false;
     }
 
-    // Create output stream - need OutputStream base type for new JUCE 8 API
-    std::unique_ptr<juce::OutputStream> outputStream(file.createOutputStream());
+    // Atomic save: write to a sibling temp file, then swap it onto the
+    // target in a single step. A crash / disk-full mid-write leaves the
+    // original file intact rather than truncated or zero-byte (C10).
+    juce::TemporaryFile tempFile(file, juce::TemporaryFile::useHiddenFile);
+
+    // Create output stream on the TEMP file - need OutputStream base type for
+    // new JUCE 8 API
+    std::unique_ptr<juce::OutputStream> outputStream(tempFile.getFile().createOutputStream());
 
     if (outputStream == nullptr)
     {
@@ -262,7 +311,7 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
 
     // Note: outputStream ownership transferred via reference above (unique_ptr now null)
 
-    // Write the buffer to file
+    // Write the buffer to the temp file
     bool writeSuccess = writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
 
     // Flush and close the writer
@@ -271,6 +320,13 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
     if (!writeSuccess)
     {
         setError("Failed to write audio data to file: " + file.getFullPathName());
+        return false;
+    }
+
+    // Atomically swap the completed temp file onto the target.
+    if (!tempFile.overwriteTargetFileWithTemporary())
+    {
+        setError("Could not replace target file with completed temp file: " + file.getFullPathName());
         return false;
     }
 
@@ -515,8 +571,11 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
         ixmlChunk.writeByte(0);
     }
 
-    // Parse existing chunks and copy only ESSENTIAL chunks (fmt and data)
-    // This prevents file corruption from nested RIFF chunks or duplicate iXML chunks
+    // Parse existing chunks and copy ALL chunks EXCEPT any existing iXML
+    // chunk (which we are replacing). Critically this PRESERVES the BWF
+    // "bext" chunk (and LIST/INFO, cue, etc.) that JUCE's writer just wrote
+    // -- an earlier version stripped everything but fmt/data, silently
+    // destroying BWF metadata on every iXML save (C11).
     juce::MemoryOutputStream cleanFile;
 
     // Write RIFF header (we'll update size later)
@@ -524,9 +583,11 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
     cleanFile.writeInt(0);  // Placeholder size
     cleanFile.write("WAVE", 4);
 
-    // Parse existing chunks and copy only fmt and data chunks
-    size_t offset = 12;  // Skip RIFF header
-    size_t fileSize = fileData.getSize();
+    // Parse existing chunks. Use uint64_t arithmetic throughout so a crafted
+    // or corrupt near-UINT32_MAX size field cannot wrap past the bounds
+    // check (M8).
+    uint64_t offset = 12;  // Skip RIFF header
+    const uint64_t fileSize = static_cast<uint64_t>(fileData.getSize());
 
     while (offset + 8 <= fileSize)
     {
@@ -535,18 +596,21 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
         memcpy(chunkID, data + offset, 4);
 
         // Read chunk size
-        uint32_t parsedChunkSize;
-        memcpy(&parsedChunkSize, data + offset + 4, 4);
+        uint32_t parsedChunkSizeRaw;
+        memcpy(&parsedChunkSizeRaw, data + offset + 4, 4);
+        const uint64_t parsedChunkSize = static_cast<uint64_t>(parsedChunkSizeRaw);
 
-        // Check if chunk data is within file bounds
-        if (offset + 8 + parsedChunkSize > fileSize)
+        // Reject any chunk whose declared size exceeds the bytes remaining
+        // after its header. 64-bit math means this comparison can't overflow.
+        if (parsedChunkSize > fileSize - offset - 8)
             break;  // Corrupted chunk, stop parsing
 
-        // Only copy fmt and data chunks (skip iXML, LIST, JUNK, RIFF, and other chunks)
-        if (memcmp(chunkID, "fmt ", 4) == 0 || memcmp(chunkID, "data", 4) == 0)
+        // Copy every chunk except an existing iXML chunk (we append a fresh
+        // one below). This keeps bext / LIST / cue / etc. intact.
+        if (memcmp(chunkID, "iXML", 4) != 0)
         {
             // Copy entire chunk (ID + size + data)
-            cleanFile.write(data + offset, 8 + parsedChunkSize);
+            cleanFile.write(data + offset, static_cast<size_t>(8 + parsedChunkSize));
 
             // Add padding if chunk size is odd
             if (parsedChunkSize % 2 != 0)
@@ -567,24 +631,34 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
     uint32_t riffSize = static_cast<uint32_t>(cleanFile.getDataSize()) - 8;
     memcpy(cleanData + 4, &riffSize, 4);
 
-    // CRITICAL: We must delete the file first to avoid appending!
-    // FileOutputStream doesn't truncate by default
-    if (!file.deleteFile())
+    // Atomic replace: write the rebuilt file to a sibling temp file, then
+    // swap it onto the target in one step. A crash / disk-full mid-write
+    // leaves the original intact instead of a truncated or deleted file
+    // (C10). Pattern mirrors ThumbnailDiskCache::save.
     {
-        setError("Could not delete file for overwriting: " + file.getFullPathName());
-        return false;
-    }
+        juce::TemporaryFile tmp(file, juce::TemporaryFile::useHiddenFile);
+        {
+            juce::FileOutputStream outputStream(tmp.getFile());
+            if (!outputStream.openedOk())
+            {
+                setError("Could not open temp file for writing: " + file.getFullPathName());
+                return false;
+            }
 
-    // Write updated file
-    juce::FileOutputStream outputStream(file);
-    if (!outputStream.openedOk())
-    {
-        setError("Could not open file for writing: " + file.getFullPathName());
-        return false;
-    }
+            if (!outputStream.write(cleanFile.getData(), cleanFile.getDataSize()))
+            {
+                setError("Failed to write iXML data to temp file: " + file.getFullPathName());
+                return false;
+            }
+            outputStream.flush();
+        }
 
-    outputStream.write(cleanFile.getData(), cleanFile.getDataSize());
-    outputStream.flush();
+        if (!tmp.overwriteTargetFileWithTemporary())
+        {
+            setError("Could not replace file with updated temp file: " + file.getFullPathName());
+            return false;
+        }
+    }
 
     // Verify file size on disk
     juce::int64 actualFileSize = file.getSize();
@@ -640,8 +714,10 @@ bool AudioFileManager::readiXMLChunk(const juce::File& file, juce::String& outDa
 
     // Parse chunks to find iXML chunk
     // RIFF structure: "RIFF" + size (4 bytes) + "WAVE" + chunks
-    size_t offset = 12;  // Skip RIFF header
-    size_t fileSize = fileData.getSize();
+    // Use uint64_t arithmetic so a crafted near-UINT32_MAX size field cannot
+    // wrap past the bounds checks (M8).
+    uint64_t offset = 12;  // Skip RIFF header
+    const uint64_t fileSize = static_cast<uint64_t>(fileData.getSize());
 
     DBG("Searching for iXML chunk in file of size " + juce::String((int)fileSize) + " bytes");
 
@@ -653,17 +729,19 @@ bool AudioFileManager::readiXMLChunk(const juce::File& file, juce::String& outDa
         offset += 4;
 
         // Read chunk size (4 bytes, little-endian)
-        uint32_t chunkSize;
-        memcpy(&chunkSize, data + offset, 4);
+        uint32_t chunkSizeRaw;
+        memcpy(&chunkSizeRaw, data + offset, 4);
         offset += 4;
+        const uint64_t chunkSize = static_cast<uint64_t>(chunkSizeRaw);
 
         DBG("Found chunk: '" + juce::String(chunkID) + "' size=" + juce::String((int)chunkSize) + " at offset=" + juce::String((int)(offset - 8)));
 
         // Check if this is the iXML chunk
         if (memcmp(chunkID, "iXML", 4) == 0)
         {
-            // Found iXML chunk - read the data
-            if (offset + chunkSize > fileSize)
+            // Found iXML chunk - read the data. Compare with subtraction to
+            // avoid offset + chunkSize overflowing.
+            if (chunkSize > fileSize - offset)
             {
                 setError("iXML chunk size exceeds file size");
                 return false;
@@ -891,34 +969,25 @@ juce::AudioBuffer<float> AudioFileManager::resampleBuffer(const juce::AudioBuffe
         const float* sourceData = sourceBuffer.getReadPointer(ch);
         float* targetData = targetBuffer.getWritePointer(ch);
 
-        // Process in chunks to avoid excessive memory usage
-        int samplesProcessed = 0;
-        const int chunkSize = 4096;
+        // CRITICAL: LagrangeInterpolator speed ratio is SOURCE/TARGET (inverse of our ratio)
+        // For downsampling 96kHz->8kHz: speed = 96000/8000 = 12.0 (consume input faster)
+        // For upsampling 8kHz->96kHz: speed = 8000/96000 = 0.0833 (consume input slower)
+        const double speedRatio = sourceSampleRate / targetSampleRate;
+        const int totalInputSamples = sourceBuffer.getNumSamples();
 
-        while (samplesProcessed < targetNumSamples)
-        {
-            int samplesThisChunk = std::min(chunkSize, targetNumSamples - samplesProcessed);
-
-            // CRITICAL: LagrangeInterpolator speed ratio is SOURCE/TARGET (inverse of our ratio)
-            // For downsampling 96kHz→8kHz: speed = 96000/8000 = 12.0 (consume input faster)
-            // For upsampling 8kHz→96kHz: speed = 8000/96000 = 0.0833 (consume input slower)
-            double speedRatio = sourceSampleRate / targetSampleRate;
-
-            int samplesGenerated = interpolator.process(
-                speedRatio,                            // Speed ratio (source/target, NOT target/source!)
-                sourceData,                            // Input samples
-                targetData + samplesProcessed,         // Output buffer
-                samplesThisChunk,                      // Number of output samples needed
-                sourceBuffer.getNumSamples(),          // Max input samples available
-                0                                      // Wraparound (0 = no wraparound)
-            );
-
-            samplesProcessed += samplesGenerated;
-
-            // Break if we can't generate more samples
-            if (samplesGenerated < samplesThisChunk)
-                break;
-        }
+        // Resample the whole channel in a SINGLE process() call. process()
+        // reads/writes the caller's buffers directly (no internal allocation),
+        // so there is no memory benefit to chunking by output -- and chunking
+        // re-seeds the interpolator's internal filter history at every chunk
+        // boundary, which produced audible discontinuities (the earlier bug).
+        // One call keeps the interpolator state continuous across the buffer.
+        interpolator.process(
+            speedRatio,             // source/target ratio
+            sourceData,             // full input
+            targetData,             // full output
+            targetNumSamples,       // total output samples to produce
+            totalInputSamples,      // input samples available
+            0);                     // no wraparound
     }
 
     DBG("Resampled audio: " + juce::String(sourceSampleRate, 0) +

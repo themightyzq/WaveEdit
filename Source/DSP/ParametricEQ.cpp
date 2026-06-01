@@ -61,17 +61,22 @@ void ParametricEQ::prepare(double sampleRate, int maxSamplesPerBlock)
     m_sampleRate = sampleRate;
     m_maxSamplesPerBlock = maxSamplesPerBlock;
 
-    // Prepare DSP processors
+    // H3 FIX: prepare for a stereo default here, but applyEQ() re-prepares the
+    // ProcessorDuplicators to the actual buffer channel count (up to 8) whenever
+    // it changes, so channels 2..7 are processed rather than passing through. The
+    // initial channel count is recorded as 0 so the FIRST applyEQ() always
+    // re-prepares to match the real buffer (previously hardcoded to 2, which left
+    // the duplicators stereo until a mismatch happened to occur).
     juce::dsp::ProcessSpec spec;
     spec.sampleRate = sampleRate;
     spec.maximumBlockSize = static_cast<juce::uint32>(maxSamplesPerBlock);
-    spec.numChannels = 2;  // Stereo (default)
+    spec.numChannels = 2;  // Stereo default; re-prepared per-buffer in applyEQ()
 
     m_lowShelf.prepare(spec);
     m_midPeak.prepare(spec);
     m_highShelf.prepare(spec);
 
-    m_lastNumChannels = 2;  // Track initial channel count
+    m_lastNumChannels = 0;  // Force applyEQ() to re-prepare to the real channel count
 
     // Force coefficient update on next applyEQ call
     m_coefficientsNeedUpdate = true;

@@ -17,6 +17,7 @@
 #include "../Utils/Document.h"
 #include "../Audio/AudioEngine.h"
 #include "WaveformDisplay.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 CustomizableToolbar::CustomizableToolbar(juce::ApplicationCommandManager& commandManager,
@@ -31,6 +32,9 @@ CustomizableToolbar::CustomizableToolbar(juce::ApplicationCommandManager& comman
     // Register for layout changes
     m_toolbarManager.addListener(this);
 
+    // Re-skin when the active theme changes
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+
     // Load current layout
     loadLayout(m_toolbarManager.getCurrentLayout());
 
@@ -40,16 +44,19 @@ CustomizableToolbar::CustomizableToolbar(juce::ApplicationCommandManager& comman
 CustomizableToolbar::~CustomizableToolbar()
 {
     m_toolbarManager.removeListener(this);
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
 }
 
 //==============================================================================
 void CustomizableToolbar::paint(juce::Graphics& g)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Draw toolbar background
-    g.fillAll(juce::Colour(0xFF2D2D30));
+    g.fillAll(theme.panel);
 
     // Draw bottom border
-    g.setColour(juce::Colour(0xFF1E1E1E));
+    g.setColour(theme.border);
     g.drawLine(0.0f, static_cast<float>(getHeight() - 1),
                static_cast<float>(getWidth()), static_cast<float>(getHeight() - 1), 1.0f);
 
@@ -67,7 +74,7 @@ void CustomizableToolbar::paint(juce::Graphics& g)
             componentIndex++;
         }
 
-        g.setColour(juce::Colours::dodgerblue);
+        g.setColour(theme.accent);
         g.fillRect(insertX - 1, 4, 2, getHeight() - 8);
     }
 }
@@ -167,6 +174,13 @@ void CustomizableToolbar::itemDropped(const SourceDetails& details)
 void CustomizableToolbar::toolbarLayoutChanged(const ToolbarLayout& newLayout)
 {
     loadLayout(newLayout);
+}
+
+//==============================================================================
+void CustomizableToolbar::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+        repaint();
 }
 
 //==============================================================================

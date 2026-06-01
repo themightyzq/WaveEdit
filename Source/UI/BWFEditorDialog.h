@@ -52,6 +52,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
     //==============================================================================
     // Button::Listener overrides
@@ -100,6 +101,14 @@ private:
      * Validates and updates character count labels.
      */
     void updateCharacterCounts();
+
+    /**
+     * Validates the Date (YYYY-MM-DD) and Time (HH:MM:SS) fields.
+     * Highlights invalid fields with an inline error hint.
+     *
+     * @return true if both fields are empty or well-formed, false otherwise.
+     */
+    bool validateDateTime();
 
     //==============================================================================
     // UI Components

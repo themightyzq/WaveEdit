@@ -180,6 +180,7 @@ private:
     private:
         void updateBypassButtonAppearance(bool isBypassed);
         void updateMoveButtonStates(int index, int totalCount);
+        void applyRowTheme();
         PluginChainWindow& m_owner;
         int m_index = -1;
         PluginChainNode* m_node = nullptr;

@@ -201,6 +201,39 @@ const juce::Array<Region>& RegionManager::getAllRegions() const
     return m_regions;
 }
 
+Region* RegionManager::getRegionById(int64_t id)
+{
+    juce::ScopedLock lock(m_lock);
+
+    for (int i = 0; i < m_regions.size(); ++i)
+        if (m_regions.getReference(i).getId() == id)
+            return &m_regions.getReference(i);
+
+    return nullptr;
+}
+
+const Region* RegionManager::getRegionById(int64_t id) const
+{
+    juce::ScopedLock lock(m_lock);
+
+    for (int i = 0; i < m_regions.size(); ++i)
+        if (m_regions.getReference(i).getId() == id)
+            return &m_regions.getReference(i);
+
+    return nullptr;
+}
+
+int RegionManager::getIndexOfRegionId(int64_t id) const
+{
+    juce::ScopedLock lock(m_lock);
+
+    for (int i = 0; i < m_regions.size(); ++i)
+        if (m_regions.getReference(i).getId() == id)
+            return i;
+
+    return -1;
+}
+
 //==============================================================================
 // Region navigation
 
@@ -550,7 +583,7 @@ bool RegionManager::saveToFile(const juce::File& audioFile) const
     return regionFile.replaceWithText(jsonString);
 }
 
-bool RegionManager::loadFromFile(const juce::File& audioFile)
+bool RegionManager::loadFromFile(const juce::File& audioFile, int64_t totalSamples)
 {
     if (!ensureMessageThread("RegionManager::loadFromFile"))
         return false;
@@ -574,7 +607,11 @@ bool RegionManager::loadFromFile(const juce::File& audioFile)
     // Clear existing regions (this handles locking internally)
     removeAllRegions();
 
-    // Load regions from JSON (addRegion handles locking internally)
+    // Load regions from JSON (addRegion handles locking internally).
+    // Region::fromJSON already validates field types and unswaps start > end
+    // (H22). Here we additionally drop zero-length regions and, when the
+    // buffer length is known, clamp / reject out-of-range offsets so a
+    // version-mismatched sidecar cannot show ranges past the audio.
     juce::var regionsVar = root->getProperty("regions");
     if (regionsVar.isArray())
     {
@@ -584,6 +621,29 @@ bool RegionManager::loadFromFile(const juce::File& audioFile)
             for (const auto& regionVar : *regionsArray)
             {
                 Region region = Region::fromJSON(regionVar);
+
+                int64_t start = region.getStartSample();
+                int64_t end   = region.getEndSample();
+
+                if (totalSamples >= 0)
+                {
+                    // Clamp to [0, totalSamples]; drop if it lands empty.
+                    start = juce::jlimit<int64_t>(0, totalSamples, start);
+                    end   = juce::jlimit<int64_t>(0, totalSamples, end);
+                    region.setStartSample(start);
+                    region.setEndSample(end);
+                }
+
+                // Reject anything that ended up zero / negative length:
+                // a [0,0] region is the fromJSON sentinel for malformed data.
+                if (region.getEndSample() <= region.getStartSample())
+                {
+                    juce::Logger::writeToLog(
+                        "RegionManager::loadFromFile - dropped malformed region '"
+                        + region.getName() + "'");
+                    continue;
+                }
+
                 addRegion(region);
             }
         }

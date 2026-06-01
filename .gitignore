@@ -99,9 +99,12 @@ $RECYCLE.BIN/
 # Claude Code / AI development files (private)
 .claude/
 CLAUDE.md
+.remember/
+REVIEW-*.md
 
 # Internal development documentation
 TODO.md
+CHANGELOG.md
 # Ignore Docs/ contents but keep the directory traversable so screenshots
 # (referenced from README) can be tracked via the negation below.
 Docs/*

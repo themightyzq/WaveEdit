@@ -171,6 +171,9 @@ int main(int, char**)
     runCategory("DSP");               // DSP engine tests (HeadTailEngine)
     runCategory("RegionManager");     // Region/auto-region/multi-drag tests
     runCategory("MarkerSystem");      // Marker + MarkerManager tests
+    runCategory("AutoSave");          // Auto-save path-hash + cleanup (QA Pass 2)
+    runCategory("UI");                // Dialog input validation (QA Pass 2)
+    runCategory("Plugins");           // Plugin blacklist + chain tail (QA Pass 2)
 
     std::cout << "\n";
     std::cout << "═══════════════════════════════════════════════════════════════\n";

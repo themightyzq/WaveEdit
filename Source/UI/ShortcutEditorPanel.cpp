@@ -16,6 +16,7 @@
 #include "ShortcutEditorPanel.h"
 #include "../Commands/CommandIDs.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 #include <juce_data_structures/juce_data_structures.h>
 
 //==============================================================================
@@ -31,7 +32,8 @@ class KeyPressCaptureWindow : public juce::DialogWindow,
 {
 public:
     KeyPressCaptureWindow(const juce::String& commandName)
-        : juce::DialogWindow("Set Keyboard Shortcut", juce::Colours::darkgrey, true)
+        : juce::DialogWindow("Set Keyboard Shortcut",
+                             waveedit::ThemeManager::getInstance().getCurrent().panel, true)
     {
         setUsingNativeTitleBar(true);
 
@@ -44,7 +46,7 @@ public:
             "\n\nPress ESC to cancel\nPress DELETE/BACKSPACE to clear shortcut",
             juce::dontSendNotification
         );
-        m_instructionLabel.setFont(juce::FontOptions(16.0f));
+        m_instructionLabel.setFont(waveedit::ui::sectionHeaderFont());
         m_instructionLabel.setJustificationType(juce::Justification::centred);
         m_instructionLabel.setBounds(10, 10, 380, 130);
 
@@ -118,7 +120,7 @@ ShortcutEditorPanel::ShortcutEditorPanel(juce::ApplicationCommandManager& comman
 {
     // Title label
     m_titleLabel.setText("Keyboard Shortcuts", juce::dontSendNotification);
-    m_titleLabel.setFont(juce::FontOptions(20.0f).withStyle("Bold"));
+    m_titleLabel.setFont(waveedit::ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(m_titleLabel);
 
@@ -127,9 +129,19 @@ ShortcutEditorPanel::ShortcutEditorPanel(juce::ApplicationCommandManager& comman
     m_searchLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(m_searchLabel);
 
-    m_searchBox.setTextToShowWhenEmpty("Filter commands...", juce::Colours::grey);
+    m_searchBox.setTextToShowWhenEmpty(
+        "Filter commands...",
+        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     m_searchBox.addListener(this);
     addAndMakeVisible(m_searchBox);
+
+    // Empty-state message shown over the table when a search filters out all rows.
+    m_noResultsLabel.setJustificationType(juce::Justification::centred);
+    m_noResultsLabel.setColour(juce::Label::textColourId,
+                               waveedit::ThemeManager::getInstance().getCurrent().textMuted);
+    m_noResultsLabel.setInterceptsMouseClicks(false, false);
+    m_noResultsLabel.setVisible(false);
+    addAndMakeVisible(m_noResultsLabel);
 
     // Table setup
     m_table.setModel(this);
@@ -211,6 +223,7 @@ void ShortcutEditorPanel::resized()
 
     // Table fills remaining space
     m_table.setBounds(bounds);
+    m_noResultsLabel.setBounds(bounds);
 }
 
 //==============================================================================
@@ -263,7 +276,7 @@ void ShortcutEditorPanel::paintCell(juce::Graphics& g, int rowNumber, int column
         const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
         g.setColour(rowIsSelected ? theme.text : theme.textMuted);
     }
-    g.setFont(14.0f);
+    g.setFont(waveedit::ui::bodyFont());
 
     juce::String text;
     switch (columnId)
@@ -278,7 +291,7 @@ void ShortcutEditorPanel::paintCell(juce::Graphics& g, int rowNumber, int column
             text = cmd.keyPress.isValid() ? cmd.keyPress.getTextDescription() : "(none)";
             if (cmd.hasConflict)
             {
-                text += " ⚠️"; // Warning icon for conflicts
+                text += "  (conflict)"; // ASCII marker; the row is also tinted with theme.error
             }
             break;
     }
@@ -311,7 +324,7 @@ juce::String ShortcutEditorPanel::getCellTooltip(int rowNumber, int columnId)
         juce::String tooltip = "Shortcut conflict detected with:\n";
         for (auto conflictID : cmd.conflictingCommands)
         {
-            tooltip += "  • " + getCommandName(conflictID) + "\n";
+            tooltip += "  - " + getCommandName(conflictID) + "\n";
         }
         return tooltip;
     }
@@ -992,6 +1005,12 @@ void ShortcutEditorPanel::updateFilteredCommands()
 
     m_table.updateContent();
     m_table.repaint();
+
+    // Show a centered empty-state message when a search filters out every command.
+    const bool filteredEmpty = m_filteredCommands.isEmpty() && filterText.isNotEmpty();
+    m_noResultsLabel.setText("No commands match \"" + filterText + "\"",
+                             juce::dontSendNotification);
+    m_noResultsLabel.setVisible(filteredEmpty);
 }
 
 void ShortcutEditorPanel::detectConflicts()

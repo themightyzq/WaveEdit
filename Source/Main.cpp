@@ -82,11 +82,39 @@ public:
 
     bool moreThanOneInstanceAllowed() override
     {
-        // Allow multiple instances for editing different files
-        return true;
+        // Single instance: WaveEdit is tab-based, so files opened from Finder
+        // ("Open With" / double-click) route to the running instance as new
+        // tabs via anotherInstanceStarted() rather than spawning new windows.
+        return false;
     }
 
-    void initialise(const juce::String& /*commandLine*/) override
+    /** Extract an openable file path from a launch command line, if any.
+        Used for Finder "Open With" / double-click and `WaveEdit file.wav`. */
+    static juce::File fileFromCommandLine(const juce::String& commandLine)
+    {
+        auto trimmed = commandLine.trim().unquoted().trim();
+        if (trimmed.isEmpty() || trimmed.startsWith("-"))
+            return {};
+
+        juce::File f = juce::File::isAbsolutePath(trimmed)
+                           ? juce::File(trimmed)
+                           : juce::File::getCurrentWorkingDirectory().getChildFile(trimmed);
+        return f.existsAsFile() ? f : juce::File();
+    }
+
+    /** Load @p file into the running MainComponent if it's a real file. */
+    void openFileInMainWindow(const juce::File& file)
+    {
+        if (file == juce::File() || mainWindow == nullptr)
+            return;
+
+        if (auto* mainComp = dynamic_cast<MainComponent*>(mainWindow->getContentComponent()))
+            mainComp->loadFile(file);
+
+        mainWindow->toFront(true);
+    }
+
+    void initialise(const juce::String& commandLine) override
     {
         // Install a file logger so juce::Logger::writeToLog() ends up in a
         // documented, user-discoverable place. JUCE picks the platform-correct
@@ -122,6 +150,11 @@ public:
 
         // Create main window
         mainWindow.reset(new MainWindow(getApplicationName(), m_audioDeviceManager));
+
+        // Open a file passed on the command line (direct CLI launch, and on
+        // Windows/Linux the Finder/Explorer "open document" path). On macOS the
+        // open-document event arrives via anotherInstanceStarted() instead.
+        openFileInMainWindow(fileFromCommandLine(commandLine));
     }
 
     void shutdown() override
@@ -173,10 +206,12 @@ public:
         quit();
     }
 
-    void anotherInstanceStarted(const juce::String& /*commandLine*/) override
+    void anotherInstanceStarted(const juce::String& commandLine) override
     {
-        // Another instance was started (if allowed)
-        // In future, this could open the file in a new window
+        // A second launch (or a macOS Finder "Open With" / double-click) was
+        // routed here because we're single-instance. Open the file as a new tab
+        // in the existing window.
+        openFileInMainWindow(fileFromCommandLine(commandLine));
     }
 
     /**
@@ -199,7 +234,10 @@ public:
 
             // Set up menu bar
            #if JUCE_MAC
-            setMenuBar(mainComp);
+            // On macOS the menus live in the native system menu bar at the top
+            // of the screen (registered via MenuBarModel::setMacMainMenu in
+            // MainComponent). Do NOT also add an in-window bar — that would
+            // duplicate every menu and waste a row inside the window.
            #else
             setMenuBar(mainComp, 30);
            #endif

@@ -14,6 +14,11 @@
 */
 
 #include "BWFEditorDialog.h"
+#include "ThemeManager.h"
+#include "UIConstants.h"
+#include <regex>
+
+namespace ui = waveedit::ui;
 
 // Dialog dimensions
 namespace
@@ -36,7 +41,7 @@ BWFEditorDialog::BWFEditorDialog(BWFMetadata& metadata, std::function<void()> on
     auto setupLabel = [this](juce::Label& label, const juce::String& text)
     {
         label.setText(text, juce::dontSendNotification);
-        label.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        // Inherit themed default text colour so the dialog re-skins.
         label.setJustificationType(juce::Justification::centredRight);
         addAndMakeVisible(label);
     };
@@ -52,10 +57,10 @@ BWFEditorDialog::BWFEditorDialog(BWFMetadata& metadata, std::function<void()> on
     // Setup text editors
     auto setupEditor = [this](juce::TextEditor& editor, int maxChars = 0)
     {
-        editor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff3a3a3a));
-        editor.setColour(juce::TextEditor::textColourId, juce::Colours::white);
-        editor.setColour(juce::TextEditor::outlineColourId, juce::Colours::grey);
-        editor.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::lightblue);
+        // Rely on the themed LookAndFeel defaults for editor colours so the
+        // dialog re-skins; only override the focus ring with the accent token.
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        editor.setColour(juce::TextEditor::focusedOutlineColourId, theme.accent);
         if (maxChars > 0)
             editor.setInputRestrictions(maxChars);
         editor.addListener(this);
@@ -77,9 +82,10 @@ BWFEditorDialog::BWFEditorDialog(BWFMetadata& metadata, std::function<void()> on
     // Setup character count labels
     auto setupCharCount = [this](juce::Label& label)
     {
-        label.setColour(juce::Label::textColourId, juce::Colours::grey);
+        label.setColour(juce::Label::textColourId,
+                        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
         label.setJustificationType(juce::Justification::centredLeft);
-        label.setFont(juce::Font(11.0f));
+        label.setFont(ui::smallFont());
         addAndMakeVisible(label);
     };
 
@@ -91,9 +97,10 @@ BWFEditorDialog::BWFEditorDialog(BWFMetadata& metadata, std::function<void()> on
     auto setupHint = [this](juce::Label& label, const juce::String& text)
     {
         label.setText(text, juce::dontSendNotification);
-        label.setColour(juce::Label::textColourId, juce::Colours::grey);
+        label.setColour(juce::Label::textColourId,
+                        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
         label.setJustificationType(juce::Justification::centredLeft);
-        label.setFont(juce::Font(11.0f));
+        label.setFont(ui::smallFont());
         addAndMakeVisible(label);
     };
 
@@ -124,6 +131,9 @@ BWFEditorDialog::BWFEditorDialog(BWFMetadata& metadata, std::function<void()> on
     loadMetadata();
     updateCharacterCounts();
 
+    // Allow component-level Enter/Escape handling (REVIEW-DESIGN H8).
+    setWantsKeyboardFocus(true);
+
     setSize(DIALOG_WIDTH, DIALOG_HEIGHT);
 }
 
@@ -134,16 +144,17 @@ BWFEditorDialog::~BWFEditorDialog()
 //==============================================================================
 void BWFEditorDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.background);
 
     // Draw section header
-    g.setColour(juce::Colours::white);
-    g.setFont(14.0f);
+    g.setColour(theme.text);
+    g.setFont(ui::bodyFont());
     g.drawText("Edit BWF (Broadcast Wave Format) Metadata", SPACING, SPACING,
                DIALOG_WIDTH - 2 * SPACING, 20, juce::Justification::centred, false);
 
     // Draw separator line
-    g.setColour(juce::Colours::grey);
+    g.setColour(theme.border);
     g.drawLine(SPACING, ROW_HEIGHT + SPACING,
                DIALOG_WIDTH - SPACING, ROW_HEIGHT + SPACING, 1.0f);
 }
@@ -231,6 +242,9 @@ void BWFEditorDialog::buttonClicked(juce::Button* button)
     }
     else if (button == &m_okButton)
     {
+        if (!validateDateTime())
+            return;  // Block save on malformed date/time (inline hints show why)
+
         saveMetadata();
         if (m_onApply)
             m_onApply();
@@ -240,6 +254,9 @@ void BWFEditorDialog::buttonClicked(juce::Button* button)
     }
     else if (button == &m_applyButton)
     {
+        if (!validateDateTime())
+            return;  // Block save on malformed date/time (inline hints show why)
+
         saveMetadata();
         if (m_onApply)
             m_onApply();
@@ -305,23 +322,87 @@ void BWFEditorDialog::setCurrentDateTime()
 
 void BWFEditorDialog::updateCharacterCounts()
 {
-    // Description (max 256)
-    int descLen = m_descriptionEditor.getText().length();
-    m_descriptionCharCount.setText(juce::String(descLen) + " / 256", juce::dontSendNotification);
-    m_descriptionCharCount.setColour(juce::Label::textColourId,
-                                      descLen > 256 ? juce::Colours::red : juce::Colours::grey);
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
 
-    // Originator (max 32)
-    int origLen = m_originatorEditor.getText().length();
-    m_originatorCharCount.setText(juce::String(origLen) + " / 32", juce::dontSendNotification);
-    m_originatorCharCount.setColour(juce::Label::textColourId,
-                                     origLen > 32 ? juce::Colours::red : juce::Colours::grey);
+    // The editors hard-cap input via setInputRestrictions(), so overflow can
+    // never occur. Instead, show used/limit in a normal colour and warn (amber)
+    // when within ~10 chars of the limit so the counter is meaningful (H10).
+    auto updateCount = [&theme](juce::Label& label, int used, int limit)
+    {
+        label.setText(juce::String(used) + " / " + juce::String(limit), juce::dontSendNotification);
+        const bool nearLimit = (limit - used) <= 10;
+        label.setColour(juce::Label::textColourId, nearLimit ? theme.warning : theme.textMuted);
+    };
 
-    // Originator Reference (max 32)
-    int refLen = m_originatorRefEditor.getText().length();
-    m_originatorRefCharCount.setText(juce::String(refLen) + " / 32", juce::dontSendNotification);
-    m_originatorRefCharCount.setColour(juce::Label::textColourId,
-                                        refLen > 32 ? juce::Colours::red : juce::Colours::grey);
+    updateCount(m_descriptionCharCount, m_descriptionEditor.getText().length(), 256);
+    updateCount(m_originatorCharCount, m_originatorEditor.getText().length(), 32);
+    updateCount(m_originatorRefCharCount, m_originatorRefEditor.getText().length(), 32);
+}
+
+bool BWFEditorDialog::validateDateTime()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    bool valid = true;
+
+    // Date: YYYY-MM-DD with sane month/day ranges. Empty is allowed.
+    juce::String date = m_originationDateEditor.getText().trim();
+    bool dateOk = date.isEmpty();
+    if (!dateOk)
+    {
+        std::regex re(R"(^(\d{4})-(\d{2})-(\d{2})$)");
+        std::smatch m;
+        const std::string s = date.toStdString();
+        if (std::regex_match(s, m, re))
+        {
+            int month = std::stoi(m[2].str());
+            int day   = std::stoi(m[3].str());
+            dateOk = (month >= 1 && month <= 12 && day >= 1 && day <= 31);
+        }
+    }
+    m_dateFormatLabel.setText(dateOk ? "(yyyy-mm-dd)" : "Invalid - use yyyy-mm-dd",
+                              juce::dontSendNotification);
+    m_dateFormatLabel.setColour(juce::Label::textColourId, dateOk ? theme.textMuted : theme.error);
+    valid = valid && dateOk;
+
+    // Time: HH:MM:SS with sane ranges. Empty is allowed.
+    juce::String time = m_originationTimeEditor.getText().trim();
+    bool timeOk = time.isEmpty();
+    if (!timeOk)
+    {
+        std::regex re(R"(^(\d{2}):(\d{2}):(\d{2})$)");
+        std::smatch m;
+        const std::string s = time.toStdString();
+        if (std::regex_match(s, m, re))
+        {
+            int hh = std::stoi(m[1].str());
+            int mm = std::stoi(m[2].str());
+            int ss = std::stoi(m[3].str());
+            timeOk = (hh <= 23 && mm <= 59 && ss <= 59);
+        }
+    }
+    m_timeFormatLabel.setText(timeOk ? "(hh:mm:ss)" : "Invalid - use hh:mm:ss",
+                              juce::dontSendNotification);
+    m_timeFormatLabel.setColour(juce::Label::textColourId, timeOk ? theme.textMuted : theme.error);
+    valid = valid && timeOk;
+
+    return valid;
+}
+
+bool BWFEditorDialog::keyPressed(const juce::KeyPress& key)
+{
+    // Enter confirms (OK) when fields validate; Escape cancels (REVIEW-DESIGN H8).
+    if (key == juce::KeyPress::returnKey)
+    {
+        if (validateDateTime())
+            buttonClicked(&m_okButton);
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        buttonClicked(&m_cancelButton);
+        return true;
+    }
+    return false;
 }
 
 //==============================================================================
@@ -334,7 +415,7 @@ void BWFEditorDialog::showDialog(juce::Component* parentComponent,
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(editorDialog);
     options.dialogTitle = "Edit BWF Metadata";
-    options.dialogBackgroundColour = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().background;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;

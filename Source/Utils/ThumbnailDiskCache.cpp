@@ -94,7 +94,11 @@ bool save(const juce::File& audioFile, const juce::AudioThumbnail& thumb)
                 const auto tb = b.getLastModificationTime();
                 if (ta < tb) return -1;
                 if (ta > tb) return 1;
-                return 0;
+                // L12: stable tiebreaker by filename so eviction order is
+                // deterministic when mtimes collide (FAT has 2s resolution,
+                // HFS+ 1s) -- otherwise the sort is unstable and may evict a
+                // newer entry instead of the genuinely-oldest one.
+                return a.getFileName().compare(b.getFileName());
             }
         };
         ByMTimeAsc cmp;

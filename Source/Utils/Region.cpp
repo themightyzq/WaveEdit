@@ -21,9 +21,18 @@
 */
 
 #include "Region.h"
+#include <atomic>
+
+int64_t Region::nextId()
+{
+    // Process-unique, monotonic. Starts at 1 so 0 can mark "no id yet".
+    static std::atomic<int64_t> counter{1};
+    return counter.fetch_add(1, std::memory_order_relaxed);
+}
 
 Region::Region(const juce::String& name, int64_t startSample, int64_t endSample)
-    : m_name(name)
+    : m_id(nextId())
+    , m_name(name)
     , m_startSample(startSample)
     , m_endSample(endSample)
     , m_color(juce::Colours::lightblue) // Default color
@@ -36,11 +45,22 @@ Region::Region(const juce::String& name, int64_t startSample, int64_t endSample)
 }
 
 Region::Region()
-    : m_name("Untitled Region")
+    : m_id(nextId())
+    , m_name("Untitled Region")
     , m_startSample(0)
     , m_endSample(0)
     , m_color(juce::Colours::lightblue)
 {
+}
+
+int64_t Region::getId() const
+{
+    return m_id;
+}
+
+void Region::setId(int64_t id)
+{
+    m_id = id;
 }
 
 juce::String Region::getName() const
@@ -124,15 +144,45 @@ Region Region::fromJSON(const juce::var& json)
 {
     Region region;
 
-    if (auto* obj = json.getDynamicObject())
+    auto* obj = json.getDynamicObject();
+    if (obj == nullptr)
     {
-        region.m_name = obj->getProperty("name").toString();
-        region.m_startSample = static_cast<int64_t>(static_cast<juce::int64>(obj->getProperty("startSample")));
-        region.m_endSample = static_cast<int64_t>(static_cast<juce::int64>(obj->getProperty("endSample")));
-
-        juce::String colorString = obj->getProperty("color").toString();
-        region.m_color = juce::Colour::fromString(colorString);
+        // Malformed entry: leave the default (sentinel) region. Callers that
+        // care about validity should reject zero-length regions on load.
+        return region;
     }
+
+    region.m_name = obj->getProperty("name").toString();
+
+    // H22: validate that the sample fields are present and numeric. A missing
+    // or wrong-typed field would otherwise silently coerce to 0, producing a
+    // bogus [0,0] region. var::isInt/isInt64/isDouble lets us tell "the field
+    // is a real number" from "the field is absent / a string".
+    const juce::var startVar = obj->getProperty("startSample");
+    const juce::var endVar   = obj->getProperty("endSample");
+
+    auto isNumeric = [](const juce::var& v)
+    {
+        return v.isInt() || v.isInt64() || v.isDouble();
+    };
+
+    if (isNumeric(startVar) && isNumeric(endVar))
+    {
+        region.m_startSample = static_cast<int64_t>(static_cast<juce::int64>(startVar));
+        region.m_endSample   = static_cast<int64_t>(static_cast<juce::int64>(endVar));
+
+        // Apply the same invariant the constructor enforces: start <= end.
+        // A sidecar with start > end must NOT bypass this and create a
+        // negative-length region (which breaks getInverseRanges()).
+        if (region.m_startSample > region.m_endSample)
+            std::swap(region.m_startSample, region.m_endSample);
+    }
+    // else: fields invalid -> leave [0,0] sentinel so the caller rejects it.
+
+    juce::String colorString = obj->getProperty("color").toString();
+    juce::Colour parsedColor = juce::Colour::fromString(colorString);
+    if (colorString.isNotEmpty())
+        region.m_color = parsedColor;
 
     return region;
 }

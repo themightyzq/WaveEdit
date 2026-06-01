@@ -15,6 +15,9 @@
 
 #include "ChannelConverterDialog.h"
 #include "UIConstants.h"
+#include "ThemeManager.h"
+
+namespace ui = waveedit::ui;
 
 namespace
 {
@@ -35,7 +38,7 @@ ChannelConverterDialog::ChannelConverterDialog(int currentChannels)
 
     // Title
     m_titleLabel.setText("Channel Converter", juce::dontSendNotification);
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
+    m_titleLabel.setFont(ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -47,7 +50,7 @@ ChannelConverterDialog::ChannelConverterDialog(int currentChannels)
     waveedit::ChannelLayout currentLayout = waveedit::ChannelLayout::fromChannelCount(currentChannels);
     m_currentValueLabel.setText(juce::String(currentChannels) + " channels (" +
                                  currentLayout.getLayoutName() + ")", juce::dontSendNotification);
-    m_currentValueLabel.setFont(juce::Font(13.0f, juce::Font::bold));
+    m_currentValueLabel.setFont(ui::boldValueFont());
     addAndMakeVisible(m_currentValueLabel);
 
     // Target layout selector
@@ -157,14 +160,15 @@ ChannelConverterDialog::ChannelConverterDialog(int currentChannels)
     m_formulaPreview.setMultiLine(true, true);
     m_formulaPreview.setReadOnly(true);
     m_formulaPreview.setScrollbarsShown(true);
-    m_formulaPreview.setFont(juce::FontOptions(12.0f));
-    m_formulaPreview.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xFF1E1E1E));
-    m_formulaPreview.setColour(juce::TextEditor::textColourId, juce::Colours::white);
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    m_formulaPreview.setFont(juce::FontOptions(ui::kFontSmall));
+    m_formulaPreview.setColour(juce::TextEditor::backgroundColourId, theme.panelAlternate);
+    m_formulaPreview.setColour(juce::TextEditor::textColourId, theme.text);
     addAndMakeVisible(m_formulaPreview);
 
     // Info label
     m_infoLabel.setJustificationType(juce::Justification::centred);
-    m_infoLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_infoLabel.setColour(juce::Label::textColourId, theme.textMuted);
     addAndMakeVisible(m_infoLabel);
 
     // Buttons
@@ -175,6 +179,9 @@ ChannelConverterDialog::ChannelConverterDialog(int currentChannels)
     m_cancelButton.setButtonText("Cancel");
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
     addAndMakeVisible(m_cancelButton);
+
+    // Allow component-level Enter/Escape handling (REVIEW-DESIGN H8).
+    setWantsKeyboardFocus(true);
 
     // Select first preset and trigger update
     if (m_targetCombo.getNumItems() > 0)
@@ -268,18 +275,22 @@ void ChannelConverterDialog::updateInfoLabel()
 
     int targetChannels = m_presets[static_cast<size_t>(selectedIndex)].channels;
 
+    // Disable Apply for the no-op (same channel count) case so it can't run a
+    // pointless conversion (REVIEW-DESIGN N9).
+    m_applyButton.setEnabled(targetChannels != m_currentChannels);
+
     if (targetChannels == m_currentChannels)
     {
         m_infoLabel.setText("No conversion needed - same channel count", juce::dontSendNotification);
     }
     else if (targetChannels < m_currentChannels)
     {
-        m_infoLabel.setText("Downmix: " + juce::String(m_currentChannels) + " → " +
+        m_infoLabel.setText("Downmix: " + juce::String(m_currentChannels) + " -> " +
                            juce::String(targetChannels) + " channels", juce::dontSendNotification);
     }
     else
     {
-        m_infoLabel.setText("Upmix: " + juce::String(m_currentChannels) + " → " +
+        m_infoLabel.setText("Upmix: " + juce::String(m_currentChannels) + " -> " +
                            juce::String(targetChannels) + " channels", juce::dontSendNotification);
     }
 }
@@ -295,8 +306,9 @@ void ChannelConverterDialog::updateFormulaPreview()
 
     int targetChannels = m_presets[static_cast<size_t>(selectedIndex)].channels;
 
-    // Bullet point for list items
-    const juce::String bullet = juce::String::charToString(0x2022);
+    // M11: §6.12 requires ASCII-only rendered strings.  Use "-" not the
+    // Unicode bullet (0x2022) which renders as a box in some typefaces.
+    const juce::String bullet = "-";
 
     // Handle upmixing
     if (targetChannels > m_currentChannels)
@@ -497,6 +509,23 @@ void ChannelConverterDialog::onApplyClicked()
         dlg->exitModalState(1);
 }
 
+bool ChannelConverterDialog::keyPressed(const juce::KeyPress& key)
+{
+    // Enter applies (when not a no-op); Escape cancels (REVIEW-DESIGN H8).
+    if (key == juce::KeyPress::returnKey)
+    {
+        if (m_applyButton.isEnabled())
+            onApplyClicked();
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        onCancelClicked();
+        return true;
+    }
+    return false;
+}
+
 void ChannelConverterDialog::onCancelClicked()
 {
     m_result = std::nullopt;
@@ -507,7 +536,7 @@ void ChannelConverterDialog::onCancelClicked()
 
 void ChannelConverterDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(waveedit::ui::kBackgroundPrimary));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().background);
 }
 
 void ChannelConverterDialog::resized()
@@ -625,7 +654,7 @@ std::optional<ChannelConverterDialog::Result> ChannelConverterDialog::showDialog
 
     juce::DialogWindow::LaunchOptions options;
     options.dialogTitle = "Channel Converter";
-    options.dialogBackgroundColour = juce::Colour(waveedit::ui::kBackgroundPrimary);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().background;
     options.content.setNonOwned(&dialog);  // Use setNonOwned for stack object
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;

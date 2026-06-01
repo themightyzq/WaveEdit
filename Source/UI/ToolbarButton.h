@@ -33,7 +33,8 @@
  * Inherits from TooltipClient to show tooltips on hover.
  */
 class ToolbarButton : public juce::Component,
-                      public juce::TooltipClient
+                      public juce::TooltipClient,
+                      private juce::ChangeListener
 {
 public:
     /**
@@ -89,6 +90,16 @@ private:
     // Private Methods
 
     void executeCommand();
+
+    //==============================================================================
+    // ChangeListener (theme switches)
+
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+
+    /**
+     * (Re)build and assign the button's icon from the current theme.
+     */
+    void updateIcon();
 
     /**
      * Create drawable icon for the button based on command or custom icon.

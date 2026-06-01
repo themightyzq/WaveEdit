@@ -34,6 +34,22 @@ namespace AutoSaveRecovery
     juce::File getAutoSaveDirectory();
 
     /**
+     * The stable per-original prefix shared by every auto-save filename for
+     * @p originalFile, including the trailing underscore before the
+     * timestamp: "autosave_<stem>_<pathHash>_".
+     *
+     * The path hash disambiguates two files with the same stem in different
+     * directories (e.g. /A/kick.wav vs /B/kick.wav), which previously
+     * collided because the filename was keyed on the stem alone (M4). It
+     * also gives cleanup a robust token to group on instead of splitting on
+     * '_' (which mis-grouped stems containing underscores, M5).
+     *
+     * Writers (FileController::performAutoSave) MUST build filenames as
+     * prefix + timestamp + ".wav" so this prefix matches them.
+     */
+    juce::String autoSavePrefixFor(const juce::File& originalFile);
+
+    /**
      * Return every auto-save file in @p autoSaveDir that targets
      * @p originalFile and is newer than the original on disk. Empty
      * result = no recovery offered.

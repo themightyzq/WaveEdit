@@ -211,6 +211,12 @@ private:
     juce::CriticalSection m_statusLock;
     juce::String m_currentStatus;
 
+    // Enables juce::WeakReference<BatchProcessorEngine>. The notify* methods post
+    // async callbacks that touch m_listeners; if the dialog that owns this engine
+    // is destroyed while a callback is still queued, the weak ref lets the
+    // callback no-op instead of dereferencing a freed engine (C16).
+    JUCE_DECLARE_WEAK_REFERENCEABLE(BatchProcessorEngine)
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BatchProcessorEngine)
 };
 

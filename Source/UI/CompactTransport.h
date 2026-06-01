@@ -41,7 +41,8 @@
  * - Clickable time display to cycle formats
  */
 class CompactTransport : public juce::Component,
-                          public juce::Timer
+                          public juce::Timer,
+                          private juce::ChangeListener
 {
 public:
     //==============================================================================
@@ -107,6 +108,22 @@ public:
     std::function<void()> onRecordRequested;
 
     //==============================================================================
+    // Recording State
+
+    /**
+     * Sets whether recording is currently active. When true, a clear
+     * recording indicator (red "REC" badge) is drawn in the reserved spot.
+     * The owner (which drives the RecordingEngine) should call this; the
+     * widget has no direct query into recording state.
+     *
+     * @param isRecording true while a recording is in progress
+     */
+    void setRecording(bool isRecording);
+
+    /** @return true if the recording indicator is currently active. */
+    bool isRecording() const { return m_isRecording; }
+
+    //==============================================================================
     // Loop Control
 
     bool isLoopEnabled() const;
@@ -145,18 +162,19 @@ private:
     // State tracking for efficient updates
     PlaybackState m_lastState;
     double m_lastPosition;
-    bool m_recordPulse;  // For pulsing record indicator
+    bool m_recordPulse;   // For pulsing record indicator
+    bool m_isRecording;   // Recording active flag (set by owner)
 
     //==============================================================================
     // Icon Creation
 
-    static std::unique_ptr<juce::Drawable> createRecordIcon();
-    static std::unique_ptr<juce::Drawable> createRewindIcon();
-    static std::unique_ptr<juce::Drawable> createStopIcon();
-    static std::unique_ptr<juce::Drawable> createPlayIcon();
-    static std::unique_ptr<juce::Drawable> createPauseIcon();
-    static std::unique_ptr<juce::Drawable> createForwardIcon();
-    static std::unique_ptr<juce::Drawable> createLoopIcon();
+    static std::unique_ptr<juce::Drawable> createRecordIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createRewindIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createStopIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createPlayIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createPauseIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createForwardIcon(juce::Colour colour);
+    static std::unique_ptr<juce::Drawable> createLoopIcon(juce::Colour colour);
 
     //==============================================================================
     // State Updates
@@ -164,6 +182,15 @@ private:
     void updateButtonStates();
     void updatePositionDisplay();
     void updatePlayPauseIcon();
+
+    /** Re-applies theme-derived colours to icons and the time label. */
+    void applyThemeColours();
+
+    /** Recolors the loop icon (accent when ON, text when OFF). */
+    void updateLoopButtonAppearance();
+
+    /** ChangeListener override (theme switches). */
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     //==============================================================================
     // Formatting

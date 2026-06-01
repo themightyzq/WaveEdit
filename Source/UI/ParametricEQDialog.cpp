@@ -17,7 +17,10 @@
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 #include <cmath>
+
+namespace ui = waveedit::ui;
 
 // Static state persistence for dialog reopens (Phase 6 finalization)
 // These persist bypass and loop toggle states across dialog instances
@@ -38,7 +41,7 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
       m_qValueLabel("qValueLabel", "0.71")
 {
     // Title
-    m_titleLabel.setFont(juce::Font(14.0f, juce::Font::bold));
+    m_titleLabel.setFont(ui::boldValueFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -59,7 +62,7 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
     addAndMakeVisible(m_freqSlider);
 
     m_freqValueLabel.setJustificationType(juce::Justification::centredLeft);
-    m_freqValueLabel.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
+    m_freqValueLabel.setFont(ui::monospaceFont());
     addAndMakeVisible(m_freqValueLabel);
 
     // Gain controls
@@ -78,7 +81,7 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
     addAndMakeVisible(m_gainSlider);
 
     m_gainValueLabel.setJustificationType(juce::Justification::centredLeft);
-    m_gainValueLabel.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
+    m_gainValueLabel.setFont(ui::monospaceFont());
     addAndMakeVisible(m_gainValueLabel);
 
     // Q controls
@@ -98,7 +101,7 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
     addAndMakeVisible(m_qSlider);
 
     m_qValueLabel.setJustificationType(juce::Justification::centredLeft);
-    m_qValueLabel.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
+    m_qValueLabel.setFont(ui::monospaceFont());
     addAndMakeVisible(m_qValueLabel);
 
     // Initialize value labels
@@ -226,7 +229,7 @@ ParametricEQDialog::ParametricEQDialog(AudioEngine* audioEngine,
       m_isPreviewPlaying(false)
 {
     // Title
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
+    m_titleLabel.setFont(ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -270,6 +273,30 @@ ParametricEQDialog::ParametricEQDialog(AudioEngine* audioEngine,
 
     // Dialog size: 3 bands (120px each) + spacing + title + buttons
     setSize(450, 490);
+
+    // Keyboard-first: grab focus on the primary control after construction
+    setWantsKeyboardFocus(true);
+    juce::Component::SafePointer<ParametricEQDialog> safeThis(this);
+    juce::MessageManager::callAsync([safeThis]()
+    {
+        if (safeThis != nullptr)
+            safeThis->grabKeyboardFocus();
+    });
+}
+
+bool ParametricEQDialog::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        onApplyClicked();
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        onCancelClicked();
+        return true;
+    }
+    return false;
 }
 
 ParametricEQDialog::~ParametricEQDialog()
@@ -326,7 +353,7 @@ void ParametricEQDialog::paint(juce::Graphics& g)
 
 void ParametricEQDialog::resized()
 {
-    auto area = getLocalBounds().reduced(15);
+    auto area = getLocalBounds().reduced(ui::kDialogPadding);
 
     // Title
     m_titleLabel.setBounds(area.removeFromTop(30));
@@ -344,31 +371,32 @@ void ParametricEQDialog::resized()
     m_highBand.setBounds(area.removeFromTop(120));
     area.removeFromTop(15);
 
-    // Button row - standardized layout across all dialogs
-    // Left: Preview + Loop | Center: Reset | Right: Cancel + Apply
-    auto buttonRow = area.removeFromTop(30);
-    const int buttonWidth = 90;
-    const int buttonSpacing = 10;
+    // Button row - standardized §6.8 layout.
+    // Left group: Preview + Bypass + Loop + Reset | Right group: Cancel + Apply.
+    // Reset lives in the left group (not centered) so the right side always stays
+    // Cancel/Apply per protocol; the left group is always present (Reset at minimum)
+    // even when no audio engine is available.
+    auto buttonRow = area.removeFromTop(ui::kButtonHeight);
+    const int buttonWidth   = ui::kButtonWidth;
+    const int buttonSpacing = ui::kButtonGap;
 
-    // Left side: Preview, Bypass, and Loop toggle (standardized order)
+    // Left side: Preview, Bypass, Loop (only with an engine), then Reset
     if (m_audioEngine && m_bufferManager)
     {
         m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
         buttonRow.removeFromLeft(buttonSpacing);
-        m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower for bypass
+        m_bypassButton.setBounds(buttonRow.removeFromLeft(ui::kButtonWidthNarrow));
         buttonRow.removeFromLeft(buttonSpacing);
         m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
         buttonRow.removeFromLeft(buttonSpacing);
     }
 
-    // Right side: Cancel and Apply buttons
+    m_resetButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+
+    // Right side: Apply (rightmost) then Cancel
     m_applyButton.setBounds(buttonRow.removeFromRight(buttonWidth));
     buttonRow.removeFromRight(buttonSpacing);
     m_cancelButton.setBounds(buttonRow.removeFromRight(buttonWidth));
-    buttonRow.removeFromRight(buttonSpacing);
-
-    // Center: Reset button (uses remaining space)
-    m_resetButton.setBounds(buttonRow);
 }
 
 void ParametricEQDialog::visibilityChanged()
@@ -486,7 +514,7 @@ void ParametricEQDialog::onPreviewClicked()
     // 8. Update button state for toggle
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
-    m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    m_previewButton.setColour(juce::TextButton::buttonColourId, ui::colour(ui::kButtonPreviewActive));
 
     // 9. Enable bypass button during preview
     m_bypassButton.setEnabled(true);
@@ -531,7 +559,7 @@ void ParametricEQDialog::onBypassClicked()
     if (!bypassed)
     {
         m_bypassButton.setButtonText("Bypassed");
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, ui::colour(ui::kButtonBypassActive));
     }
     else
     {

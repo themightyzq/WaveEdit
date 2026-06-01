@@ -45,7 +45,8 @@ class Document;
 class CustomizableToolbar : public juce::Component,
                             public juce::DragAndDropContainer,
                             public juce::DragAndDropTarget,
-                            public ToolbarManager::Listener
+                            public ToolbarManager::Listener,
+                            private juce::ChangeListener
 {
 public:
     //==============================================================================
@@ -81,6 +82,11 @@ public:
     // ToolbarManager::Listener
 
     void toolbarLayoutChanged(const ToolbarLayout& newLayout) override;
+
+    //==============================================================================
+    // ChangeListener (theme switches)
+
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     //==============================================================================
     // Layout Management

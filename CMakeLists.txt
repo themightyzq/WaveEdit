@@ -17,6 +17,11 @@ juce_add_gui_app(WaveEdit
     PRODUCT_NAME "WaveEdit"
     BUNDLE_ID "com.waveedit.app"
 
+    # Register the audio formats WaveEdit can open so the OS offers it for
+    # "Open With" / double-click and passes the file path to the app
+    # (macOS CFBundleDocumentTypes, Windows file associations).
+    DOCUMENT_EXTENSIONS wav flac ogg mp3
+
     # Icon files (optional, can add later)
     # ICON_BIG ...
     # ICON_SMALL ...
@@ -847,6 +852,30 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Batch/BatchProcessorEngine.h
         Source/Batch/BatchPresetManager.cpp
         Source/Batch/BatchPresetManager.h
+        # QA Pass 2: make WaveEditCore link-complete (= app minus Main.cpp) so the
+        # test target can exercise controllers/exporters/recording. These were
+        # previously app-only, leaving latent unresolved refs (e.g. FileController
+        # -> SaveAsOptionsPanel) that only surfaced once a test pulled the object.
+        Source/Audio/RecordingEngine.cpp
+        Source/Controllers/ClipboardController.cpp
+        Source/Controllers/DialogController.cpp
+        Source/Controllers/MarkerController.cpp
+        Source/Controllers/PlaybackController.cpp
+        Source/Controllers/PluginController.cpp
+        Source/Controllers/RecordingController.cpp
+        Source/Controllers/RegionController.cpp
+        Source/Utils/KeymapManager.cpp
+        Source/Utils/RegionExporter.cpp
+        Source/UI/SaveAsOptionsPanel.cpp
+        Source/UI/BatchExportDialog.cpp
+        Source/UI/CommandPalette.cpp
+        Source/UI/LoopingToolsDialog.cpp
+        Source/UI/MarkerListPanel.cpp
+        Source/UI/ProgressDialog.cpp
+        Source/UI/ShortcutEditorPanel.cpp
+        Source/Batch/BatchProcessorDialog.cpp
+        Source/Batch/BatchProcessorDialog_Components.cpp
+        Source/Batch/BatchProcessorDialog_Preview.cpp
     )
 
     # Link WaveEditCore to JUCE modules
@@ -965,6 +994,23 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/CrashRecoveryTests.cpp                   # Crash recovery: detection + supersede
             Tests/Integration/MultiRegionDragTests.cpp          # Multi-region drag/move
             Tests/Integration/RegionListPanelTests.cpp          # RegionListPanel state-side contract
+            # --- QA Pass 2 regression tests (2026-05) ---
+            Tests/Unit/EQMultichannelTests.cpp                  # H3/H4: multichannel EQ
+            Tests/Unit/AudioBufferManagerRegressionTests.cpp    # C1 trim, H1 replaceRange atomicity
+            Tests/Integration/AudioFileManagerPass2Tests.cpp    # C11 bext+iXML, C15 resample, M7 escape, M8 overflow
+            Tests/Unit/AutoSaveRecoveryPass2Tests.cpp           # M4/M5 autosave path hash + cleanup, H26 drop predicate
+            Tests/Unit/DialogInputValidationTests.cpp           # H17/L4 GoTo, H18 gain/normalize NaN/inf
+            Tests/Unit/PluginBlacklistTests.cpp                 # M21 exact blacklist match
+            Tests/Unit/PluginChainTailTests.cpp                 # H25 batch tail
+            Tests/Unit/KeymapCommandResolutionTests.cpp         # H27 command/keymap resolution
+            Tests/Unit/RegionUndoIdentityTests.cpp              # H8-H11/H14, C3 region undo by id
+            Tests/Unit/RegionExporterPass2Tests.cpp             # C17/H15/H16 export
+            Tests/Unit/RegionMarkerJsonValidationTests.cpp      # H22 JSON validation
+            Tests/Unit/MarkerJumpUnitsTests.cpp                 # C2 marker jump units
+            Tests/Integration/ClipboardChannelMismatchTests.cpp # C12/H5 channel conform, H2 loop selection
+            Tests/Unit/AutomationApplyGuardTests.cpp            # H23 apply-guard
+            Tests/Unit/AutomationLanesPanelRowIndexTests.cpp    # M16 row index
+            Tests/Unit/RecordingEngineTests.cpp                 # M17/M18 recording
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6
