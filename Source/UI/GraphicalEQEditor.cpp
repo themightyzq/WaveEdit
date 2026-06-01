@@ -183,11 +183,7 @@ GraphicalEQEditor::~GraphicalEQEditor()
 
         if (m_previewActive)
         {
-            // FIX: Must stop audio playback when closing dialog (was missing before)
-            m_audioEngine->stop();
-            m_audioEngine->setDynamicEQPreview(DynamicParametricEQ::Parameters(), false);
-            m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-            m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
+            m_audioEngine->stopSelectionPreview();
             m_previewActive = false;
         }
     }
@@ -1154,12 +1150,8 @@ void GraphicalEQEditor::togglePreview()
     // Check if we're currently previewing AND playing - if so, stop
     if (m_previewActive && m_audioEngine->isPlaying())
     {
-        // FIX: Must stop audio playback when clicking "Stop Preview" (was missing before)
-        m_audioEngine->stop();
-        m_audioEngine->setGraphicalEQEditor(nullptr);
-        m_audioEngine->setDynamicEQPreview(DynamicParametricEQ::Parameters(), false);
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
+        m_audioEngine->setGraphicalEQEditor(nullptr);  // disconnect the spectrum feed
+        m_audioEngine->stopSelectionPreview();
         m_previewActive = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId,
@@ -1175,44 +1167,16 @@ void GraphicalEQEditor::togglePreview()
     // Start preview
     m_previewActive = true;
 
-    // Register this editor to receive audio data for spectrum visualization
+    // Register this editor to receive audio data for spectrum visualization.
     m_audioEngine->setGraphicalEQEditor(this);
 
-    // Clear any existing loop points before starting (matches GainDialog pattern)
-    m_audioEngine->clearLoopPoints();
-
-    // Enable real-time EQ preview
+    // Configure the effect, then hand selection/loop/transport to the shared
+    // helper (which, unlike the old inline code here, always pairs loop points
+    // with setLooping -- the missing setLooping was why loop never worked).
     m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
     m_audioEngine->setDynamicEQPreview(m_params, true);
-
-    // FIX: Position playback at selection start (like GainDialog pattern)
-    // If there's a valid selection, start preview from selection start
-    if (m_selectionEnd > m_selectionStart)
-    {
-        // Set the preview selection offset for DSP preview to work correctly
-        m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
-
-        // Calculate selection bounds in seconds
-        const double sampleRate = m_audioEngine->getSampleRate();
-        double selectionStartSec = static_cast<double>(m_selectionStart) / sampleRate;
-        double selectionEndSec = static_cast<double>(m_selectionEnd) / sampleRate;
-
-        // Position playhead at selection start
-        m_audioEngine->setPosition(selectionStartSec);
-
-        // Set loop points if loop toggle is enabled
-        bool shouldLoop = m_loopToggle.getToggleState();
-        if (shouldLoop)
-        {
-            m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
-        }
-    }
-
-    // Start playback if not already playing
-    if (!m_audioEngine->isPlaying())
-    {
-        m_audioEngine->play();
-    }
+    m_audioEngine->startSelectionPreview(m_selectionStart, m_selectionEnd,
+                                         m_loopToggle.getToggleState());
 
     // Update button text and color to indicate active state (matches GainDialog pattern)
     m_previewButton.setButtonText("Stop Preview");
