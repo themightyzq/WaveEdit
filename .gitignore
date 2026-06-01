@@ -99,6 +99,8 @@ $RECYCLE.BIN/
 # Claude Code / AI development files (private)
 .claude/
 CLAUDE.md
+.remember/
+REVIEW-*.md
 
 # Internal development documentation
 TODO.md
