@@ -106,6 +106,17 @@ public:
     bool loadIntoBuffer(const juce::File& file, juce::AudioBuffer<float>& outBuffer);
 
     /**
+     * Loads an audio file into a buffer WITHOUT the supported-sample-rate
+     * whitelist that loadIntoBuffer applies. Used for crash recovery: the
+     * app must be able to reload an auto-save it wrote itself even if that
+     * file's sample rate is outside the normal open-validation whitelist
+     * (M6). Still requires a decodable file (a valid reader).
+     *
+     * @return true on success; outBuffer is left untouched on failure.
+     */
+    bool loadIntoBufferUnchecked(const juce::File& file, juce::AudioBuffer<float>& outBuffer);
+
+    /**
      * Creates an audio format reader for streaming playback.
      * Caller takes ownership of the returned pointer.
      *

@@ -31,9 +31,6 @@ RecordingEngine::RecordingEngine()
         m_inputPeakLevels[i] = 0.0f;
         m_inputRMSLevels[i] = 0.0f;
     }
-
-    // Preallocate temporary recording buffer (avoid allocations on audio thread)
-    m_tempRecordingBuffer.setSize(MAX_CHANNELS, TEMP_BUFFER_SIZE);
 }
 
 RecordingEngine::~RecordingEngine()
@@ -55,12 +52,44 @@ bool RecordingEngine::startRecording()
     // Clear any previous recording
     clearRecording();
 
+    // M18: allocate the (large) recording buffer here, on record start,
+    // rather than on every device (re)start. M17: reset drop counter.
+    {
+        juce::ScopedLock lock(m_bufferLock);
+        m_droppedSampleCount.store(0);
+        if (! ensureRecordingBufferAllocated())
+        {
+            juce::Logger::writeToLog("RecordingEngine::startRecording: "
+                                     "failed to allocate recording buffer");
+            return false;
+        }
+    }
+
     // Start recording
     m_recordingState = RecordingState::RECORDING;
 
-    // Notify listeners
-    sendChangeMessage();
+    // Notify listeners (on the message thread — direct broadcast).
+    notifyListenersAsync();
 
+    return true;
+}
+
+bool RecordingEngine::ensureRecordingBufferAllocated()
+{
+    // Caller holds m_bufferLock. Allocate ~1 hour at the current rate.
+    const double sr = m_sampleRate.load();
+    const int    ch = juce::jmax(1, m_numChannels.load());
+    const int maxSamples = static_cast<int>(sr * 3600.0);  // 1 hour
+    if (maxSamples <= 0)
+        return false;
+
+    if (m_recordedBuffer.getNumChannels() != ch
+        || m_recordedBuffer.getNumSamples() != maxSamples)
+    {
+        m_recordedBuffer.setSize(ch, maxSamples);
+    }
+    m_recordedBuffer.clear();
+    m_recordedSampleCount = 0;
     return true;
 }
 
@@ -90,8 +119,10 @@ bool RecordingEngine::stopRecording()
         }
     }
 
-    // Notify listeners
-    sendChangeMessage();
+    // Notify listeners. stopRecording() can be invoked from the device
+    // teardown thread (audioDeviceStopped), so marshal to the message
+    // thread rather than calling sendChangeMessage() here (C9).
+    notifyListenersAsync();
 
     return true;
 }
@@ -145,6 +176,7 @@ void RecordingEngine::clearRecording()
     m_recordedBuffer.clear();
     m_recordedSampleCount = 0;
     m_bufferFull.store(false);
+    m_droppedSampleCount.store(0);  // M17
 
     // Reset level meters
     for (int i = 0; i < MAX_CHANNELS; ++i)
@@ -181,22 +213,20 @@ void RecordingEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
     if (device == nullptr)
         return;
 
-    // Store device parameters
+    // Store device parameters only. M18: do NOT allocate the 1-hour
+    // recording buffer here — this fires on every device / sample-rate /
+    // buffer-size change, even while idle, and at pro rates the
+    // allocation is gigabytes under the lock. The buffer is allocated
+    // lazily in startRecording() instead.
     m_sampleRate = device->getCurrentSampleRate();
     m_numChannels = juce::jmin(device->getActiveInputChannels().countNumberOfSetBits(), MAX_CHANNELS);
-
-    // Allocate recording buffer (1 hour at current sample rate)
-    int maxSamples = static_cast<int>(m_sampleRate * 3600.0);  // 1 hour
-
-    juce::ScopedLock lock(m_bufferLock);
-    m_recordedBuffer.setSize(m_numChannels, maxSamples);
-    m_recordedBuffer.clear();
-    m_recordedSampleCount = 0;
 }
 
 void RecordingEngine::audioDeviceStopped()
 {
-    // Audio device stopped - stop recording if active
+    // Audio device stopped - stop recording if active. This runs on the
+    // device-teardown thread; stopRecording() marshals its change
+    // notification to the message thread (C9), so it's safe to call here.
     if (m_recordingState != RecordingState::IDLE)
     {
         stopRecording();
@@ -284,7 +314,13 @@ void RecordingEngine::appendToRecordingBuffer(const float* const* audioData, int
     if (!m_bufferLock.tryEnter())
     {
         // Skip this buffer if we can't get the lock immediately
-        // Better to drop samples than block the audio thread
+        // Better to drop samples than block the audio thread.
+        // M17: track the gap so it isn't invisible. Only counts when we
+        // are actually recording (lock contention while idle is benign).
+        // Atomic increment only — no logging/allocation on the audio
+        // thread; the UI reads getDroppedSampleCount() on its timer.
+        if (m_recordingState.load() == RecordingState::RECORDING)
+            m_droppedSampleCount.fetch_add(numSamples);
         return;
     }
 
@@ -301,10 +337,14 @@ void RecordingEngine::appendToRecordingBuffer(const float* const* audioData, int
     // Check if we have space in the buffer
     if (availableSpace < numSamples)
     {
-        // Buffer full - stop recording gracefully
+        // Buffer full - stop recording gracefully. We're on the realtime
+        // audio thread, so we MUST NOT sendChangeMessage()/callAsync here
+        // (C9 / §6.4). Instead set the atomic m_bufferFull flag; the
+        // RecordingDialog's timer polls isBufferFull() and tears down the
+        // recording on the message thread, so the UI does learn that
+        // recording stopped.
         m_recordingState.store(RecordingState::IDLE);
         m_bufferFull.store(true);  // Set flag for UI to poll (thread-safe, no allocation)
-        jassertfalse;  // Debug notification
         return;
     }
 
@@ -320,4 +360,24 @@ void RecordingEngine::appendToRecordingBuffer(const float* const* audioData, int
 
     // Update sample count
     m_recordedSampleCount = currentSampleCount + numSamples;
+}
+
+void RecordingEngine::notifyListenersAsync()
+{
+    // C9: ChangeBroadcaster::sendChangeMessage() is only safe on the
+    // message thread. Broadcast directly when we're already there;
+    // otherwise bounce onto it, guarded by a WeakReference so a
+    // teardown-time destruction can't fire into freed memory.
+    if (juce::MessageManager::existsAndIsCurrentThread())
+    {
+        sendChangeMessage();
+        return;
+    }
+
+    juce::WeakReference<RecordingEngine> weakThis(this);
+    juce::MessageManager::callAsync([weakThis]()
+    {
+        if (auto* self = weakThis.get())
+            self->sendChangeMessage();
+    });
 }

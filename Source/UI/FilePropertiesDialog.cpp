@@ -17,6 +17,7 @@
 #include "BWFEditorDialog.h"
 #include "iXMLEditorDialog.h"
 #include "../Audio/ChannelLayout.h"
+#include "UIConstants.h"
 
 // Dialog dimensions
 namespace
@@ -38,10 +39,11 @@ FilePropertiesDialog::FilePropertiesDialog(Document& document)
     : m_document(document)
 {
     // Setup property name labels (left column)
+    // M9: Do NOT pass a literal colour here; applyThemeColours() handles all
+    // setColour() calls so they update correctly on a theme switch.
     auto setupLabel = [this](juce::Label& label, const juce::String& text)
     {
         label.setText(text, juce::dontSendNotification);
-        label.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         label.setJustificationType(juce::Justification::centredRight);
         addAndMakeVisible(label);
     };
@@ -71,9 +73,9 @@ FilePropertiesDialog::FilePropertiesDialog(Document& document)
     setupLabel(m_ixmlTapeLabel, "Library:");
 
     // Setup value labels (right column)
+    // M9: Colours applied by applyThemeColours() — no literal here.
     auto setupValueLabel = [this](juce::Label& label)
     {
-        label.setColour(juce::Label::textColourId, juce::Colours::white);
         label.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(label);
     };
@@ -102,6 +104,22 @@ FilePropertiesDialog::FilePropertiesDialog(Document& document)
     setupValueLabel(m_ixmlProjectValue);
     setupValueLabel(m_ixmlTapeValue);
 
+    // Setup section header labels (bold, slightly emphasized)
+    // M9: Font uses ui:: type-scale helper (16pt bold = sectionHeaderFont).
+    //     Colour applied by applyThemeColours().
+    auto setupHeaderLabel = [this](juce::Label& label, const juce::String& text)
+    {
+        label.setText(text, juce::dontSendNotification);
+        label.setFont(waveedit::ui::sectionHeaderFont());
+        label.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(label);
+    };
+
+    setupHeaderLabel(m_fileInfoHeaderLabel, "File Information");
+    setupHeaderLabel(m_audioInfoHeaderLabel, "Audio Information");
+    setupHeaderLabel(m_bwfHeaderLabel, "BWF Metadata");
+    setupHeaderLabel(m_ixmlHeaderLabel, "SoundMiner / iXML Metadata");
+
     // Make file path value label support text selection for copying
     m_filePathValue.setEditable(false, false, true);
 
@@ -120,6 +138,12 @@ FilePropertiesDialog::FilePropertiesDialog(Document& document)
     auto addToContent = [this](juce::Component& comp) {
         m_contentComponent.addAndMakeVisible(&comp);
     };
+
+    // Add section headers to scrollable content (one per reserved slot)
+    addToContent(m_fileInfoHeaderLabel);
+    addToContent(m_audioInfoHeaderLabel);
+    addToContent(m_bwfHeaderLabel);
+    addToContent(m_ixmlHeaderLabel);
 
     // Add all labels to scrollable content
     addToContent(m_filenameLabel); addToContent(m_filenameValue);
@@ -163,18 +187,99 @@ FilePropertiesDialog::FilePropertiesDialog(Document& document)
     // Load properties from document
     loadProperties();
 
+    // M9: Apply theme colours at construction and register for theme changes.
+    applyThemeColours();
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+
     setSize(DIALOG_WIDTH, DIALOG_HEIGHT);
 }
 
 FilePropertiesDialog::~FilePropertiesDialog()
 {
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
 }
 
 //==============================================================================
 void FilePropertiesDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
-    // Note: Section headers and separators are now drawn on m_contentComponent
+    // M9: Use theme background instead of hardcoded 0xff2a2a2a.
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().panel);
+}
+
+void FilePropertiesDialog::changeListenerCallback(juce::ChangeBroadcaster* /*source*/)
+{
+    // M9: Theme switched — re-apply cached colours and repaint.
+    applyThemeColours();
+    repaint();
+}
+
+void FilePropertiesDialog::applyThemeColours()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Property name labels (muted secondary text)
+    auto applyLabelColour = [&](juce::Label& lbl)
+    {
+        lbl.setColour(juce::Label::textColourId, theme.textMuted);
+    };
+    applyLabelColour(m_filenameLabel);
+    applyLabelColour(m_filePathLabel);
+    applyLabelColour(m_fileSizeLabel);
+    applyLabelColour(m_dateCreatedLabel);
+    applyLabelColour(m_dateModifiedLabel);
+    applyLabelColour(m_sampleRateLabel);
+    applyLabelColour(m_bitDepthLabel);
+    applyLabelColour(m_channelsLabel);
+    applyLabelColour(m_durationLabel);
+    applyLabelColour(m_codecLabel);
+    applyLabelColour(m_bwfDescriptionLabel);
+    applyLabelColour(m_bwfOriginatorLabel);
+    applyLabelColour(m_bwfOriginationDateLabel);
+    applyLabelColour(m_ixmlCategoryLabel);
+    applyLabelColour(m_ixmlSubcategoryLabel);
+    applyLabelColour(m_ixmlCategoryFullLabel);
+    applyLabelColour(m_ixmlFXNameLabel);
+    applyLabelColour(m_ixmlTrackTitleLabel);
+    applyLabelColour(m_ixmlDescriptionLabel);
+    applyLabelColour(m_ixmlKeywordsLabel);
+    applyLabelColour(m_ixmlDesignerLabel);
+    applyLabelColour(m_ixmlProjectLabel);
+    applyLabelColour(m_ixmlTapeLabel);
+
+    // Value labels (primary text)
+    auto applyValueColour = [&](juce::Label& lbl)
+    {
+        lbl.setColour(juce::Label::textColourId, theme.text);
+    };
+    applyValueColour(m_filenameValue);
+    applyValueColour(m_filePathValue);
+    applyValueColour(m_fileSizeValue);
+    applyValueColour(m_dateCreatedValue);
+    applyValueColour(m_dateModifiedValue);
+    applyValueColour(m_sampleRateValue);
+    applyValueColour(m_bitDepthValue);
+    applyValueColour(m_channelsValue);
+    applyValueColour(m_durationValue);
+    applyValueColour(m_codecValue);
+    applyValueColour(m_bwfDescriptionValue);
+    applyValueColour(m_bwfOriginatorValue);
+    applyValueColour(m_bwfOriginationDateValue);
+    applyValueColour(m_ixmlCategoryValue);
+    applyValueColour(m_ixmlSubcategoryValue);
+    applyValueColour(m_ixmlCategoryFullValue);
+    applyValueColour(m_ixmlFXNameValue);
+    applyValueColour(m_ixmlTrackTitleValue);
+    applyValueColour(m_ixmlDescriptionValue);
+    applyValueColour(m_ixmlKeywordsValue);
+    applyValueColour(m_ixmlDesignerValue);
+    applyValueColour(m_ixmlProjectValue);
+    applyValueColour(m_ixmlTapeValue);
+
+    // Section header labels (primary text, bold — font set in constructor)
+    m_fileInfoHeaderLabel.setColour(juce::Label::textColourId, theme.text);
+    m_audioInfoHeaderLabel.setColour(juce::Label::textColourId, theme.text);
+    m_bwfHeaderLabel.setColour(juce::Label::textColourId, theme.text);
+    m_ixmlHeaderLabel.setColour(juce::Label::textColourId, theme.text);
 }
 
 void FilePropertiesDialog::resized()
@@ -200,8 +305,15 @@ void FilePropertiesDialog::resized()
         yPos += rowHeight;
     };
 
+    // Header occupies the reserved slot (keeps layout and rendering in sync)
+    auto layoutHeader = [&](juce::Label& headerLabel)
+    {
+        headerLabel.setBounds(SPACING, yPos, contentWidth - 2 * SPACING, ROW_HEIGHT);
+        yPos += ROW_HEIGHT + SPACING;  // Section header space
+    };
+
     // File Information section
-    yPos += ROW_HEIGHT + SPACING;  // Section header space
+    layoutHeader(m_fileInfoHeaderLabel);
     layoutRow(m_filenameLabel, m_filenameValue);
     layoutRow(m_filePathLabel, m_filePathValue);
     layoutRow(m_fileSizeLabel, m_fileSizeValue);
@@ -210,7 +322,7 @@ void FilePropertiesDialog::resized()
     yPos += SPACING;  // Section separator
 
     // Audio Information section
-    yPos += ROW_HEIGHT + SPACING;  // Section header space
+    layoutHeader(m_audioInfoHeaderLabel);
     layoutRow(m_sampleRateLabel, m_sampleRateValue);
     layoutRow(m_bitDepthLabel, m_bitDepthValue);
     layoutRow(m_channelsLabel, m_channelsValue);
@@ -219,7 +331,7 @@ void FilePropertiesDialog::resized()
     yPos += SPACING;  // Section separator
 
     // BWF Metadata section
-    yPos += ROW_HEIGHT + SPACING;  // Section header space
+    layoutHeader(m_bwfHeaderLabel);
     // Position Edit button for BWF section
     m_editBWFButton.setBounds(contentWidth - EDIT_BUTTON_WIDTH - SPACING, yPos - ROW_HEIGHT - SPACING / 2,
                               EDIT_BUTTON_WIDTH, EDIT_BUTTON_HEIGHT);
@@ -229,7 +341,7 @@ void FilePropertiesDialog::resized()
     yPos += SPACING;  // Section separator
 
     // SoundMiner / iXML Metadata section
-    yPos += ROW_HEIGHT + SPACING;  // Section header space
+    layoutHeader(m_ixmlHeaderLabel);
     // Position Edit button for iXML section
     m_editiXMLButton.setBounds(contentWidth - EDIT_BUTTON_WIDTH - SPACING, yPos - ROW_HEIGHT - SPACING / 2,
                                EDIT_BUTTON_WIDTH, EDIT_BUTTON_HEIGHT);
@@ -515,7 +627,7 @@ void FilePropertiesDialog::showDialog(juce::Component* parentComponent, Document
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(propertiesDialog);
     options.dialogTitle = "File Properties";
-    options.dialogBackgroundColour = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;

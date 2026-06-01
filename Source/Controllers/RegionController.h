@@ -28,6 +28,7 @@
 
 // Forward declarations
 class Document;
+class RegionManager;
 
 /**
  * RegionController handles all region manipulation operations.
@@ -114,6 +115,16 @@ public:
         m_onRegionListRefreshNeeded = callback;
     }
 
+    /**
+     * Picks the smallest 3-digit zero-padded name ("001", "002", ...) not
+     * already used by a region in @p regionManager.
+     *
+     * H14: this replaces getNumRegions()+1, which reused numbers after a
+     * delete and produced duplicate names that collided on batch export.
+     * Static + RegionManager-based so it is unit-testable without a Document.
+     */
+    static juce::String generateUniqueRegionName(const RegionManager& regionManager);
+
 private:
     //==========================================================================
     // Member Variables
@@ -125,6 +136,7 @@ private:
     //==========================================================================
     // Helper Methods
 
-    /** Helper to create a region with auto-generated name */
+    /** Helper to create a region with auto-generated name (delegates to
+        generateUniqueRegionName for the current document). */
     juce::String generateRegionName(Document* doc);
 };

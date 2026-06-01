@@ -407,25 +407,25 @@ void EditRegionBoundariesDialog::validateInput()
     }
     else if (!m_isStartValid && !m_isEndValid)
     {
-        m_validationLabel.setText("✗ Both start and end are invalid", juce::dontSendNotification);
+        m_validationLabel.setText("Both start and end are invalid", juce::dontSendNotification);
         m_validationLabel.setColour(juce::Label::textColourId, errorFn());
         m_okButton.setEnabled(false);
     }
     else if (!m_isStartValid)
     {
-        m_validationLabel.setText("✗ Start position is invalid", juce::dontSendNotification);
+        m_validationLabel.setText("Start position is invalid", juce::dontSendNotification);
         m_validationLabel.setColour(juce::Label::textColourId, errorFn());
         m_okButton.setEnabled(false);
     }
     else if (!m_isEndValid)
     {
-        m_validationLabel.setText("✗ End position is invalid", juce::dontSendNotification);
+        m_validationLabel.setText("End position is invalid", juce::dontSendNotification);
         m_validationLabel.setColour(juce::Label::textColourId, errorFn());
         m_okButton.setEnabled(false);
     }
     else if (m_cachedStartSample >= m_cachedEndSample)
     {
-        m_validationLabel.setText("✗ Start must be before end", juce::dontSendNotification);
+        m_validationLabel.setText("Start must be before end", juce::dontSendNotification);
         m_validationLabel.setColour(juce::Label::textColourId, errorFn());
         m_okButton.setEnabled(false);
     }
@@ -437,7 +437,7 @@ void EditRegionBoundariesDialog::validateInput()
         double durationSeconds = endSeconds - startSeconds;
 
         juce::String validMsg = juce::String::formatted(
-            "✓ Valid region: %.3f - %.3f sec (%.3f sec duration)",
+            "Valid region: %.3f - %.3f sec (%.3f sec duration)",
             startSeconds, endSeconds, durationSeconds);
         m_validationLabel.setText(validMsg, juce::dontSendNotification);
         m_validationLabel.setColour(juce::Label::textColourId, successFn());

@@ -261,10 +261,9 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
 
             case CommandIDs::playbackPlay:
                 result.setInfo("Play/Stop", "Play or stop playback from cursor", "Playback", 0);
-                if (keyPress.isValid())
-                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
-                if (keyPress.isValid())
-                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Shift+Space (alternate)
+                // Single binding only (Space). The keymap defines no alternate; the
+                // previously duplicated addDefaultKeypress calls registered the SAME
+                // keypress 3x and were no-ops (see REVIEW-QA L6).
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
@@ -272,8 +271,7 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
 
             case CommandIDs::playbackPause:
                 result.setInfo("Pause", "Pause or resume playback", "Playback", 0);
-                if (keyPress.isValid())
-                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                // Single binding only (Enter); the duplicate keypress was a no-op (L6).
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
@@ -627,7 +625,7 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 break;
 
             case CommandIDs::toolsHeadTail:
-                result.setInfo("Head && Tail...", "Trim heads/tails, add silence, apply fades", "Tools", 0);
+                result.setInfo("Head & Tail...", "Trim heads/tails, add silence, apply fades", "Tools", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
@@ -721,7 +719,10 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 result.setInfo("Delete Region", "Delete selected region", "Region", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
-                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                // Require a selected region (mirrors markerDelete) so Cmd+Delete does
+                // not route here as a no-op when nothing is selected (L8).
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
+                                 doc->getRegionManager().getSelectedRegionIndex() >= 0);
                 break;
 
             case CommandIDs::regionNext:
@@ -888,7 +889,7 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 break;
 
             case CommandIDs::markerConvertToRegions:
-                result.setInfo("Markers \xe2\x86\x92 Regions", "Create regions between consecutive markers", "Marker", 0);
+                result.setInfo("Markers -> Regions", "Create regions between consecutive markers", "Marker", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc != nullptr &&
@@ -896,7 +897,7 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 break;
 
             case CommandIDs::regionConvertToMarkers:
-                result.setInfo("Regions \xe2\x86\x92 Markers", "Create markers at region boundaries", "Region", 0);
+                result.setInfo("Regions -> Markers", "Create markers at region boundaries", "Region", 0);
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 result.setActive(doc != nullptr &&
@@ -949,7 +950,9 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 if (keyPress.isValid())
                     result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
                 else
-                    result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                    // Ctrl+Shift+O fallback (Cmd+Shift+O is processFadeOut — avoid that
+                    // collision; matches the Default.json binding for pluginOffline).
+                    result.addDefaultKeypress('o', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() &&
                                 !PluginManager::getInstance().getAvailablePlugins().isEmpty());
                 break;
@@ -1003,11 +1006,15 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
             // Toolbar commands
             case CommandIDs::toolbarCustomize:
                 result.setInfo("Customize Toolbar...", "Customize toolbar layout and buttons", "View", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Ctrl+Shift+K (Default.json)
                 result.setActive(true);  // Always available
                 break;
 
             case CommandIDs::toolbarReset:
                 result.setInfo("Reset Toolbar", "Reset toolbar to default layout", "View", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());  // Ctrl+Shift+J (Default.json)
                 result.setActive(true);  // Always available
                 break;
 

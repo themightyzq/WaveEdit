@@ -57,22 +57,30 @@ AutomationLane& AutomationManager::addLane(int pluginIndex, int parameterIndex,
     lane.pluginName = pluginName;
     lane.parameterName = parameterName;
     lane.parameterID = parameterID;
-    m_lanes.push_back(std::move(lane));
+    {
+        const juce::ScopedLock sl(m_lanesLock);
+        m_lanes.push_back(std::move(lane));
+    }
     notifyListeners();
+    // Safe: only the message thread reallocates m_lanes, and back()
+    // is read on the message thread immediately after the push above.
     return m_lanes.back();
 }
 
 void AutomationManager::removeLane(int laneIndex)
 {
-    if (laneIndex >= 0 && laneIndex < static_cast<int>(m_lanes.size()))
     {
+        const juce::ScopedLock sl(m_lanesLock);
+        if (laneIndex < 0 || laneIndex >= static_cast<int>(m_lanes.size()))
+            return;
         m_lanes.erase(m_lanes.begin() + laneIndex);
-        notifyListeners();
     }
+    notifyListeners();
 }
 
 AutomationLane* AutomationManager::getLane(int index)
 {
+    const juce::ScopedLock sl(m_lanesLock);
     if (index >= 0 && index < static_cast<int>(m_lanes.size()))
         return &m_lanes[static_cast<size_t>(index)];
     return nullptr;
@@ -80,6 +88,7 @@ AutomationLane* AutomationManager::getLane(int index)
 
 AutomationLane* AutomationManager::findLane(int pluginIndex, int parameterIndex)
 {
+    const juce::ScopedLock sl(m_lanesLock);
     for (auto& lane : m_lanes)
     {
         if (lane.matches(pluginIndex, parameterIndex))
@@ -100,26 +109,35 @@ int AutomationManager::getNumLanes() const
 
 void AutomationManager::clearAll()
 {
-    m_lanes.clear();
+    {
+        const juce::ScopedLock sl(m_lanesLock);
+        m_lanes.clear();
+    }
     notifyListeners();
 }
 
 void AutomationManager::removePluginLanes(int pluginIndex)
 {
-    m_lanes.erase(
-        std::remove_if(m_lanes.begin(), m_lanes.end(),
-            [pluginIndex](const AutomationLane& lane)
-            { return lane.pluginIndex == pluginIndex; }),
-        m_lanes.end());
+    {
+        const juce::ScopedLock sl(m_lanesLock);
+        m_lanes.erase(
+            std::remove_if(m_lanes.begin(), m_lanes.end(),
+                [pluginIndex](const AutomationLane& lane)
+                { return lane.pluginIndex == pluginIndex; }),
+            m_lanes.end());
+    }
     notifyListeners();
 }
 
 void AutomationManager::shiftPluginIndices(int fromIndex, int delta)
 {
-    for (auto& lane : m_lanes)
     {
-        if (lane.pluginIndex >= fromIndex)
-            lane.pluginIndex += delta;
+        const juce::ScopedLock sl(m_lanesLock);
+        for (auto& lane : m_lanes)
+        {
+            if (lane.pluginIndex >= fromIndex)
+                lane.pluginIndex += delta;
+        }
     }
     notifyListeners();
 }
@@ -130,6 +148,27 @@ void AutomationManager::shiftPluginIndices(int fromIndex, int delta)
 
 void AutomationManager::applyAutomation(PluginChain& chain, double timeInSeconds)
 {
+    // C7: audio thread. Try-lock only — never block the audio thread.
+    // If the message thread is mid-mutation of m_lanes, skip automation
+    // for this one buffer; it resumes on the next callback. The lock
+    // protects against iterator invalidation / UAF on add/remove/clear.
+    if (! m_lanesLock.tryEnter())
+        return;
+
+    // RAII exit so every return path inside the loop releases the lock.
+    struct ScopedExit
+    {
+        juce::CriticalSection& lock;
+        ~ScopedExit() { lock.exit(); }
+    } scopedExit { m_lanesLock };
+
+    // H23: suppress recording of the parameterValueChanged echoes that
+    // setValue() fires synchronously on this (audio) thread. The guard
+    // is lock-free (atomic flag); the dispatcher checks it and bails.
+    // Stack-only, no allocation: pass the (possibly null) recorder and
+    // the guard no-ops when there is none.
+    AutomationRecorder::ScopedApplyGuard applyGuard(m_recorder.get());
+
     for (auto& lane : m_lanes)
     {
         if (!lane.enabled || !lane.curve.hasPoints())
@@ -158,6 +197,7 @@ void AutomationManager::applyAutomation(PluginChain& chain, double timeInSeconds
 
 bool AutomationManager::isAnyLaneRecording() const
 {
+    const juce::ScopedLock sl(m_lanesLock);
     for (const auto& lane : m_lanes)
     {
         if (lane.isRecording)
@@ -168,8 +208,11 @@ bool AutomationManager::isAnyLaneRecording() const
 
 void AutomationManager::stopAllRecording()
 {
-    for (auto& lane : m_lanes)
-        lane.isRecording = false;
+    {
+        const juce::ScopedLock sl(m_lanesLock);
+        for (auto& lane : m_lanes)
+            lane.isRecording = false;
+    }
     notifyListeners();
 }
 
@@ -199,21 +242,24 @@ juce::var AutomationManager::toVar() const
 
 void AutomationManager::fromVar(const juce::var& data)
 {
-    m_lanes.clear();
-
-    if (auto* arr = data.getArray())
     {
-        for (const auto& item : *arr)
+        const juce::ScopedLock sl(m_lanesLock);
+        m_lanes.clear();
+
+        if (auto* arr = data.getArray())
         {
-            AutomationLane lane;
-            lane.pluginIndex = static_cast<int>(item.getProperty("pluginIndex", -1));
-            lane.parameterIndex = static_cast<int>(item.getProperty("parameterIndex", -1));
-            lane.pluginName = item.getProperty("pluginName", "").toString();
-            lane.parameterName = item.getProperty("parameterName", "").toString();
-            lane.parameterID = item.getProperty("parameterID", "").toString();
-            lane.enabled = static_cast<bool>(item.getProperty("enabled", true));
-            lane.curve.fromVar(item.getProperty("points", juce::var()));
-            m_lanes.push_back(std::move(lane));
+            for (const auto& item : *arr)
+            {
+                AutomationLane lane;
+                lane.pluginIndex = static_cast<int>(item.getProperty("pluginIndex", -1));
+                lane.parameterIndex = static_cast<int>(item.getProperty("parameterIndex", -1));
+                lane.pluginName = item.getProperty("pluginName", "").toString();
+                lane.parameterName = item.getProperty("parameterName", "").toString();
+                lane.parameterID = item.getProperty("parameterID", "").toString();
+                lane.enabled = static_cast<bool>(item.getProperty("enabled", true));
+                lane.curve.fromVar(item.getProperty("points", juce::var()));
+                m_lanes.push_back(std::move(lane));
+            }
         }
     }
 

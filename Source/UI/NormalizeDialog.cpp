@@ -19,6 +19,8 @@
 #include "../Audio/AudioProcessor.h"
 #include "../Utils/Settings.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+#include <cmath>
 
 // Static state persistence for dialog reopens (Phase 6 finalization)
 // These persist bypass and loop toggle states across dialog instances
@@ -37,7 +39,7 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
 {
     // Title
     m_titleLabel.setText("Normalize", juce::dontSendNotification);
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
+    m_titleLabel.setFont(waveedit::ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -75,7 +77,7 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
 
     m_currentPeakValue.setText("Analyzing...", juce::dontSendNotification);
     m_currentPeakValue.setJustificationType(juce::Justification::left);
-    m_currentPeakValue.setFont(juce::Font(14.0f, juce::Font::bold));
+    m_currentPeakValue.setFont(waveedit::ui::boldValueFont());
     addAndMakeVisible(m_currentPeakValue);
 
     // Current RMS display
@@ -85,7 +87,7 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
 
     m_currentRMSValue.setText("Analyzing...", juce::dontSendNotification);
     m_currentRMSValue.setJustificationType(juce::Justification::left);
-    m_currentRMSValue.setFont(juce::Font(14.0f, juce::Font::bold));
+    m_currentRMSValue.setFont(waveedit::ui::boldValueFont());
     addAndMakeVisible(m_currentRMSValue);
 
     // Required gain display
@@ -93,9 +95,9 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_requiredGainLabel.setJustificationType(juce::Justification::right);
     addAndMakeVisible(m_requiredGainLabel);
 
-    m_requiredGainValue.setText("—", juce::dontSendNotification);
+    m_requiredGainValue.setText("--", juce::dontSendNotification);
     m_requiredGainValue.setJustificationType(juce::Justification::left);
-    m_requiredGainValue.setFont(juce::Font(14.0f, juce::Font::bold));
+    m_requiredGainValue.setFont(waveedit::ui::boldValueFont());
     addAndMakeVisible(m_requiredGainValue);
 
     // Loop toggle - restore persisted state
@@ -149,11 +151,11 @@ void NormalizeDialog::paint(juce::Graphics& g)
 
 void NormalizeDialog::resized()
 {
-    auto bounds = getLocalBounds().reduced(20);
+    auto bounds = getLocalBounds().reduced(waveedit::ui::kDialogPadding);
 
     // Title
     m_titleLabel.setBounds(bounds.removeFromTop(30));
-    bounds.removeFromTop(10); // Spacing
+    bounds.removeFromTop(waveedit::ui::kSectionGap); // Spacing
 
     // Mode selector row
     auto modeRow = bounds.removeFromTop(30);
@@ -194,13 +196,13 @@ void NormalizeDialog::resized()
     // Left: Preview + Loop | Right: Cancel + Apply
     bounds.removeFromTop(bounds.getHeight() - 40); // Push to bottom
     auto buttonRow = bounds.removeFromTop(40);
-    const int buttonWidth = 90;
-    const int buttonSpacing = 10;
+    const int buttonWidth = waveedit::ui::kButtonWidth;
+    const int buttonSpacing = waveedit::ui::kButtonGap;
 
     // Left side: Preview, Bypass, and Loop toggle
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
-    m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower for bypass
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(waveedit::ui::kButtonWidthNarrow));  // Slightly narrower for bypass
     buttonRow.removeFromLeft(buttonSpacing);
     m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
     buttonRow.removeFromLeft(buttonSpacing);
@@ -211,12 +213,31 @@ void NormalizeDialog::resized()
     m_cancelButton.setBounds(buttonRow.removeFromRight(buttonWidth));
 }
 
+bool NormalizeDialog::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        onApplyClicked();
+        return true;
+    }
+    else if (key == juce::KeyPress::escapeKey)
+    {
+        onCancelClicked();
+        return true;
+    }
+
+    return false;
+}
+
 void NormalizeDialog::visibilityChanged()
 {
     if (isVisible())
     {
         // Analyze both peak and RMS levels when dialog becomes visible
         updateCurrentLevels();
+
+        // Grab keyboard focus on the primary input (target level slider)
+        m_targetLevelSlider.grabKeyboardFocus();
     }
     else
     {
@@ -300,6 +321,23 @@ void NormalizeDialog::updateRequiredGain()
     // Use current level based on selected mode
     float currentLevel = (m_mode == NormalizeMode::RMS) ? m_currentRMSDB : m_currentPeakDB;
 
+    // H18: RMS on a zero-length selection yields -inf currentLevel, which
+    // produces +inf requiredGain that would corrupt the audio thread. Detect
+    // any non-finite current level and treat it as "analysis unavailable".
+    if (!std::isfinite(currentLevel))
+    {
+        m_requiredGainValue.setText("Analysis unavailable", juce::dontSendNotification);
+        m_requiredGainValue.setColour(juce::Label::textColourId,
+            waveedit::ThemeManager::getInstance().getCurrent().warning);
+        m_previewButton.setEnabled(false);
+        m_applyButton.setEnabled(false);
+        return;
+    }
+
+    // Re-enable buttons now that we have a finite level
+    m_previewButton.setEnabled(m_audioEngine != nullptr);
+    m_applyButton.setEnabled(true);
+
     const float requiredGainDB = targetDB - currentLevel;
 
     juce::String gainText = juce::String(requiredGainDB, 2) + " dB";
@@ -313,11 +351,13 @@ void NormalizeDialog::updateRequiredGain()
     // Warn if gain is excessive
     if (requiredGainDB > 24.0f)
     {
-        m_requiredGainValue.setColour(juce::Label::textColourId, juce::Colours::red);
+        m_requiredGainValue.setColour(juce::Label::textColourId,
+            waveedit::ThemeManager::getInstance().getCurrent().error);
     }
     else if (requiredGainDB > 12.0f)
     {
-        m_requiredGainValue.setColour(juce::Label::textColourId, juce::Colours::orange);
+        m_requiredGainValue.setColour(juce::Label::textColourId,
+            waveedit::ThemeManager::getInstance().getCurrent().warning);
     }
     else
     {
@@ -374,7 +414,17 @@ void NormalizeDialog::onPreviewClicked()
     // 3. Calculate required gain for normalization
     const float targetDB = static_cast<float>(m_targetLevelSlider.getValue());
     float currentLevel = (m_mode == NormalizeMode::RMS) ? m_currentRMSDB : m_currentPeakDB;
+
+    // H18: Guard — non-finite currentLevel (e.g. RMS on silent/zero-length
+    // selection) would push +inf gain to the audio thread.
+    if (!std::isfinite(currentLevel))
+        return;
+
     const float requiredGainDB = targetDB - currentLevel;
+
+    // H18: Sanity check the computed gain is also finite.
+    if (!std::isfinite(requiredGainDB))
+        return;
 
     // 4. Set preview mode to REALTIME_DSP for instant parameter changes
     m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
@@ -403,7 +453,7 @@ void NormalizeDialog::onPreviewClicked()
     // 9. Update button state for toggle
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
-    m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    m_previewButton.setColour(juce::TextButton::buttonColourId, waveedit::ui::colour(waveedit::ui::kButtonPreviewActive));
 
     // 10. Enable bypass button now that preview is active
     m_bypassButton.setEnabled(true);
@@ -491,7 +541,7 @@ void NormalizeDialog::onBypassClicked()
     if (newBypassState)
     {
         m_bypassButton.setButtonText("Bypassed");
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));  // Orange
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, waveedit::ui::colour(waveedit::ui::kButtonBypassActive));  // Orange
     }
     else
     {

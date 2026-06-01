@@ -282,22 +282,26 @@ bool BatchJob::applyPluginChain(std::function<bool(float, const juce::String&)>&
     if (!progress(0.5f, "Processing with plugin chain..."))
         return false;
 
-    // Load the plugin chain from the preset file
-    PluginChain chain;
+    // Load the plugin chain from the preset file.
+    // Held by shared_ptr because the message-thread lambda below co-owns it: if
+    // this worker times out or is cancelled and returns early, the chain must
+    // stay alive until the (possibly still-queued) lambda runs, otherwise it
+    // would dereference a destroyed stack object.
+    auto chain = std::make_shared<PluginChain>();
     juce::File presetFile(m_settings.pluginChainPresetPath);
 
     bool loaded = false;
     if (presetFile.existsAsFile())
     {
-        loaded = PluginPresetManager::importPreset(chain, presetFile);
+        loaded = PluginPresetManager::importPreset(*chain, presetFile);
     }
     else
     {
         // Try loading as a preset name
-        loaded = PluginPresetManager::loadPreset(chain, m_settings.pluginChainPresetPath);
+        loaded = PluginPresetManager::loadPreset(*chain, m_settings.pluginChainPresetPath);
     }
 
-    if (!loaded || chain.isEmpty())
+    if (!loaded || chain->isEmpty())
     {
         DBG("BatchJob: Failed to load plugin chain preset: " + m_settings.pluginChainPresetPath);
         if (!progress(0.8f, "Plugin chain not found, skipping..."))
@@ -312,38 +316,69 @@ bool BatchJob::applyPluginChain(std::function<bool(float, const juce::String&)>&
     // We use MessageManager to create the offline chain on the message thread,
     // then process on this background thread.
     PluginChainRenderer renderer;
-    std::atomic<bool> chainCreated{false};
-    std::atomic<bool> chainFailed{false};
+
+    // All cross-thread state is shared_ptr-owned so the async lambda remains
+    // valid even if this worker returns before the lambda executes (timeout /
+    // cancel). No raw references to this function's stack escape to the lambda.
+    auto chainFailed = std::make_shared<std::atomic<bool>>(false);
     auto offlineChain = std::make_shared<PluginChainRenderer::OfflineChain>();
 
-    // Create offline chain on message thread (required for plugin instantiation)
-    juce::MessageManager::callAsync([&chain, &chainCreated, &chainFailed, offlineChain,
+    // Signalled by the message-thread job once chain creation is done (success
+    // or failure). Using a WaitableEvent instead of a sleep-spin lets this
+    // worker block efficiently and wake the instant the chain is ready.
+    auto chainReady = std::make_shared<juce::WaitableEvent>();
+
+    juce::MessageManager::callAsync([chain, chainReady, chainFailed, offlineChain,
                                       sampleRate = m_sampleRate, blockSize = renderer.getBlockSize()]()
     {
-        *offlineChain = PluginChainRenderer::createOfflineChain(chain, sampleRate, blockSize);
+        *offlineChain = PluginChainRenderer::createOfflineChain(*chain, sampleRate, blockSize);
         if (!offlineChain->isValid())
-            chainFailed.store(true);
-        chainCreated.store(true);
+            chainFailed->store(true);
+        chainReady->signal();
     });
 
-    // Wait for chain creation (with timeout to prevent deadlock)
-    int waitMs = 0;
-    constexpr int kMaxWaitMs = 30000; // 30 second timeout
-    while (!chainCreated.load() && waitMs < kMaxWaitMs && !m_cancelled.load())
+    // Wait for chain creation. Poll in short slices so we stay responsive to
+    // cancellation; bail out promptly if the job was cancelled. A bounded total
+    // timeout prevents a permanent stall if the message thread is wedged.
+    constexpr int kMaxWaitMs = 30000;   // 30 second overall ceiling
+    constexpr int kSliceMs = 50;        // wake-up granularity for cancel checks
+    int waitedMs = 0;
+    bool ready = false;
+    while (waitedMs < kMaxWaitMs)
     {
-        juce::Thread::sleep(10);
-        waitMs += 10;
+        if (m_cancelled.load())
+            return false;
+
+        if (chainReady->wait(kSliceMs))
+        {
+            ready = true;
+            break;
+        }
+        waitedMs += kSliceMs;
     }
 
     if (m_cancelled.load())
         return false;
 
-    if (chainFailed.load() || !offlineChain->isValid())
+    if (!ready)
+    {
+        // Timed out waiting for the message thread to build the chain. Report
+        // this as a failure (do NOT silently pretend the chain was applied) so
+        // the batch summary reflects that plugin processing did not happen.
+        DBG("BatchJob: Timed out waiting for plugin chain creation");
+        m_result.status = BatchJobStatus::FAILED;
+        m_result.errorMessage = "Plugin chain creation timed out";
+        progress(0.8f, "Plugin chain timed out");
+        return false;
+    }
+
+    if (chainFailed->load() || !offlineChain->isValid())
     {
         DBG("BatchJob: Failed to create offline plugin instances");
-        if (!progress(0.8f, "Plugin instantiation failed, skipping..."))
-            return false;
-        return true;
+        m_result.status = BatchJobStatus::FAILED;
+        m_result.errorMessage = "Plugin instantiation failed";
+        progress(0.8f, "Plugin instantiation failed");
+        return false;
     }
 
     if (!progress(0.6f, "Rendering through plugins..."))
@@ -375,13 +410,25 @@ bool BatchJob::applyPluginChain(std::function<bool(float, const juce::String&)>&
 
     if (result.success)
     {
-        // Copy processed audio back to our buffer
-        // Handle potential tail samples (result buffer may be larger)
-        int samplesToCopy = juce::jmin(result.processedBuffer.getNumSamples(),
-                                        m_buffer.getNumSamples());
-        for (int channel = 0; channel < m_numChannels; ++channel)
+        // Copy processed audio back to our buffer. When the user requested an
+        // effect tail, result.processedBuffer is (numSamples + tailSamples) long.
+        // The old code clamped the copy to the ORIGINAL m_buffer length, silently
+        // discarding the reverb/delay tail (H25). Resize m_buffer to the full
+        // processed length first so the requested tail is preserved.
+        const int processedSamples = result.processedBuffer.getNumSamples();
+        const int resultChannels   = result.processedBuffer.getNumChannels();
+
+        if (processedSamples > m_buffer.getNumSamples())
         {
-            m_buffer.copyFrom(channel, 0, result.processedBuffer, channel, 0, samplesToCopy);
+            // keepExistingContent=true preserves any channels we don't overwrite;
+            // clearExtraSpace=true zeroes the newly grown region before we copy.
+            m_buffer.setSize(m_numChannels, processedSamples, true, true, true);
+        }
+
+        const int channelsToCopy = juce::jmin(m_numChannels, resultChannels);
+        for (int channel = 0; channel < channelsToCopy; ++channel)
+        {
+            m_buffer.copyFrom(channel, 0, result.processedBuffer, channel, 0, processedSamples);
         }
     }
     else if (!result.errorMessage.isEmpty())

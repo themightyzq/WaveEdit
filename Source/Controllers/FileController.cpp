@@ -456,7 +456,10 @@ void FileController::handleFileDrop(const juce::StringArray& files, juce::Compon
     for (const auto& filePath : files)
     {
         juce::File file(filePath);
-        if (file.existsAsFile() && file.hasFileExtension(".wav"))
+        // Accept every format the Open dialog advertises (and that
+        // AudioFileManager can read) -- previously only .wav was accepted,
+        // so dropped FLAC/MP3/OGG were silently ignored (H26).
+        if (file.existsAsFile() && isDroppableAudioFile(file))
         {
             // Remember the directory for next time
             Settings::getInstance().setLastFileDirectory(file.getParentDirectory());
@@ -471,6 +474,16 @@ void FileController::handleFileDrop(const juce::StringArray& files, juce::Compon
             }
         }
     }
+}
+
+//==============================================================================
+bool FileController::isDroppableAudioFile(const juce::File& file)
+{
+    // Keep in sync with the Open dialog's filter ("*.wav;*.flac;*.mp3;*.ogg").
+    return file.hasFileExtension("wav")
+        || file.hasFileExtension("flac")
+        || file.hasFileExtension("mp3")
+        || file.hasFileExtension("ogg");
 }
 
 //==============================================================================
@@ -497,10 +510,15 @@ void FileController::performAutoSave()
         if (!doc->getAudioEngine().isFileLoaded())
             continue;
 
-        // Create auto-save filename: autosave_[originalname]_[timestamp].wav
+        // Create auto-save filename:
+        //   autosave_[stem]_[pathHash]_[timestamp].wav
+        // The pathHash (from AutoSaveRecovery::autoSavePrefixFor) keeps two
+        // same-named files in different directories from colliding (M4), and
+        // gives cleanup a robust grouping token (M5).
         juce::File originalFile = doc->getAudioEngine().getCurrentFile();
         juce::String timestamp = juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
-        juce::String autoSaveFilename = "autosave_" + originalFile.getFileNameWithoutExtension() + "_" + timestamp + ".wav";
+        juce::String autoSaveFilename = AutoSaveRecovery::autoSavePrefixFor(originalFile)
+                                            + timestamp + ".wav";
         juce::File autoSaveFile = autoSaveDir.getChildFile(autoSaveFilename);
 
         // Get audio data (on message thread - safe)
@@ -529,18 +547,28 @@ void FileController::cleanupOldAutoSaves(const juce::File& autoSaveDir)
     juce::Array<juce::File> autoSaveFiles;
     autoSaveDir.findChildFiles(autoSaveFiles, juce::File::findFiles, false, "autosave_*.wav");
 
-    // Group files by original name
+    // Group files by their per-original prefix.
+    //
+    // Filename layout is: autosave_<stem>_<pathHash>_<YYYYMMDD>_<HHMMSS>.wav
+    // The timestamp is always the LAST TWO underscore-separated tokens
+    // (date, time). Everything before them is the stable group key
+    // (prefix incl. pathHash). Splitting on '_' and taking parts[1] as the
+    // stem mis-grouped stems containing underscores like "my_kick_01" (M5);
+    // dropping the trailing timestamp tokens is robust to any stem.
     std::map<juce::String, juce::Array<juce::File>> filesByOriginal;
     for (auto& file : autoSaveFiles)
     {
-        // Extract original name from autosave_[originalname]_[timestamp].wav
         juce::String filename = file.getFileNameWithoutExtension();
         juce::StringArray parts = juce::StringArray::fromTokens(filename, "_", "");
-        if (parts.size() >= 2)
-        {
-            juce::String originalName = parts[1];
-            filesByOriginal[originalName].add(file);
-        }
+
+        // Need at least: "autosave", stem, hash, date, time => 5 tokens.
+        if (parts.size() < 5)
+            continue;
+
+        // Drop the last two tokens (date + time); rejoin the rest as the key.
+        parts.removeRange(parts.size() - 2, 2);
+        juce::String groupKey = parts.joinIntoString("_");
+        filesByOriginal[groupKey].add(file);
     }
 
     // For each original file, keep only the newest 3 auto-saves
@@ -764,12 +792,38 @@ void FileController::offerCrashRecovery(Document* doc, const juce::File& origina
 
             const auto& newestAS = orphanList.getReference(0);
 
-            // Load the auto-save's audio into a fresh buffer.
+            // Load the auto-save's audio into a fresh buffer. Use the
+            // unchecked loader so a nonstandard-sample-rate auto-save the
+            // app itself wrote isn't rejected by the open-validation
+            // whitelist (M6).
             juce::AudioBuffer<float> recovered;
-            if (! fileMgr->loadIntoBuffer(newestAS, recovered))
+            if (! fileMgr->loadIntoBufferUnchecked(newestAS, recovered))
+            {
+                // Keep the backups: the user may still want to recover by
+                // other means, and we have not yet replaced anything.
+                juce::Logger::writeToLog(
+                    "Crash recovery: failed to load " + newestAS.getFullPathName()
+                    + " -- keeping auto-saves.");
+                ErrorDialog::show(
+                    "Recovery Failed",
+                    "Could not read the auto-saved file. Your backups have been kept.",
+                    ErrorDialog::Severity::Error);
+                return;
+            }
+
+            // Guard against a truncated / zero-sample recovery: loading can
+            // "succeed" on a 0-sample file, which would silently replace the
+            // user's audio with silence AND delete the backups (M6). Validate
+            // before touching anything.
+            if (recovered.getNumSamples() <= 0)
             {
                 juce::Logger::writeToLog(
-                    "Crash recovery: failed to load " + newestAS.getFullPathName());
+                    "Crash recovery: recovered buffer is empty for "
+                    + newestAS.getFullPathName() + " -- keeping auto-saves.");
+                ErrorDialog::show(
+                    "Recovery Failed",
+                    "The auto-saved file contained no audio. Your backups have been kept.",
+                    ErrorDialog::Severity::Error);
                 return;
             }
 
@@ -784,7 +838,8 @@ void FileController::offerCrashRecovery(Document* doc, const juce::File& origina
                 docPtr->getBufferManager().getBuffer().getNumChannels());
             docPtr->setModified(true);
 
-            // Discard the auto-saves now that we've consumed them.
+            // Only now that recovery succeeded, discard the consumed
+            // auto-saves.
             for (const auto& f : orphanList)
                 f.deleteFile();
 

@@ -116,6 +116,45 @@ public:
     int getDebounceMillis() const { return m_debounceMs.load(); }
 
     //==========================================================================
+    // Playback re-entrancy guard (H23)
+    //
+    // While AutomationManager::applyAutomation() pushes values into plugin
+    // parameters on the AUDIO thread, JUCE fires parameterValueChanged()
+    // synchronously on the same thread. Recording those echoes would (a)
+    // create a self-feeding automation loop and (b) take a CriticalSection
+    // + triggerAsyncUpdate() on the audio thread (§6.4 violation). The
+    // manager raises this flag for the duration of its setValue() loop so
+    // the dispatcher can short-circuit those audio-thread callbacks.
+
+    /** RAII scope guard set by AutomationManager around its setValue loop.
+        Stack-only and allocation-free (audio-thread safe). No-ops when
+        constructed with a null recorder. */
+    class ScopedApplyGuard
+    {
+    public:
+        explicit ScopedApplyGuard(AutomationRecorder* r) : m_recorder(r)
+        {
+            if (m_recorder != nullptr)
+                m_recorder->m_applyingAutomation.store(true, std::memory_order_release);
+        }
+        ~ScopedApplyGuard()
+        {
+            if (m_recorder != nullptr)
+                m_recorder->m_applyingAutomation.store(false, std::memory_order_release);
+        }
+        ScopedApplyGuard(const ScopedApplyGuard&) = delete;
+        ScopedApplyGuard& operator=(const ScopedApplyGuard&) = delete;
+
+    private:
+        AutomationRecorder* m_recorder;
+    };
+
+    bool isApplyingAutomation() const
+    {
+        return m_applyingAutomation.load(std::memory_order_acquire);
+    }
+
+    //==========================================================================
     // Public nested type so tests can construct dispatchers directly
     // against a synthetic juce::AudioProcessor. Production code never
     // touches this — refreshAttachments() builds them internally.
@@ -180,6 +219,10 @@ private:
 
     std::atomic<bool> m_globalArm { false };
     std::atomic<int>  m_debounceMs { 20 };
+
+    // H23: true while applyAutomation() is driving setValue() on the
+    // audio thread; dispatchers ignore parameterValueChanged echoes.
+    std::atomic<bool> m_applyingAutomation { false };
 
     std::vector<std::unique_ptr<ParameterDispatcher>> m_dispatchers;
 

@@ -16,6 +16,8 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <functional>
+
 class DocumentManager;
 
 /**
@@ -41,8 +43,12 @@ public:
      * @param parent            Component used as dialog parent
      * @param documentManager   The application's document manager
      * @param audioDeviceManager Device manager that the dialog will record from
+     * @param recordingStateCallback Optional; forwarded to the dialog and
+     *        called with the live capture state so the host can mirror it on a
+     *        persistent transport indicator.
      */
     void handleRecordCommand(juce::Component* parent,
                              DocumentManager& documentManager,
-                             juce::AudioDeviceManager& audioDeviceManager);
+                             juce::AudioDeviceManager& audioDeviceManager,
+                             std::function<void(bool)> recordingStateCallback = {});
 };

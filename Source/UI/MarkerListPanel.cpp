@@ -57,11 +57,13 @@ MarkerListPanel::MarkerListPanel(MarkerManager* markerManager, double sampleRate
     m_searchLabel.setColour(juce::Label::textColourId, textColour());
     addAndMakeVisible(m_searchLabel);
 
-    m_searchBox.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_searchBox.setColour(juce::TextEditor::textColourId, textColour());
-    m_searchBox.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff3a3a3a));
     m_searchBox.addListener(this);
     addAndMakeVisible(m_searchBox);
+
+    // Empty-state hint (shown over the table when it has no rows)
+    m_emptyLabel.setJustificationType(juce::Justification::centred);
+    m_emptyLabel.setInterceptsMouseClicks(false, false);
+    addChildComponent(m_emptyLabel);
 
     m_exportButton.setButtonText("Export...");
     m_exportButton.setTooltip("Export this document's markers to a JSON file");
@@ -80,9 +82,6 @@ MarkerListPanel::MarkerListPanel(MarkerManager* markerManager, double sampleRate
     addAndMakeVisible(m_importButton);
 
     // Set up table
-    m_table.setColour(juce::ListBox::backgroundColourId, backgroundColour());
-    m_table.setColour(juce::ListBox::textColourId, textColour());
-    m_table.setColour(juce::ListBox::outlineColourId, juce::Colour(0xff3a3a3a));
     m_table.setOutlineThickness(1);
     m_table.setRowHeight(m_rowHeight);
     m_table.setMultipleSelectionEnabled(false);  // Single selection for markers
@@ -95,11 +94,11 @@ MarkerListPanel::MarkerListPanel(MarkerManager* markerManager, double sampleRate
     header.addColumn("Name", NameColumn, 200, 100, 400);
     header.addColumn("Position", PositionColumn, 150, 100, 250);
 
-    header.setColour(juce::TableHeaderComponent::textColourId, textColour());
-    header.setColour(juce::TableHeaderComponent::backgroundColourId, juce::Colour(0xff2a2a2a));
-    header.setColour(juce::TableHeaderComponent::highlightColourId, juce::Colour(0xff3a3a3a));
-
     addAndMakeVisible(m_table);
+
+    // Apply theme-driven colours to all one-shot surfaces (search box,
+    // table, header). Re-invoked on theme switch.
+    applyThemeColours();
 
     // Initialize filtered markers
     updateFilteredMarkers();
@@ -139,7 +138,7 @@ juce::Colour MarkerListPanel::alternateRowColour() const
 
 juce::Colour MarkerListPanel::selectedRowColour() const
 {
-    return waveedit::ThemeManager::getInstance().getCurrent().border;
+    return waveedit::ThemeManager::getInstance().getCurrent().selection;
 }
 
 juce::Colour MarkerListPanel::textColour() const
@@ -147,10 +146,36 @@ juce::Colour MarkerListPanel::textColour() const
     return waveedit::ThemeManager::getInstance().getCurrent().text;
 }
 
+void MarkerListPanel::applyThemeColours()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Search box
+    m_searchLabel.setColour(juce::Label::textColourId, theme.text);
+    m_searchBox.setColour(juce::TextEditor::backgroundColourId, theme.panelAlternate);
+    m_searchBox.setColour(juce::TextEditor::textColourId, theme.text);
+    m_searchBox.setColour(juce::TextEditor::outlineColourId, theme.border);
+
+    // Empty-state hint
+    m_emptyLabel.setColour(juce::Label::textColourId, theme.textMuted);
+
+    // Table + header
+    m_table.setColour(juce::ListBox::backgroundColourId, theme.background);
+    m_table.setColour(juce::ListBox::textColourId, theme.text);
+    m_table.setColour(juce::ListBox::outlineColourId, theme.border);
+
+    auto& header = m_table.getHeader();
+    header.setColour(juce::TableHeaderComponent::textColourId, theme.text);
+    header.setColour(juce::TableHeaderComponent::backgroundColourId, theme.panelAlternate);
+    header.setColour(juce::TableHeaderComponent::highlightColourId, theme.border);
+
+    repaint();
+}
+
 void MarkerListPanel::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
     if (source == &waveedit::ThemeManager::getInstance())
-        repaint();
+        applyThemeColours();
 }
 
 void MarkerListPanel::setListener(Listener* listener)
@@ -212,7 +237,7 @@ juce::DocumentWindow* MarkerListPanel::showInWindow(bool modal)
     public:
         MarkerListWindow(MarkerListPanel* panel, juce::ApplicationCommandManager* cm)
             : juce::DocumentWindow("Marker List",
-                                  juce::Colour(0xff2a2a2a),
+                                  waveedit::ThemeManager::getInstance().getCurrent().background,
                                   juce::DocumentWindow::allButtons)
             , markerPanel(panel)
             , commandManager(cm)
@@ -278,6 +303,9 @@ void MarkerListPanel::resized()
 
     // Table takes remaining space
     m_table.setBounds(bounds);
+
+    // Empty-state hint overlays the table area (below the header row)
+    m_emptyLabel.setBounds(bounds.withTrimmedTop(m_rowHeight));
 }
 
 bool MarkerListPanel::keyPressed(const juce::KeyPress& key)
@@ -308,7 +336,7 @@ void MarkerListPanel::paintRowBackground(juce::Graphics& g, int rowNumber, int w
     {
         g.fillAll(selectedRowColour());
     }
-    else if (rowNumber % 2 == 0)
+    else if (rowNumber % 2 == 1)
     {
         g.fillAll(alternateRowColour());
     }
@@ -338,7 +366,7 @@ void MarkerListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
             g.fillRoundedRectangle(swatchBounds.toFloat(), 2.0f);
 
             // Draw border
-            g.setColour(juce::Colour(0xff4a4a4a));
+            g.setColour(waveedit::ThemeManager::getInstance().getCurrent().border);
             g.drawRoundedRectangle(swatchBounds.toFloat(), 2.0f, 1.0f);
             break;
         }
@@ -424,9 +452,11 @@ void MarkerListPanel::cellClicked(int rowNumber, int columnId, const juce::Mouse
         };
 
         auto wrapper = std::make_unique<PickerWrapper>(*this, originalIndex, currentColor);
-        const auto cellBounds = m_table.getScreenBounds();
+        // Anchor the call-out to the clicked colour cell, not the whole table.
+        const auto cellBounds = m_table.getCellPosition(ColorColumn, rowNumber, true);
+        const auto screenCell = cellBounds + m_table.getScreenPosition();
         juce::CallOutBox::launchAsynchronously(std::move(wrapper),
-                                                cellBounds.withSize(40, 28),
+                                                screenCell,
                                                 nullptr);
     }
 }
@@ -616,6 +646,27 @@ void MarkerListPanel::updateFilteredMarkers()
 
     // Sort
     sortMarkers();
+
+    updateEmptyState();
+}
+
+void MarkerListPanel::updateEmptyState()
+{
+    const bool isEmpty = m_filteredMarkers.isEmpty();
+
+    if (isEmpty)
+    {
+        if (m_filterText.isNotEmpty())
+            m_emptyLabel.setText("No markers match \"" + m_filterText + "\"",
+                                 juce::dontSendNotification);
+        else
+            m_emptyLabel.setText("No markers yet - press M to drop a marker at the cursor",
+                                 juce::dontSendNotification);
+    }
+
+    m_emptyLabel.setVisible(isEmpty);
+    if (isEmpty)
+        m_emptyLabel.toFront(false);
 }
 
 void MarkerListPanel::applyFilter()

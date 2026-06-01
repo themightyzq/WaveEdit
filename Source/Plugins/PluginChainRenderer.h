@@ -199,6 +199,12 @@ private:
     //==============================================================================
     int m_blockSize = 8192;  ///< Processing block size
 
+    // Per-instance block counter used only to throttle render logging. Was a
+    // function-local `static int`, which is a write-write race if an offline
+    // render and a realtime preview run concurrently on separate renderer
+    // instances (L13). A plain member is unshared and race-free.
+    int m_blockCounter = 0;
+
     /**
      * Process a single block through the offline chain.
      * Handles bypass and error recovery.

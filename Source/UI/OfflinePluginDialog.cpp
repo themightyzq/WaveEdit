@@ -109,7 +109,8 @@ OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
     m_noPluginLabel.setText("Select a plugin from the list",
                             juce::dontSendNotification);
     m_noPluginLabel.setJustificationType(juce::Justification::centred);
-    m_noPluginLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_noPluginLabel.setColour(juce::Label::textColourId,
+                              waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     m_editorContainer->addAndMakeVisible(m_noPluginLabel);
 
     // Render Options Group

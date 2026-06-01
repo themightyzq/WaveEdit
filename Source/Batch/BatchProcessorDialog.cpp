@@ -850,10 +850,10 @@ void BatchProcessorDialog::onPatternHelpClicked()
         "Output Naming Pattern Tokens:\n"
         "\n"
         "{filename}    - Original filename (without extension)\n"
-        "                Example: \"drums.wav\" → \"drums\"\n"
+        "                Example: \"drums.wav\" -> \"drums\"\n"
         "\n"
         "{index}       - File index (1, 2, 3, ...)\n"
-        "                Example: First file → \"1\"\n"
+        "                Example: First file -> \"1\"\n"
         "\n"
         "{index:03}    - Zero-padded index (001, 002, 003, ...)\n"
         "                Change 03 to any width: 02 = 01, 04 = 0001\n"
@@ -868,10 +868,10 @@ void BatchProcessorDialog::onPatternHelpClicked()
         "                Example: \"Broadcast Ready\"\n"
         "\n"
         "Examples:\n"
-        "  \"{filename}_processed\"     → drums_processed.wav\n"
-        "  \"{filename}_{index:03}\"    → drums_001.wav\n"
-        "  \"batch_{date}_{index:03}\"  → batch_2026-01-12_001.wav\n"
-        "  \"{preset}_{filename}\"      → Broadcast Ready_drums.wav";
+        "  \"{filename}_processed\"     -> drums_processed.wav\n"
+        "  \"{filename}_{index:03}\"    -> drums_001.wav\n"
+        "  \"batch_{date}_{index:03}\"  -> batch_2026-01-12_001.wav\n"
+        "  \"{preset}_{filename}\"      -> Broadcast Ready_drums.wav";
 
     juce::AlertWindow::showMessageBoxAsync(
         juce::AlertWindow::InfoIcon,
@@ -953,7 +953,7 @@ void BatchProcessorDialog::updateOutputPreview()
         if (inputName.length() > 25)
             inputName = inputName.substring(0, 22) + "...";
 
-        previewText << inputName << "  " << juce::String(juce::CharPointer_UTF8("\xe2\x86\x92")) << "  " << outputPath << "\n";
+        previewText << inputName << "  " << "->" << "  " << outputPath << "\n";
     }
 
     if (m_fileInfos.size() > 5)

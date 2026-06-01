@@ -16,6 +16,9 @@
 #include "HeadTailDialog.h"
 #include "../DSP/HeadTailEngine.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+
+namespace ui = waveedit::ui;
 
 //==============================================================================
 // WaveformPreview implementation
@@ -148,7 +151,11 @@ void HeadTailDialog::WaveformPreview::drawTrimOverlay(juce::Graphics& g,
         return bounds.getX() + (int)((double)sample / (double)totalSamples * width);
     };
 
-    const juce::Colour overlay = juce::Colour(0x660a0a0a);
+    // Derive the trim dimming overlay from the theme background so it reads
+    // correctly on light themes too (a fixed near-black 0x660a0a0a only dims
+    // on dark surfaces).
+    const auto& overlayTheme = waveedit::ThemeManager::getInstance().getCurrent();
+    const juce::Colour overlay = overlayTheme.background.withAlpha(0.4f);
 
     // Head trim region (left of keepStart)
     const int headEndX = toX(m_keepStart);
@@ -340,11 +347,23 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     m_summaryEditor.setMultiLine(true);
     m_summaryEditor.setReadOnly(true);
     m_summaryEditor.setScrollbarsShown(true);
-    m_summaryEditor.setFont(juce::FontOptions(12.0f));
+    m_summaryEditor.setFont(ui::smallFont());
     addAndMakeVisible(m_summaryEditor);
 
     //--------------------------------------------------------------------------
     // Buttons
+
+    // M13: §6.8-compliant footer buttons.  Bypass and Loop are disabled until
+    // an AudioEngine reference is threaded through to this dialog (cross-file
+    // dependency — requires DSPController and AudioEngine changes).
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.setEnabled(false);  // Not yet wired to AudioEngine
+    addAndMakeVisible(m_bypassButton);
+
+    m_loopToggle.setButtonText("Loop");
+    m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON per §6.8
+    m_loopToggle.setEnabled(false);  // Not yet wired to AudioEngine
+    addAndMakeVisible(m_loopToggle);
 
     m_previewButton.setButtonText("Preview");
     m_previewButton.onClick = [this]()
@@ -421,10 +440,34 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     updateSummary();
 
     setSize(700, 680);
+
+    // Keyboard-first: grab focus on the primary control after construction
+    setWantsKeyboardFocus(true);
+    juce::Component::SafePointer<juce::ToggleButton> safeToggle(&m_detectEnableToggle);
+    juce::MessageManager::callAsync([safeToggle]()
+    {
+        if (safeToggle != nullptr)
+            safeToggle->grabKeyboardFocus();
+    });
 }
 
 HeadTailDialog::~HeadTailDialog()
 {
+}
+
+bool HeadTailDialog::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        m_applyButton.triggerClick();
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        m_cancelButton.triggerClick();
+        return true;
+    }
+    return false;
 }
 
 //==============================================================================
@@ -437,44 +480,34 @@ void HeadTailDialog::paint(juce::Graphics& g)
 
     // Title
     g.setColour(theme.text);
-    g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    g.drawText("Head & Tail Processing", getLocalBounds().removeFromTop(36),
+    g.setFont(ui::sectionHeaderFont());
+    g.drawText("Head & Tail Processing", getLocalBounds().removeFromTop(kHeaderH),
                juce::Justification::centred, true);
 
-    // Section dividers (drawn behind controls using a fixed Y based on layout constants)
-    // The actual divider lines are drawn as thin rectangles relative to getLocalBounds.
-    // Positions are derived from the same constants used in resized().
-    const int kMargin     = 16;
-    const int kRowH       = 32;
-    const int kHeaderH    = 36;
-    const int kSection1Y  = kHeaderH + kMargin;
-    // Section 1 header rect
-    g.setColour(theme.panelAlternate);
-    g.fillRoundedRectangle((float)kMargin, (float)kSection1Y,
-                            (float)(getWidth() - kMargin * 2), 20.0f, 3.0f);
+    // Section header bands — positions derived from the shared layout constants
+    // (section1HeaderY/section2HeaderY) so paint() and resized() cannot drift.
+    const int section1Y = section1HeaderY();
+    const int section2Y = section2HeaderY();
+    const int sectionW   = getWidth() - kMargin * 2;
 
-    // Section 2 starts after 1 header row + 6 slider rows (each kRowH)
-    const int kSection2Y = kSection1Y + 20 + 8 + kRowH + 6 * kRowH + 8;
-    g.fillRoundedRectangle((float)kMargin, (float)kSection2Y,
-                            (float)(getWidth() - kMargin * 2), 20.0f, 3.0f);
+    g.setColour(theme.panelAlternate);
+    g.fillRoundedRectangle((float)kMargin, (float)section1Y,
+                            (float)sectionW, (float)kBandH, 3.0f);
+    g.fillRoundedRectangle((float)kMargin, (float)section2Y,
+                            (float)sectionW, (float)kBandH, 3.0f);
 
     // Section labels
     g.setColour(theme.textMuted);
-    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.setFont(ui::smallFont().boldened());
     g.drawText("TIME-BASED EDITS",
-               juce::Rectangle<int>(kMargin + 4, kSection2Y, 200, 20),
+               juce::Rectangle<int>(kMargin + 4, section2Y, 200, kBandH),
                juce::Justification::centredLeft, true);
 }
 
 void HeadTailDialog::resized()
 {
-    const int kMargin   = 16;
-    const int kLabelW   = 180;
-    const int kSliderW  = 280;
-    const int kValueW   = 80;
-    const int kRowH     = 32;
-    const int kHeaderH  = 36;
-    const int kGap      = 8;
+    // Layout constants are shared with paint() via the static members in the
+    // header (kMargin/kLabelW/.../kBandH) so the two methods cannot drift.
 
     auto area = getLocalBounds().reduced(kMargin);
     area.removeFromTop(kHeaderH);   // Title space
@@ -483,7 +516,7 @@ void HeadTailDialog::resized()
     // Section 1 header + detection enable row
 
     // Section header band (painted in paint(), just advance bounds)
-    area.removeFromTop(20);
+    area.removeFromTop(kBandH);
     area.removeFromTop(kGap);
 
     // Detection enable toggle + mode combo row
@@ -516,7 +549,7 @@ void HeadTailDialog::resized()
     // Section 2 header
 
     area.removeFromTop(kGap);
-    area.removeFromTop(20);   // Section header band height (painted in paint())
+    area.removeFromTop(kBandH);   // Section header band height (painted in paint())
     area.removeFromTop(kGap);
 
     // Time-based edit rows
@@ -560,19 +593,26 @@ void HeadTailDialog::resized()
     m_summaryEditor.setBounds(area.removeFromTop(80));
 
     //--------------------------------------------------------------------------
-    // Button row — three centred buttons
+    // Button row — §6.8 standardized layout (40px height, bottom-anchored):
+    // Left: Preview | Bypass | Loop   Right: Cancel | Apply
 
-    area.removeFromTop(kGap);
-    auto buttonRow = area.removeFromTop(30);
+    area.removeFromTop(area.getHeight() - 40); // Push to bottom
+    auto buttonRow = area.removeFromTop(40);
 
-    const int kBtnW    = 100;
-    const int kBtnGap  = 10;
-    const int totalBW  = kBtnW * 3 + kBtnGap * 2;
-    const int startX   = buttonRow.getX() + (buttonRow.getWidth() - totalBW) / 2;
+    const int kBtnW = ui::kButtonWidth;
+    const int kGapBtn = ui::kButtonGap;
 
-    m_previewButton.setBounds(startX,                        buttonRow.getY(), kBtnW, 30);
-    m_applyButton.setBounds  (startX + kBtnW + kBtnGap,     buttonRow.getY(), kBtnW, 30);
-    m_cancelButton.setBounds (startX + (kBtnW + kBtnGap)*2, buttonRow.getY(), kBtnW, 30);
+    // Left side: Preview, Bypass, Loop (Bypass/Loop disabled — audio not wired)
+    m_previewButton.setBounds(buttonRow.removeFromLeft(kBtnW));
+    buttonRow.removeFromLeft(kGapBtn);
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(ui::kButtonWidthNarrow));
+    buttonRow.removeFromLeft(kGapBtn);
+    m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
+
+    // Right side: Apply (rightmost) then Cancel
+    m_applyButton.setBounds(buttonRow.removeFromRight(kBtnW));
+    buttonRow.removeFromRight(kGapBtn);
+    m_cancelButton.setBounds(buttonRow.removeFromRight(kBtnW));
 }
 
 //==============================================================================

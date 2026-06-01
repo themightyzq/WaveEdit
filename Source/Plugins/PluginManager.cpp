@@ -269,10 +269,21 @@ PluginManager::PluginManager()
 // Destructor moved after ExtendedScannerThread definition
 // to avoid incomplete type issues
 
+PluginManager* PluginManager::s_instance = nullptr;
+
 PluginManager& PluginManager::getInstance()
 {
-    static PluginManager* instance = new PluginManager();
-    return *instance;
+    // DeletedAtShutdown owns the lifetime: it registers the object on
+    // construction and deletes it during clearSingletons() at app shutdown,
+    // which runs ~PluginManager (stopThread + saveCache). We keep the pointer
+    // in a static member rather than a function-local static so the destructor
+    // can null it; otherwise a getInstance() racing in after shutdown would
+    // dereference a freed object. If s_instance is null (first call, or a
+    // re-entry after shutdown), allocate a fresh one.
+    if (s_instance == nullptr)
+        s_instance = new PluginManager();
+
+    return *s_instance;
 }
 
 void PluginManager::initializeFormats()
@@ -1205,6 +1216,13 @@ PluginManager::~PluginManager()
     saveCache();
     saveIncrementalCache();
     saveCustomSearchPaths();
+
+    // Clear the singleton pointer so a post-shutdown getInstance() does not
+    // hand back this freed object. DeletedAtShutdown::deleteAll() is what
+    // invokes this destructor, so by the time we get here the object is being
+    // torn down and must not be reachable again.
+    if (s_instance == this)
+        s_instance = nullptr;
 }
 
 //==============================================================================

@@ -391,17 +391,24 @@ private:
 
     /**
      * Internal band state with filter instances and cached coefficients.
+     *
+     * H4 FIX: filters is sized to the actual channel count (up to 8 per
+     * CLAUDE.md), not hard-capped at 2. Resized in prepare()/setParameters().
      */
     struct BandState
     {
         BandParameters params;
-        std::array<IIRFilter, 2> filters;  // One per channel (stereo max)
+        std::vector<IIRFilter> filters;  // One filter per channel
         IIRCoefficients::Ptr coefficients;
         bool needsUpdate = true;
     };
 
+    /** Maximum channels supported (matches AudioEngine MAX_CHANNELS). */
+    static constexpr int MAX_CHANNELS = 8;
+
     //==============================================================================
-    void updateCoefficients();
+    /** Recalculate coefficients for dirty bands. Caller must hold m_parameterLock. */
+    void updateCoefficientsLocked();
     void updateBandCoefficients(BandState& band);
     IIRCoefficients::Ptr createCoefficients(const BandParameters& params) const;
     std::complex<double> getFilterResponse(const BandState& band, double frequency) const;
@@ -409,6 +416,10 @@ private:
     //==============================================================================
     double m_sampleRate = 0;
     int m_maxBlockSize = 0;
+    int m_numChannels = 2;  // H4: filters-per-band; grown to match the processed buffer
+
+    /** Ensure a band has one filter per channel, sharing the band's coefficients. */
+    void ensureBandChannelCount(BandState& band) const;
 
     // Thread-safe parameter storage
     Parameters m_parameters;

@@ -15,6 +15,9 @@
 
 #include "StripSilenceDialog.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+
+namespace ui = waveedit::ui;
 
 StripSilenceDialog::StripSilenceDialog(RegionManager& regionManager,
                                        const juce::AudioBuffer<float>& audioBuffer,
@@ -168,7 +171,7 @@ StripSilenceDialog::StripSilenceDialog(RegionManager& regionManager,
     // Preview area
     m_previewLabel.setText("Waveform Preview (click Preview to see regions):", juce::dontSendNotification);
     m_previewLabel.setJustificationType(juce::Justification::centredLeft);
-    m_previewLabel.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    m_previewLabel.setFont(ui::boldValueFont());
     addAndMakeVisible(m_previewLabel);
 
     m_waveformPreview = std::make_unique<WaveformPreview>(m_audioBuffer);
@@ -176,10 +179,34 @@ StripSilenceDialog::StripSilenceDialog(RegionManager& regionManager,
 
     m_regionCountLabel.setText("", juce::dontSendNotification);
     m_regionCountLabel.setJustificationType(juce::Justification::centredLeft);
-    m_regionCountLabel.setFont(juce::FontOptions(12.0f));
+    m_regionCountLabel.setFont(ui::smallFont());
     addAndMakeVisible(m_regionCountLabel);
 
     setSize(650, 580);  // Increased size for waveform preview
+
+    // Keyboard-first: grab focus on the primary control after construction
+    setWantsKeyboardFocus(true);
+    juce::Component::SafePointer<juce::Slider> safeSlider(&m_thresholdSlider);
+    juce::MessageManager::callAsync([safeSlider]()
+    {
+        if (safeSlider != nullptr)
+            safeSlider->grabKeyboardFocus();
+    });
+}
+
+bool StripSilenceDialog::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        m_applyButton.triggerClick();
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        m_cancelButton.triggerClick();
+        return true;
+    }
+    return false;
 }
 
 StripSilenceDialog::~StripSilenceDialog()
@@ -195,14 +222,14 @@ void StripSilenceDialog::paint(juce::Graphics& g)
     g.fillAll(theme.panel);
 
     g.setColour(theme.text);
-    g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+    g.setFont(ui::sectionHeaderFont());
     g.drawText("Auto Region - Auto-Create Regions", getLocalBounds().removeFromTop(40),
                juce::Justification::centred, true);
 }
 
 void StripSilenceDialog::resized()
 {
-    auto area = getLocalBounds().reduced(20);
+    auto area = getLocalBounds().reduced(ui::kDialogPadding);
 
     // Title space
     area.removeFromTop(40);
@@ -211,8 +238,8 @@ void StripSilenceDialog::resized()
     const int sliderWidth = 300;
     const int valueWidth = 80;
     const int rowHeight = 40;
-    const int buttonHeight = 30;
-    const int buttonWidth = 100;
+    const int buttonHeight = ui::kButtonHeight;
+    const int buttonWidth = ui::kButtonWidth;
 
     // Threshold row
     auto thresholdRow = area.removeFromTop(rowHeight);
@@ -255,17 +282,18 @@ void StripSilenceDialog::resized()
     auto regionCountArea = area.removeFromTop(25);
     m_regionCountLabel.setBounds(regionCountArea);
 
-    // Buttons at bottom
+    // Buttons at bottom — right-aligned convention:
+    // Left: Preview | Right: Cancel, Apply (Apply rightmost, primary action)
     area.removeFromTop(20); // Spacing
     auto buttonRow = area.removeFromTop(buttonHeight);
 
-    // Center buttons horizontally
-    int totalButtonWidth = buttonWidth * 3 + 20; // 3 buttons + 2 gaps
-    int startX = (buttonRow.getWidth() - totalButtonWidth) / 2;
+    // Left side: Preview
+    m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
 
-    m_previewButton.setBounds(startX, buttonRow.getY(), buttonWidth, buttonHeight);
-    m_applyButton.setBounds(startX + buttonWidth + 10, buttonRow.getY(), buttonWidth, buttonHeight);
-    m_cancelButton.setBounds(startX + (buttonWidth + 10) * 2, buttonRow.getY(), buttonWidth, buttonHeight);
+    // Right side: Apply (rightmost) then Cancel
+    m_applyButton.setBounds(buttonRow.removeFromRight(buttonWidth));
+    buttonRow.removeFromRight(ui::kButtonGap);
+    m_cancelButton.setBounds(buttonRow.removeFromRight(buttonWidth));
 }
 
 //==============================================================================

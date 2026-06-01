@@ -15,6 +15,10 @@
 
 #include "iXMLEditorDialog.h"
 #include "../Utils/UCSCategorySuggester.h"
+#include "ThemeManager.h"
+#include "UIConstants.h"
+
+namespace ui = waveedit::ui;
 
 // Dialog dimensions
 namespace
@@ -41,7 +45,7 @@ iXMLEditorDialog::iXMLEditorDialog(iXMLMetadata& metadata,
     auto setupLabel = [this](juce::Label& label, const juce::String& text)
     {
         label.setText(text, juce::dontSendNotification);
-        label.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        // Inherit themed default text colour so the dialog re-skins.
         label.setJustificationType(juce::Justification::centredRight);
         m_contentComponent.addAndMakeVisible(&label);
     };
@@ -60,9 +64,10 @@ iXMLEditorDialog::iXMLEditorDialog(iXMLMetadata& metadata,
     // Setup text editors
     auto setupEditor = [this](juce::TextEditor& editor, int maxChars = 0, bool multiline = false)
     {
-        editor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff3a3a3a));
-        editor.setColour(juce::TextEditor::textColourId, juce::Colours::white);
-        editor.setColour(juce::TextEditor::outlineColourId, juce::Colours::grey);
+        // Rely on the themed LookAndFeel defaults for editor colours so the
+        // dialog re-skins; only set the focus ring to the accent token.
+        editor.setColour(juce::TextEditor::focusedOutlineColourId,
+                         waveedit::ThemeManager::getInstance().getCurrent().accent);
         editor.setMultiLine(multiline);
         editor.setReturnKeyStartsNewLine(multiline);
         editor.setScrollbarsShown(multiline);
@@ -91,8 +96,9 @@ iXMLEditorDialog::iXMLEditorDialog(iXMLMetadata& metadata,
     auto setupHintLabel = [this](juce::Label& label, const juce::String& text)
     {
         label.setText(text, juce::dontSendNotification);
-        label.setColour(juce::Label::textColourId, juce::Colours::grey);
-        label.setFont(juce::Font(11.0f));
+        label.setColour(juce::Label::textColourId,
+                        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
+        label.setFont(ui::smallFont());
         label.setJustificationType(juce::Justification::centredLeft);
         m_contentComponent.addAndMakeVisible(&label);
     };
@@ -104,9 +110,10 @@ iXMLEditorDialog::iXMLEditorDialog(iXMLMetadata& metadata,
     setupHintLabel(m_descriptionCount, "0 chars");
 
     // CategoryFull value (read-only, computed)
-    m_categoryFullValue.setColour(juce::Label::textColourId, juce::Colours::white);
+    m_categoryFullValue.setColour(juce::Label::textColourId,
+                                  waveedit::ThemeManager::getInstance().getCurrent().text);
     m_categoryFullValue.setJustificationType(juce::Justification::centredLeft);
-    m_categoryFullValue.setFont(juce::Font(13.0f, juce::Font::bold));
+    m_categoryFullValue.setFont(ui::boldValueFont());
     m_contentComponent.addAndMakeVisible(&m_categoryFullValue);
 
     // Setup buttons
@@ -138,6 +145,9 @@ iXMLEditorDialog::iXMLEditorDialog(iXMLMetadata& metadata,
     // Load metadata into UI
     loadMetadata();
 
+    // Allow component-level Enter/Escape handling (REVIEW-DESIGN H8).
+    setWantsKeyboardFocus(true);
+
     setSize(DIALOG_WIDTH, DIALOG_HEIGHT);
 }
 
@@ -148,11 +158,12 @@ iXMLEditorDialog::~iXMLEditorDialog()
 //==============================================================================
 void iXMLEditorDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.background);
 
     // Draw section header at top (above viewport)
-    g.setColour(juce::Colours::white);
-    g.setFont(16.0f);
+    g.setColour(theme.text);
+    g.setFont(ui::sectionHeaderFont());
     g.drawText("SoundMiner / iXML Metadata Editor",
                SPACING, SPACING, DIALOG_WIDTH - 2 * SPACING, 25,
                juce::Justification::centred, false);
@@ -241,6 +252,23 @@ void iXMLEditorDialog::resized()
     m_contentComponent.setSize(contentWidth, yPos);
 }
 
+bool iXMLEditorDialog::keyPressed(const juce::KeyPress& key)
+{
+    // Enter confirms (OK); Escape cancels. Multi-line editors consume Enter
+    // themselves, so this only fires from single-line fields / buttons (H8).
+    if (key == juce::KeyPress::returnKey)
+    {
+        buttonClicked(&m_okButton);
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        buttonClicked(&m_cancelButton);
+        return true;
+    }
+    return false;
+}
+
 //==============================================================================
 void iXMLEditorDialog::buttonClicked(juce::Button* button)
 {
@@ -319,10 +347,43 @@ void iXMLEditorDialog::loadMetadata()
     updateCharacterCounts();
 }
 
+// Title-cases a phrase: first letter of each word upper, rest lower.
+static juce::String toTitleCase(const juce::String& input)
+{
+    juce::String result;
+    bool atWordStart = true;
+    for (auto c : input)
+    {
+        if (juce::CharacterFunctions::isWhitespace(c))
+        {
+            atWordStart = true;
+            result += c;
+        }
+        else
+        {
+            result += atWordStart ? juce::CharacterFunctions::toUpperCase(c)
+                                  : juce::CharacterFunctions::toLowerCase(c);
+            atWordStart = false;
+        }
+    }
+    return result;
+}
+
 void iXMLEditorDialog::saveMetadata()
 {
-    m_metadata.setCategory(m_categoryEditor.getText().trim());
-    m_metadata.setSubcategory(m_subcategoryEditor.getText().trim());
+    // Normalize UCS conventions on save (matches the field hints): Category is
+    // ALL CAPS, Subcategory is Title Case (REVIEW-DESIGN H10).
+    juce::String category = m_categoryEditor.getText().trim().toUpperCase();
+    juce::String subcategory = toTitleCase(m_subcategoryEditor.getText().trim());
+
+    // Reflect the normalized values back into the UI so the user sees them.
+    if (category != m_categoryEditor.getText())
+        m_categoryEditor.setText(category, false);
+    if (subcategory != m_subcategoryEditor.getText())
+        m_subcategoryEditor.setText(subcategory, false);
+
+    m_metadata.setCategory(category);
+    m_metadata.setSubcategory(subcategory);
     m_metadata.setFXName(m_fxNameEditor.getText().trim());
     m_metadata.setDescription(m_descriptionEditor.getText().trim());
     m_metadata.setKeywords(m_keywordsEditor.getText().trim());
@@ -467,13 +528,17 @@ void iXMLEditorDialog::suggestCategory()
 
 void iXMLEditorDialog::updateCharacterCounts()
 {
-    // FXName character count
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // FXName is hard-capped at 256 via setInputRestrictions(), so overflow can
+    // never occur. Show used/limit in a normal colour and warn (amber) when
+    // within ~10 chars of the limit so the counter is meaningful (H10).
     int fxNameLen = m_fxNameEditor.getText().length();
     m_fxNameCount.setText(juce::String(fxNameLen) + " / 256", juce::dontSendNotification);
     m_fxNameCount.setColour(juce::Label::textColourId,
-                           fxNameLen > 256 ? juce::Colours::red : juce::Colours::grey);
+                            (256 - fxNameLen) <= 10 ? theme.warning : theme.textMuted);
 
-    // Description character count
+    // Description character count (no hard limit)
     int descLen = m_descriptionEditor.getText().length();
     m_descriptionCount.setText(juce::String(descLen) + " chars", juce::dontSendNotification);
 }
@@ -489,7 +554,7 @@ void iXMLEditorDialog::showDialog(juce::Component* parentComponent,
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(dialog);
     options.dialogTitle = "Edit SoundMiner / iXML Metadata";
-    options.dialogBackgroundColour = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().background;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = false;
     options.resizable = false;

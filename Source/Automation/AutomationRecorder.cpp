@@ -239,6 +239,15 @@ AutomationRecorder::ParameterDispatcher::~ParameterDispatcher()
 void AutomationRecorder::ParameterDispatcher::parameterValueChanged(
     int parameterIndex, float newValue)
 {
+    // H23: This callback can arrive on the AUDIO thread when
+    // AutomationManager::applyAutomation() pushes a value into the
+    // plugin. In that case we must NOT take m_pendingLock or call
+    // triggerAsyncUpdate() (both forbidden on the audio thread), and we
+    // must not record the echo (it would feed back into the curve).
+    // Bail out fast and lock-free.
+    if (m_owner.isApplyingAutomation())
+        return;
+
     {
         const juce::ScopedLock sl(m_pendingLock);
         for (auto& pv : m_pending)
@@ -261,6 +270,12 @@ void AutomationRecorder::ParameterDispatcher::parameterValueChanged(
 void AutomationRecorder::ParameterDispatcher::parameterGestureChanged(
     int parameterIndex, bool gestureIsStarting)
 {
+    // H23: ignore gesture callbacks that JUCE may synthesize on the
+    // audio thread while applyAutomation() drives setValue(). See the
+    // note in parameterValueChanged.
+    if (m_owner.isApplyingAutomation())
+        return;
+
     if (gestureIsStarting)
         return;  // we only care about gesture-end
 

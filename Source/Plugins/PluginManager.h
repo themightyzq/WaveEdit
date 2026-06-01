@@ -342,5 +342,11 @@ private:
 
     mutable juce::CriticalSection m_lock;
 
+    // Singleton instance pointer. Held here (not as a function-local static)
+    // so the destructor can reset it: DeletedAtShutdown::deleteAll() destroys
+    // the object on clean exit, and nulling this prevents a later getInstance()
+    // from handing back a freed pointer (which would re-create cleanly instead).
+    static PluginManager* s_instance;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginManager)
 };

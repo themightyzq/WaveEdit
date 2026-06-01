@@ -188,10 +188,6 @@ private:
     std::atomic<int> m_recordedSampleCount;
     juce::CriticalSection m_bufferLock;
 
-    // Temporary buffer for audio callback (preallocated to avoid allocations on audio thread)
-    juce::AudioBuffer<float> m_tempRecordingBuffer;
-    static constexpr int TEMP_BUFFER_SIZE = 44100 * 2;  // 2 seconds at 44.1kHz
-
     // Level monitoring
     static constexpr int MAX_CHANNELS = 2;  // Stereo support
     std::atomic<float> m_inputPeakLevels[MAX_CHANNELS];
@@ -220,5 +216,39 @@ private:
      */
     void appendToRecordingBuffer(const float* const* audioData, int numChannels, int numSamples);
 
+    /**
+     * Fire the ChangeBroadcaster on the MESSAGE thread (C9).
+     *
+     * juce::ChangeBroadcaster::sendChangeMessage() is not safe to call
+     * from the audio/device-teardown thread — its internal state races
+     * with the message thread. When already on the message thread we
+     * broadcast directly; otherwise we marshal via MessageManager
+     * ::callAsync, guarded by a WeakReference so a teardown-time
+     * destruction can't fire into freed memory.
+     */
+    void notifyListenersAsync();
+
+    /**
+     * Lazily allocate the recording buffer for the current sample rate /
+     * channel count (M18). Called on record START, not on device start,
+     * so a device (re)configuration while idle never allocates the full
+     * 1-hour buffer. Returns false if allocation could not proceed.
+     * Caller must hold m_bufferLock.
+     */
+    bool ensureRecordingBufferAllocated();
+
+    // M17: count of input samples dropped because the audio thread could
+    // not acquire m_bufferLock (non-blocking tryEnter). Surfaced to the
+    // UI so the silent gap at the stop boundary is visible.
+    std::atomic<int> m_droppedSampleCount { 0 };
+
+public:
+    /** M17: total input samples dropped during the last/current
+        recording because the buffer lock was contended. Non-zero means
+        a short gap exists near a stop/clear boundary. Thread-safe. */
+    int getDroppedSampleCount() const { return m_droppedSampleCount.load(); }
+
+private:
+    JUCE_DECLARE_WEAK_REFERENCEABLE(RecordingEngine)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RecordingEngine)
 };

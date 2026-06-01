@@ -14,6 +14,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "UIConstants.h"
+#include "ThemeManager.h"
 
 namespace waveedit
 {
@@ -23,14 +24,23 @@ namespace waveedit
  *
  * Extends JUCE's LookAndFeel_V4 with:
  * - Visible focus rings on buttons and other focusable components
- * - Dark theme consistent with WaveEdit UI
+ * - Colours sourced from the active ThemeManager theme (Dark / Light /
+ *   High Contrast), refreshed live when the user switches themes
  * - WCAG-compliant color contrast
+ *
+ * This is the app-wide default LookAndFeel, so re-applying its colours on a
+ * theme change and repainting every top-level window re-skins all standard
+ * JUCE controls without per-component listeners.
  */
-class WaveEditLookAndFeel : public juce::LookAndFeel_V4
+class WaveEditLookAndFeel : public juce::LookAndFeel_V4,
+                            public juce::ChangeListener
 {
 public:
     WaveEditLookAndFeel();
-    ~WaveEditLookAndFeel() override = default;
+    ~WaveEditLookAndFeel() override;
+
+    /** ThemeManager broadcast: re-map colours and repaint all windows. */
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     // =========================================================================
     // Button Drawing
@@ -97,6 +107,14 @@ public:
                                juce::TextEditor& textEditor) override;
 
 private:
+    /**
+     * @brief Map the active theme's tokens onto JUCE colour IDs
+     */
+    void applyThemeColours();
+
+    /** @brief The currently-active theme. */
+    static const Theme& theme() { return ThemeManager::getInstance().getCurrent(); }
+
     /**
      * @brief Draw a focus ring around the given bounds
      */

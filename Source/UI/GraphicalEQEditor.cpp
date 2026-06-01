@@ -16,8 +16,8 @@
 #include "GraphicalEQEditor.h"
 #include "../Audio/AudioEngine.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 #include <cmath>
-#include <iostream>
 
 // Static state persistence for dialog reopens (Phase 6 finalization)
 // These persist bypass and loop toggle states across dialog instances
@@ -246,12 +246,10 @@ void GraphicalEQEditor::setAudioEngine(AudioEngine* audioEngine)
 //==============================================================================
 // Component Overrides
 
-void GraphicalEQEditor::paint(juce::Graphics& g)
+juce::Rectangle<int> GraphicalEQEditor::getVisualizationBounds() const
 {
-    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().waveformBackground);
-
-    // Calculate visualization bounds (reserve space for preset controls, axis labels, and buttons)
-    // Must match the layout in resized()
+    // Single source of truth for the curve/graph rectangle. Reserve space for
+    // preset controls (top) plus axis labels, spacing, and buttons (footer).
     constexpr int AXIS_LABEL_HEIGHT = 20;
     constexpr int FOOTER_SPACING = 10;
 
@@ -260,7 +258,14 @@ void GraphicalEQEditor::paint(juce::Graphics& g)
     bounds.removeFromTop(MARGIN);         // Spacing
     bounds.removeFromBottom(BUTTON_HEIGHT + FOOTER_SPACING + AXIS_LABEL_HEIGHT);  // Footer area
 
-    auto vizBounds = bounds.toFloat();
+    return bounds;
+}
+
+void GraphicalEQEditor::paint(juce::Graphics& g)
+{
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().waveformBackground);
+
+    auto vizBounds = getVisualizationBounds().toFloat();
 
     // Draw grid and axes first
     drawGrid(g, vizBounds);
@@ -274,12 +279,15 @@ void GraphicalEQEditor::paint(juce::Graphics& g)
     // Draw control points on top
     drawControlPoints(g, vizBounds);
 
-    // Draw instructions
-    g.setColour(juce::Colours::grey);
-    g.setFont(11.0f);
-    g.drawText("Double-click to add band | Right-click band to delete | Scroll wheel to adjust Q",
-               vizBounds.getX(), vizBounds.getBottom() - 20, vizBounds.getWidth(), 20,
-               juce::Justification::centred);
+    // Draw instructions — M10: use theme textMuted + ui:: font helper
+    {
+        const auto& instructTheme = waveedit::ThemeManager::getInstance().getCurrent();
+        g.setColour(instructTheme.textMuted);
+        g.setFont(waveedit::ui::smallFont());
+        g.drawText("Double-click to add band | Right-click band to delete | Scroll wheel to adjust Q",
+                   vizBounds.getX(), vizBounds.getBottom() - 20, vizBounds.getWidth(), 20,
+                   juce::Justification::centred);
+    }
 }
 
 void GraphicalEQEditor::resized()
@@ -352,9 +360,6 @@ void GraphicalEQEditor::timerCallback()
 
 void GraphicalEQEditor::mouseDown(const juce::MouseEvent& event)
 {
-    auto bounds = getLocalBounds().reduced(MARGIN);
-    bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
-
     float x = static_cast<float>(event.x);
     float y = static_cast<float>(event.y);
 
@@ -386,9 +391,7 @@ void GraphicalEQEditor::mouseDrag(const juce::MouseEvent& event)
     if (m_draggingBandIndex < 0 || static_cast<size_t>(m_draggingBandIndex) >= m_controlPoints.size())
         return;
 
-    auto bounds = getLocalBounds().reduced(MARGIN);
-    bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
-    auto vizBounds = bounds.toFloat();
+    auto vizBounds = getVisualizationBounds().toFloat();
 
     float x = juce::jlimit(vizBounds.getX(), vizBounds.getRight(), static_cast<float>(event.x));
     float y = juce::jlimit(vizBounds.getY(), vizBounds.getBottom(), static_cast<float>(event.y));
@@ -427,8 +430,7 @@ void GraphicalEQEditor::mouseUp(const juce::MouseEvent& /*event*/)
 
 void GraphicalEQEditor::mouseDoubleClick(const juce::MouseEvent& event)
 {
-    auto bounds = getLocalBounds().reduced(MARGIN);
-    bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
+    auto bounds = getVisualizationBounds();
 
     float x = static_cast<float>(event.x);
     float y = static_cast<float>(event.y);
@@ -662,12 +664,16 @@ void GraphicalEQEditor::drawEQCurve(juce::Graphics& g, juce::Rectangle<float> bo
     fillPath.lineTo(bounds.getX(), zeroY);
     fillPath.closeSubPath();
 
-    g.setColour(juce::Colours::cyan.withAlpha(0.15f));
-    g.fillPath(fillPath);
+    // M10: Use theme accent for the EQ curve (visible on all themes).
+    {
+        const auto& eqTheme = waveedit::ThemeManager::getInstance().getCurrent();
+        g.setColour(eqTheme.accent.withAlpha(0.15f));
+        g.fillPath(fillPath);
 
-    // Draw curve outline
-    g.setColour(juce::Colours::cyan.withAlpha(0.9f));
-    g.strokePath(curvePath, juce::PathStrokeType(2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        // Draw curve outline
+        g.setColour(eqTheme.accent.withAlpha(0.9f));
+        g.strokePath(curvePath, juce::PathStrokeType(2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
 }
 
 void GraphicalEQEditor::drawControlPoints(juce::Graphics& g, juce::Rectangle<float> /*bounds*/)
@@ -692,9 +698,12 @@ void GraphicalEQEditor::drawControlPoints(juce::Graphics& g, juce::Rectangle<flo
         g.setColour(colour);
         g.drawEllipse(point.x - radius, point.y - radius, radius * 2, radius * 2, 2.0f);
 
+        // M10: Use theme tokens for all chrome/text colours.
+        const auto& cpTheme = waveedit::ThemeManager::getInstance().getCurrent();
+
         // Draw filter type label above the control point
-        g.setColour(juce::Colours::white);
-        g.setFont(9.0f);
+        g.setColour(cpTheme.text);
+        g.setFont(waveedit::ui::smallFont());
         g.drawText(DynamicParametricEQ::getFilterTypeShortName(band.filterType),
                    static_cast<int>(point.x) - 12, static_cast<int>(point.y) - 25, 24, 14,
                    juce::Justification::centred);
@@ -712,18 +721,15 @@ void GraphicalEQEditor::drawControlPoints(juce::Graphics& g, juce::Rectangle<flo
         // Format gain with sign and 1 decimal
         juce::String gainStr = (band.gain >= 0 ? "+" : "") + juce::String(band.gain, 1) + "dB";
 
-        // Combine into info label
-        juce::String infoLabel = freqStr + " Hz\n" + gainStr;
-
         // Draw info label in a semi-transparent background box below control point
-        g.setFont(10.0f);
+        g.setFont(waveedit::ui::smallFont());
         int labelWidth = 60;
         int labelHeight = 28;
         int labelX = static_cast<int>(point.x) - labelWidth / 2;
         int labelY = static_cast<int>(point.y) + static_cast<int>(radius) + 4;
 
-        // Background box
-        g.setColour(juce::Colour(0xcc1e1e1e));  // Semi-transparent dark background
+        // M10: Background box uses theme panel with opacity instead of hardcoded dark hex.
+        g.setColour(cpTheme.panel.withAlpha(0.85f));
         g.fillRoundedRectangle(static_cast<float>(labelX), static_cast<float>(labelY),
                                static_cast<float>(labelWidth), static_cast<float>(labelHeight), 3.0f);
 
@@ -732,13 +738,14 @@ void GraphicalEQEditor::drawControlPoints(juce::Graphics& g, juce::Rectangle<flo
         g.drawRoundedRectangle(static_cast<float>(labelX), static_cast<float>(labelY),
                                static_cast<float>(labelWidth), static_cast<float>(labelHeight), 3.0f, 1.0f);
 
-        // Text - frequency on first line
-        g.setColour(juce::Colours::white);
-        g.setFont(9.0f);
+        // Text - frequency on first line (M10: theme.text not hardcoded white)
+        g.setColour(cpTheme.text);
+        g.setFont(waveedit::ui::smallFont());
         g.drawText(freqStr + " Hz", labelX, labelY + 2, labelWidth, 12, juce::Justification::centred);
 
-        // Text - gain on second line
-        g.setColour(band.gain > 0 ? juce::Colours::lightgreen : (band.gain < 0 ? juce::Colours::lightsalmon : juce::Colours::grey));
+        // Text - gain on second line (positive=success, negative=warning, zero=muted)
+        g.setColour(band.gain > 0 ? cpTheme.success
+                                   : (band.gain < 0 ? cpTheme.error : cpTheme.textMuted));
         g.drawText(gainStr, labelX, labelY + 14, labelWidth, 12, juce::Justification::centred);
     }
 }
@@ -857,9 +864,7 @@ int GraphicalEQEditor::findNearestControlPointIndex(float x, float y)
 
 void GraphicalEQEditor::updateControlPointPositions()
 {
-    auto bounds = getLocalBounds().reduced(MARGIN);
-    bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
-    auto vizBounds = bounds.toFloat();
+    auto vizBounds = getVisualizationBounds().toFloat();
 
     // Resize control points vector to match bands
     m_controlPoints.resize(m_params.bands.size());
@@ -879,9 +884,7 @@ void GraphicalEQEditor::updateParametersFromControlPoint(int bandIndex)
     if (bandIndex < 0 || static_cast<size_t>(bandIndex) >= m_params.bands.size())
         return;
 
-    auto bounds = getLocalBounds().reduced(MARGIN);
-    bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
-    auto vizBounds = bounds.toFloat();
+    auto vizBounds = getVisualizationBounds().toFloat();
 
     const auto& point = m_controlPoints[static_cast<size_t>(bandIndex)];
     auto& band = m_params.bands[static_cast<size_t>(bandIndex)];
@@ -915,9 +918,7 @@ void GraphicalEQEditor::addBandAtPosition(float x, float y)
         return;
     }
 
-    auto bounds = getLocalBounds().reduced(MARGIN);
-    bounds.removeFromBottom(BUTTON_HEIGHT + MARGIN);
-    auto vizBounds = bounds.toFloat();
+    auto vizBounds = getVisualizationBounds().toFloat();
 
     // Create new band at click position
     DynamicParametricEQ::BandParameters newBand;
@@ -1215,7 +1216,8 @@ void GraphicalEQEditor::togglePreview()
 
     // Update button text and color to indicate active state (matches GainDialog pattern)
     m_previewButton.setButtonText("Stop Preview");
-    m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    // M10: Use the standardized preview-active token from UIConstants.
+    m_previewButton.setColour(juce::TextButton::buttonColourId, waveedit::ui::colour(waveedit::ui::kButtonPreviewActive));
 
     // Enable bypass button during preview
     m_bypassButton.setEnabled(true);

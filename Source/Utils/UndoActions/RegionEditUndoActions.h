@@ -45,21 +45,23 @@ public:
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
           m_audioFile(audioFile),
-          m_regionIndex(regionIndex),
           m_oldStart(oldStart),
           m_oldEnd(oldEnd),
           m_newStart(newStart),
           m_newEnd(newEnd)
     {
+        // Bind to the region's stable ID (H8).
+        if (const Region* region = m_regionManager.getRegion(regionIndex))
+            m_regionId = region->getId();
     }
 
     bool perform() override
     {
-        // Resize the region
-        Region* region = m_regionManager.getRegion(m_regionIndex);
+        // Resize the region (located by stable ID)
+        Region* region = m_regionManager.getRegionById(m_regionId);
         if (region == nullptr)
         {
-            DBG("ResizeRegionUndoAction::perform - Invalid region index");
+            DBG("ResizeRegionUndoAction::perform - region not found by id");
             return false;
         }
 
@@ -80,8 +82,8 @@ public:
 
     bool undo() override
     {
-        // Restore the old boundaries
-        Region* region = m_regionManager.getRegion(m_regionIndex);
+        // Restore the old boundaries (located by stable ID)
+        Region* region = m_regionManager.getRegionById(m_regionId);
         if (region != nullptr)
         {
             region->setStartSample(m_oldStart);
@@ -104,7 +106,7 @@ private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
     juce::File m_audioFile;
-    int m_regionIndex;
+    int64_t m_regionId = -1;
     int64_t m_oldStart;
     int64_t m_oldEnd;
     int64_t m_newStart;
@@ -127,17 +129,19 @@ public:
                           int64_t newPosition)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_regionIndex(regionIndex),
           m_nudgeStart(nudgeStart),
           m_oldPosition(oldPosition),
           m_newPosition(newPosition)
     {
         jassert(regionIndex >= 0 && regionIndex < m_regionManager.getNumRegions());
+        // Bind to the region's stable ID (H8).
+        if (const Region* region = m_regionManager.getRegion(regionIndex))
+            m_regionId = region->getId();
     }
 
     bool perform() override
     {
-        Region* region = m_regionManager.getRegion(m_regionIndex);
+        Region* region = m_regionManager.getRegionById(m_regionId);
         if (!region) return false;
 
         if (m_nudgeStart) region->setStartSample(m_newPosition);
@@ -149,7 +153,7 @@ public:
 
     bool undo() override
     {
-        Region* region = m_regionManager.getRegion(m_regionIndex);
+        Region* region = m_regionManager.getRegionById(m_regionId);
         if (!region) return false;
 
         if (m_nudgeStart) region->setStartSample(m_oldPosition);
@@ -164,7 +168,7 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay* m_regionDisplay;
-    int m_regionIndex;
+    int64_t m_regionId = -1;
     bool m_nudgeStart;
     int64_t m_oldPosition;
     int64_t m_newPosition;
@@ -188,34 +192,44 @@ public:
                            const Region& originalSecond)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_firstIndex(firstIndex),
-          m_secondIndex(secondIndex),
           m_originalFirst(originalFirst),
           m_originalSecond(originalSecond)
     {
+        // Bind to stable IDs so a later add/delete cannot make undo merge or
+        // restore the wrong pair (H8). mergeRegions() keeps the first region's
+        // identity; the second region is removed by the merge.
+        if (const Region* first = m_regionManager.getRegion(firstIndex))
+            m_firstId = first->getId();
+        if (const Region* second = m_regionManager.getRegion(secondIndex))
+            m_secondId = second->getId();
     }
 
     bool perform() override
     {
-        const bool success = m_regionManager.mergeRegions(m_firstIndex, m_secondIndex);
+        const int firstIndex  = m_regionManager.getIndexOfRegionId(m_firstId);
+        const int secondIndex = m_regionManager.getIndexOfRegionId(m_secondId);
+        if (firstIndex < 0 || secondIndex < 0) return false;
+
+        const bool success = m_regionManager.mergeRegions(firstIndex, secondIndex);
         if (success && m_regionDisplay) m_regionDisplay->repaint();
         return success;
     }
 
     bool undo() override
     {
-        Region* mergedRegion = m_regionManager.getRegion(m_firstIndex);
+        // The merged region retains the first region's stable ID.
+        Region* mergedRegion = m_regionManager.getRegionById(m_firstId);
         if (!mergedRegion) return false;
 
-        if (m_secondIndex > m_regionManager.getNumRegions())
-        {
-            DBG("Warning: Cannot undo merge - region index out of bounds");
-            return false;
-        }
+        const int firstIndex = m_regionManager.getIndexOfRegionId(m_firstId);
 
         mergedRegion->setName(m_originalFirst.getName());
         mergedRegion->setEndSample(m_originalFirst.getEndSample());
-        m_regionManager.insertRegionAt(m_secondIndex, m_originalSecond);
+
+        // Re-insert the removed second region just after the first, clamped to
+        // the current list size (order-independent of other edits).
+        int insertIndex = juce::jlimit(0, m_regionManager.getNumRegions(), firstIndex + 1);
+        m_regionManager.insertRegionAt(insertIndex, m_originalSecond);
 
         if (m_regionDisplay) m_regionDisplay->repaint();
         return true;
@@ -226,7 +240,7 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay* m_regionDisplay;
-    int m_firstIndex, m_secondIndex;
+    int64_t m_firstId = -1, m_secondId = -1;
     Region m_originalFirst, m_originalSecond;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MergeRegionsUndoAction)
@@ -249,24 +263,24 @@ public:
           m_regionDisplay(regionDisplay),
           m_audioFile(audioFile),
           m_originalIndices(originalIndices),
-          m_originalRegions(originalRegions),
-          m_mergedRegionIndex(-1)
+          m_originalRegions(originalRegions)
     {
-        // Store the merged region that will be created
-        // We need to create it now for undo purposes
     }
 
     bool perform() override
     {
-        // Merge using RegionManager's multi-selection merge
+        // Merge using RegionManager's multi-selection merge. The merge leaves
+        // the new region selected as primary, so we capture its stable ID to
+        // locate it on undo regardless of any later list changes.
         if (!m_regionManager.mergeSelectedRegions())
         {
             DBG("MultiMergeRegionsUndoAction::perform() - Merge failed");
             return false;
         }
 
-        // Store the index of the merged region (should be where first region was)
-        m_mergedRegionIndex = m_originalIndices[0];
+        int mergedIndex = m_regionManager.getPrimarySelectionIndex();
+        if (const Region* merged = m_regionManager.getRegion(mergedIndex))
+            m_mergedRegionId = merged->getId();
 
         // Save to sidecar JSON file
         m_regionManager.saveToFile(m_audioFile);
@@ -280,29 +294,37 @@ public:
 
     bool undo() override
     {
-        // Remove the merged region
-        if (m_mergedRegionIndex >= 0 && m_mergedRegionIndex < m_regionManager.getNumRegions())
+        // Remove the merged region by its stable ID.
+        int mergedIndex = m_regionManager.getIndexOfRegionId(m_mergedRegionId);
+        if (mergedIndex >= 0)
+            m_regionManager.removeRegion(mergedIndex);
+
+        // Restore original regions. H10: insert in ascending index order and
+        // clamp each target to the current list size so earlier insertions
+        // shift later ones into place instead of corrupting the order. The
+        // restored regions keep their original stable IDs.
+        juce::Array<int> order;
+        for (int i = 0; i < m_originalIndices.size(); ++i)
+            order.add(i);
+
+        std::sort(order.begin(), order.end(),
+                  [this](int a, int b)
+                  { return m_originalIndices[a] < m_originalIndices[b]; });
+
+        for (int slot : order)
         {
-            m_regionManager.removeRegion(m_mergedRegionIndex);
-
-            // Restore original regions at their original indices
-            for (int i = 0; i < m_originalIndices.size(); ++i)
-            {
-                int originalIndex = m_originalIndices[i];
-                const Region& region = m_originalRegions[i];
-
-                // Insert at original position
-                m_regionManager.insertRegionAt(originalIndex, region);
-            }
-
-            // Save to sidecar JSON file
-            m_regionManager.saveToFile(m_audioFile);
-
-            // Update display
-            m_regionDisplay.repaint();
-
-            DBG("Undid merge of " + juce::String(m_originalRegions.size()) + " regions");
+            int target = juce::jlimit(0, m_regionManager.getNumRegions(),
+                                      m_originalIndices[slot]);
+            m_regionManager.insertRegionAt(target, m_originalRegions[slot]);
         }
+
+        // Save to sidecar JSON file
+        m_regionManager.saveToFile(m_audioFile);
+
+        // Update display
+        m_regionDisplay.repaint();
+
+        DBG("Undid merge of " + juce::String(m_originalRegions.size()) + " regions");
         return true;
     }
 
@@ -317,7 +339,7 @@ private:
     juce::File m_audioFile;
     juce::Array<int> m_originalIndices;  // Original indices of regions being merged
     juce::Array<Region> m_originalRegions;  // Original regions before merge
-    int m_mergedRegionIndex;  // Index where merged region was placed
+    int64_t m_mergedRegionId = -1;  // Stable ID of the merged region
 };
 
 //==============================================================================
@@ -335,24 +357,36 @@ public:
                           const Region& originalRegion)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_regionIndex(regionIndex),
           m_splitSample(splitSample),
           m_originalRegion(originalRegion)
     {
+        // Bind to the region's stable ID (H8). splitRegion() keeps the first
+        // half's identity and inserts the second half right after it.
+        if (const Region* region = m_regionManager.getRegion(regionIndex))
+            m_regionId = region->getId();
     }
 
     bool perform() override
     {
-        const bool success = m_regionManager.splitRegion(m_regionIndex, m_splitSample);
+        const int regionIndex = m_regionManager.getIndexOfRegionId(m_regionId);
+        if (regionIndex < 0) return false;
+
+        const bool success = m_regionManager.splitRegion(regionIndex, m_splitSample);
         if (success && m_regionDisplay) m_regionDisplay->repaint();
         return success;
     }
 
     bool undo() override
     {
-        m_regionManager.removeRegion(m_regionIndex + 1);
+        // The first half keeps the original stable ID; the second half sits
+        // immediately after it. Remove the second half, then restore the
+        // first half's original boundaries.
+        const int firstIndex = m_regionManager.getIndexOfRegionId(m_regionId);
+        if (firstIndex < 0) return false;
 
-        Region* firstHalf = m_regionManager.getRegion(m_regionIndex);
+        m_regionManager.removeRegion(firstIndex + 1);
+
+        Region* firstHalf = m_regionManager.getRegionById(m_regionId);
         if (!firstHalf) return false;
 
         firstHalf->setName(m_originalRegion.getName());
@@ -367,7 +401,7 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay* m_regionDisplay;
-    int m_regionIndex;
+    int64_t m_regionId = -1;
     int64_t m_splitSample;
     Region m_originalRegion;
 

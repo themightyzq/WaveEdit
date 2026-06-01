@@ -2,6 +2,8 @@
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+#include <cmath>
 
 // Static state persistence for dialog reopens (Phase 6 finalization)
 // These persist bypass and loop toggle states across dialog instances
@@ -23,7 +25,7 @@ GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManag
       m_selectionEnd(selectionEnd)
 {
     // Title label
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
+    m_titleLabel.setFont(waveedit::ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -105,7 +107,7 @@ GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManag
 
     // Gain value label (shows current slider value)
     m_gainValueLabel.setJustificationType(juce::Justification::centred);
-    m_gainValueLabel.setFont(juce::Font(14.0f, juce::Font::bold));
+    m_gainValueLabel.setFont(waveedit::ui::boldValueFont());
     addAndMakeVisible(m_gainValueLabel);
 
     // Loop checkbox for preview - restore last state
@@ -139,6 +141,33 @@ GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManag
     m_gainInput.setWantsKeyboardFocus(true);
 
     setSize(450, 260);  // Width matches ParametricEQDialog standard for button layout
+
+    // Grab keyboard focus on the primary input once the dialog is shown
+    juce::Component::SafePointer<GainDialog> safeThis(this);
+    juce::MessageManager::callAsync([safeThis]()
+    {
+        if (safeThis != nullptr)
+            safeThis->m_gainInput.grabKeyboardFocus();
+    });
+}
+
+bool GainDialog::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        if (getValidatedGain().has_value())
+        {
+            onApplyClicked();
+            return true;
+        }
+    }
+    else if (key == juce::KeyPress::escapeKey)
+    {
+        onCancelClicked();
+        return true;
+    }
+
+    return false;
 }
 
 std::optional<float> GainDialog::showDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManager, int64_t selectionStart, int64_t selectionEnd)
@@ -180,37 +209,35 @@ void GainDialog::paint(juce::Graphics& g)
 
 void GainDialog::resized()
 {
-    auto area = getLocalBounds().reduced(15);
+    auto area = getLocalBounds().reduced(waveedit::ui::kDialogPadding);
 
     // Title
     m_titleLabel.setBounds(area.removeFromTop(30));
-    area.removeFromTop(10); // Spacing
+    area.removeFromTop(waveedit::ui::kSectionGap); // Spacing
 
     // Gain input row (text field)
     auto inputRow = area.removeFromTop(30);
     m_gainLabel.setBounds(inputRow.removeFromLeft(80));
-    inputRow.removeFromLeft(10); // Spacing
+    inputRow.removeFromLeft(waveedit::ui::kSectionGap); // Spacing
     m_gainInput.setBounds(inputRow);
 
-    area.removeFromTop(10); // Spacing
+    area.removeFromTop(waveedit::ui::kSectionGap); // Spacing
 
     // Gain slider row
     auto sliderRow = area.removeFromTop(40);
     m_gainSlider.setBounds(sliderRow.removeFromTop(25));
     m_gainValueLabel.setBounds(sliderRow);
 
-    area.removeFromTop(10); // Spacing before buttons
-
-    // Buttons (bottom) - standardized layout
-    // Left: Preview + Bypass + Loop | Right: Cancel + Apply
-    auto buttonRow = area.removeFromTop(30);
-    const int buttonWidth = 90;
-    const int buttonSpacing = 10;
+    // Buttons (bottom) - standardized §6.8 layout (40px, bottom-anchored)
+    area.removeFromTop(area.getHeight() - 40); // Push to bottom
+    auto buttonRow = area.removeFromTop(40);
+    const int buttonWidth = waveedit::ui::kButtonWidth;
+    const int buttonSpacing = waveedit::ui::kButtonGap;
 
     // Left side: Preview, Bypass, and Loop toggle
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
-    m_bypassButton.setBounds(buttonRow.removeFromLeft(70));  // Slightly narrower for bypass
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(waveedit::ui::kButtonWidthNarrow));  // Slightly narrower for bypass
     buttonRow.removeFromLeft(buttonSpacing);
     m_loopCheckbox.setBounds(buttonRow.removeFromLeft(60));  // Reduced width for just "Loop"
     buttonRow.removeFromLeft(buttonSpacing);
@@ -239,6 +266,13 @@ std::optional<float> GainDialog::getValidatedGain() const
         if (pos != text.toStdString().length())
         {
             return std::nullopt;  // Partial parse - invalid input
+        }
+
+        // H18: std::stof("NaN") returns NaN and NaN comparisons are always false,
+        // so the range check below would pass silently. Guard first.
+        if (!std::isfinite(value))
+        {
+            return std::nullopt;  // NaN / Inf is not a valid gain
         }
 
         // Validate reasonable gain range (-100dB to +100dB)
@@ -386,7 +420,7 @@ void GainDialog::onPreviewClicked()
     // Update button state for toggle
     m_isPreviewPlaying = true;
     m_previewButton.setButtonText("Stop Preview");
-    m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    m_previewButton.setColour(juce::TextButton::buttonColourId, waveedit::ui::colour(waveedit::ui::kButtonPreviewActive));
 
     // Enable bypass button now that preview is active
     m_bypassButton.setEnabled(true);
@@ -499,7 +533,7 @@ void GainDialog::onBypassClicked()
     if (newBypassState)
     {
         m_bypassButton.setButtonText("Bypassed");
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));  // Orange for bypassed
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, waveedit::ui::colour(waveedit::ui::kButtonBypassActive));  // Orange for bypassed
     }
     else
     {

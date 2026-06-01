@@ -15,6 +15,9 @@
 
 #include "KeyboardCheatSheetDialog.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+
+namespace ui = waveedit::ui;
 
 //==============================================================================
 // Constructor / Destructor
@@ -28,16 +31,17 @@ KeyboardCheatSheetDialog::KeyboardCheatSheetDialog(KeymapManager& keymapManager,
 {
     // Title label
     m_titleLabel.setText("Keyboard Shortcuts", juce::dontSendNotification);
-    m_titleLabel.setFont(juce::Font(20.0f, juce::Font::bold));
+    m_titleLabel.setFont(ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
     // Info label (shows current template)
     juce::String templateInfo = "Current Template: " + m_keymapManager.getCurrentTemplateName();
     m_infoLabel.setText(templateInfo, juce::dontSendNotification);
-    m_infoLabel.setFont(juce::Font(12.0f));
+    m_infoLabel.setFont(ui::smallFont());
     m_infoLabel.setJustificationType(juce::Justification::centred);
-    m_infoLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_infoLabel.setColour(juce::Label::textColourId,
+                          waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     addAndMakeVisible(m_infoLabel);
 
     // Search label
@@ -46,13 +50,15 @@ KeyboardCheatSheetDialog::KeyboardCheatSheetDialog(KeymapManager& keymapManager,
     addAndMakeVisible(m_searchLabel);
 
     // Search editor
-    m_searchEditor.setTextToShowWhenEmpty("Type to filter shortcuts...", juce::Colours::grey);
+    m_searchEditor.setTextToShowWhenEmpty("Type to filter shortcuts...",
+                                          waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     m_searchEditor.addListener(this);
     addAndMakeVisible(m_searchEditor);
 
     // Shortcuts table
     m_shortcutsTable.setModel(this);
-    m_shortcutsTable.setColour(juce::ListBox::outlineColourId, juce::Colours::grey);
+    m_shortcutsTable.setColour(juce::ListBox::outlineColourId,
+                               waveedit::ThemeManager::getInstance().getCurrent().border);
     m_shortcutsTable.setOutlineThickness(1);
     m_shortcutsTable.setMultipleSelectionEnabled(false);
     m_shortcutsTable.setRowHeight(24);
@@ -74,6 +80,10 @@ KeyboardCheatSheetDialog::KeyboardCheatSheetDialog(KeymapManager& keymapManager,
     loadShortcuts();
     applyFilter();
 
+    // Grab keyboard focus on the search field so users can filter immediately
+    // (REVIEW-DESIGN H8). Escape-to-close is handled by the DialogWindow.
+    m_searchEditor.setWantsKeyboardFocus(true);
+
     // Set size
     setSize(700, 600);
 }
@@ -92,9 +102,15 @@ void KeyboardCheatSheetDialog::paint(juce::Graphics& g)
     g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().panel);
 }
 
+void KeyboardCheatSheetDialog::visibilityChanged()
+{
+    if (isVisible())
+        m_searchEditor.grabKeyboardFocus();
+}
+
 void KeyboardCheatSheetDialog::resized()
 {
-    auto bounds = getLocalBounds().reduced(10);
+    auto bounds = getLocalBounds().reduced(ui::kDialogPadding);
 
     // Title
     m_titleLabel.setBounds(bounds.removeFromTop(30));
@@ -151,7 +167,7 @@ void KeyboardCheatSheetDialog::paintCell(juce::Graphics& g, int rowNumber, int c
         const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
         g.setColour(rowIsSelected ? theme.text : theme.textMuted);
     }
-    g.setFont(juce::Font(13.0f));
+    g.setFont(ui::smallFont());
 
     juce::String text;
     switch (columnId)
@@ -164,7 +180,7 @@ void KeyboardCheatSheetDialog::paintCell(juce::Graphics& g, int rowNumber, int c
             break;
         case ColumnShortcut:
             text = entry.shortcut;
-            g.setFont(juce::Font("Monospace", 13.0f, juce::Font::plain));
+            g.setFont(ui::monospaceFont());
             break;
         default:
             break;
@@ -263,113 +279,16 @@ void KeyboardCheatSheetDialog::loadShortcuts()
 {
     m_allShortcuts.clear();
 
-    // Get current template from KeymapManager
-    const auto& currentTemplate = m_keymapManager.getCurrentTemplate();
-
-    // Get all command IDs from CommandIDs namespace
-    juce::Array<int> commandIDs;
-    commandIDs.add(CommandIDs::fileNew);
-    commandIDs.add(CommandIDs::fileOpen);
-    commandIDs.add(CommandIDs::fileSave);
-    commandIDs.add(CommandIDs::fileSaveAs);
-    commandIDs.add(CommandIDs::fileClose);
-    commandIDs.add(CommandIDs::fileProperties);
-    commandIDs.add(CommandIDs::fileExit);
-    commandIDs.add(CommandIDs::filePreferences);
-
-    commandIDs.add(CommandIDs::editUndo);
-    commandIDs.add(CommandIDs::editRedo);
-    commandIDs.add(CommandIDs::editCut);
-    commandIDs.add(CommandIDs::editCopy);
-    commandIDs.add(CommandIDs::editPaste);
-    commandIDs.add(CommandIDs::editDelete);
-    commandIDs.add(CommandIDs::editSelectAll);
-    commandIDs.add(CommandIDs::editSilence);
-    commandIDs.add(CommandIDs::editTrim);
-
-    commandIDs.add(CommandIDs::playbackPlay);
-    commandIDs.add(CommandIDs::playbackPause);
-    commandIDs.add(CommandIDs::playbackStop);
-    commandIDs.add(CommandIDs::playbackLoop);
-
-    commandIDs.add(CommandIDs::viewZoomIn);
-    commandIDs.add(CommandIDs::viewZoomOut);
-    commandIDs.add(CommandIDs::viewZoomFit);
-    commandIDs.add(CommandIDs::viewZoomSelection);
-    commandIDs.add(CommandIDs::viewZoomOneToOne);
-    commandIDs.add(CommandIDs::viewCycleTimeFormat);
-    commandIDs.add(CommandIDs::viewAutoScroll);
-    commandIDs.add(CommandIDs::viewZoomToRegion);
-    commandIDs.add(CommandIDs::viewAutoPreviewRegions);
-
-    commandIDs.add(CommandIDs::processFadeIn);
-    commandIDs.add(CommandIDs::processFadeOut);
-    commandIDs.add(CommandIDs::processNormalize);
-    commandIDs.add(CommandIDs::processDCOffset);
-    commandIDs.add(CommandIDs::processGain);
-    commandIDs.add(CommandIDs::processIncreaseGain);
-    commandIDs.add(CommandIDs::processDecreaseGain);
-
-    commandIDs.add(CommandIDs::navigateLeft);
-    commandIDs.add(CommandIDs::navigateRight);
-    commandIDs.add(CommandIDs::navigateStart);
-    commandIDs.add(CommandIDs::navigateEnd);
-    commandIDs.add(CommandIDs::navigatePageLeft);
-    commandIDs.add(CommandIDs::navigatePageRight);
-    commandIDs.add(CommandIDs::navigateHomeVisible);
-    commandIDs.add(CommandIDs::navigateEndVisible);
-    commandIDs.add(CommandIDs::navigateCenterView);
-    commandIDs.add(CommandIDs::navigateGoToPosition);
-
-    commandIDs.add(CommandIDs::selectExtendLeft);
-    commandIDs.add(CommandIDs::selectExtendRight);
-    commandIDs.add(CommandIDs::selectExtendStart);
-    commandIDs.add(CommandIDs::selectExtendEnd);
-    commandIDs.add(CommandIDs::selectExtendPageLeft);
-    commandIDs.add(CommandIDs::selectExtendPageRight);
-
-    commandIDs.add(CommandIDs::snapCycleMode);
-    commandIDs.add(CommandIDs::snapToggleZeroCrossing);
-
-    commandIDs.add(CommandIDs::helpAbout);
-    commandIDs.add(CommandIDs::helpShortcuts);
-
-    commandIDs.add(CommandIDs::tabClose);
-    commandIDs.add(CommandIDs::tabCloseAll);
-    commandIDs.add(CommandIDs::tabNext);
-    commandIDs.add(CommandIDs::tabPrevious);
-    commandIDs.add(CommandIDs::tabSelect1);
-    commandIDs.add(CommandIDs::tabSelect2);
-    commandIDs.add(CommandIDs::tabSelect3);
-    commandIDs.add(CommandIDs::tabSelect4);
-    commandIDs.add(CommandIDs::tabSelect5);
-    commandIDs.add(CommandIDs::tabSelect6);
-    commandIDs.add(CommandIDs::tabSelect7);
-    commandIDs.add(CommandIDs::tabSelect8);
-    commandIDs.add(CommandIDs::tabSelect9);
-
-    commandIDs.add(CommandIDs::regionAdd);
-    commandIDs.add(CommandIDs::regionDelete);
-    commandIDs.add(CommandIDs::regionNext);
-    commandIDs.add(CommandIDs::regionPrevious);
-    commandIDs.add(CommandIDs::regionStripSilence);
-    commandIDs.add(CommandIDs::regionExportAll);
-    commandIDs.add(CommandIDs::regionShowList);
-    commandIDs.add(CommandIDs::regionSnapToZeroCrossing);
-    commandIDs.add(CommandIDs::regionNudgeStartLeft);
-    commandIDs.add(CommandIDs::regionNudgeStartRight);
-    commandIDs.add(CommandIDs::regionNudgeEndLeft);
-    commandIDs.add(CommandIDs::regionNudgeEndRight);
-    commandIDs.add(CommandIDs::regionBatchRename);
-    commandIDs.add(CommandIDs::regionMerge);
-    commandIDs.add(CommandIDs::regionSplit);
-    commandIDs.add(CommandIDs::regionCopy);
-    commandIDs.add(CommandIDs::regionPaste);
-
-    commandIDs.add(CommandIDs::markerAdd);
-    commandIDs.add(CommandIDs::markerDelete);
-    commandIDs.add(CommandIDs::markerNext);
-    commandIDs.add(CommandIDs::markerPrevious);
+    // Data-driven: enumerate every command the app has registered with the
+    // ApplicationCommandManager. This is the same source the menus and
+    // keymap use, so new commands appear here automatically without any
+    // hand-maintained list to keep in sync (REVIEW-DESIGN H17).
+    juce::Array<juce::CommandID> commandIDs;
+    for (int i = 0; i < m_commandManager.getNumCommands(); ++i)
+    {
+        if (const auto* info = m_commandManager.getCommandForIndex(i))
+            commandIDs.add(info->commandID);
+    }
 
     // Load shortcut for each command
     for (int commandID : commandIDs)
@@ -467,7 +386,16 @@ juce::String KeyboardCheatSheetDialog::getCategoryForCommand(int commandID)
 juce::String KeyboardCheatSheetDialog::getCommandName(int commandID,
                                                        juce::ApplicationCommandManager& commandManager)
 {
-    // Static mapping of command IDs to display names (matches Main.cpp)
+    // Prefer the display name registered with the ApplicationCommandManager
+    // (getCommandInfo), so every command — including any added later — shows
+    // a meaningful name without touching this file (REVIEW-DESIGN H17).
+    if (const auto* info = commandManager.getCommandForID(commandID))
+    {
+        if (info->shortName.isNotEmpty())
+            return info->shortName;
+    }
+
+    // Fallback static mapping (kept for commands whose registered name is empty)
     switch (commandID)
     {
         // File commands

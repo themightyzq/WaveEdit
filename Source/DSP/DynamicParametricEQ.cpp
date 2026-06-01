@@ -15,7 +15,6 @@
 
 #include "DynamicParametricEQ.h"
 #include <cmath>
-#include <iostream>
 
 //==============================================================================
 DynamicParametricEQ::DynamicParametricEQ()
@@ -36,6 +35,7 @@ void DynamicParametricEQ::prepare(double sampleRate, int maxBlockSize)
     const juce::ScopedLock sl(m_parameterLock);
     for (auto& band : m_bandStates)
     {
+        ensureBandChannelCount(band);
         for (auto& filter : band.filters)
             filter.reset();
         band.needsUpdate = true;
@@ -43,6 +43,23 @@ void DynamicParametricEQ::prepare(double sampleRate, int maxBlockSize)
 
     // Force coefficient update
     m_parametersChanged.store(true);
+}
+
+void DynamicParametricEQ::ensureBandChannelCount(BandState& band) const
+{
+    // H4 FIX: one filter per channel (up to MAX_CHANNELS). New filters inherit the
+    // band's coefficients so they process identically to the existing channels.
+    const size_t target = static_cast<size_t>(juce::jlimit(1, MAX_CHANNELS, m_numChannels));
+    if (band.filters.size() == target)
+        return;
+
+    band.filters.resize(target);
+    for (auto& filter : band.filters)
+    {
+        if (band.coefficients != nullptr)
+            filter.coefficients = band.coefficients;
+        filter.reset();
+    }
 }
 
 void DynamicParametricEQ::reset()
@@ -109,12 +126,35 @@ void DynamicParametricEQ::applyEQ(juce::dsp::AudioBlock<float>& block)
     if (!isPrepared())
         return;
 
-    // Update coefficients if needed
-    if (m_parametersChanged.exchange(false))
-        updateCoefficients();
+    // C6 FIX: setParameters/addBand/removeBand mutate m_bandStates (and may
+    // reallocate the vector) under m_parameterLock. The audio thread must not
+    // iterate m_bandStates without that lock, but it also must not block. So we
+    // try-lock and skip processing for this block on contention (a single dropped
+    // EQ block is inaudible; reading a reallocating vector would crash). §6.4.
+    const juce::ScopedTryLock stl(m_parameterLock);
+    if (!stl.isLocked())
+        return;
 
     const auto numChannels = static_cast<int>(block.getNumChannels());
     const auto numSamples = block.getNumSamples();
+
+    // H4 FIX: grow per-band filter banks to match the actual channel count so
+    // channels 2..7 are processed, not silently bypassed. ensureBandChannelCount
+    // only allocates when the channel count grows; steady-state is allocation-free.
+    // Done before the coefficient update so any newly-added filters are sized and
+    // ready to receive coefficients this block.
+    if (numChannels > m_numChannels)
+    {
+        m_numChannels = juce::jmin(numChannels, MAX_CHANNELS);
+        // Resize every band's filter bank now (not just dirty ones) so already-
+        // coefficient'd bands gain filters for the new channels immediately.
+        for (auto& band : m_bandStates)
+            ensureBandChannelCount(band);
+    }
+
+    // Update coefficients if needed (safe: we hold m_parameterLock).
+    if (m_parametersChanged.exchange(false))
+        updateCoefficientsLocked();
 
     // Process each enabled band
     for (size_t bandIdx = 0; bandIdx < m_parameters.bands.size(); ++bandIdx)
@@ -126,13 +166,14 @@ void DynamicParametricEQ::applyEQ(juce::dsp::AudioBlock<float>& block)
         if (!band.params.enabled || band.coefficients == nullptr)
             continue;
 
-        // Process each channel
-        for (int ch = 0; ch < juce::jmin(numChannels, 2); ++ch)
+        // Process each channel (one filter instance per channel)
+        const int chCount = juce::jmin(numChannels, static_cast<int>(band.filters.size()));
+        for (int ch = 0; ch < chCount; ++ch)
         {
             auto* channelData = block.getChannelPointer(static_cast<size_t>(ch));
             for (size_t i = 0; i < numSamples; ++i)
             {
-                channelData[i] = band.filters[ch].processSample(channelData[i]);
+                channelData[i] = band.filters[static_cast<size_t>(ch)].processSample(channelData[i]);
             }
         }
     }
@@ -145,18 +186,17 @@ void DynamicParametricEQ::applyEQ(juce::dsp::AudioBlock<float>& block)
 }
 
 //==============================================================================
-void DynamicParametricEQ::updateCoefficients()
+void DynamicParametricEQ::updateCoefficientsLocked()
 {
-    // Copy parameters for coefficient calculation
-    Parameters params;
-    {
-        const juce::ScopedLock sl(m_parameterLock);
-        params = m_parameters;
-        m_outputGainLinear = juce::Decibels::decibelsToGain(params.outputGain);
-    }
+    // C6 FIX: caller (applyEQ) already holds m_parameterLock, so we read
+    // m_parameters and mutate m_bandStates under that single lock rather than
+    // re-locking (would deadlock) or touching m_bandStates unlocked (the prior
+    // bug). Coefficient creation does allocate; this only runs on the rare block
+    // where params actually changed, and the audio thread already holds the lock.
+    m_outputGainLinear = juce::Decibels::decibelsToGain(m_parameters.outputGain);
 
     // Update coefficients for each band that needs it
-    for (size_t i = 0; i < params.bands.size() && i < m_bandStates.size(); ++i)
+    for (size_t i = 0; i < m_parameters.bands.size() && i < m_bandStates.size(); ++i)
     {
         auto& band = m_bandStates[i];
         if (band.needsUpdate)
@@ -166,12 +206,15 @@ void DynamicParametricEQ::updateCoefficients()
         }
     }
 
-    m_cachedParams = params;
+    m_cachedParams = m_parameters;
 }
 
 void DynamicParametricEQ::updateBandCoefficients(BandState& band)
 {
     band.coefficients = createCoefficients(band.params);
+
+    // H4 FIX: make sure the band has one filter per channel before assigning.
+    ensureBandChannelCount(band);
 
     if (band.coefficients != nullptr)
     {
@@ -246,13 +289,6 @@ void DynamicParametricEQ::getFrequencyResponse(float* magnitudes, int numPoints,
 
     float outputGainDb = m_parameters.outputGain;
 
-    // Debug: Always log to stderr (DBG is stripped in Release)
-    std::cerr << "[EQ-RESP] getFrequencyResponse called: bandStates=" << m_bandStates.size()
-              << " sampleRate=" << m_sampleRate
-              << " numPoints=" << numPoints << std::endl;
-
-    int bandCount = 0;
-
     // Calculate frequency for each point
     for (int i = 0; i < numPoints; ++i)
     {
@@ -278,8 +314,6 @@ void DynamicParametricEQ::getFrequencyResponse(float* magnitudes, int numPoints,
             if (!band.params.enabled || band.coefficients == nullptr)
                 continue;
 
-            if (i == 0) bandCount++;  // Count on first iteration
-
             auto bandResponse = getFilterResponse(band, freq);
             response *= bandResponse;
         }
@@ -287,19 +321,6 @@ void DynamicParametricEQ::getFrequencyResponse(float* magnitudes, int numPoints,
         // Convert to dB
         double magnitude = std::abs(response);
         magnitudes[i] = static_cast<float>(20.0 * std::log10(std::max(magnitude, 1e-10)));
-    }
-
-    // Debug: Always log magnitude values
-    if (numPoints > 0)
-    {
-        float minMag = magnitudes[0], maxMag = magnitudes[0];
-        for (int i = 1; i < numPoints; ++i)
-        {
-            if (magnitudes[i] < minMag) minMag = magnitudes[i];
-            if (magnitudes[i] > maxMag) maxMag = magnitudes[i];
-        }
-        std::cerr << "[EQ-RESP] activeBands=" << bandCount
-                  << " magnitudes: min=" << minMag << "dB max=" << maxMag << "dB" << std::endl;
     }
 
     // Add output gain
@@ -534,11 +555,6 @@ void DynamicParametricEQ::updateCoefficientsForVisualization()
 
     const juce::ScopedLock sl(m_parameterLock);
 
-    // DEBUG: Output to stderr for Release builds
-    std::cerr << "[EQ-VIZ] updateCoeffsForViz: paramBands=" << m_parameters.bands.size()
-              << " bandStates=" << m_bandStates.size()
-              << " sampleRate=" << m_sampleRate << std::endl;
-
     // CRITICAL FIX: Ensure m_bandStates is properly sized BEFORE the loop
     // setParameters() should have done this, but we double-check here
     while (m_bandStates.size() < m_parameters.bands.size())
@@ -554,29 +570,6 @@ void DynamicParametricEQ::updateCoefficientsForVisualization()
         m_bandStates[i].params = m_parameters.bands[i];
         // Force coefficient recalculation
         updateBandCoefficients(m_bandStates[i]);
-
-        // DEBUG: Output to stderr for Release builds
-        std::cerr << "[EQ-VIZ]   Band " << i
-                  << ": freq=" << m_bandStates[i].params.frequency
-                  << " gain=" << m_bandStates[i].params.gain
-                  << " enabled=" << (m_bandStates[i].params.enabled ? 1 : 0)
-                  << " hasCoeffs=" << (m_bandStates[i].coefficients != nullptr ? 1 : 0);
-
-        // Print actual coefficient values to debug flat response
-        if (m_bandStates[i].coefficients != nullptr)
-        {
-            const auto& coeffs = m_bandStates[i].coefficients->coefficients;
-            if (coeffs.size() >= 6)
-            {
-                std::cerr << " [b0=" << coeffs[0] << " b1=" << coeffs[1] << " b2=" << coeffs[2]
-                          << " a0=" << coeffs[3] << " a1=" << coeffs[4] << " a2=" << coeffs[5] << "]";
-            }
-            else
-            {
-                std::cerr << " [coeffs.size=" << coeffs.size() << " - INVALID!]";
-            }
-        }
-        std::cerr << std::endl;
     }
 
     // Update output gain

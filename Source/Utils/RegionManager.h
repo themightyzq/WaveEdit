@@ -120,6 +120,31 @@ public:
      */
     const juce::Array<Region>& getAllRegions() const;
 
+    /**
+     * Gets a region by its stable ID (mutable).
+     *
+     * Preferred over getRegion(index) for undo/redo: the ID is invariant to
+     * later inserts/removes, so an action can re-find its exact region even
+     * after the list has been reordered.
+     *
+     * @param id Stable region ID (Region::getId())
+     * @return Pointer to region, or nullptr if no region has that ID
+     */
+    Region* getRegionById(int64_t id);
+
+    /**
+     * Gets a region by its stable ID (const).
+     */
+    const Region* getRegionById(int64_t id) const;
+
+    /**
+     * Gets the current index of the region with the given stable ID.
+     *
+     * @param id Stable region ID (Region::getId())
+     * @return Index, or -1 if no region has that ID
+     */
+    int getIndexOfRegionId(int64_t id) const;
+
     //==============================================================================
     // Region navigation
 
@@ -292,10 +317,18 @@ public:
     /**
      * Loads regions from a JSON sidecar file.
      *
+     * Malformed entries are validated (H22): regions whose start/end are
+     * non-numeric, swapped (start > end, unswapped via Region::fromJSON),
+     * zero-length, or — when @p totalSamples is supplied — out of buffer
+     * range, are clamped or dropped rather than silently corrupting state.
+     *
      * @param audioFile The audio file (not the .regions.json file)
+     * @param totalSamples Buffer length for bounds-clamping; pass a negative
+     *        value (default) to skip the out-of-range check when the buffer
+     *        length is not yet known.
      * @return true if successful, false if file doesn't exist or parse error
      */
-    bool loadFromFile(const juce::File& audioFile);
+    bool loadFromFile(const juce::File& audioFile, int64_t totalSamples = -1);
 
     /**
      * Gets the sidecar file path for an audio file.

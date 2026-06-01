@@ -1221,7 +1221,12 @@ void DSPController::trimToSelection(Document* doc)
         juce::AudioBuffer<float> beforeBuffer;
         beforeBuffer.makeCopyOf(buffer, true);
 
-        // Create undo action
+        // Create undo action.
+        // TrimUndoAction forwards its last argument to trimToRange() as a sample
+        // COUNT (numSamples), not an absolute end index. Pass the count of the
+        // selected range, otherwise the trim keeps the wrong number of samples
+        // (and silently no-ops for back-half selections). See REVIEW-QA C1.
+        const int numSamplesToKeep = endSample - startSample;
         doc->getUndoManager().beginNewTransaction("Trim to Selection");
         auto* undoAction = new TrimUndoAction(
             doc->getBufferManager(),
@@ -1229,7 +1234,7 @@ void DSPController::trimToSelection(Document* doc)
             doc->getAudioEngine(),
             beforeBuffer,
             startSample,
-            endSample
+            numSamplesToKeep
         );
 
         doc->getUndoManager().perform(undoAction);

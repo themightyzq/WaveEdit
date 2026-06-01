@@ -74,7 +74,6 @@ PluginManagerDialog::PluginManagerDialog()
 
     // Plugin table
     m_table.setModel(this);
-    m_table.setColour(juce::ListBox::backgroundColourId, backgroundColour());
     m_table.setRowHeight(m_rowHeight);
     m_table.setMultipleSelectionEnabled(false);
     m_table.getHeader().setStretchToFitActive(true);
@@ -124,10 +123,6 @@ PluginManagerDialog::PluginManagerDialog()
     m_scanStatusLabel.setText("", juce::dontSendNotification);
     addAndMakeVisible(m_scanStatusLabel);
 
-    m_scanProgressBar.setColour(juce::ProgressBar::backgroundColourId,
-        waveedit::ThemeManager::getInstance().getCurrent().panelAlternate);
-    m_scanProgressBar.setColour(juce::ProgressBar::foregroundColourId,
-        waveedit::ThemeManager::getInstance().getCurrent().accent);
     addAndMakeVisible(m_scanProgressBar);
     m_scanProgressBar.setVisible(false);
 
@@ -145,6 +140,10 @@ PluginManagerDialog::PluginManagerDialog()
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
     addAndMakeVisible(m_cancelButton);
 
+    // Subscribe to theme switches so cached child colours re-skin live.
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+    applyThemeColours();
+
     // Load initial plugin list
     refresh();
 
@@ -154,6 +153,18 @@ PluginManagerDialog::PluginManagerDialog()
 PluginManagerDialog::~PluginManagerDialog()
 {
     stopTimer();
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
+}
+
+void PluginManagerDialog::applyThemeColours()
+{
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Match the even-row fill in paintRowBackground() so the table blends
+    // with the dialog panel surface.
+    m_table.setColour(juce::ListBox::backgroundColourId, backgroundColour());
+    m_scanProgressBar.setColour(juce::ProgressBar::backgroundColourId, theme.panelAlternate);
+    m_scanProgressBar.setColour(juce::ProgressBar::foregroundColourId, theme.accent);
 }
 
 //==============================================================================
@@ -435,9 +446,15 @@ const juce::PluginDescription* PluginManagerDialog::getSelectedPlugin() const
 }
 
 //==============================================================================
-void PluginManagerDialog::changeListenerCallback(juce::ChangeBroadcaster* /*source*/)
+void PluginManagerDialog::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
-    // Not used - we use callbacks directly via startScanAsync/forceRescan
+    // Plugin scan progress is delivered via callbacks (startScanAsync /
+    // forceRescan); the only broadcaster we observe here is the theme.
+    if (source == &waveedit::ThemeManager::getInstance())
+    {
+        applyThemeColours();
+        repaint();
+    }
 }
 
 void PluginManagerDialog::timerCallback()
@@ -450,7 +467,7 @@ juce::DocumentWindow* PluginManagerDialog::showInWindow(bool modal)
 {
     auto* window = new juce::DocumentWindow(
         "Plugin Manager",
-        juce::Colours::darkgrey,
+        waveedit::ThemeManager::getInstance().getCurrent().panel,
         juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton,
         true);
 

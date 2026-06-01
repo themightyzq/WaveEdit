@@ -28,112 +28,13 @@
 #include "../../UI/RegionDisplay.h"
 
 //==============================================================================
-/**
- * Undoable action for Auto Region auto-region creation.
- * Stores the old region state and the new regions created by Auto Region.
- */
-class StripSilenceUndoAction : public juce::UndoableAction
-{
-public:
-    StripSilenceUndoAction(RegionManager& regionManager,
-                          RegionDisplay& regionDisplay,
-                          const juce::File& audioFile,
-                          const juce::AudioBuffer<float>& buffer,
-                          double sampleRate,
-                          float thresholdDB,
-                          float minRegionLengthMs,
-                          float minSilenceLengthMs,
-                          float preRollMs,
-                          float postRollMs)
-        : m_regionManager(regionManager),
-          m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
-          m_buffer(buffer),
-          m_sampleRate(sampleRate),
-          m_thresholdDB(thresholdDB),
-          m_minRegionLengthMs(minRegionLengthMs),
-          m_minSilenceLengthMs(minSilenceLengthMs),
-          m_preRollMs(preRollMs),
-          m_postRollMs(postRollMs)
-    {
-        // Store old regions before Auto Region is applied
-        const auto& allRegions = m_regionManager.getAllRegions();
-        for (const auto& region : allRegions)
-        {
-            m_oldRegions.add(region);
-        }
-    }
-
-    bool perform() override
-    {
-        // Apply Auto Region algorithm (clears old regions and creates new ones)
-        m_regionManager.autoCreateRegions(m_buffer, m_sampleRate,
-                                         m_thresholdDB, m_minRegionLengthMs,
-                                         m_minSilenceLengthMs,
-                                         m_preRollMs, m_postRollMs);
-
-        // Store the newly created regions for redo
-        m_newRegions.clear();
-        const auto& allRegions = m_regionManager.getAllRegions();
-        for (const auto& region : allRegions)
-        {
-            m_newRegions.add(region);
-        }
-
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
-        // Update display
-        m_regionDisplay.repaint();
-
-        DBG("Auto Region: Created " + juce::String(m_newRegions.size()) + " regions");
-        return true;
-    }
-
-    bool undo() override
-    {
-        // Clear current regions
-        m_regionManager.removeAllRegions();
-
-        // Restore old regions (before Auto Region was applied)
-        for (const auto& region : m_oldRegions)
-        {
-            m_regionManager.addRegion(region);
-        }
-
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
-        // Update display
-        m_regionDisplay.repaint();
-
-        DBG("Undid Auto Region: Restored " + juce::String(m_oldRegions.size()) + " original regions");
-        return true;
-    }
-
-    int getSizeInUnits() override
-    {
-        // Only count the regions - m_buffer is stored by reference (not copied)
-        return sizeof(*this) +
-               m_oldRegions.size() * sizeof(Region) +
-               m_newRegions.size() * sizeof(Region);
-    }
-
-private:
-    RegionManager& m_regionManager;
-    RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
-    const juce::AudioBuffer<float>& m_buffer;
-    double m_sampleRate;
-    float m_thresholdDB;
-    float m_minRegionLengthMs;
-    float m_minSilenceLengthMs;
-    float m_preRollMs;
-    float m_postRollMs;
-
-    juce::Array<Region> m_oldRegions;  // Regions before Auto Region
-    juce::Array<Region> m_newRegions;  // Regions created by Auto Region
-};
+// NOTE (C13): The former `StripSilenceUndoAction` was removed. It stored a
+// `const juce::AudioBuffer<float>&` reference to the document's live buffer,
+// which dangles after a file reload swaps the buffer -> use-after-free on undo.
+// It was dead code (never instantiated; the dialog wires the safe
+// RetrospectiveStripSilenceUndoAction below, which stores region snapshots by
+// value). If an apply-from-scratch variant is ever needed, copy the buffer by
+// value instead of holding a reference.
 
 //==============================================================================
 /**
@@ -235,10 +136,12 @@ public:
 
     bool perform() override
     {
+        // Add the exact regions we own (each carries a stable ID) so undo can
+        // remove precisely those, regardless of other regions added in between
+        // (H11). "Last N" removal is unsafe.
         for (const auto& region : m_regions)
-        {
             m_regionManager.addRegion(region);
-        }
+
         m_regionManager.saveToFile(m_audioFile);
         m_regionDisplay.repaint();
         return true;
@@ -246,12 +149,11 @@ public:
 
     bool undo() override
     {
-        // Remove the last N regions (the ones we added)
-        int total = m_regionManager.getNumRegions();
-        for (int i = m_regions.size() - 1; i >= 0; --i)
+        // Remove by stable ID, not by position.
+        for (const auto& region : m_regions)
         {
-            int idx = total - m_regions.size() + i;
-            if (idx >= 0 && idx < m_regionManager.getNumRegions())
+            int idx = m_regionManager.getIndexOfRegionId(region.getId());
+            if (idx >= 0)
                 m_regionManager.removeRegion(idx);
         }
         m_regionManager.saveToFile(m_audioFile);

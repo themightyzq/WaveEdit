@@ -22,6 +22,37 @@
 
 #include "TabComponent.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
+
+namespace
+{
+    /** Middle-truncate @p text to fit @p maxWidth in @p font, keeping the
+        file extension visible (e.g. "my_very_long_...name.wav"). Returns the
+        original string when it already fits. */
+    juce::String truncatePreservingExtension(const juce::String& text,
+                                             const juce::Font& font,
+                                             float maxWidth)
+    {
+        if (font.getStringWidthFloat(text) <= maxWidth)
+            return text;
+
+        // Plain ASCII so the glyph renders in every typeface (a Unicode "…"
+        // showed up as a tofu box for some users / remote sessions).
+        const juce::String ellipsis("...");
+        const int dot = text.lastIndexOfChar('.');
+        const juce::String ext = (dot > 0) ? text.substring(dot) : juce::String();
+        juce::String stem = (dot > 0) ? text.substring(0, dot) : text;
+
+        // Shrink the stem from its tail until stem + … + ext fits.
+        while (stem.isNotEmpty()
+               && font.getStringWidthFloat(stem + ellipsis + ext) > maxWidth)
+        {
+            stem = stem.dropLastCharacters(1);
+        }
+
+        return stem + ellipsis + ext;
+    }
+}
 
 //==============================================================================
 // TabButton Implementation
@@ -104,10 +135,15 @@ void TabButton::paint(juce::Graphics& g)
     auto textBounds = getLocalBounds().reduced(kPadding, 0);
     textBounds.removeFromRight(kCloseButtonSize + kPadding);
 
-    // Draw filename — selected tabs use full text, others muted
+    // Draw filename — selected tabs use full text, others muted.
+    // Middle-truncate (preserving the extension) instead of letting
+    // drawFittedText squeeze the glyphs down.
     g.setColour(m_isSelected ? theme.text : theme.textMuted);
-    g.setFont(juce::Font(14.0f));
-    g.drawFittedText(filename, textBounds, juce::Justification::centredLeft, 1);
+    const juce::Font tabFont = waveedit::ui::bodyFont();
+    g.setFont(tabFont);
+    const juce::String shownName = truncatePreservingExtension(
+        filename, tabFont, static_cast<float>(textBounds.getWidth()));
+    g.drawFittedText(shownName, textBounds, juce::Justification::centredLeft, 1);
 
     // Draw close button
     m_closeBounds = juce::Rectangle<int>(getWidth() - kCloseButtonSize - kPadding,
@@ -222,6 +258,27 @@ void TabComponent::changeListenerCallback(juce::ChangeBroadcaster* source)
 
 void TabComponent::resized()
 {
+    // Compress tab widths to fit the available strip before deciding on scroll.
+    // Tabs start at kMaxTabWidth and shrink evenly toward kMinTabWidth so that
+    // as many as possible fit without scrolling. Scrolling only kicks in once
+    // even min-width tabs overflow.
+    const int numTabs = m_tabs.size();
+    if (numTabs > 0)
+    {
+        const int availableWidth = getWidth();
+        int tabWidth = TabButton::kMaxTabWidth;
+
+        if (numTabs * tabWidth > availableWidth)
+        {
+            tabWidth = juce::jmax(TabButton::kMinTabWidth, availableWidth / numTabs);
+        }
+
+        for (auto* tab : m_tabs)
+        {
+            tab->setSize(tabWidth, kTabBarHeight);
+        }
+    }
+
     updateScrollBar();
 
     // Position tabs

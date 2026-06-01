@@ -122,6 +122,28 @@ juce::Array<Marker> MarkerManager::getAllMarkers() const
     return m_markers;  // Returns a copy for thread safety
 }
 
+Marker* MarkerManager::getMarkerById(int64_t id)
+{
+    juce::ScopedLock lock(m_lock);
+
+    for (int i = 0; i < m_markers.size(); ++i)
+        if (m_markers.getReference(i).getId() == id)
+            return &m_markers.getReference(i);
+
+    return nullptr;
+}
+
+int MarkerManager::getIndexOfMarkerId(int64_t id) const
+{
+    juce::ScopedLock lock(m_lock);
+
+    for (int i = 0; i < m_markers.size(); ++i)
+        if (m_markers.getReference(i).getId() == id)
+            return i;
+
+    return -1;
+}
+
 int MarkerManager::findMarkerAtSample(int64_t sample, int64_t tolerance) const
 {
     juce::ScopedLock lock(m_lock);

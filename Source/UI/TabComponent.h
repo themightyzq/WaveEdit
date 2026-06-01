@@ -134,6 +134,10 @@ public:
     void mouseEnter(const juce::MouseEvent& event) override;
     void mouseExit(const juce::MouseEvent& event) override;
 
+    // Tab width bounds (used by TabComponent for overflow compression)
+    static constexpr int kMinTabWidth = 80;
+    static constexpr int kMaxTabWidth = 200;
+
 private:
     Document* m_document;
     int m_index;
@@ -147,8 +151,6 @@ private:
 
     // Tab appearance
     static constexpr int kTabHeight = 32;
-    static constexpr int kMinTabWidth = 100;
-    static constexpr int kMaxTabWidth = 200;
     static constexpr int kCloseButtonSize = 16;
     static constexpr int kPadding = 8;
 

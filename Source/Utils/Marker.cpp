@@ -7,16 +7,26 @@
  */
 
 #include "Marker.h"
+#include <atomic>
+
+int64_t Marker::nextId()
+{
+    // Process-unique, monotonic. Starts at 1 so 0 can mark "no id yet".
+    static std::atomic<int64_t> counter{1};
+    return counter.fetch_add(1, std::memory_order_relaxed);
+}
 
 Marker::Marker()
-    : m_name("Marker")
+    : m_id(nextId())
+    , m_name("Marker")
     , m_position(0)
     , m_color(juce::Colours::yellow)
 {
 }
 
 Marker::Marker(const juce::String& name, int64_t position, juce::Colour color)
-    : m_name(name)
+    : m_id(nextId())
+    , m_name(name)
     , m_position(juce::jmax((int64_t)0, position))  // Clamp to non-negative
     , m_color(color)
 {
@@ -63,9 +73,17 @@ Marker Marker::fromJSON(const juce::var& json)
         return Marker();
 
     juce::String name = obj->getProperty("name").toString();
-    int64_t position = static_cast<int64_t>(static_cast<juce::int64>(obj->getProperty("position")));
+
+    // H22: require a numeric position. A missing / wrong-typed field would
+    // otherwise coerce to 0 and silently drop the marker onto sample 0.
+    const juce::var positionVar = obj->getProperty("position");
+    if (!(positionVar.isInt() || positionVar.isInt64() || positionVar.isDouble()))
+        return Marker();  // malformed -> default marker (caller may drop)
+
+    int64_t position = static_cast<int64_t>(static_cast<juce::int64>(positionVar));
     juce::String colorStr = obj->getProperty("color").toString();
-    juce::Colour color = juce::Colour::fromString(colorStr);
+    juce::Colour color = colorStr.isNotEmpty() ? juce::Colour::fromString(colorStr)
+                                               : juce::Colours::yellow;
 
     return Marker(name, position, color);
 }

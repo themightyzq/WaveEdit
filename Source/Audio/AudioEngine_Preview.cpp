@@ -171,18 +171,28 @@ void AudioEngine::setGainPreview(float gainDB, bool enabled)
 
 void AudioEngine::setParametricEQPreview(const ParametricEQ::Parameters& params, bool enabled)
 {
-    // Thread-safe: Can be called from UI thread
-    // Use atomic flag to safely exchange parameters between threads
-    m_pendingParametricEQParams = params;
+    // Thread-safe: Can be called from UI thread.
+    // C5 FIX: the pending struct is plain data (no vector), but the audio thread
+    // copies it under m_eqParamsLock, so write under the same lock to keep the
+    // publish atomic relative to that read. The lock is held only for the copy.
+    {
+        const juce::SpinLock::ScopedLockType sl(m_eqParamsLock);
+        m_pendingParametricEQParams = params;
+    }
     m_parametricEQParamsChanged.set(true);
     m_parametricEQEnabled.set(enabled);
 }
 
 void AudioEngine::setDynamicEQPreview(const DynamicParametricEQ::Parameters& params, bool enabled)
 {
-    // Thread-safe: Can be called from UI thread
-    // Use atomic flag to safely exchange parameters between threads
-    m_pendingDynamicEQParams = params;
+    // Thread-safe: Can be called from UI thread.
+    // C5 FIX: m_pendingDynamicEQParams contains a std::vector payload; guard the
+    // write with m_eqParamsLock so the audio-thread copy never observes a torn
+    // vector mid-reallocation.
+    {
+        const juce::SpinLock::ScopedLockType sl(m_eqParamsLock);
+        m_pendingDynamicEQParams = params;
+    }
     m_dynamicEQParamsChanged.set(true);
     m_dynamicEQEnabled.set(enabled);
 }

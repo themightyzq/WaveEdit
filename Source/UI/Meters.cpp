@@ -14,9 +14,13 @@
 */
 
 #include "Meters.h"
+#include "ThemeManager.h"
+#include "UIConstants.h"
+#include "../Audio/AudioEngine.h"
 
 Meters::Meters()
-    : m_audioEngine(nullptr)
+    : m_numChannels(2),
+      m_audioEngine(nullptr)
 {
     // Initialize atomic values and state arrays
     for (int ch = 0; ch < MAX_CHANNELS; ++ch)
@@ -32,6 +36,8 @@ Meters::Meters()
         m_clippingTime[ch] = 0;
     }
 
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+
     // Start timer for UI updates (30fps for smooth meter animation)
     startTimer(1000 / UPDATE_RATE_HZ);
 }
@@ -39,6 +45,17 @@ Meters::Meters()
 Meters::~Meters()
 {
     stopTimer();
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
+}
+
+void Meters::setNumChannels(int numChannels)
+{
+    const int clamped = juce::jlimit(1, static_cast<int>(MAX_CHANNELS), numChannels);
+    if (clamped != m_numChannels)
+    {
+        m_numChannels = clamped;
+        repaint();
+    }
 }
 
 //==============================================================================
@@ -87,6 +104,11 @@ void Meters::reset()
 void Meters::setAudioEngine(AudioEngine* audioEngine)
 {
     m_audioEngine = audioEngine;
+
+    // Track the source's channel count so mono files show one bar labelled
+    // "M" rather than a phantom stereo pair (see drawMeterBar idle handling).
+    if (m_audioEngine != nullptr)
+        setNumChannels(m_audioEngine->getNumChannels());
 
     // Reset meters when changing audio source
     reset();
@@ -171,38 +193,37 @@ void Meters::timerCallback()
 
 void Meters::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1a1a1a)); // Dark background
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    g.fillAll(theme.background); // Recessed background surface
 
     auto bounds = getLocalBounds().toFloat();
     const float padding = 4.0f;
     const float scaleWidth = 30.0f;
     const float meterSpacing = 4.0f;
 
-    // Calculate meter layout
-    float totalWidth = bounds.getWidth() - padding * 2 - scaleWidth;
-    float meterWidth = (totalWidth - meterSpacing) / 2.0f; // Two meters (L + R)
-
     // Draw scale on the left
     juce::Rectangle<float> scaleBounds(padding, padding, scaleWidth, bounds.getHeight() - padding * 2);
     drawScale(g, scaleBounds);
 
-    // Draw left channel meter
-    juce::Rectangle<float> leftMeterBounds(
-        scaleBounds.getRight() + padding,
-        padding,
-        meterWidth,
-        bounds.getHeight() - padding * 2
-    );
-    drawMeterBar(g, leftMeterBounds, 0, "L");
+    // Calculate per-meter width for the active channel count.
+    const int numBars = juce::jmax(1, m_numChannels);
+    float totalWidth = bounds.getWidth() - padding * 2 - scaleWidth;
+    float meterWidth = (totalWidth - meterSpacing * (numBars - 1)) / static_cast<float>(numBars);
 
-    // Draw right channel meter
-    juce::Rectangle<float> rightMeterBounds(
-        leftMeterBounds.getRight() + meterSpacing,
-        padding,
-        meterWidth,
-        bounds.getHeight() - padding * 2
-    );
-    drawMeterBar(g, rightMeterBounds, 1, "R");
+    // Draw one meter bar per active channel, labeled generically.
+    float x = scaleBounds.getRight() + padding;
+    for (int ch = 0; ch < numBars; ++ch)
+    {
+        juce::Rectangle<float> meterBounds(
+            x,
+            padding,
+            meterWidth,
+            bounds.getHeight() - padding * 2
+        );
+        drawMeterBar(g, meterBounds, ch, channelLabel(ch));
+        x += meterWidth + meterSpacing;
+    }
 }
 
 void Meters::resized()
@@ -226,39 +247,61 @@ float Meters::levelToDecibels(float level) const
 
 juce::Colour Meters::getMeterColor(float level, bool isClipping) const
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     if (isClipping)
     {
-        return juce::Colours::red; // Clipping: bright red
+        return theme.error; // Clipping: bright red
     }
-    else if (level >= WARNING_THRESHOLD)
+
+    // Compare in dBFS so the colour zones match how engineers read meters:
+    //   green  < -18 dB, yellow -18..-6 dB, red (hot) > -6 dB.
+    const float dB = juce::Decibels::gainToDecibels(level);
+
+    if (dB >= WARNING_THRESHOLD_DB)
     {
-        return juce::Colours::yellow; // Warning: approaching limit
+        return theme.error; // Hot: approaching clip
     }
-    else if (level >= SAFE_THRESHOLD)
+    else if (dB >= SAFE_THRESHOLD_DB)
     {
-        return juce::Colours::orange; // Caution: moderate level
+        return theme.warning; // Caution: moderate level
     }
     else
     {
-        return juce::Colours::green; // Safe: low to moderate level
+        return theme.success; // Safe: low to moderate level
     }
 }
 
 void Meters::drawMeterBar(juce::Graphics& g, juce::Rectangle<float> bounds,
                           int channel, const juce::String& channelName)
 {
-    // Draw background
-    g.setColour(juce::Colour(0xff2a2a2a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    const bool active = isMeteringActive();
+
+    // Draw bar background. When metering is inactive (no engine/file), use a
+    // subtle muted tint so "no signal" reads differently from true silence.
+    g.setColour(active ? theme.panel
+                       : theme.textMuted.withAlpha(0.15f));
     g.fillRoundedRectangle(bounds, 2.0f);
 
     // Draw channel label at bottom
-    g.setColour(juce::Colours::white);
-    g.setFont(juce::Font("Monospace", 10.0f, juce::Font::bold));
+    g.setColour(active ? theme.text : theme.textMuted);
+    g.setFont(waveedit::ui::monospaceFont());
     auto labelBounds = bounds.removeFromBottom(15.0f);
     g.drawText(channelName, labelBounds, juce::Justification::centred, false);
 
     // Adjust bounds for actual meter bar
     bounds = bounds.reduced(2.0f);
+
+    // Inactive metering: leave the bar empty (background already tinted) and
+    // show a small "no signal" hint so it's visibly distinct from silence.
+    if (!active)
+    {
+        g.setColour(theme.textMuted.withAlpha(0.6f));
+        g.setFont(waveedit::ui::monospaceFont().withHeight(8.0f));
+        g.drawText("--", bounds, juce::Justification::centred, false);
+        return;
+    }
 
     // Draw meter segments (colored bars based on level)
     float meterHeight = bounds.getHeight();
@@ -300,7 +343,7 @@ void Meters::drawMeterBar(juce::Graphics& g, juce::Rectangle<float> bounds,
     if (m_peakHold[channel] > 0.0f)
     {
         float holdY = bounds.getBottom() - (m_peakHold[channel] * meterHeight);
-        g.setColour(juce::Colours::white);
+        g.setColour(theme.text);
         g.drawLine(bounds.getX(), holdY, bounds.getRight(), holdY, 2.0f);
     }
 
@@ -308,15 +351,16 @@ void Meters::drawMeterBar(juce::Graphics& g, juce::Rectangle<float> bounds,
     if (isClipping)
     {
         auto clipBounds = bounds.removeFromTop(6.0f);
-        g.setColour(juce::Colours::red);
+        g.setColour(theme.error);
         g.fillRoundedRectangle(clipBounds, 1.0f);
     }
 }
 
 void Meters::drawScale(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    g.setColour(juce::Colours::grey);
-    g.setFont(juce::Font("Monospace", 9.0f, juce::Font::plain));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.setColour(theme.textMuted);
+    g.setFont(waveedit::ui::monospaceFont().withHeight(9.0f));
 
     // Draw dB scale markings at key points
     const float dBMarkings[] = { 0.0f, -3.0f, -6.0f, -12.0f, -24.0f, -48.0f };
@@ -340,4 +384,27 @@ void Meters::drawScale(juce::Graphics& g, juce::Rectangle<float> bounds)
         g.drawText(label, bounds.getX(), y - 6.0f, bounds.getWidth() - 8.0f, 12.0f,
                    juce::Justification::centredRight, false);
     }
+}
+
+juce::String Meters::channelLabel(int channel) const
+{
+    // Mono: single bar labeled "M".
+    if (m_numChannels <= 1)
+        return "M";
+
+    // Stereo (and the first two of multichannel): L / R.
+    // Third channel = C (centre); beyond that, numeric (1-based).
+    switch (channel)
+    {
+        case 0: return "L";
+        case 1: return "R";
+        case 2: return "C";
+        default: return juce::String(channel + 1);
+    }
+}
+
+void Meters::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &waveedit::ThemeManager::getInstance())
+        repaint();
 }

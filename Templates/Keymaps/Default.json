@@ -353,10 +353,97 @@
         "shift"
       ]
     },
-    "processChannelConverter": {
+    "toolsChannelConverter": {
       "key": "U",
       "modifiers": [
         "cmd",
+        "shift"
+      ]
+    },
+    "toolsChannelExtractor": {
+      "key": "X",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "toolsHeadTail": {
+      "key": "H",
+      "modifiers": [
+        "ctrl"
+      ]
+    },
+    "toolsLoopingTools": {
+      "key": "L",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "processReverse": {
+      "key": "R",
+      "modifiers": [
+        "ctrl"
+      ]
+    },
+    "processInvert": {
+      "key": "I",
+      "modifiers": [
+        "ctrl"
+      ]
+    },
+    "processResample": {
+      "key": "R",
+      "modifiers": [
+        "ctrl",
+        "shift"
+      ]
+    },
+    "processTimeStretch": {
+      "key": "T",
+      "modifiers": [
+        "ctrl",
+        "shift"
+      ]
+    },
+    "processPitchShift": {
+      "key": "P",
+      "modifiers": [
+        "ctrl",
+        "shift"
+      ]
+    },
+    "markerConvertToRegions": {
+      "key": "M",
+      "modifiers": [
+        "ctrl",
+        "shift"
+      ]
+    },
+    "regionConvertToMarkers": {
+      "key": "G",
+      "modifiers": [
+        "ctrl",
+        "shift"
+      ]
+    },
+    "pluginOffline": {
+      "key": "O",
+      "modifiers": [
+        "ctrl",
+        "shift"
+      ]
+    },
+    "toolbarCustomize": {
+      "key": "K",
+      "modifiers": [
+        "ctrl",
+        "shift"
+      ]
+    },
+    "toolbarReset": {
+      "key": "J",
+      "modifiers": [
+        "ctrl",
         "shift"
       ]
     },

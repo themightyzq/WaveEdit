@@ -27,6 +27,9 @@ jobs:
       - name: README ⇆ keymap drift check
         run: python3 .github/scripts/check_readme_keymap.py
 
+      - name: Rendered-string ASCII check (CLAUDE.md §6.12)
+        run: python3 scripts/check_rendered_ascii.py
+
   # ============================================================================
   # macOS Build
   # ============================================================================
@@ -113,10 +116,23 @@ jobs:
         with:
           cmake-version: '3.22.x'
 
+      - name: Set up MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure CMake
         shell: bash
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+          # Use Ninja + the MSVC environment set up by msvc-dev-cmd above (which
+          # puts cl.exe / link.exe on PATH via GITHUB_ENV/GITHUB_PATH). Earlier
+          # attempts failed two ways: no -G fell back to NMake ("CMAKE_C_COMPILER
+          # not set"), and -G "Visual Studio 17 2022" couldn't be located by the
+          # standalone CMake under Git Bash ("could not find any instance of
+          # Visual Studio"). Ninja sidesteps VS-generator detection entirely.
+          # Single-config: CMAKE_BUILD_TYPE=Release drives JUCE's
+          # <target>_artefacts/Release/ layout the later steps expect.
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=x64-windows
 

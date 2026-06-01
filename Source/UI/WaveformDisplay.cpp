@@ -899,7 +899,18 @@ void WaveformDisplay::changeListenerCallback(juce::ChangeBroadcaster* source)
         // next open of this file is instant. Skip if we already loaded
         // from cache (no point re-saving the same data) or if we've
         // already saved in this session.
-        if (! m_thumbnailFromCache
+        //
+        // M19: guard against rapid double-loadFile. If loadFile() was
+        // called again for a different file before this (stale) change
+        // message ran, m_loadedFile already points at the NEW file while
+        // the thumbnail may still hold the previous file's data — saving
+        // here would write the wrong waveform under the new file's key.
+        // m_isLoading is true from loadFile() until the new file's own
+        // change callback finishes setup above, so requiring it to be
+        // false ensures we only persist the thumbnail for the file whose
+        // load actually completed and is currently displayed.
+        if (! m_isLoading
+            && ! m_thumbnailFromCache
             && ! m_thumbnailCacheSaved
             && m_thumbnail.isFullyLoaded()
             && m_loadedFile != juce::File()

@@ -25,7 +25,8 @@ std::atomic<AudioEngine*> AudioEngine::s_previewingEngine{nullptr};
 // MemoryAudioSource Implementation
 
 AudioEngine::MemoryAudioSource::MemoryAudioSource()
-    : m_sampleRate(44100.0),
+    : m_buffer(std::make_shared<const juce::AudioBuffer<float>>()),
+      m_sampleRate(44100.0),
       m_readPosition(0),
       m_isLooping(false)
 {
@@ -41,33 +42,37 @@ void AudioEngine::MemoryAudioSource::setBuffer(const juce::AudioBuffer<float>& b
     // This method allocates memory and should never be called from audio thread
     jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
 
-    // Capture current position BEFORE acquiring lock (to minimize lock time)
+    // Capture current position BEFORE the deep copy.
     juce::int64 savedPosition = preservePosition ? m_readPosition.load() : 0;
 
-    juce::ScopedLock sl(m_lock);
+    // H20 FIX: do the expensive deep copy OFF-lock. The audio thread keeps
+    // playing the previous buffer snapshot during this copy and never blocks.
+    auto newBuffer = std::make_shared<juce::AudioBuffer<float>>();
+    newBuffer->makeCopyOf(buffer);
+    const juce::int64 newLength = newBuffer->getNumSamples();
 
-    // Make a deep copy of the buffer (safe because we're on message thread)
-    m_buffer.makeCopyOf(buffer);
-    m_sampleRate = sampleRate;
+    juce::int64 newPosition = preservePosition ? juce::jmin(savedPosition, newLength) : 0;
 
-    // Only reset position if not preserving
-    // This allows real-time buffer updates during playback without position jumps
-    if (preservePosition)
+    // Swap in the new buffer under a brief lock (pointer assignment only).
     {
-        // Clamp to new buffer length in case it got shorter
-        juce::int64 maxPosition = m_buffer.getNumSamples();
-        m_readPosition.store(juce::jmin(savedPosition, maxPosition));
+        juce::ScopedLock sl(m_lock);
+        m_buffer = std::move(newBuffer);
+        m_sampleRate = sampleRate;
     }
-    else
-    {
-        m_readPosition.store(0);
-    }
+
+    // Publish the new length and position for lock-free readers (L1).
+    m_bufferLength.store(newLength);
+    m_readPosition.store(newPosition);
 }
 
 void AudioEngine::MemoryAudioSource::clear()
 {
-    juce::ScopedLock sl(m_lock);
-    m_buffer.setSize(0, 0);
+    auto emptyBuffer = std::make_shared<juce::AudioBuffer<float>>();
+    {
+        juce::ScopedLock sl(m_lock);
+        m_buffer = std::move(emptyBuffer);
+    }
+    m_bufferLength.store(0);
     m_readPosition.store(0);
 }
 
@@ -83,18 +88,27 @@ void AudioEngine::MemoryAudioSource::releaseResources()
 
 void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
 {
-    juce::ScopedLock sl(m_lock);
+    // H20 FIX: copy the current buffer snapshot under a brief lock (refcount bump
+    // only), then release the lock and work on the snapshot. setBuffer()'s deep
+    // copy happens off-lock, so the audio thread never blocks on it. Holding our
+    // own shared_ptr keeps the buffer alive even if setBuffer() swaps mid-block.
+    BufferPtr bufferSnapshot;
+    {
+        juce::ScopedLock sl(m_lock);
+        bufferSnapshot = m_buffer;
+    }
 
     bufferToFill.clearActiveBufferRegion();
 
-    if (m_buffer.getNumSamples() == 0)
+    const juce::AudioBuffer<float>& src = *bufferSnapshot;
+    if (src.getNumSamples() == 0)
     {
         return;
     }
 
     juce::int64 startSample = m_readPosition.load();
     int numSamplesToRead = bufferToFill.numSamples;
-    int numSamplesAvailable = static_cast<int>(m_buffer.getNumSamples() - startSample);
+    int numSamplesAvailable = static_cast<int>(src.getNumSamples() - startSample);
 
     if (numSamplesAvailable <= 0)
     {
@@ -104,7 +118,7 @@ void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceCh
             // Reset position and recalculate - avoid recursion
             m_readPosition.store(0);
             startSample = 0;
-            numSamplesAvailable = m_buffer.getNumSamples();
+            numSamplesAvailable = src.getNumSamples();
         }
         else
         {
@@ -115,9 +129,9 @@ void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceCh
     int numSamples = juce::jmin(numSamplesToRead, numSamplesAvailable);
 
     // Additional safety: Ensure we don't read past buffer end
-    if (startSample + numSamples > m_buffer.getNumSamples())
+    if (startSample + numSamples > src.getNumSamples())
     {
-        numSamples = static_cast<int>(m_buffer.getNumSamples() - startSample);
+        numSamples = static_cast<int>(src.getNumSamples() - startSample);
         if (numSamples <= 0)
             return;
     }
@@ -125,31 +139,25 @@ void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceCh
     // Copy audio data from buffer to output
     // IMPORTANT: Handle mono-to-stereo conversion professionally
     // Mono files should play centered (equal on both channels), not just left channel
-    int sourceChannels = m_buffer.getNumChannels();
+    int sourceChannels = src.getNumChannels();
     int outputChannels = bufferToFill.buffer->getNumChannels();
 
     if (sourceChannels == 1 && outputChannels == 2)
     {
         // Mono to stereo: duplicate mono channel to both L and R for center-panned playback
         // This matches professional audio editor behavior (Sound Forge, Pro Tools, etc.)
-        jassert(static_cast<int>(startSample) + numSamples <= m_buffer.getNumSamples());
-        jassert(bufferToFill.startSample + numSamples <= bufferToFill.buffer->getNumSamples());
-
         bufferToFill.buffer->copyFrom(0, bufferToFill.startSample,
-                                      m_buffer, 0, static_cast<int>(startSample), numSamples);
+                                      src, 0, static_cast<int>(startSample), numSamples);
         bufferToFill.buffer->copyFrom(1, bufferToFill.startSample,
-                                      m_buffer, 0, static_cast<int>(startSample), numSamples);
+                                      src, 0, static_cast<int>(startSample), numSamples);
     }
     else
     {
         // Standard channel mapping: match channels one-to-one up to minimum of source/output
         for (int ch = 0; ch < juce::jmin(sourceChannels, outputChannels); ++ch)
         {
-            jassert(static_cast<int>(startSample) + numSamples <= m_buffer.getNumSamples());
-            jassert(bufferToFill.startSample + numSamples <= bufferToFill.buffer->getNumSamples());
-
             bufferToFill.buffer->copyFrom(ch, bufferToFill.startSample,
-                                          m_buffer, ch, static_cast<int>(startSample), numSamples);
+                                          src, ch, static_cast<int>(startSample), numSamples);
         }
     }
 
@@ -158,7 +166,9 @@ void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceCh
 
 void AudioEngine::MemoryAudioSource::setNextReadPosition(juce::int64 newPosition)
 {
-    juce::int64 clampedPosition = juce::jlimit<juce::int64>(0, m_buffer.getNumSamples(), newPosition);
+    // L1 FIX: read length from the atomic mirror instead of touching m_buffer
+    // without the lock. Consistent with the H20 atomic swap.
+    juce::int64 clampedPosition = juce::jlimit<juce::int64>(0, m_bufferLength.load(), newPosition);
     m_readPosition.store(clampedPosition);
 }
 
@@ -169,7 +179,7 @@ juce::int64 AudioEngine::MemoryAudioSource::getNextReadPosition() const
 
 juce::int64 AudioEngine::MemoryAudioSource::getTotalLength() const
 {
-    return m_buffer.getNumSamples();
+    return m_bufferLength.load();
 }
 
 bool AudioEngine::MemoryAudioSource::isLooping() const
@@ -373,15 +383,31 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
         return false;
     }
 
-    // Validate audio data doesn't contain NaN or Inf
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    // H7 FIX: a full O(N) NaN/Inf scan here froze the message thread for seconds
+    // on long files (a 1-hr 96k stereo file is ~690M samples), violating the §9
+    // load-time budget. reloadBufferPreservingPlayback() never did this scan, so
+    // the check was also asymmetric. We now sample a bounded subset (head, tail,
+    // and an even stride across the buffer) so the cost is O(1) regardless of
+    // length while still catching whole-buffer corruption. Per-sample DSP paths
+    // are responsible for not introducing NaN/Inf, so a probabilistic check is
+    // an adequate safety net here.
     {
-        const float* data = buffer.getReadPointer(ch);
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        constexpr int maxProbesPerChannel = 4096;
+        const int numSamples = buffer.getNumSamples();
+        const int stride = juce::jmax(1, numSamples / maxProbesPerChannel);
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         {
-            if (!std::isfinite(data[i]))
-            {
+            const float* data = buffer.getReadPointer(ch);
+
+            // Always check the very first and last sample, then a strided subset.
+            if (numSamples > 0 && (!std::isfinite(data[0]) || !std::isfinite(data[numSamples - 1])))
                 return false;
+
+            for (int i = 0; i < numSamples; i += stride)
+            {
+                if (!std::isfinite(data[i]))
+                    return false;
             }
         }
     }
@@ -811,12 +837,18 @@ void AudioEngine::clearAllSoloMute()
 
 void AudioEngine::setSpectrumAnalyzer(SpectrumAnalyzer* spectrumAnalyzer)
 {
-    m_spectrumAnalyzer = spectrumAnalyzer;
+    // C8 FIX: take m_analyzerLock (blocking, message thread) so we cannot clear
+    // or swap the pointer while the audio callback is mid-dereference. The
+    // callback try-locks and skips on contention, so this never blocks audio.
+    const juce::ScopedLock sl(m_analyzerLock);
+    m_spectrumAnalyzer.store(spectrumAnalyzer);
 }
 
 void AudioEngine::setGraphicalEQEditor(GraphicalEQEditor* eqEditor)
 {
-    m_graphicalEQEditor = eqEditor;
+    // C8 FIX: see setSpectrumAnalyzer.
+    const juce::ScopedLock sl(m_analyzerLock);
+    m_graphicalEQEditor.store(eqEditor);
 }
 
 //==============================================================================
@@ -1034,10 +1066,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         m_normalizeProcessor.process(buffer);
 
         // 4. Update ParametricEQ parameters if changed (thread-safe parameter exchange)
+        // C5 FIX: the pending struct holds vector payloads, so copy it under
+        // m_eqParamsLock. try-lock: if the message thread is mid-write, keep the
+        // last-good params for this block rather than blocking the audio thread.
         if (m_parametricEQParamsChanged.get())
         {
-            m_parametricEQParams = m_pendingParametricEQParams;
-            m_parametricEQParamsChanged.set(false);
+            const juce::SpinLock::ScopedTryLockType tl(m_eqParamsLock);
+            if (tl.isLocked())
+            {
+                m_parametricEQParams = m_pendingParametricEQParams;
+                m_parametricEQParamsChanged.set(false);
+            }
         }
 
         // 5. Apply parametric EQ if enabled
@@ -1047,14 +1086,19 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
 
         // 5b. Update DynamicParametricEQ parameters if changed (thread-safe parameter exchange)
+        // C5 FIX: same try-lock pattern guarding the vector-backed pending struct.
         if (m_dynamicEQParamsChanged.get())
         {
-            m_dynamicEQParams = m_pendingDynamicEQParams;
-            if (m_dynamicEQ)
+            const juce::SpinLock::ScopedTryLockType tl(m_eqParamsLock);
+            if (tl.isLocked())
             {
-                m_dynamicEQ->setParameters(m_dynamicEQParams);
+                m_dynamicEQParams = m_pendingDynamicEQParams;
+                if (m_dynamicEQ)
+                {
+                    m_dynamicEQ->setParameters(m_dynamicEQParams);
+                }
+                m_dynamicEQParamsChanged.set(false);
             }
-            m_dynamicEQParamsChanged.set(false);
         }
 
         // 5c. Apply dynamic parametric EQ if enabled (20-band, multiple filter types)
@@ -1141,23 +1185,36 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         }
     }
 
-    // Feed spectrum analyzer with audio data (if connected AND either normal playback or preview)
-    bool shouldFeedSpectrum = m_spectrumAnalyzer != nullptr && buffer.getNumChannels() > 0;
-    bool isNormalPlayback = m_transportSource.isPlaying();
-    bool isPreviewPlayback = (m_previewMode.load() != PreviewMode::DISABLED);
-
-    if (shouldFeedSpectrum && (isNormalPlayback || isPreviewPlayback))
+    // Feed the spectrum analyzer / graphical EQ editor with audio data.
+    // C8 FIX: try-lock m_analyzerLock so these raw, non-owned component pointers
+    // cannot be destroyed by the message-thread setter while we dereference them.
+    // On contention we simply skip visualisation feeding for this block (never
+    // block the audio thread). The pointers are atomic, so we load once.
+    if (buffer.getNumChannels() > 0)
     {
-        // Mix down to mono for spectrum analysis (use left channel or mono mix)
-        const float* channelData = buffer.getReadPointer(0);
-        m_spectrumAnalyzer->pushAudioData(channelData, numSamples);
-    }
+        const juce::ScopedTryLock stl(m_analyzerLock);
+        if (stl.isLocked())
+        {
+            // Feed spectrum analyzer (if connected AND either normal playback or preview)
+            SpectrumAnalyzer* analyzer = m_spectrumAnalyzer.load();
+            bool isNormalPlayback = m_transportSource.isPlaying();
+            bool isPreviewPlayback = (m_previewMode.load() != PreviewMode::DISABLED);
 
-    // Feed graphical EQ editor with audio data (if connected AND in EQ preview mode)
-    if (m_graphicalEQEditor != nullptr && m_dynamicEQEnabled.get() && buffer.getNumChannels() > 0)
-    {
-        const float* channelData = buffer.getReadPointer(0);
-        m_graphicalEQEditor->pushAudioData(channelData, numSamples);
+            if (analyzer != nullptr && (isNormalPlayback || isPreviewPlayback))
+            {
+                // Mix down to mono for spectrum analysis (use left channel)
+                const float* channelData = buffer.getReadPointer(0);
+                analyzer->pushAudioData(channelData, numSamples);
+            }
+
+            // Feed graphical EQ editor (if connected AND in EQ preview mode)
+            GraphicalEQEditor* eqEditor = m_graphicalEQEditor.load();
+            if (eqEditor != nullptr && m_dynamicEQEnabled.get())
+            {
+                const float* channelData = buffer.getReadPointer(0);
+                eqEditor->pushAudioData(channelData, numSamples);
+            }
+        }
     }
 }
 

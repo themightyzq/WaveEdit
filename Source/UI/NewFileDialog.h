@@ -58,6 +58,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
 private:
     void onCreateClicked();

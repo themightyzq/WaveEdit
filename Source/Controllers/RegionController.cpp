@@ -33,9 +33,40 @@
 #include "../UI/EditRegionBoundariesDialog.h"
 #include "../UI/ThemeManager.h"
 #include <algorithm>
+#include <set>
 
 RegionController::RegionController()
 {
+}
+
+juce::String RegionController::generateUniqueRegionName(const RegionManager& regionManager)
+{
+    // H14: pick the smallest 3-digit zero-padded number not already used as a
+    // region name, so deleting a region never yields a duplicate name (which
+    // would silently overwrite on batch export). Falls back to a higher number
+    // only when the low ones are taken.
+    std::set<juce::String> existing;
+    for (int i = 0; i < regionManager.getNumRegions(); ++i)
+        if (const Region* r = regionManager.getRegion(i))
+            existing.insert(r->getName());
+
+    int candidate = 1;
+    juce::String name = juce::String(candidate).paddedLeft('0', 3);
+    while (existing.find(name) != existing.end())
+    {
+        ++candidate;
+        name = juce::String(candidate).paddedLeft('0', 3);
+    }
+
+    return name;
+}
+
+juce::String RegionController::generateRegionName(Document* doc)
+{
+    if (!doc)
+        return juce::String(1).paddedLeft('0', 3);
+
+    return generateUniqueRegionName(doc->getRegionManager());
 }
 
 void RegionController::addRegionFromSelection(Document* doc)
@@ -76,9 +107,11 @@ void RegionController::addRegionFromSelection(Document* doc)
         }
     }
 
-    // Create region with auto-generated numerical name (001, 002, etc.)
-    int regionNum = doc->getRegionManager().getNumRegions() + 1;
-    juce::String regionName = juce::String(regionNum).paddedLeft('0', 3);  // Zero-padded to 3 digits
+    // Create region with auto-generated numerical name (001, 002, etc.).
+    // H14: derive the next number from the existing names, not from the count.
+    // getNumRegions()+1 reuses numbers after a delete, producing duplicate
+    // names that then collide on batch export.
+    juce::String regionName = generateRegionName(doc);
     Region newRegion(regionName, startSample, endSample);
 
     // Start a new transaction
@@ -585,8 +618,10 @@ void RegionController::pasteRegionsFromClipboard(Document* doc)
     int64_t firstRegionStart = m_regionClipboard[0].getStartSample();
     int64_t offset = cursorSample - firstRegionStart;
 
-    // Paste all regions with offset
-    int numPasted = 0;
+    // Build the offset regions up front, then commit them through a single
+    // undoable action (C3): paste was previously a direct, un-undoable
+    // sequence of addRegion() calls.
+    juce::Array<Region> pasted;
     for (const auto& region : m_regionClipboard)
     {
         int64_t newStart = region.getStartSample() + offset;
@@ -604,16 +639,23 @@ void RegionController::pasteRegionsFromClipboard(Document* doc)
 
         Region newRegion(region.getName(), newStart, newEnd);
         newRegion.setColor(region.getColor());
-        regionManager.addRegion(newRegion);
-        numPasted++;
+        pasted.add(newRegion);
     }
 
-    doc->getRegionDisplay().repaint();
+    if (pasted.isEmpty())
+        return;
+
+    doc->getUndoManager().beginNewTransaction("Paste Regions");
+    doc->getUndoManager().perform(new PasteRegionsUndoAction(
+        regionManager,
+        doc->getRegionDisplay(),
+        doc->getFile(),
+        pasted));
 
     DBG(juce::String::formatted(
         "Pasted %d region%s at sample %lld",
-        numPasted,
-        numPasted == 1 ? "" : "s",
+        pasted.size(),
+        pasted.size() == 1 ? "" : "s",
         cursorSample));
 }
 
@@ -642,8 +684,8 @@ void RegionController::showBatchExportDialog(Document* doc, juce::Component* par
             "No Regions to Export",
             "There are no regions defined in this file.\n\n"
             "Create regions first using:\n"
-            "  • R - Create region from selection\n"
-            "  • Cmd+Shift+R - Auto-create regions (Strip Silence)",
+            "  - R - Create region from selection\n"
+            "  - Cmd+Shift+R - Auto-create regions (Strip Silence)",
             "OK"
         );
         return;
@@ -922,7 +964,7 @@ void RegionController::setupRegionCallbacks(Document* doc)
         juce::String oldName = region->getName();
 
         // Start a new transaction
-        juce::String transactionName = "Rename Region: " + oldName + " → " + newName;
+        juce::String transactionName = "Rename Region: " + oldName + " -> " + newName;
         doc->getUndoManager().beginNewTransaction(transactionName);
 
         // Create undo action
@@ -1095,6 +1137,25 @@ void RegionController::setupRegionCallbacks(Document* doc)
                 Region* region = doc->getRegionManager().getRegion(regionIndex);
                 if (!region)
                     return;
+
+                // M3: the dialog validated against the buffer length captured
+                // when it opened. A destructive edit (e.g. a cut) may have
+                // shrunk the buffer since, so re-clamp against the CURRENT
+                // length before applying. Reject the edit if it collapses to
+                // an empty range.
+                const int64_t currentTotal = doc->getBufferManager().getNumSamples();
+                newStart = juce::jlimit<int64_t>(0, currentTotal, newStart);
+                newEnd   = juce::jlimit<int64_t>(0, currentTotal, newEnd);
+                if (newEnd <= newStart)
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Edit Region Boundaries",
+                        "The audio is now shorter than the requested boundaries. "
+                        "Please choose a range within the current file length.",
+                        "OK");
+                    return;
+                }
 
                 // Get old boundaries for undo
                 int64_t oldStart = region->getStartSample();

@@ -68,9 +68,14 @@ juce::PopupMenu MenuBuilder::getMenuForIndex(int menuIndex,
         }
 
         // --- Application ---
+        // On macOS, Preferences lives in the app menu and Quit is provided by
+        // the system app menu, so neither belongs in File (see MainComponent's
+        // setMacMainMenu). On Windows/Linux they stay here.
+       #if !JUCE_MAC
         menu.addSectionHeader("Application");
         menu.addCommandItem(context.commandManager, CommandIDs::filePreferences);
         menu.addCommandItem(context.commandManager, CommandIDs::fileExit);
+       #endif
     }
     else if (menuIndex == 1) // Edit menu
     {

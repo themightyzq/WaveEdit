@@ -57,6 +57,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
     //==========================================================================
     // Callbacks
@@ -171,16 +172,47 @@ private:
 
     //==========================================================================
     // Buttons
+    // M13: Footer conforms to §6.8 order: Preview | Bypass | Loop | Cancel | Apply.
+    // Bypass and Loop remain disabled until AudioEngine preview is wired
+    // (cross-file dependency — see CROSS-FILE DEPENDENCIES in REVIEW-QA Pass 2).
 
-    juce::TextButton m_previewButton;
-    juce::TextButton m_applyButton;
-    juce::TextButton m_cancelButton;
+    juce::TextButton   m_previewButton;
+    juce::TextButton   m_bypassButton;    // Disabled — audio preview not yet wired
+    juce::ToggleButton m_loopToggle;      // Disabled — audio preview not yet wired
+    juce::TextButton   m_applyButton;
+    juce::TextButton   m_cancelButton;
 
     //==========================================================================
     // State
 
     const juce::AudioBuffer<float>& m_audioBuffer;
     double                           m_sampleRate;
+
+    //==========================================================================
+    // Shared layout constants
+    //
+    // paint() and resized() both rely on these to position section header bands
+    // and slider rows. Keeping them in one place prevents the two methods from
+    // drifting apart (they previously redeclared kMargin/kRowH/kHeaderH locally).
+
+    static constexpr int kMargin    = 16;   // Outer inset (matches ui::kDialogPadding+1 historically)
+    static constexpr int kLabelW    = 180;
+    static constexpr int kSliderW   = 280;
+    static constexpr int kValueW    = 80;
+    static constexpr int kRowH      = 32;
+    static constexpr int kHeaderH   = 36;   // Title space
+    static constexpr int kGap       = 8;
+    static constexpr int kBandH     = 20;   // Section header band height
+
+    /** Absolute Y of the Section 1 ("Intelligent Trim") header band. */
+    int section1HeaderY() const { return kMargin + kHeaderH; }
+
+    /** Y of the Section 2 ("Time-Based Edits") header band. */
+    int section2HeaderY() const
+    {
+        // After Section 1 band + gap + (enable row + 6 detection slider rows)
+        return section1HeaderY() + kBandH + kGap + (kRowH + 6 * kRowH) + kGap;
+    }
 
     //==========================================================================
     // Helper methods

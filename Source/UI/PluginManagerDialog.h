@@ -221,5 +221,10 @@ private:
     juce::Colour selectedRowColour() const;
     juce::Colour textColour() const;
 
+    /** Apply theme colours to child components that cache their own colour
+        overrides (table background, progress bar). Called from the
+        constructor and from changeListenerCallback() on a theme switch. */
+    void applyThemeColours();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginManagerDialog)
 };

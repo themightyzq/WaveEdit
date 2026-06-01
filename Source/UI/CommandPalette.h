@@ -49,6 +49,10 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     void parentSizeChanged() override;
+    void mouseMove(const juce::MouseEvent& event) override;
+    void mouseExit(const juce::MouseEvent& event) override;
+    void mouseDown(const juce::MouseEvent& event) override;
+    void mouseUp(const juce::MouseEvent& event) override;
 
     // TextEditor::Listener
     void textEditorTextChanged(juce::TextEditor& editor) override;
@@ -63,6 +67,7 @@ public:
     static constexpr int kItemHeight = 36;
     static constexpr int kMaxVisibleItems = 12;
     static constexpr int kMaxHeight = kSearchHeight + kItemHeight * kMaxVisibleItems;
+    static constexpr int kScrollbarWidth = 6;
 
 private:
     struct CommandEntry
@@ -82,6 +87,14 @@ private:
     void moveSelection(int delta);
     void ensureSelectionVisible();
 
+    /** Filtered-list index under @p position, or -1 if none. Mirrors the
+        row geometry used by paint(). */
+    int rowIndexAt(juce::Point<int> position) const;
+
+    /** True when there are more results than currently shown (used to
+        draw the scroll indicator). */
+    bool hasOverflow() const;
+
     /** Fuzzy match: returns score (0 = no match, higher = better). */
     static int fuzzyMatch(const juce::String& query, const juce::String& text);
 
@@ -97,6 +110,7 @@ private:
 
     int m_selectedIndex = 0;
     int m_scrollOffset = 0;
+    int m_hoveredIndex = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CommandPalette)
 };

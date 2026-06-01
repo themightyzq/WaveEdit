@@ -284,6 +284,12 @@ private:
     void finishEditingName(bool applyChanges);
     juce::String formatTimeForDisplay(double timeInSeconds) const;
 
+    // Empty-state message (no regions / no matches) shown over the table.
+    void updateEmptyState();
+
+    // Opens a colour picker anchored to the given row's colour cell.
+    void showColourPickerForRow(int rowNumber);
+
     // Batch rename helper methods
     void onTabChanged(int newTabIndex);
     void updateBatchRenameMode();
@@ -303,6 +309,7 @@ private:
     juce::Label m_searchLabel;
     juce::TextEditor m_searchBox;
     juce::TableListBox m_table;
+    juce::Label m_emptyLabel;  // Centered hint shown when the table has no rows
 
     // Filtered and sorted regions
     juce::Array<FilteredRegion> m_filteredRegions;

@@ -170,6 +170,9 @@ private:
     juce::TextEditor m_searchBox;
     juce::TableListBox m_table;
 
+    // Centered message shown over the table when a search matches no commands.
+    juce::Label m_noResultsLabel;
+
     juce::TextButton m_exportButton {"Export..."};
     juce::TextButton m_importButton {"Import..."};
     juce::TextButton m_resetButton {"Reset to Defaults"};

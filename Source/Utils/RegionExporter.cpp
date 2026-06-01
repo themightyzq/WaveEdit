@@ -14,6 +14,76 @@
 */
 
 #include "RegionExporter.h"
+#include <algorithm>
+#include <climits>
+#include <set>
+
+namespace
+{
+    // H16: Windows reserved device names (case-insensitive, with or without an
+    // extension). createOutputStream() fails for these on Windows, so a region
+    // named e.g. "CON" or "com1" would silently fail to export. We escape the
+    // stem by prefixing an underscore. The filename here is the FULL name
+    // (already includes ".wav"); we test the stem only.
+    bool isWindowsReservedStem(const juce::String& stem)
+    {
+        static const char* kReserved[] = {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        };
+
+        const juce::String upper = stem.toUpperCase();
+        for (const char* name : kReserved)
+            if (upper == name)
+                return true;
+
+        return false;
+    }
+
+    // Escapes a generated "<stem>.wav" filename so its stem is never a Windows
+    // reserved device name.
+    juce::String escapeReservedFilename(const juce::String& filename)
+    {
+        const juce::String stem = filename.upToLastOccurrenceOf(".", false, false);
+        if (isWindowsReservedStem(stem))
+            return "_" + filename;
+        return filename;
+    }
+
+    // H15: returns a collision-free filename within @p used by appending a
+    // numeric suffix (_1, _2, ...) before the extension when needed. The
+    // chosen name is recorded so subsequent calls keep deduping.
+    juce::String makeUniqueFilename(const juce::String& filename,
+                                    std::set<juce::String>& used)
+    {
+        // Case-insensitive collision check (Windows/macOS filesystems are
+        // commonly case-insensitive).
+        auto key = [](const juce::String& s) { return s.toLowerCase(); };
+
+        if (used.find(key(filename)) == used.end())
+        {
+            used.insert(key(filename));
+            return filename;
+        }
+
+        const juce::String stem = filename.upToLastOccurrenceOf(".", false, false);
+        const juce::String ext  = filename.fromLastOccurrenceOf(".", true, false); // includes dot
+
+        for (int suffix = 1; suffix < INT_MAX; ++suffix)
+        {
+            juce::String candidate = stem + "_" + juce::String(suffix) + ext;
+            if (used.find(key(candidate)) == used.end())
+            {
+                used.insert(key(candidate));
+                return candidate;
+            }
+        }
+
+        // Practically unreachable; fall back to the original.
+        return filename;
+    }
+}
 
 int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
                                    double sampleRate,
@@ -38,6 +108,10 @@ int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
 
     int successCount = 0;
 
+    // H15: track chosen filenames so two regions sanitizing to the same name
+    // get _1/_2 suffixes instead of silently overwriting each other.
+    std::set<juce::String> usedFilenames;
+
     for (int i = 0; i < numRegions; ++i)
     {
         auto* region = regionManager.getRegion(i);
@@ -57,8 +131,11 @@ int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
             }
         }
 
-        // Generate filename using full settings (supports templates)
+        // Generate filename using full settings (supports templates), then
+        // escape Windows-reserved stems (H16) and dedupe collisions (H15).
         juce::String filename = generateFilename(sourceFile, *region, i, settings);
+        filename = escapeReservedFilename(filename);
+        filename = makeUniqueFilename(filename, usedFilenames);
 
         juce::File outputFile = settings.outputDirectory.getChildFile(filename);
 
@@ -186,8 +263,9 @@ bool RegionExporter::exportSingleRegion(const juce::AudioBuffer<float>& buffer,
         return false;
     }
 
-    // Calculate region length
-    auto regionLength = static_cast<int>(endSample - startSample);
+    // Calculate region length (kept in int64 to avoid the narrowing that
+    // produced a negative buffer size / crash on very long regions - C17).
+    const int64_t regionLength = endSample - startSample;
     if (regionLength <= 0)
     {
         errorMessage = "Region has invalid length";
@@ -202,17 +280,35 @@ bool RegionExporter::exportSingleRegion(const juce::AudioBuffer<float>& buffer,
         return false;
     }
 
-    // Extract region data into temporary buffer
-    juce::AudioBuffer<float> regionBuffer(buffer.getNumChannels(), regionLength);
+    // C17: stream the region to disk in chunks instead of allocating one
+    // int-sized temporary buffer. This both avoids the int64->int overflow
+    // (a region longer than INT_MAX samples wrapped negative) and keeps peak
+    // memory bounded for long-form files. We write directly from a view into
+    // the source buffer per chunk, so no full copy is made.
+    const int kChunkSamples = 1 << 20;  // ~1M samples per write
+    const int numChannels = buffer.getNumChannels();
 
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    bool writeSuccess = true;
+    int64_t written = 0;
+
+    while (written < regionLength && writeSuccess)
     {
-        regionBuffer.copyFrom(ch, 0, buffer, ch,
-                              static_cast<int>(startSample), regionLength);
-    }
+        const int thisChunk =
+            static_cast<int>(std::min<int64_t>(kChunkSamples, regionLength - written));
 
-    // Write to file
-    bool writeSuccess = writer->writeFromAudioSampleBuffer(regionBuffer, 0, regionLength);
+        // Build a lightweight buffer that points at the source samples for
+        // this chunk (no deep copy). setDataToReferTo needs a channel pointer
+        // array offset to (startSample + written).
+        juce::AudioBuffer<float> chunk(numChannels, thisChunk);
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            chunk.copyFrom(ch, 0, buffer, ch,
+                           static_cast<int>(startSample + written), thisChunk);
+        }
+
+        writeSuccess = writer->writeFromAudioSampleBuffer(chunk, 0, thisChunk);
+        written += thisChunk;
+    }
 
     // Flush and close writer
     writer.reset();

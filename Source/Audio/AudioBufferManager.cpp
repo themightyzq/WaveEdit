@@ -16,7 +16,7 @@
 #include "AudioBufferManager.h"
 #include "ChannelLayout.h"
 #include <cmath>
-#include <iostream>
+#include <limits>
 
 //==============================================================================
 AudioBufferManager::AudioBufferManager()
@@ -52,6 +52,19 @@ bool AudioBufferManager::loadFromFile(const juce::File& file, juce::AudioFormatM
     // Allocate buffer for entire file
     int numChannels = static_cast<int>(reader->numChannels);
     int64_t numSamples = reader->lengthInSamples;
+
+    // juce::AudioBuffer is indexed by int. A file with more than INT_MAX
+    // samples would be silently truncated by the narrowing cast below, losing
+    // audio with no error. Refuse the load instead of corrupting it. See
+    // REVIEW-QA L2. (INT_MAX samples ~= 11.9 h at 192 kHz.)
+    if (numSamples > static_cast<int64_t>(std::numeric_limits<int>::max()))
+    {
+        juce::Logger::writeToLog(
+            "AudioBufferManager::loadFromFile: file exceeds maximum supported "
+            "length (" + juce::String(numSamples) + " samples > INT_MAX) for " +
+            file.getFileName());
+        return false;
+    }
 
     m_buffer.setSize(numChannels, static_cast<int>(numSamples));
 
@@ -221,10 +234,16 @@ bool AudioBufferManager::insertAudio(int64_t insertPosition, const juce::AudioBu
         return false;
     }
 
-    // Check channel compatibility
+    // Check channel compatibility BEFORE any mutation. On mismatch we return
+    // false without touching m_buffer; the clipboard layer is responsible for
+    // surfacing the user-facing error and for channel normalization. Logged via
+    // juce::Logger (not std::cerr) so it is visible in release. See REVIEW-QA C12.
     if (m_buffer.getNumChannels() != audioToInsert.getNumChannels())
     {
-        DBG("AudioBufferManager: Channel count mismatch in insertAudio");
+        juce::Logger::writeToLog(
+            "AudioBufferManager::insertAudio: channel-count mismatch (buffer has " +
+            juce::String(m_buffer.getNumChannels()) + ", insert has " +
+            juce::String(audioToInsert.getNumChannels()) + ") - insert refused");
         return false;
     }
 
@@ -270,32 +289,67 @@ bool AudioBufferManager::insertAudio(int64_t insertPosition, const juce::AudioBu
 bool AudioBufferManager::replaceRange(int64_t startSample, int64_t numSamplesToReplace,
                                      const juce::AudioBuffer<float>& newAudio)
 {
-    std::cerr << "[BUFFER] replaceRange: start=" << startSample
-              << ", toReplace=" << numSamplesToReplace
-              << ", newAudioSamples=" << newAudio.getNumSamples()
-              << ", newAudioCh=" << newAudio.getNumChannels()
-              << ", currentBufferCh=" << m_buffer.getNumChannels()
-              << ", currentBufferSamples=" << m_buffer.getNumSamples() << std::endl;
-    std::cerr.flush();
+    juce::ScopedLock sl(m_lock);
 
-    // First delete the range
-    if (!deleteRange(startSample, numSamplesToReplace))
+    const int numChannels = m_buffer.getNumChannels();
+    const int oldNumSamples = m_buffer.getNumSamples();
+    const int insertNumSamples = newAudio.getNumSamples();
+
+    // Validate the delete range BEFORE mutating anything.
+    if (startSample < 0 || numSamplesToReplace <= 0 ||
+        startSample + numSamplesToReplace > oldNumSamples)
     {
-        std::cerr << "[BUFFER] replaceRange: deleteRange FAILED" << std::endl;
-        std::cerr.flush();
+        DBG("AudioBufferManager::replaceRange: invalid range");
         return false;
     }
 
-    std::cerr << "[BUFFER] replaceRange: deleteRange succeeded, buffer now has "
-              << m_buffer.getNumSamples() << " samples" << std::endl;
-    std::cerr.flush();
+    // Validate channel compatibility BEFORE mutating anything. Previously this
+    // method deleted the range first and only then discovered an insert-side
+    // channel mismatch, leaving the buffer permanently short with a gap and no
+    // rollback. Now the whole operation is atomic: we either build the complete
+    // result and swap it in, or return false having touched nothing.
+    // See REVIEW-QA H1. (A zero-sample newAudio is a pure delete and skips the
+    // channel check, matching the old insertAudio behaviour.)
+    if (insertNumSamples > 0 && newAudio.getNumChannels() != numChannels)
+    {
+        juce::Logger::writeToLog(
+            "AudioBufferManager::replaceRange: channel-count mismatch (buffer has " +
+            juce::String(numChannels) + ", replacement has " +
+            juce::String(newAudio.getNumChannels()) + ") - replace refused");
+        return false;
+    }
 
-    // Then insert the new audio at the same position
-    bool result = insertAudio(startSample, newAudio);
-    std::cerr << "[BUFFER] replaceRange: insertAudio returned " << (result ? "true" : "false")
-              << ", buffer now has " << m_buffer.getNumSamples() << " samples" << std::endl;
-    std::cerr.flush();
-    return result;
+    const int startInt = static_cast<int>(startSample);
+    const int deleteInt = static_cast<int>(numSamplesToReplace);
+    const int samplesAfter = oldNumSamples - (startInt + deleteInt);
+    const int newNumSamples = oldNumSamples - deleteInt + insertNumSamples;
+
+    // Build the result in a temp buffer, then swap. No partial mutation.
+    juce::AudioBuffer<float> newBuffer(numChannels, newNumSamples);
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        // Samples before the replaced range.
+        if (startInt > 0)
+            newBuffer.copyFrom(ch, 0, m_buffer, ch, 0, startInt);
+
+        // Replacement audio.
+        if (insertNumSamples > 0)
+            newBuffer.copyFrom(ch, startInt, newAudio, ch, 0, insertNumSamples);
+
+        // Samples after the replaced range.
+        if (samplesAfter > 0)
+            newBuffer.copyFrom(ch, startInt + insertNumSamples,
+                               m_buffer, ch, startInt + deleteInt, samplesAfter);
+    }
+
+    m_buffer = std::move(newBuffer);
+
+    DBG("AudioBufferManager: Replaced " + juce::String(numSamplesToReplace) +
+        " samples at " + juce::String(startSample) + " with " +
+        juce::String(insertNumSamples) + " samples");
+
+    return true;
 }
 
 bool AudioBufferManager::silenceRange(int64_t startSample, int64_t numSamples)

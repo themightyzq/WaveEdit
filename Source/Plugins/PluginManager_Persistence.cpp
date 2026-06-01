@@ -278,19 +278,12 @@ bool PluginManager::isBlacklisted(const juce::String& fileOrIdentifier) const
 {
     const juce::ScopedLock sl(m_lock);
 
-    // Simple exact match or contains check
-    // Since we only scan VST3 now, we don't need complex pattern matching
-    if (m_blacklist.contains(fileOrIdentifier))
-        return true;
-
-    // Also check if any blacklist entry is contained in the identifier (for path matches)
-    for (const auto& entry : m_blacklist)
-    {
-        if (fileOrIdentifier.contains(entry) || entry.contains(fileOrIdentifier))
-            return true;
-    }
-
-    return false;
+    // Exact identifier/path equality only. Substring containment (the previous
+    // behaviour) was over-broad: blacklisting one plugin would also blacklist
+    // every sibling in the same directory and every plugin sharing a
+    // manufacturer substring. Each blacklist entry is a full file path or a
+    // full plugin identifier, so an exact compare is the correct match.
+    return m_blacklist.contains(fileOrIdentifier);
 }
 
 juce::StringArray PluginManager::getBlacklist() const

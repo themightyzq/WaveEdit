@@ -59,6 +59,22 @@ public:
     Region();
 
     /**
+     * Gets the stable, process-unique identifier for this region.
+     *
+     * IDs are assigned automatically at construction and never change for the
+     * lifetime of the object (they survive copies). Undo actions key off the
+     * ID instead of a positional index so a later add/delete that shifts the
+     * list cannot make an undo target the wrong region.
+     */
+    int64_t getId() const;
+
+    /**
+     * Overwrites the stable identifier. Only used by deserialization so a
+     * round-tripped region keeps the ID stored in its JSON sidecar.
+     */
+    void setId(int64_t id);
+
+    /**
      * Gets the region name.
      */
     juce::String getName() const;
@@ -140,10 +156,14 @@ public:
     bool overlaps(const Region& other) const;
 
 private:
+    int64_t m_id;           // Stable, process-unique identity (never reused)
     juce::String m_name;
     int64_t m_startSample;
     int64_t m_endSample;
     juce::Colour m_color;
+
+    /** Allocates the next process-unique region ID (thread-safe). */
+    static int64_t nextId();
 
     JUCE_LEAK_DETECTOR(Region)
 };

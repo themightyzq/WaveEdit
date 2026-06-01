@@ -14,6 +14,7 @@
 #include "../Utils/AutomationClipboard.h"
 #include "../Utils/UndoActions/AutomationUndoActions.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 
 namespace
 {
@@ -239,7 +240,7 @@ void AutomationLanesPanel::AutomationCurveView::paint(juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat();
 
     // Background + border
-    g.setColour(juce::Colour(0xff202020));
+    g.setColour(themeRowAlt());
     g.fillRect(bounds);
     g.setColour(m_highlight ? themeHighlightColour() : themeBorder());
     g.drawRect(bounds, m_highlight ? 2.0f : 1.0f);
@@ -248,7 +249,7 @@ void AutomationLanesPanel::AutomationCurveView::paint(juce::Graphics& g)
         return;
 
     // Centre line at value=0.5
-    g.setColour(juce::Colour(0xff404040));
+    g.setColour(themeBorder());
     const float midY = valueToY(0.5f);
     g.drawHorizontalLine(static_cast<int>(midY), bounds.getX(), bounds.getRight());
 
@@ -918,7 +919,7 @@ void AutomationLanesPanel::AutomationCurveView::showContextMenu(int pointIndex,
 AutomationLanesPanel::AutomationLaneRow::AutomationLaneRow(AutomationLanesPanel& owner, int laneIndex)
     : m_owner(owner), m_laneIndex(laneIndex)
 {
-    m_titleLabel.setFont(juce::FontOptions(13.5f).withStyle("Bold"));
+    m_titleLabel.setFont(waveedit::ui::boldValueFont());
     m_titleLabel.setColour(juce::Label::textColourId, themeTextColour());
     m_titleLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(m_titleLabel);
@@ -951,7 +952,7 @@ AutomationLanesPanel::AutomationLaneRow::AutomationLaneRow(AutomationLanesPanel&
 
     m_deleteButton.setButtonText("Remove");
     m_deleteButton.setTooltip("Remove this automation lane");
-    m_deleteButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff404040));
+    m_deleteButton.setColour(juce::TextButton::buttonColourId, themeRowBackground());
     m_deleteButton.onClick = [this]()
     {
         if (m_owner.m_manager != nullptr)
@@ -979,7 +980,7 @@ void AutomationLanesPanel::AutomationLaneRow::refresh()
     juce::String subtitle = lane->pluginName;
     if (subtitle.isEmpty())
         subtitle = "Plugin " + juce::String(lane->pluginIndex);
-    subtitle += "  •  ";
+    subtitle += "  -  ";
     subtitle += juce::String(lane->curve.getNumPoints()) + " point"
                 + (lane->curve.getNumPoints() == 1 ? "" : "s");
     m_subtitleLabel.setText(subtitle, juce::dontSendNotification);
@@ -1221,6 +1222,14 @@ void AutomationLanesPanel::rebuildRows()
         auto* row = m_rows.add(new AutomationLaneRow(*this, m_rows.size()));
         m_lanesContainer.addAndMakeVisible(row);
     }
+
+    // M16: pooled rows survive rebuilds, but a non-tail lane removal
+    // shifts the lane vector. Re-point each pooled row at its current
+    // ordinal (row N -> lane N) BEFORE refreshing, so toggles, the
+    // delete button, and the curve view all bind to the right lane.
+    for (int i = 0; i < m_rows.size(); ++i)
+        if (auto* row = m_rows[i])
+            row->setLaneIndex(i);
 
     for (auto* row : m_rows)
         if (row != nullptr)

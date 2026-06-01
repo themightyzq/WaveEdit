@@ -64,6 +64,9 @@ PluginChainRenderer::RenderResult PluginChainRenderer::renderWithOfflineChain(
     int outputChannels,
     int64_t tailSamples)
 {
+    // Reset the per-render log throttle counter at the start of each render.
+    m_blockCounter = 0;
+
     (void)sampleRate;  // Sample rate was used during chain creation
     RenderResult result;
 
@@ -403,15 +406,14 @@ bool PluginChainRenderer::processBlock(
     juce::AudioBuffer<float>& buffer,
     juce::MidiBuffer& midi)
 {
-    static int blockCounter = 0;
-    blockCounter++;
+    m_blockCounter++;
 
     // Only log every 100 blocks to reduce spam
-    bool shouldLog = (blockCounter <= 3) || (blockCounter % 100 == 0);
+    bool shouldLog = (m_blockCounter <= 3) || (m_blockCounter % 100 == 0);
 
     if (shouldLog)
     {
-        std::cerr << "[RENDERER] processBlock #" << blockCounter
+        std::cerr << "[RENDERER] processBlock #" << m_blockCounter
                   << ": numChannels=" << buffer.getNumChannels()
                   << ", numSamples=" << buffer.getNumSamples() << std::endl;
         std::cerr.flush();

@@ -99,7 +99,10 @@ private:
     juce::Label m_elapsedTimeLabel;
 
     // Thread-safe state (accessed from both threads)
-    std::atomic<float> m_progress{0.0f};
+    // m_progress starts at -1 (sentinel) meaning "no update reported yet"; the
+    // worker stores a 0..1 value once it calls the progress callback. While the
+    // sentinel holds, the bar stays indeterminate/animated (REVIEW-DESIGN).
+    std::atomic<float> m_progress{-1.0f};
     std::atomic<bool> m_cancelRequested{false};
     std::atomic<bool> m_isComplete{false};
     std::atomic<bool> m_wasSuccessful{false};

@@ -24,6 +24,7 @@
 #include "RegionListPanel.h"
 #include "UIConstants.h"
 #include "ThemeManager.h"
+#include <juce_gui_extra/juce_gui_extra.h>
 
 //==============================================================================
 // NameEditor implementation
@@ -58,16 +59,15 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_searchLabel.setColour(juce::Label::textColourId, textColour());
     addAndMakeVisible(m_searchLabel);
 
-    m_searchBox.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
-    m_searchBox.setColour(juce::TextEditor::textColourId, textColour());
-    m_searchBox.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff3a3a3a));
     m_searchBox.addListener(this);
     addAndMakeVisible(m_searchBox);
 
+    // Empty-state hint (shown over the table when it has no rows)
+    m_emptyLabel.setJustificationType(juce::Justification::centred);
+    m_emptyLabel.setInterceptsMouseClicks(false, false);
+    addChildComponent(m_emptyLabel);
+
     // Set up table
-    m_table.setColour(juce::ListBox::backgroundColourId, backgroundColour());
-    m_table.setColour(juce::ListBox::textColourId, textColour());
-    m_table.setColour(juce::ListBox::outlineColourId, juce::Colour(0xff3a3a3a));
     m_table.setOutlineThickness(1);
     m_table.setRowHeight(m_rowHeight);
     m_table.setMultipleSelectionEnabled(true);  // Enable multi-selection for batch operations
@@ -84,10 +84,6 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     header.addColumn("New Name", NewNameColumn, 200, 100, 400,
                     juce::TableHeaderComponent::notSortable | juce::TableHeaderComponent::visible);
     header.setColumnVisible(NewNameColumn, false);  // Initially hidden, shown when batch rename is active
-
-    header.setColour(juce::TableHeaderComponent::textColourId, textColour());
-    header.setColour(juce::TableHeaderComponent::backgroundColourId, juce::Colour(0xff2a2a2a));
-    header.setColour(juce::TableHeaderComponent::highlightColourId, juce::Colour(0xff3a3a3a));
 
     addAndMakeVisible(m_table);
 
@@ -160,7 +156,6 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_startNumberValue);
 
     m_customPatternEditor.setMultiLine(false);
-    m_customPatternEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
     m_customPatternEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_customPatternEditor.onTextChange = [this]()
     {
@@ -183,7 +178,6 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_findLabel);
 
     m_findEditor.setMultiLine(false);
-    m_findEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
     m_findEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_findEditor.onTextChange = [this]()
     {
@@ -197,7 +191,6 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_replaceLabel);
 
     m_replaceEditor.setMultiLine(false);
-    m_replaceEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
     m_replaceEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_replaceEditor.onTextChange = [this]()
     {
@@ -231,7 +224,6 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_prefixLabel);
 
     m_prefixEditor.setMultiLine(false);
-    m_prefixEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
     m_prefixEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_prefixEditor.onTextChange = [this]()
     {
@@ -245,7 +237,6 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     m_batchRenameSection.addAndMakeVisible(m_suffixLabel);
 
     m_suffixEditor.setMultiLine(false);
-    m_suffixEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff2a2a2a));
     m_suffixEditor.setColour(juce::TextEditor::textColourId, textColour());
     m_suffixEditor.onTextChange = [this]()
     {
@@ -312,13 +303,18 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
     prefixSuffixTab->addAndMakeVisible(m_suffixEditor);
     prefixSuffixTab->addAndMakeVisible(m_addNumberingToggle);
 
-    m_renameTabs.addTab("Pattern", juce::Colour(0xff2a2a2a), patternTab, true);
-    m_renameTabs.addTab("Find/Replace", juce::Colour(0xff2a2a2a), findReplaceTab, true);
-    m_renameTabs.addTab("Prefix/Suffix", juce::Colour(0xff2a2a2a), prefixSuffixTab, true);
+    const auto tabBg = alternateRowColour();
+    m_renameTabs.addTab("Pattern", tabBg, patternTab, true);
+    m_renameTabs.addTab("Find/Replace", tabBg, findReplaceTab, true);
+    m_renameTabs.addTab("Prefix/Suffix", tabBg, prefixSuffixTab, true);
     m_renameTabs.setCurrentTabIndex(0);
     m_batchRenameSection.addAndMakeVisible(m_renameTabs);
 
     addChildComponent(m_batchRenameSection);  // addChildComponent = not visible by default
+
+    // Apply theme-driven colours to all one-shot surfaces (search box,
+    // table, header, tabs). Re-invoked on theme switch.
+    applyThemeColours();
 
     // Initialize filtered regions
     updateFilteredRegions();
@@ -359,7 +355,7 @@ juce::Colour RegionListPanel::alternateRowColour() const
 
 juce::Colour RegionListPanel::selectedRowColour() const
 {
-    return waveedit::ThemeManager::getInstance().getCurrent().border;
+    return waveedit::ThemeManager::getInstance().getCurrent().selection;
 }
 
 juce::Colour RegionListPanel::textColour() const
@@ -369,10 +365,31 @@ juce::Colour RegionListPanel::textColour() const
 
 void RegionListPanel::applyThemeColours()
 {
-    // For now, paint-time reads handle most of the visible surfaces.
-    // This hook is here so future re-application of one-shot
-    // setColour calls (table header, search box outline, etc.) can
-    // be re-invoked when the theme switches.
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+    // Search box
+    m_searchLabel.setColour(juce::Label::textColourId, theme.text);
+    m_searchBox.setColour(juce::TextEditor::backgroundColourId, theme.panelAlternate);
+    m_searchBox.setColour(juce::TextEditor::textColourId, theme.text);
+    m_searchBox.setColour(juce::TextEditor::outlineColourId, theme.border);
+
+    // Empty-state hint
+    m_emptyLabel.setColour(juce::Label::textColourId, theme.textMuted);
+
+    // Table + header
+    m_table.setColour(juce::ListBox::backgroundColourId, theme.background);
+    m_table.setColour(juce::ListBox::textColourId, theme.text);
+    m_table.setColour(juce::ListBox::outlineColourId, theme.border);
+
+    auto& header = m_table.getHeader();
+    header.setColour(juce::TableHeaderComponent::textColourId, theme.text);
+    header.setColour(juce::TableHeaderComponent::backgroundColourId, theme.panelAlternate);
+    header.setColour(juce::TableHeaderComponent::highlightColourId, theme.border);
+
+    // Batch-rename tab backgrounds
+    for (int i = 0; i < m_renameTabs.getNumTabs(); ++i)
+        m_renameTabs.setTabBackgroundColour(i, theme.panelAlternate);
+
     repaint();
 }
 
@@ -516,7 +533,7 @@ juce::DocumentWindow* RegionListPanel::showInWindow(bool modal)
     };
 
     auto* window = new RegionListWindow("Region List",
-                                        juce::Colour(0xff2a2a2a),
+                                        backgroundColour(),
                                         juce::DocumentWindow::allButtons,
                                         m_commandManager);
 
@@ -686,7 +703,11 @@ void RegionListPanel::resized()
     }
 
     // Table fills remaining space
-    m_table.setBounds(bounds.reduced(8));
+    auto tableBounds = bounds.reduced(8);
+    m_table.setBounds(tableBounds);
+
+    // Empty-state hint overlays the table area (below the header row)
+    m_emptyLabel.setBounds(tableBounds.withTrimmedTop(m_rowHeight));
 }
 
 bool RegionListPanel::keyPressed(const juce::KeyPress& key)
@@ -747,7 +768,8 @@ void RegionListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
     if (!region)
         return;
 
-    g.setColour(rowIsSelected ? juce::Colours::white : textColour());
+    g.setColour(textColour());
+    (void)rowIsSelected;
 
     switch (columnId)
     {
@@ -759,7 +781,7 @@ void RegionListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
             g.fillRoundedRectangle(swatchBounds.toFloat(), 2.0f);
 
             // Draw outline
-            g.setColour(juce::Colour(0xff4a4a4a));
+            g.setColour(waveedit::ThemeManager::getInstance().getCurrent().border);
             g.drawRoundedRectangle(swatchBounds.toFloat(), 2.0f, 1.0f);
             break;
         }
@@ -807,6 +829,60 @@ void RegionListPanel::cellClicked(int rowNumber, int columnId, const juce::Mouse
         // Start editing on click in name column
         startEditingName(rowNumber);
     }
+    else if (columnId == ColorColumn && event.mods.isLeftButtonDown())
+    {
+        // Open a colour picker anchored to the clicked swatch cell
+        showColourPickerForRow(rowNumber);
+    }
+}
+
+void RegionListPanel::showColourPickerForRow(int rowNumber)
+{
+    if (!m_regionManager || rowNumber < 0 || rowNumber >= m_filteredRegions.size())
+        return;
+
+    const int regionIndex = m_filteredRegions[rowNumber].originalIndex;
+    auto* region = m_regionManager->getRegion(regionIndex);
+    if (!region)
+        return;
+
+    // CallOutBox-hosted picker. Wrapper owns the selector via unique_ptr
+    // so lifetime is correct when the CallOutBox closes.
+    struct PickerWrapper : public juce::Component, private juce::ChangeListener
+    {
+        PickerWrapper(RegionListPanel& ownerIn, int idxIn, juce::Colour startColor)
+            : owner(ownerIn), idx(idxIn),
+              m_sel(juce::ColourSelector::showColourAtTop
+                    | juce::ColourSelector::showSliders
+                    | juce::ColourSelector::showColourspace)
+        {
+            m_sel.setCurrentColour(startColor, juce::dontSendNotification);
+            m_sel.addChangeListener(this);
+            addAndMakeVisible(m_sel);
+            setSize(300, 280);
+        }
+        ~PickerWrapper() override { m_sel.removeChangeListener(this); }
+        void resized() override { m_sel.setBounds(getLocalBounds()); }
+        void changeListenerCallback(juce::ChangeBroadcaster*) override
+        {
+            if (owner.m_regionManager == nullptr) return;
+            if (auto* r = owner.m_regionManager->getRegion(idx))
+            {
+                r->setColor(m_sel.getCurrentColour());
+                owner.m_table.repaint();
+            }
+        }
+        RegionListPanel& owner;
+        int idx;
+        juce::ColourSelector m_sel;
+    };
+
+    // Anchor the call-out to the clicked colour cell, not the whole table.
+    const auto cellBounds = m_table.getCellPosition(ColorColumn, rowNumber, true);
+    const auto screenCell = cellBounds + m_table.getScreenPosition();
+
+    auto wrapper = std::make_unique<PickerWrapper>(*this, regionIndex, region->getColor());
+    juce::CallOutBox::launchAsynchronously(std::move(wrapper), screenCell, nullptr);
 }
 
 void RegionListPanel::cellDoubleClicked(int rowNumber, int columnId, const juce::MouseEvent& event)
@@ -1067,6 +1143,26 @@ void RegionListPanel::applyFilter()
 
     sortRegions();
     m_table.updateContent();
+    updateEmptyState();
+}
+
+void RegionListPanel::updateEmptyState()
+{
+    const bool isEmpty = m_filteredRegions.isEmpty();
+
+    if (isEmpty)
+    {
+        if (!m_filterText.isEmpty())
+            m_emptyLabel.setText("No regions match \"" + m_filterText + "\"",
+                                 juce::dontSendNotification);
+        else
+            m_emptyLabel.setText("No regions yet - select a range and press R to create one",
+                                 juce::dontSendNotification);
+    }
+
+    m_emptyLabel.setVisible(isEmpty);
+    if (isEmpty)
+        m_emptyLabel.toFront(false);
 }
 
 void RegionListPanel::sortRegions()

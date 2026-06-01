@@ -119,15 +119,19 @@ public:
     // Static Helper
 
     /**
-     * Shows the recording dialog as a modal window.
+     * Shows the recording dialog as a (non-modal) async window.
      *
      * @param parentComponent Parent component to center the dialog over
      * @param deviceManager Reference to the application's AudioDeviceManager
      * @param listener Listener to notify when recording completes
+     * @param recordingStateCallback Optional; called with true when capture
+     *        actually starts and false when it stops/closes, so a persistent
+     *        transport can show a live recording indicator.
      */
     static void showDialog(juce::Component* parentComponent,
                           juce::AudioDeviceManager& deviceManager,
-                          Listener* listener);
+                          Listener* listener,
+                          std::function<void(bool)> recordingStateCallback = {});
 
 private:
     //==============================================================================
@@ -137,6 +141,10 @@ private:
     std::unique_ptr<RecordingEngine> m_recordingEngine;
 
     juce::ListenerList<Listener> m_listeners;
+
+    // Fired with the live capture state (true = recording) so an external
+    // transport can mirror it. Set via showDialog().
+    std::function<void(bool)> m_recordingStateCallback;
 
     // Input device selection
     juce::Label m_inputDeviceLabel;
@@ -180,6 +188,9 @@ private:
 
     // Timing
     double m_recordingStartTime = 0.0;
+
+    // Latch so the buffer-full warning is shown at most once per session
+    bool m_bufferFullHandled = false;
 
     //==============================================================================
     // Private Methods

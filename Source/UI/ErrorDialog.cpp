@@ -18,10 +18,12 @@ void ErrorDialog::show(const juce::String& title,
     // Use JUCE's message thread assertion
     jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
 
-    // Show alert window with appropriate icon
+    // Show alert window with appropriate icon. JUCE's stock alert offers no
+    // dedicated error glyph, so errors are distinguished from warnings by the
+    // heading prefix in addition to the alert icon (see getIconType()).
     juce::AlertWindow::showMessageBoxAsync(
         getIconType(severity),
-        title,
+        decorateTitle(title, severity),
         message,
         "OK"
     );
@@ -53,7 +55,7 @@ void ErrorDialog::showWithDetails(const juce::String& title,
 
     juce::AlertWindow::showMessageBoxAsync(
         getIconType(severity),
-        title,
+        decorateTitle(title, severity),
         fullMessage,
         "OK"
     );
@@ -88,16 +90,16 @@ void ErrorDialog::showFileError(const juce::String& operation,
     if (operation == "open")
     {
         message += "Suggestions:\n";
-        message += "• Verify the file is a valid WAV audio file\n";
-        message += "• Check that the file is not corrupted\n";
-        message += "• Ensure you have permission to read this file";
+        message += "- Verify the file is a valid WAV audio file\n";
+        message += "- Check that the file is not corrupted\n";
+        message += "- Ensure you have permission to read this file";
     }
     else if (operation == "save")
     {
         message += "Suggestions:\n";
-        message += "• Check that you have write permissions\n";
-        message += "• Ensure there is enough disk space\n";
-        message += "• Try saving to a different location";
+        message += "- Check that you have write permissions\n";
+        message += "- Ensure there is enough disk space\n";
+        message += "- Try saving to a different location";
     }
 
     show(title, message, Severity::Error);
@@ -132,7 +134,26 @@ juce::MessageBoxIconType ErrorDialog::getIconType(Severity severity)
             return juce::MessageBoxIconType::WarningIcon;
         case Severity::Error:
         default:
-            return juce::MessageBoxIconType::WarningIcon; // JUCE uses WarningIcon for errors
+            // JUCE's stock alert has no dedicated error glyph; the WarningIcon
+            // exclamation is the strongest "something is wrong" indicator. The
+            // error vs warning distinction is carried by the heading prefix in
+            // decorateTitle().
+            return juce::MessageBoxIconType::WarningIcon;
+    }
+}
+
+juce::String ErrorDialog::decorateTitle(const juce::String& title, Severity severity)
+{
+    // Avoid double-prefixing if the caller already framed the title.
+    switch (severity)
+    {
+        case Severity::Error:
+            return title.startsWithIgnoreCase("error") ? title : "Error: " + title;
+        case Severity::Warning:
+            return title.startsWithIgnoreCase("warning") ? title : "Warning: " + title;
+        case Severity::Info:
+        default:
+            return title;
     }
 }
 

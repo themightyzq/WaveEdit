@@ -17,6 +17,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../Utils/Document.h"
+#include "ThemeManager.h"
 
 /**
  * File Properties dialog for WaveEdit.
@@ -30,7 +31,8 @@
  * Accessed via Alt+Enter keyboard shortcut.
  */
 class FilePropertiesDialog : public juce::Component,
-                             public juce::Button::Listener
+                             public juce::Button::Listener,
+                             public juce::ChangeListener   // M9: re-theme on switch
 {
 public:
     /**
@@ -53,6 +55,12 @@ public:
     void buttonClicked(juce::Button* button) override;
 
     //==============================================================================
+    // ChangeListener override (ThemeManager)
+
+    /** M9: Re-apply theme colours when the user switches themes. */
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+
+    //==============================================================================
     // Static factory method
 
     /**
@@ -71,6 +79,12 @@ private:
      * Populates all property labels from the document.
      */
     void loadProperties();
+
+    /**
+     * M9: Apply theme-sourced colours to all cached label setColour() calls.
+     * Must be called at construction and in changeListenerCallback().
+     */
+    void applyThemeColours();
 
     /**
      * Formats a duration in seconds as HH:MM:SS.mmm.
@@ -107,6 +121,12 @@ private:
 
     //==============================================================================
     // UI Components
+
+    // Section header labels (bold, one per reserved slot in resized())
+    juce::Label m_fileInfoHeaderLabel;
+    juce::Label m_audioInfoHeaderLabel;
+    juce::Label m_bwfHeaderLabel;
+    juce::Label m_ixmlHeaderLabel;
 
     // Property labels (left column - property names)
     juce::Label m_filenameLabel;

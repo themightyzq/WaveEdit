@@ -134,6 +134,9 @@ public:
         void testToggleSelectPoint(int pointIndex);
         void testClearSelection();
         const std::set<int>& testGetSelectedIndices() const { return m_selectedIndices; }
+        /** Test hook (M16): the lane this view is currently bound to, so
+            tests can confirm row N maps to lane N after a rebuild. */
+        const AutomationLane* testGetLane() const { return m_lane; }
         void testCopySelectionToClipboard();
         void testPasteFromClipboardAt(double anchorTime);
         void testDeleteSelected();
@@ -231,6 +234,12 @@ public:
         void refresh();
         AutomationCurveView& getCurveView() { return m_curveView; }
         int getLaneIndex() const { return m_laneIndex; }
+
+        /** M16: pooled rows are reused across rebuilds. After a non-tail
+            lane removal the vector shifts, so row N must be re-pointed at
+            lane N. rebuildRows() calls this on every row so the row's
+            toggles/curve always act on the correct lane. */
+        void setLaneIndex(int newIndex) { m_laneIndex = newIndex; }
         bool matches(int pluginIndex, int parameterIndex) const;
 
         void paint(juce::Graphics& g) override;

@@ -41,11 +41,20 @@ public:
     Marker(const juce::String& name, int64_t position, juce::Colour color = juce::Colours::yellow);
 
     // Accessors
+    /**
+     * Stable, process-unique identifier assigned at construction. Survives
+     * copies and never changes. Undo actions key off the ID instead of a
+     * positional index so a later add/delete cannot make undo hit the wrong
+     * marker.
+     */
+    int64_t getId() const { return m_id; }
     juce::String getName() const { return m_name; }
     int64_t getPosition() const { return m_position; }
     juce::Colour getColor() const { return m_color; }
 
     // Mutators
+    /** Overwrites the stable ID. Only used by deserialization. */
+    void setId(int64_t id) { m_id = id; }
     void setName(const juce::String& name) { m_name = name; }
     void setPosition(int64_t position);
     void setColor(juce::Colour color) { m_color = color; }
@@ -88,6 +97,10 @@ public:
     bool operator!=(const Marker& other) const { return !(*this == other); }
 
 private:
+    /** Allocates the next process-unique marker ID (thread-safe). */
+    static int64_t nextId();
+
+    int64_t m_id;               // Stable, process-unique identity (never reused)
     juce::String m_name;        // User-editable name
     int64_t m_position;         // Sample position (sample-accurate)
     juce::Colour m_color;       // Visual distinction color

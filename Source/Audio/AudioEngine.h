@@ -699,7 +699,15 @@ private:
         void setLooping(bool shouldLoop) override;
 
     private:
-        juce::AudioBuffer<float> m_buffer;
+        // H20/L1 FIX: the playback buffer is held behind a shared_ptr that is
+        // swapped atomically. The audio thread copies the shared_ptr under a
+        // brief lock (just a refcount bump, no deep copy) and works on its own
+        // snapshot; setBuffer() performs the expensive deep makeCopyOf OFF-lock,
+        // then swaps the pointer under the same brief lock. This keeps the audio
+        // thread from ever waiting on a multi-millisecond buffer copy (§6.4).
+        using BufferPtr = std::shared_ptr<const juce::AudioBuffer<float>>;
+        BufferPtr m_buffer;                      // guarded by m_lock (pointer swap only)
+        std::atomic<juce::int64> m_bufferLength{0};  // mirrors m_buffer length for lock-free reads
         double m_sampleRate;
         std::atomic<juce::int64> m_readPosition;
         bool m_isLooping;
@@ -740,11 +748,21 @@ private:
     std::atomic<bool> m_channelSolo[MAX_CHANNELS];
     std::atomic<bool> m_channelMute[MAX_CHANNELS];
 
-    // Spectrum analyzer (not owned, just a pointer for data feeding)
-    class SpectrumAnalyzer* m_spectrumAnalyzer;
+    // Spectrum analyzer (not owned, just a pointer for data feeding).
+    // C8 FIX: atomic so the audio thread sees a consistent value and the
+    // setter, which blocks under m_analyzerLock until the audio thread is not
+    // mid-use, can never clear a pointer the callback is dereferencing.
+    std::atomic<class SpectrumAnalyzer*> m_spectrumAnalyzer{nullptr};
 
     // Graphical EQ editor (not owned, just a pointer for spectrum data feeding during preview)
-    class GraphicalEQEditor* m_graphicalEQEditor = nullptr;
+    std::atomic<class GraphicalEQEditor*> m_graphicalEQEditor{nullptr};
+
+    // C8 FIX: guards the brief window in which the audio callback dereferences
+    // the analyzer/editor pointers. The setters take this lock (blocking, on the
+    // message thread) so a component is never destroyed while the callback holds
+    // it; the callback uses tryEnter() and simply skips visualisation feeding on
+    // contention (never blocks the audio thread). See §6.4.
+    juce::CriticalSection m_analyzerLock;
 
     //==============================================================================
     // Preview System Members
@@ -817,6 +835,12 @@ private:
             const FadeType type = fadeType.load();
             const CurveType curve = curveType.load();
             int64_t currentSample = samplesProcessed.load();
+
+            // H6 FIX: a zero (or non-positive) fade duration must not divide by
+            // zero (which floods the output with NaN). Treat it as a no-op: the
+            // fade is instantaneous, so the signal passes through at unity gain.
+            if (duration <= 0.0f)
+                return;
 
             for (int i = 0; i < numSamples; ++i)
             {
@@ -934,19 +958,27 @@ private:
     };
     DCOffsetProcessor m_dcOffsetProcessor;
 
+    // C5 FIX: the pending-EQ structs contain std::vector payloads, so the atomic
+    // "changed" flag alone is not enough to publish them safely. m_eqParamsLock
+    // guards every read/write of the pending structs. The message thread takes it
+    // (blocking) when staging new params; the audio thread uses tryEnter() and
+    // skips the param swap for this block on contention (keeping last-good params),
+    // so it never blocks or reallocates while another thread reallocates the vector.
+    juce::SpinLock m_eqParamsLock;
+
     // Parametric EQ processor for real-time preview (3-band fixed)
     std::unique_ptr<ParametricEQ> m_parametricEQ;
     juce::Atomic<bool> m_parametricEQEnabled{false};
     ParametricEQ::Parameters m_parametricEQParams;  // Accessed only from audio thread after atomic flag
     juce::Atomic<bool> m_parametricEQParamsChanged{false};
-    ParametricEQ::Parameters m_pendingParametricEQParams;  // Written from message thread
+    ParametricEQ::Parameters m_pendingParametricEQParams;  // Written from message thread (guarded by m_eqParamsLock)
 
     // Dynamic Parametric EQ processor for real-time preview (20-band, multiple filter types)
     std::unique_ptr<DynamicParametricEQ> m_dynamicEQ;
     juce::Atomic<bool> m_dynamicEQEnabled{false};
     DynamicParametricEQ::Parameters m_dynamicEQParams;  // Accessed only from audio thread after atomic flag
     juce::Atomic<bool> m_dynamicEQParamsChanged{false};
-    DynamicParametricEQ::Parameters m_pendingDynamicEQParams;  // Written from message thread
+    DynamicParametricEQ::Parameters m_pendingDynamicEQParams;  // Written from message thread (guarded by m_eqParamsLock)
 
     // VST3/AU Plugin Chain for real-time effects processing
     PluginChain m_pluginChain;

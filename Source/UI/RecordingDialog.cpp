@@ -75,6 +75,7 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     m_inputDeviceSelector.addListener(this);
     addAndMakeVisible(m_inputDeviceSelector);
     populateInputDevices();
+    m_inputDeviceSelector.setEnabled(false);  // Non-functional (see comboBoxChanged)
 
     // Sample rate selection
     m_sampleRateLabel.setText("Sample Rate:", juce::dontSendNotification);
@@ -83,6 +84,7 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     m_sampleRateSelector.addListener(this);
     addAndMakeVisible(m_sampleRateSelector);
     populateSampleRates();
+    m_sampleRateSelector.setEnabled(false);  // Non-functional (see comboBoxChanged)
 
     // Channel configuration
     m_channelConfigLabel.setText("Channels:", juce::dontSendNotification);
@@ -91,6 +93,7 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     m_channelConfigSelector.addListener(this);
     addAndMakeVisible(m_channelConfigSelector);
     populateChannelConfigurations();
+    m_channelConfigSelector.setEnabled(false);  // Non-functional (see comboBoxChanged)
 
     // Recording controls
     m_recordButton.setButtonText("Record");
@@ -153,6 +156,11 @@ RecordingDialog::~RecordingDialog()
     {
         m_recordingEngine->stopRecording();
     }
+
+    // Clear any external recording indicator if the window was closed mid-capture
+    // (idempotent if stopRecording() already fired it).
+    if (m_recordingStateCallback)
+        m_recordingStateCallback(false);
 
     // Remove callback from device manager
     m_deviceManager.removeAudioCallback(m_recordingEngine.get());
@@ -288,15 +296,28 @@ void RecordingDialog::timerCallback()
     // Always update level meters for input monitoring (before AND during recording)
     updateLevelMeters();
 
-    // Check if buffer became full (polled on UI thread, not audio thread)
-    if (m_recordingEngine->isBufferFull())
+    // Check if buffer became full (polled on UI thread, not audio thread).
+    // Latch so the warning is shown AT MOST ONCE per recording session,
+    // otherwise the modal stacks on every timer tick (~33ms).
+    if (m_recordingEngine->isBufferFull() && !m_bufferFullHandled)
     {
-        // Stop recording gracefully and notify user
+        m_bufferFullHandled = true;
+
+        juce::Logger::writeToLog("RecordingDialog::timerCallback: recording buffer full, stopping recording");
+
+        // Prevent an immediate re-record refilling the buffer.
+        m_recordButton.setEnabled(false);
+
+        // Notify the user once.
         juce::NativeMessageBox::showMessageBoxAsync(
             juce::MessageBoxIconType::WarningIcon,
             "Recording Buffer Full",
             "Maximum recording duration reached (1 hour). Recording has been stopped.",
             this);
+
+        // Finalize the recording via the existing Stop code path.
+        stopRecording();
+        return;
     }
 
     // Only update elapsed time during recording
@@ -324,7 +345,8 @@ void RecordingDialog::removeListener(Listener* listener)
 
 void RecordingDialog::showDialog(juce::Component* parentComponent,
                                  juce::AudioDeviceManager& deviceManager,
-                                 Listener* listener)
+                                 Listener* listener,
+                                 std::function<void(bool)> recordingStateCallback)
 {
     auto* dialog = new RecordingDialog(deviceManager);
 
@@ -332,6 +354,8 @@ void RecordingDialog::showDialog(juce::Component* parentComponent,
     {
         dialog->addListener(listener);
     }
+
+    dialog->m_recordingStateCallback = std::move(recordingStateCallback);
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(dialog);
@@ -494,8 +518,12 @@ void RecordingDialog::startRecording()
     // Just start the recording state
     if (m_recordingEngine->startRecording())
     {
+        m_bufferFullHandled = false;  // Reset buffer-full latch for the new session
         m_recordingStartTime = juce::Time::getMillisecondCounterHiRes() / 1000.0;
         updateUIState();
+
+        if (m_recordingStateCallback)
+            m_recordingStateCallback(true);
     }
 }
 
@@ -518,6 +546,9 @@ void RecordingDialog::stopRecording()
         listener.recordingCompleted(audioBuffer, sampleRate, numChannels);
     });
 
+    if (m_recordingStateCallback)
+        m_recordingStateCallback(false);
+
     // Close dialog
     if (auto* window = findParentComponentOfClass<juce::DialogWindow>())
     {
@@ -532,9 +563,8 @@ void RecordingDialog::updateUIState()
     m_recordButton.setEnabled(!isRecording);
     m_stopButton.setEnabled(isRecording);
 
-    m_inputDeviceSelector.setEnabled(!isRecording);
-    m_sampleRateSelector.setEnabled(!isRecording);
-    m_channelConfigSelector.setEnabled(!isRecording);
+    // Note: input device / sample rate / channel combos remain disabled
+    // (non-functional, see comboBoxChanged); do not re-enable here.
 
     if (isRecording)
     {

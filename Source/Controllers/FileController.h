@@ -93,6 +93,14 @@ public:
     void handleFileDrop(const juce::StringArray& files, juce::Component* parent);
 
     /**
+     * True if @p file has an extension the editor can open (the same set
+     * the Open dialog advertises: WAV, FLAC, MP3, OGG). Static + UI-free so
+     * the drop-acceptance predicate is unit-testable. Extension-only (does
+     * not touch disk) so it can be tested without real audio files.
+     */
+    static bool isDroppableAudioFile(const juce::File& file);
+
+    /**
      * Perform auto-save of all modified documents to temp location.
      * Called periodically by timer. Thread-safe.
      */

@@ -16,8 +16,8 @@ void DialogController::showAboutDialog(juce::Component* parent)
 {
     const juce::String aboutText =
         "WaveEdit - Professional Audio Editor\n"
-        "Version 1.0\n\n"
-        "Copyright © 2025 ZQ SFX\n"
+        "Version " + juce::JUCEApplication::getInstance()->getApplicationVersion() + "\n\n"
+        "Copyright (C) 2025 ZQ SFX\n"
         "Licensed under GNU GPL v3\n\n"
         "Built with JUCE " + juce::String(JUCE_MAJOR_VERSION) + "."
         + juce::String(JUCE_MINOR_VERSION) + "."

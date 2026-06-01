@@ -33,15 +33,15 @@ public:
                        const Marker& marker)
         : m_markerManager(markerManager),
           m_markerDisplay(markerDisplay),
-          m_marker(marker),
-          m_markerIndex(-1)
+          m_marker(marker)
     {
     }
 
     bool perform() override
     {
-        // Add marker and store the index
-        m_markerIndex = m_markerManager.addMarker(m_marker);
+        // m_marker carries a stable ID; redo re-adds the same identity and
+        // undo locates it by ID regardless of other markers added/removed (H9).
+        m_markerManager.addMarker(m_marker);
 
         // Update display
         if (m_markerDisplay)
@@ -53,14 +53,15 @@ public:
 
     bool undo() override
     {
-        if (m_markerIndex < 0)
+        // Remove the marker located by its stable ID.
+        int index = m_markerManager.getIndexOfMarkerId(m_marker.getId());
+        if (index < 0)
         {
-            DBG("AddMarkerUndoAction::undo - Invalid marker index");
+            DBG("AddMarkerUndoAction::undo - marker not found by id");
             return false;
         }
 
-        // Remove the marker
-        m_markerManager.removeMarker(m_markerIndex);
+        m_markerManager.removeMarker(index);
 
         // Update display
         if (m_markerDisplay)
@@ -75,8 +76,7 @@ public:
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
-    Marker m_marker;
-    int m_markerIndex;  // Index where marker was added
+    Marker m_marker;  // Carries the stable ID used to locate it on undo
 };
 
 //==============================================================================
@@ -100,8 +100,17 @@ public:
 
     bool perform() override
     {
-        // Delete the marker
-        m_markerManager.removeMarker(m_markerIndex);
+        // Locate by stable ID so a list shift since construction can't make us
+        // delete the wrong marker (H9). Remember the index for a faithful undo.
+        int index = m_markerManager.getIndexOfMarkerId(m_deletedMarker.getId());
+        if (index < 0)
+        {
+            DBG("DeleteMarkerUndoAction::perform - marker not found by id");
+            return false;
+        }
+
+        m_markerIndex = index;
+        m_markerManager.removeMarker(index);
 
         // Update display
         if (m_markerDisplay)
@@ -113,8 +122,9 @@ public:
 
     bool undo() override
     {
-        // Re-insert the marker at its original index
-        m_markerManager.insertMarkerAt(m_markerIndex, m_deletedMarker);
+        // Re-insert the stored marker (same ID), clamped to current size.
+        int insertIndex = juce::jlimit(0, m_markerManager.getNumMarkers(), m_markerIndex);
+        m_markerManager.insertMarkerAt(insertIndex, m_deletedMarker);
 
         // Update display
         if (m_markerDisplay)
@@ -154,10 +164,12 @@ public:
 
     bool perform() override
     {
+        // Add the exact markers we own (each carries a stable ID) so undo can
+        // remove precisely those, regardless of other markers added in between
+        // (H11). Markers re-sort on add, so "last N" removal is unsafe.
         for (const auto& marker : m_markers)
-        {
             m_markerManager.addMarker(marker);
-        }
+
         m_markerManager.saveToFile(m_audioFile);
         if (m_markerDisplay) m_markerDisplay->repaint();
         return true;
@@ -165,12 +177,11 @@ public:
 
     bool undo() override
     {
-        // Remove the last N markers (the ones we added)
-        int total = m_markerManager.getNumMarkers();
-        for (int i = m_markers.size() - 1; i >= 0; --i)
+        // Remove by stable ID, not by position.
+        for (const auto& marker : m_markers)
         {
-            int idx = total - m_markers.size() + i;
-            if (idx >= 0 && idx < m_markerManager.getNumMarkers())
+            int idx = m_markerManager.getIndexOfMarkerId(marker.getId());
+            if (idx >= 0)
                 m_markerManager.removeMarker(idx);
         }
         m_markerManager.saveToFile(m_audioFile);
@@ -204,15 +215,18 @@ public:
         : m_markerManager(markerManager),
           m_markerDisplay(markerDisplay),
           m_audioFile(audioFile),
-          m_markerIndex(markerIndex),
           m_oldName(oldName),
           m_newName(newName)
     {
+        // Bind to the marker's stable ID so a later add/delete (markers
+        // re-sort on add) cannot make undo rename the wrong marker (H9).
+        if (const Marker* m = m_markerManager.getMarker(markerIndex))
+            m_markerId = m->getId();
     }
 
     bool perform() override
     {
-        if (auto* m = m_markerManager.getMarker(m_markerIndex))
+        if (auto* m = m_markerManager.getMarkerById(m_markerId))
         {
             m->setName(m_newName);
             m_markerManager.saveToFile(m_audioFile);
@@ -224,7 +238,7 @@ public:
 
     bool undo() override
     {
-        if (auto* m = m_markerManager.getMarker(m_markerIndex))
+        if (auto* m = m_markerManager.getMarkerById(m_markerId))
         {
             m->setName(m_oldName);
             m_markerManager.saveToFile(m_audioFile);
@@ -243,7 +257,7 @@ private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
     juce::File m_audioFile;
-    int m_markerIndex;
+    int64_t m_markerId = -1;
     juce::String m_oldName;
     juce::String m_newName;
 };
@@ -265,15 +279,17 @@ public:
         : m_markerManager(markerManager),
           m_markerDisplay(markerDisplay),
           m_audioFile(audioFile),
-          m_markerIndex(markerIndex),
           m_oldColor(oldColor),
           m_newColor(newColor)
     {
+        // Bind to the marker's stable ID (H9).
+        if (const Marker* m = m_markerManager.getMarker(markerIndex))
+            m_markerId = m->getId();
     }
 
     bool perform() override
     {
-        if (auto* m = m_markerManager.getMarker(m_markerIndex))
+        if (auto* m = m_markerManager.getMarkerById(m_markerId))
         {
             m->setColor(m_newColor);
             m_markerManager.saveToFile(m_audioFile);
@@ -285,7 +301,7 @@ public:
 
     bool undo() override
     {
-        if (auto* m = m_markerManager.getMarker(m_markerIndex))
+        if (auto* m = m_markerManager.getMarkerById(m_markerId))
         {
             m->setColor(m_oldColor);
             m_markerManager.saveToFile(m_audioFile);
@@ -301,7 +317,122 @@ private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
     juce::File m_audioFile;
-    int m_markerIndex;
+    int64_t m_markerId = -1;
     juce::Colour m_oldColor;
     juce::Colour m_newColor;
+};
+
+//==============================================================================
+/**
+ * Undoable action for moving a marker to a new sample position (C4).
+ *
+ * Markers stay sorted by position, so moving one can change its index; the
+ * action keys off the marker's stable ID and updates its position in place
+ * via the manager's index-then-id lookup, then lets the list re-sort.
+ */
+class MoveMarkerUndoAction : public juce::UndoableAction
+{
+public:
+    MoveMarkerUndoAction(MarkerManager& markerManager,
+                         MarkerDisplay* markerDisplay,
+                         const juce::File& audioFile,
+                         int64_t markerId,
+                         int64_t oldPosition,
+                         int64_t newPosition)
+        : m_markerManager(markerManager),
+          m_markerDisplay(markerDisplay),
+          m_audioFile(audioFile),
+          m_markerId(markerId),
+          m_oldPosition(oldPosition),
+          m_newPosition(newPosition)
+    {
+    }
+
+    bool perform() override { return moveTo(m_newPosition); }
+    bool undo() override    { return moveTo(m_oldPosition); }
+
+    int getSizeInUnits() override { return sizeof(*this); }
+
+private:
+    bool moveTo(int64_t position)
+    {
+        // Re-sort by removing and re-adding so the manager keeps positional
+        // order. The re-added marker retains its stable ID.
+        int index = m_markerManager.getIndexOfMarkerId(m_markerId);
+        if (index < 0) return false;
+
+        Marker* live = m_markerManager.getMarker(index);
+        if (!live) return false;
+
+        Marker moved = *live;        // preserves ID, name, color
+        moved.setPosition(position);
+
+        m_markerManager.removeMarker(index);
+        m_markerManager.addMarker(moved);
+
+        m_markerManager.saveToFile(m_audioFile);
+        if (m_markerDisplay) m_markerDisplay->repaint();
+        return true;
+    }
+
+    MarkerManager& m_markerManager;
+    MarkerDisplay* m_markerDisplay;
+    juce::File m_audioFile;
+    int64_t m_markerId;
+    int64_t m_oldPosition;
+    int64_t m_newPosition;
+};
+
+//==============================================================================
+/**
+ * Undoable bulk add of imported markers (C4).
+ *
+ * Stores the imported markers (each with a stable ID) so undo can remove
+ * exactly those, regardless of other markers added before the undo.
+ */
+class ImportMarkersUndoAction : public juce::UndoableAction
+{
+public:
+    ImportMarkersUndoAction(MarkerManager& markerManager,
+                            MarkerDisplay* markerDisplay,
+                            const juce::File& audioFile,
+                            const juce::Array<Marker>& markersToAdd)
+        : m_markerManager(markerManager),
+          m_markerDisplay(markerDisplay),
+          m_audioFile(audioFile),
+          m_markers(markersToAdd)
+    {
+    }
+
+    bool perform() override
+    {
+        for (const auto& marker : m_markers)
+            m_markerManager.addMarker(marker);
+
+        m_markerManager.saveToFile(m_audioFile);
+        if (m_markerDisplay) m_markerDisplay->repaint();
+        return true;
+    }
+
+    bool undo() override
+    {
+        // Remove by stable ID, not by position.
+        for (const auto& marker : m_markers)
+        {
+            int idx = m_markerManager.getIndexOfMarkerId(marker.getId());
+            if (idx >= 0)
+                m_markerManager.removeMarker(idx);
+        }
+        m_markerManager.saveToFile(m_audioFile);
+        if (m_markerDisplay) m_markerDisplay->repaint();
+        return true;
+    }
+
+    int getSizeInUnits() override { return sizeof(*this) + m_markers.size() * sizeof(Marker); }
+
+private:
+    MarkerManager& m_markerManager;
+    MarkerDisplay* m_markerDisplay;
+    juce::File m_audioFile;
+    juce::Array<Marker> m_markers;
 };

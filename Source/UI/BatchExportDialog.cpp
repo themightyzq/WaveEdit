@@ -15,8 +15,11 @@
 
 #include "BatchExportDialog.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 #include "../Utils/Settings.h"
 #include <optional>
+
+namespace ui = waveedit::ui;
 
 BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionManager& regionManager)
     : m_titleLabel("titleLabel", "Batch Export Regions"),
@@ -37,10 +40,7 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
       m_regionManager(regionManager)
 {
     // Title label
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
-    #pragma GCC diagnostic pop
+    m_titleLabel.setFont(ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -71,10 +71,7 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
     addAndMakeVisible(m_browseButton);
 
     // Naming options label
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_namingOptionsLabel.setFont(juce::Font(14.0f, juce::Font::bold));
-    #pragma GCC diagnostic pop
+    m_namingOptionsLabel.setFont(ui::boldValueFont());
     addAndMakeVisible(m_namingOptionsLabel);
 
     // Include region name toggle
@@ -97,12 +94,10 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
     m_templateEditor.setTooltip("Use placeholders: {basename}, {region}, {index}, {N} for padded index");
     addAndMakeVisible(m_templateEditor);
 
-    // Template help label (smaller font, grey color)
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_templateHelpLabel.setFont(juce::Font(10.0f, juce::Font::italic));
-    #pragma GCC diagnostic pop
-    m_templateHelpLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    // Template help label (smaller font, muted color)
+    m_templateHelpLabel.setFont(ui::smallFont());
+    m_templateHelpLabel.setColour(juce::Label::textColourId,
+                                  waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     addAndMakeVisible(m_templateHelpLabel);
 
     // Prefix label
@@ -138,20 +133,14 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
     addAndMakeVisible(m_suffixBeforeIndexToggle);
 
     // Preview label
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_previewLabel.setFont(juce::Font(14.0f, juce::Font::bold));
-    #pragma GCC diagnostic pop
+    m_previewLabel.setFont(ui::boldValueFont());
     addAndMakeVisible(m_previewLabel);
 
     // Preview list (multi-line, read-only)
     m_previewList.setMultiLine(true);
     m_previewList.setReadOnly(true);
     m_previewList.setScrollbarsShown(true);
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_previewList.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
-    #pragma GCC diagnostic pop
+    m_previewList.setFont(ui::monospaceFont());
     addAndMakeVisible(m_previewList);
 
     // Export button
@@ -183,8 +172,8 @@ std::optional<BatchExportDialog::ExportSettings> BatchExportDialog::showDialog(
             "No Regions to Export",
             "There are no regions defined in this file.\n\n"
             "Create regions first using:\n"
-            "  • R - Create region from selection\n"
-            "  • Cmd+Shift+R - Auto-create regions (Strip Silence)",
+            "  - R - Create region from selection\n"
+            "  - Cmd+Shift+R - Auto-create regions (Strip Silence)",
             "OK"
         );
         return std::nullopt;
@@ -194,7 +183,8 @@ std::optional<BatchExportDialog::ExportSettings> BatchExportDialog::showDialog(
     std::unique_ptr<BatchExportDialog> dialog(new BatchExportDialog(sourceFile, regionManager));
 
     // Create the dialog window
-    juce::DialogWindow dlg("Batch Export Regions", juce::Colours::darkgrey, true, false);
+    juce::DialogWindow dlg("Batch Export Regions",
+                           waveedit::ThemeManager::getInstance().getCurrent().panel, true, false);
     dlg.setContentOwned(dialog.release(), true);
     dlg.centreWithSize(500, 650);  // Increased height for new UI components
     dlg.setResizable(false, false);
@@ -324,9 +314,10 @@ void BatchExportDialog::resized()
     auto buttonWidth = 100;
     auto buttonSpacing = 10;
 
-    m_cancelButton.setBounds(buttonRow.removeFromRight(buttonWidth));
-    buttonRow.removeFromRight(buttonSpacing);
+    // §6.8 footer convention: Cancel left, primary (Export) rightmost.
     m_exportButton.setBounds(buttonRow.removeFromRight(buttonWidth));
+    buttonRow.removeFromRight(buttonSpacing);
+    m_cancelButton.setBounds(buttonRow.removeFromRight(buttonWidth));
 }
 
 juce::String BatchExportDialog::generatePreviewFilename(int regionIndex, const Region& region) const
@@ -604,12 +595,12 @@ bool BatchExportDialog::validateExport()
         int maxShow = juce::jmin(5, numFiles);
         for (int i = 0; i < maxShow; ++i)
         {
-            message += "  • " + existingFiles[i] + "\n";
+            message += "  - " + existingFiles[i] + "\n";
         }
 
         if (numFiles > maxShow)
         {
-            message += "  • ... and " + juce::String(numFiles - maxShow) + " more\n";
+            message += "  - ... and " + juce::String(numFiles - maxShow) + " more\n";
         }
 
         message += "\nDo you want to proceed?";
