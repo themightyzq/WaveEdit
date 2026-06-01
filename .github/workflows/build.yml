@@ -119,7 +119,13 @@ jobs:
       - name: Configure CMake
         shell: bash
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+          # Pin the Visual Studio generator + x64 arch. Without an explicit -G,
+          # CMake launched from Git Bash here selected the NMake Makefiles
+          # generator, which needs an MSVC dev environment on PATH that isn't
+          # active in this step -> "CMAKE_C_COMPILER not set". The VS generator
+          # locates MSVC itself (no vcvars needed). It is multi-config, which
+          # the Build / Build tests steps already handle via --config Release.
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=x64-windows
 
