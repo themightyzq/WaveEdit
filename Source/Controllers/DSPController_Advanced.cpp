@@ -985,7 +985,7 @@ void DSPController::showHeadTailDialog(Document* doc, juce::Component* /*parent*
     const auto& buffer  = doc->getBufferManager().getBuffer();
     double      sr      = doc->getAudioEngine().getSampleRate();
 
-    auto* dialog = new HeadTailDialog(buffer, sr);
+    auto* dialog = new HeadTailDialog(buffer, sr, &doc->getAudioEngine());
 
     dialog->onApply = [this, doc](const HeadTailRecipe& recipe)
     {
