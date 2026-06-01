@@ -1012,6 +1012,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/AutomationLanesPanelRowIndexTests.cpp    # M16 row index
             Tests/Unit/RecordingEngineTests.cpp                 # M17/M18 recording
             Tests/Unit/HeadTailPreviewTests.cpp                 # HeadTail preview guard
+            Tests/Unit/PreviewSystemTests.cpp                   # shared preview helpers (region + fade gain)
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6
