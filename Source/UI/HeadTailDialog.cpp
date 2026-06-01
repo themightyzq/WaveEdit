@@ -379,8 +379,7 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
         else
             m_bypassButton.removeColour(juce::TextButton::buttonColourId);
 
-        if (reloadActiveBuffer())
-            m_audioEngine->play();
+        reloadActiveBuffer();   // startBufferPreview restarts playback itself
     };
     addAndMakeVisible(m_bypassButton);
 
@@ -388,8 +387,8 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON per §6.8
     m_loopToggle.onClick = [this]()
     {
-        if (m_previewActive && engineUsable() && reloadActiveBuffer())
-            m_audioEngine->play();
+        if (m_previewActive && engineUsable())
+            reloadActiveBuffer();   // startBufferPreview restarts playback itself
     };
     addAndMakeVisible(m_loopToggle);
 
@@ -513,23 +512,15 @@ bool HeadTailDialog::engineUsable() const noexcept
 
 bool HeadTailDialog::reloadActiveBuffer()
 {
-    if (! engineUsable() || ! m_previewActive || m_sampleRate <= 0.0)
+    if (! engineUsable() || ! m_previewActive)
         return false;
 
+    // The shared offline-buffer helper sets OFFLINE_BUFFER mode, loads the
+    // buffer, wires looping, seeks to 0, and starts playback (returns false on
+    // an empty buffer). Used for the initial start and for bypass/loop/re-render.
     const auto& buf = m_bypassActive ? m_originalBuffer : m_processedBuffer;
-    if (buf.getNumSamples() <= 0 || buf.getNumChannels() <= 0)
-        return false;
-
-    m_audioEngine->loadPreviewBuffer(buf, m_sampleRate, buf.getNumChannels());
-
-    const bool   loop   = m_loopToggle.getToggleState();
-    const double durSec = buf.getNumSamples() / m_sampleRate;
-    m_audioEngine->clearLoopPoints();
-    m_audioEngine->setLooping(loop);
-    if (loop)
-        m_audioEngine->setLoopPoints(0.0, durSec);
-    m_audioEngine->setPosition(0.0);
-    return true;
+    return m_audioEngine->startBufferPreview(buf, m_sampleRate, buf.getNumChannels(),
+                                             m_loopToggle.getToggleState());
 }
 
 void HeadTailDialog::startPreview()
@@ -546,13 +537,11 @@ void HeadTailDialog::startPreview()
 
     m_previewActive = true;
     m_bypassActive  = false;
-    m_audioEngine->setPreviewMode(PreviewMode::OFFLINE_BUFFER);
-    if (! reloadActiveBuffer())   // never play() a stale/unloaded source
+    if (! reloadActiveBuffer())   // loads + loops + plays via startBufferPreview
     {
         stopPreview();
         return;
     }
-    m_audioEngine->play();
 
     m_previewButton.setButtonText("STOP");   // short label: "Stop Preview" was clipped
     m_previewButton.setColour(juce::TextButton::buttonColourId,
@@ -563,13 +552,7 @@ void HeadTailDialog::startPreview()
 void HeadTailDialog::stopPreview()
 {
     if (engineUsable())
-    {
-        // Order matters: stop() also clears loop state (see GainDialog::disablePreview).
-        m_audioEngine->stop();
-        m_audioEngine->clearLoopPoints();
-        m_audioEngine->setLooping(false);
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-    }
+        m_audioEngine->stopSelectionPreview();
     stopTimer();
 
     m_previewActive = false;
@@ -602,8 +585,7 @@ void HeadTailDialog::timerCallback()
     }
 
     updateOverlay();
-    if (reloadActiveBuffer())
-        m_audioEngine->play();
+    reloadActiveBuffer();   // startBufferPreview restarts playback itself
 }
 
 HeadTailDialog::~HeadTailDialog()
