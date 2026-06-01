@@ -214,13 +214,15 @@ void HeadTailDialog::WaveformPreview::drawBoundaryLines(juce::Graphics& g,
 
 HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
                                 double sampleRate,
-                                AudioEngine* audioEngine)
-    : m_audioBuffer(audioBuffer)
-    , m_sampleRate(sampleRate)
+                                AudioEngine* audioEngine,
+                                juce::Component* documentLifeline)
+    : m_sampleRate(sampleRate)
     , m_audioEngine(audioEngine)
+    , m_documentLifeline(documentLifeline)
 {
-    // Own a copy of the source audio for A/B preview and to decouple from the
-    // live document buffer's lifetime (the dialog is launched async).
+    // Own a copy of the source audio. Used for A/B preview AND for the overlay /
+    // waveform display, so nothing in this async dialog reads the live document
+    // buffer (which could be reallocated or freed while the dialog is open).
     m_originalBuffer.makeCopyOf(audioBuffer);
 
     //--------------------------------------------------------------------------
@@ -345,7 +347,7 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     //--------------------------------------------------------------------------
     // Waveform preview
 
-    m_waveformPreview = std::make_unique<WaveformPreview>(m_audioBuffer);
+    m_waveformPreview = std::make_unique<WaveformPreview>(m_originalBuffer);
     addAndMakeVisible(m_waveformPreview.get());
 
     //--------------------------------------------------------------------------
@@ -367,7 +369,7 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     m_bypassButton.setEnabled(false);  // Enabled only while previewing (startPreview).
     m_bypassButton.onClick = [this]()
     {
-        if (! m_previewActive || m_audioEngine == nullptr)
+        if (! m_previewActive || ! engineUsable())
             return;
         m_bypassActive = ! m_bypassActive;
         m_bypassButton.setButtonText(m_bypassActive ? "Bypassed" : "Bypass");
@@ -377,8 +379,8 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
         else
             m_bypassButton.removeColour(juce::TextButton::buttonColourId);
 
-        reloadActiveBuffer();
-        m_audioEngine->play();
+        if (reloadActiveBuffer())
+            m_audioEngine->play();
     };
     addAndMakeVisible(m_bypassButton);
 
@@ -386,11 +388,8 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON per §6.8
     m_loopToggle.onClick = [this]()
     {
-        if (m_previewActive && m_audioEngine != nullptr)
-        {
-            reloadActiveBuffer();
+        if (m_previewActive && engineUsable() && reloadActiveBuffer())
             m_audioEngine->play();
-        }
     };
     addAndMakeVisible(m_loopToggle);
 
@@ -465,16 +464,16 @@ void HeadTailDialog::updateOverlay()
         return static_cast<int64_t>(ms * m_sampleRate / 1000.0);
     };
 
-    if (recipe.detectEnabled && m_audioBuffer.getNumSamples() > 0)
+    if (recipe.detectEnabled && m_originalBuffer.getNumSamples() > 0)
     {
         auto [boundaryStart, boundaryEnd] =
-            HeadTailEngine::detectBoundaries(m_audioBuffer, m_sampleRate, recipe);
+            HeadTailEngine::detectBoundaries(m_originalBuffer, m_sampleRate, recipe);
 
         m_waveformPreview->setDetectionBoundaries(boundaryStart, boundaryEnd);
 
         int64_t keepStart = juce::jmax((int64_t)0,
                                        boundaryStart - padSamples(recipe.leadingPadMs));
-        int64_t keepEnd   = juce::jmin((int64_t)m_audioBuffer.getNumSamples(),
+        int64_t keepEnd   = juce::jmin((int64_t)m_originalBuffer.getNumSamples(),
                                         boundaryEnd + padSamples(recipe.trailingPadMs));
 
         m_waveformPreview->setTrimRegion(keepStart, keepEnd);
@@ -482,7 +481,7 @@ void HeadTailDialog::updateOverlay()
     else
     {
         int64_t keepStart    = padSamples(recipe.headTrimMs);
-        int64_t totalSamples = m_audioBuffer.getNumSamples();
+        int64_t totalSamples = m_originalBuffer.getNumSamples();
         int64_t keepEnd      = juce::jmax(keepStart, totalSamples - padSamples(recipe.tailTrimMs));
 
         m_waveformPreview->setTrimRegion(keepStart, keepEnd);
@@ -505,14 +504,21 @@ void HeadTailDialog::renderProcessed()
                                             m_processedBuffer.getNumChannels());
 }
 
-void HeadTailDialog::reloadActiveBuffer()
+bool HeadTailDialog::engineUsable() const noexcept
 {
-    if (m_audioEngine == nullptr || ! m_previewActive)
-        return;
+    // The engine lives inside the Document; if the document (and its
+    // WaveformDisplay lifeline) is gone, the engine pointer is dangling.
+    return m_audioEngine != nullptr && m_documentLifeline.getComponent() != nullptr;
+}
+
+bool HeadTailDialog::reloadActiveBuffer()
+{
+    if (! engineUsable() || ! m_previewActive || m_sampleRate <= 0.0)
+        return false;
 
     const auto& buf = m_bypassActive ? m_originalBuffer : m_processedBuffer;
     if (buf.getNumSamples() <= 0 || buf.getNumChannels() <= 0)
-        return;
+        return false;
 
     m_audioEngine->loadPreviewBuffer(buf, m_sampleRate, buf.getNumChannels());
 
@@ -523,11 +529,12 @@ void HeadTailDialog::reloadActiveBuffer()
     if (loop)
         m_audioEngine->setLoopPoints(0.0, durSec);
     m_audioEngine->setPosition(0.0);
+    return true;
 }
 
 void HeadTailDialog::startPreview()
 {
-    if (m_audioEngine == nullptr)
+    if (! engineUsable())
         return;
 
     renderProcessed();
@@ -540,7 +547,11 @@ void HeadTailDialog::startPreview()
     m_previewActive = true;
     m_bypassActive  = false;
     m_audioEngine->setPreviewMode(PreviewMode::OFFLINE_BUFFER);
-    reloadActiveBuffer();
+    if (! reloadActiveBuffer())   // never play() a stale/unloaded source
+    {
+        stopPreview();
+        return;
+    }
     m_audioEngine->play();
 
     m_previewButton.setButtonText("Stop Preview");
@@ -551,7 +562,7 @@ void HeadTailDialog::startPreview()
 
 void HeadTailDialog::stopPreview()
 {
-    if (m_audioEngine != nullptr)
+    if (engineUsable())
     {
         // Order matters: stop() also clears loop state (see GainDialog::disablePreview).
         m_audioEngine->stop();
@@ -576,6 +587,12 @@ void HeadTailDialog::timerCallback()
     if (! m_previewActive)
         return;
 
+    if (! engineUsable())   // document closed while a re-render was pending
+    {
+        stopPreview();
+        return;
+    }
+
     renderProcessed();
     if (! m_processedPlayable)
     {
@@ -585,8 +602,7 @@ void HeadTailDialog::timerCallback()
     }
 
     updateOverlay();
-    reloadActiveBuffer();
-    if (m_audioEngine != nullptr)
+    if (reloadActiveBuffer())
         m_audioEngine->play();
 }
 
@@ -919,9 +935,9 @@ void HeadTailDialog::updateSummary()
     if (step == 1)
         summary = "(No operations configured)";
 
-    if (m_sampleRate > 0.0 && m_audioBuffer.getNumSamples() > 0)
+    if (m_sampleRate > 0.0 && m_originalBuffer.getNumSamples() > 0)
     {
-        double originalMs = ((double)m_audioBuffer.getNumSamples() / m_sampleRate) * 1000.0;
+        double originalMs = ((double)m_originalBuffer.getNumSamples() / m_sampleRate) * 1000.0;
         summary += "\nDuration: " + juce::String(originalMs, 1) + " ms";
     }
 

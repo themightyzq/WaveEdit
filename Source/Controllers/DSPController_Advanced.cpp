@@ -985,7 +985,11 @@ void DSPController::showHeadTailDialog(Document* doc, juce::Component* /*parent*
     const auto& buffer  = doc->getBufferManager().getBuffer();
     double      sr      = doc->getAudioEngine().getSampleRate();
 
-    auto* dialog = new HeadTailDialog(buffer, sr, &doc->getAudioEngine());
+    // Pass the document's WaveformDisplay as a SafePointer lifeline: the dialog
+    // is launched async, so if the document (and its AudioEngine) is closed
+    // while the dialog is open, the dialog stops touching the dangling engine.
+    auto* dialog = new HeadTailDialog(buffer, sr, &doc->getAudioEngine(),
+                                      &doc->getWaveformDisplay());
 
     dialog->onApply = [this, doc](const HeadTailRecipe& recipe)
     {
