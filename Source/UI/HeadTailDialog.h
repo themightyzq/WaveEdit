@@ -54,7 +54,8 @@ public:
      */
     HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
                    double sampleRate,
-                   AudioEngine* audioEngine = nullptr);
+                   AudioEngine* audioEngine = nullptr,
+                   juce::Component* documentLifeline = nullptr);
 
     ~HeadTailDialog() override;
 
@@ -196,14 +197,18 @@ private:
     //==========================================================================
     // State
 
-    const juce::AudioBuffer<float>& m_audioBuffer;
     double                           m_sampleRate;
 
     //==========================================================================
     // Audio preview (§6.8) — offline-render the recipe, play via OFFLINE_BUFFER.
 
     AudioEngine*             m_audioEngine = nullptr;
-    juce::AudioBuffer<float> m_originalBuffer;   // owned copy for A/B + async lifetime
+    // Lifeline to a Document-owned Component (its WaveformDisplay). The dialog
+    // is launched async and outlives nothing, so if the document (and its
+    // AudioEngine) is closed while the dialog is open, this SafePointer goes
+    // null and engineUsable() stops us from dereferencing the dangling engine.
+    juce::Component::SafePointer<juce::Component> m_documentLifeline;
+    juce::AudioBuffer<float> m_originalBuffer;   // owned copy for A/B, overlay, async lifetime
     juce::AudioBuffer<float> m_processedBuffer;  // last offline render
     bool m_processedPlayable = false;
     bool m_previewActive     = false;
@@ -211,14 +216,17 @@ private:
 
     static constexpr int kPreviewDebounceMs = 200;
 
+    /** True only when the engine pointer is set AND its document is still alive. */
+    bool engineUsable() const noexcept;
     /** Recompute and render the offline preview buffer from the current recipe. */
     void renderProcessed();
     /** Begin audio preview (render + load + loop + play). No-op if not playable. */
     void startPreview();
-    /** Stop audio preview and restore the engine to normal. Idempotent. */
+    /** Stop audio preview and restore the engine to normal. Idempotent + UAF-safe. */
     void stopPreview();
-    /** (Re)load the active (processed or bypassed) buffer + loop points and seek to 0. */
-    void reloadActiveBuffer();
+    /** (Re)load the active (processed or bypassed) buffer + loop points and seek to 0.
+        Returns true only if a valid buffer was loaded (caller should not play() on false). */
+    bool reloadActiveBuffer();
     /** Refresh the waveform overlay (detection + trim region) from the recipe. */
     void updateOverlay();
     void timerCallback() override;
