@@ -425,6 +425,55 @@ public:
      */
     void setDCOffsetPreview(bool enabled);
 
+    //==========================================================================
+    // Shared real-time preview control (used by every Process dialog)
+    //
+    // A dialog selects its effect via the setXPreview() methods above + sets
+    // setPreviewMode(REALTIME_DSP), then calls startSelectionPreview() to play
+    // the selection looped or one-shot. This centralises the selection-offset /
+    // loop-point / setLooping / position / play sequence that was previously
+    // copy-pasted -- and had drifted -- across every dialog. stopSelectionPreview()
+    // is the single standardised teardown.
+
+    /** Validated, playable preview region (output of computePreviewRegion). */
+    struct PreviewRegion
+    {
+        bool   valid    = false;
+        double startSec = 0.0;
+        double endSec   = 0.0;
+        bool   loop     = false;
+    };
+
+    /** Pure: clamp/validate a selection into a playable preview region. An empty
+        or inverted selection falls back to the whole buffer [0, totalSamples).
+        Side-effect-free and static so it is unit-testable. */
+    static PreviewRegion computePreviewRegion(int64_t selectionStart, int64_t selectionEnd,
+                                              double sampleRate, int64_t totalSamples,
+                                              bool loop) noexcept;
+
+    /** Pure: fade gain multiplier (0..1) at a position within the fade span.
+        Drives the real-time fade preview from transport position (rate-independent,
+        loop-aligned). curveType: 0=Linear,1=Logarithmic,2=Exponential,3=S-Curve.
+        Static so it is unit-testable. */
+    static float fadeGainAt(double posInSpanSamples, double fadeDurationSamples,
+                            bool fadeIn, int curveType) noexcept;
+
+    /** Start a real-time DSP preview of [selectionStart, selectionEnd] (file
+        samples), looping or one-shot. Configure the effect via setXPreview() and
+        setPreviewMode(REALTIME_DSP) first. Message thread only. */
+    void startSelectionPreview(int64_t selectionStart, int64_t selectionEnd, bool loop);
+
+    /** Start an offline-buffer preview of a pre-rendered buffer (for length-
+        changing effects such as Head & Tail). Sets OFFLINE_BUFFER mode, loads the
+        buffer, configures looping, and starts playback. Returns false if the
+        buffer is empty. Message thread only. */
+    bool startBufferPreview(const juce::AudioBuffer<float>& buffer, double sampleRate,
+                            int numChannels, bool loop);
+
+    /** Stop any preview, disable all preview effects, and restore normal
+        playback. Idempotent. Message thread only. */
+    void stopSelectionPreview();
+
     /**
      * Set parametric EQ parameters for real-time preview.
      * Thread-safe: Can be called from message thread.
@@ -734,6 +783,15 @@ private:
     std::atomic<double> m_loopEndTime;    // Loop end in seconds
     juce::File m_currentFile;
 
+    // Audio device output rate (captured in audioDeviceAboutToStart). May differ
+    // from the file rate; the position-driven FadeProcessor needs both.
+    std::atomic<double> m_deviceSampleRate{44100.0};
+    // Start of the current preview region in FILE seconds (the selection start).
+    // The fade preview measures its position relative to this, independent of
+    // whether looping is on (so it is NOT the same as the loop start, which is
+    // cleared when loop is off).
+    std::atomic<double> m_previewRegionStartSec{0.0};
+
     std::atomic<double> m_sampleRate;
     std::atomic<int> m_numChannels;
     std::atomic<int> m_bitDepth;
@@ -811,81 +869,41 @@ private:
     };
     NormalizeProcessor m_normalizeProcessor;
 
-    // Fade processor for real-time fade in/out preview
+    // Fade processor for real-time fade in/out preview.
+    // POSITION-DRIVEN: the audio callback feeds the current transport position
+    // within the fade span (in file samples) plus the file-samples-per-output-
+    // sample ratio. The fade is therefore rate-independent (works when the audio
+    // device rate differs from the file rate) and re-aligns automatically on each
+    // loop wrap -- no free-running counter, no modulo drift. The per-sample gain
+    // math lives in the pure, unit-testable AudioEngine::fadeGainAt().
     struct FadeProcessor
     {
-        enum class FadeType { FADE_IN, FADE_OUT };
-        enum class CurveType { LINEAR, LOGARITHMIC, EXPONENTIAL, S_CURVE };
+        std::atomic<bool>  enabled{false};
+        std::atomic<bool>  fadeIn{true};
+        std::atomic<int>   curveType{0};               // 0=Lin,1=Log,2=Exp,3=S-Curve
+        std::atomic<float> fadeDurationSamples{0.0f};  // span length, FILE samples
 
-        std::atomic<FadeType> fadeType{FadeType::FADE_IN};
-        std::atomic<CurveType> curveType{CurveType::LINEAR};
-        std::atomic<float> fadeDurationSamples{44100.0f};  // 1 second at 44.1kHz
-        std::atomic<bool> enabled{false};
-        std::atomic<int64_t> samplesProcessed{0};
-
-        void reset() { samplesProcessed.store(0); }
-
-        void process(juce::AudioBuffer<float>& buffer, double /*sampleRate*/)
+        void process(juce::AudioBuffer<float>& buffer,
+                     double posAtBlockStartFileSamples,
+                     double fileSamplesPerOutputSample)
         {
             if (!enabled.load()) return;
 
-            const int numSamples = buffer.getNumSamples();
-            const int numChannels = buffer.getNumChannels();
-            const float duration = fadeDurationSamples.load();
-            const FadeType type = fadeType.load();
-            const CurveType curve = curveType.load();
-            int64_t currentSample = samplesProcessed.load();
+            const double duration = fadeDurationSamples.load();
+            if (duration <= 0.0) return;   // instantaneous fade -> unity, no-op
 
-            // H6 FIX: a zero (or non-positive) fade duration must not divide by
-            // zero (which floods the output with NaN). Treat it as a no-op: the
-            // fade is instantaneous, so the signal passes through at unity gain.
-            if (duration <= 0.0f)
-                return;
+            const int  numSamples  = buffer.getNumSamples();
+            const int  numChannels = buffer.getNumChannels();
+            const bool isFadeIn    = fadeIn.load();
+            const int  curve       = curveType.load();
 
             for (int i = 0; i < numSamples; ++i)
             {
-                // P2 FIX: Wrap sample index for looping support
-                // When looping preview, fade should restart at 0 for each iteration
-                int64_t sampleIndex = currentSample + i;
-                if (duration > 0.0f && sampleIndex >= static_cast<int64_t>(duration))
-                    sampleIndex = sampleIndex % static_cast<int64_t>(duration);
-
-                float progress = juce::jmin(1.0f, static_cast<float>(sampleIndex) / duration);
-
-                // Apply curve shaping
-                float gain = progress;
-                switch (curve)
-                {
-                    case CurveType::LOGARITHMIC:
-                        gain = std::log10(1.0f + progress * 9.0f);  // log10(1 to 10) = 0 to 1
-                        break;
-                    case CurveType::EXPONENTIAL:
-                        gain = (std::exp(progress * 2.0f) - 1.0f) / (std::exp(2.0f) - 1.0f);
-                        break;
-                    case CurveType::S_CURVE:
-                        gain = 0.5f * (1.0f + std::tanh(6.0f * (progress - 0.5f)));
-                        break;
-                    case CurveType::LINEAR:
-                    default:
-                        break;
-                }
-
-                // Invert for fade out
-                if (type == FadeType::FADE_OUT)
-                    gain = 1.0f - gain;
-
-                // Apply gain to all channels
+                const double pos  = posAtBlockStartFileSamples + i * fileSamplesPerOutputSample;
+                const float  gain = AudioEngine::fadeGainAt(pos, duration, isFadeIn, curve);
                 for (int ch = 0; ch < numChannels; ++ch)
-                {
                     buffer.getWritePointer(ch)[i] *= gain;
-                }
             }
-
-            // P2 FIX: Wrap sample counter for looping support
-            int64_t newSampleCount = currentSample + numSamples;
-            if (duration > 0.0f)
-                newSampleCount = newSampleCount % static_cast<int64_t>(duration);
-            samplesProcessed.store(newSampleCount);
         }
     };
     FadeProcessor m_fadeProcessor;

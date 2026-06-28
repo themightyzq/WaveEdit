@@ -19,6 +19,8 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "../DSP/HeadTailRecipe.h"
 
+class AudioEngine; // full include in the .cpp (preview playback)
+
 /**
  * Head & Tail Processing Dialog.
  *
@@ -38,7 +40,8 @@
  *   - Recipe summary text editor (80px)
  *   - Button row: Preview | Apply | Cancel (centred)
  */
-class HeadTailDialog : public juce::Component
+class HeadTailDialog : public juce::Component,
+                       private juce::Timer
 {
 public:
     /**
@@ -46,9 +49,13 @@ public:
      *
      * @param audioBuffer   Source audio buffer (not modified by dialog)
      * @param sampleRate    Sample rate for time calculations
+     * @param audioEngine   Engine used for §6.8 audio preview (may be null,
+     *                      in which case the preview footer is inert).
      */
     HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
-                   double sampleRate);
+                   double sampleRate,
+                   AudioEngine* audioEngine = nullptr,
+                   juce::Component* documentLifeline = nullptr);
 
     ~HeadTailDialog() override;
 
@@ -67,6 +74,11 @@ public:
 
     /** Invoked when the user clicks Cancel. */
     std::function<void()> onCancel;
+
+    /** True if a processed preview buffer with this shape can be played.
+        Gates the Preview/Bypass buttons when a recipe trims the result to
+        nothing. Pure + static so it is unit-testable. */
+    static bool previewIsPlayable(int numSamples, int numChannels) noexcept;
 
 private:
     //==========================================================================
@@ -185,8 +197,39 @@ private:
     //==========================================================================
     // State
 
-    const juce::AudioBuffer<float>& m_audioBuffer;
     double                           m_sampleRate;
+
+    //==========================================================================
+    // Audio preview (§6.8) — offline-render the recipe, play via OFFLINE_BUFFER.
+
+    AudioEngine*             m_audioEngine = nullptr;
+    // Lifeline to a Document-owned Component (its WaveformDisplay). The dialog
+    // is launched async and outlives nothing, so if the document (and its
+    // AudioEngine) is closed while the dialog is open, this SafePointer goes
+    // null and engineUsable() stops us from dereferencing the dangling engine.
+    juce::Component::SafePointer<juce::Component> m_documentLifeline;
+    juce::AudioBuffer<float> m_originalBuffer;   // owned copy for A/B, overlay, async lifetime
+    juce::AudioBuffer<float> m_processedBuffer;  // last offline render
+    bool m_processedPlayable = false;
+    bool m_previewActive     = false;
+    bool m_bypassActive      = false;
+
+    static constexpr int kPreviewDebounceMs = 200;
+
+    /** True only when the engine pointer is set AND its document is still alive. */
+    bool engineUsable() const noexcept;
+    /** Recompute and render the offline preview buffer from the current recipe. */
+    void renderProcessed();
+    /** Begin audio preview (render + load + loop + play). No-op if not playable. */
+    void startPreview();
+    /** Stop audio preview and restore the engine to normal. Idempotent + UAF-safe. */
+    void stopPreview();
+    /** (Re)load the active (processed or bypassed) buffer + loop points and seek to 0.
+        Returns true only if a valid buffer was loaded (caller should not play() on false). */
+    bool reloadActiveBuffer();
+    /** Refresh the waveform overlay (detection + trim region) from the recipe. */
+    void updateOverlay();
+    void timerCallback() override;
 
     //==========================================================================
     // Shared layout constants

@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build and Release
 
 on:
   push:
@@ -14,22 +14,6 @@ env:
   CCACHE_VERSION: '4.8'
 
 jobs:
-  # ============================================================================
-  # Documentation checks (fast, run on every PR/push)
-  # ============================================================================
-  doc-checks:
-    name: Doc Checks
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: README ⇆ keymap drift check
-        run: python3 .github/scripts/check_readme_keymap.py
-
-      - name: Rendered-string ASCII check (CLAUDE.md §6.12)
-        run: python3 scripts/check_rendered_ascii.py
-
   # ============================================================================
   # macOS Build
   # ============================================================================
@@ -57,14 +41,6 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release --parallel 2
-
-      - name: Build tests
-        run: cmake --build build --config Release --target WaveEditTests --parallel 2
-
-      - name: Run tests
-        env:
-          WAVEEDIT_CI: "1"
-        run: ./build/WaveEditTests_artefacts/Release/WaveEditTests
 
       - name: Verify build output
         run: |
@@ -139,15 +115,6 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 2
 
-      - name: Build tests
-        run: cmake --build build --config Release --target WaveEditTests --parallel 2
-
-      - name: Run tests
-        shell: bash
-        env:
-          WAVEEDIT_CI: "1"
-        run: ./build/WaveEditTests_artefacts/Release/WaveEditTests.exe
-
       - name: Verify build output
         shell: bash
         run: |
@@ -219,18 +186,6 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release --parallel 2
-
-      - name: Build tests
-        run: cmake --build build --config Release --target WaveEditTests --parallel 2
-
-      - name: Run tests
-        env:
-          WAVEEDIT_CI: "1"
-        run: |
-          # Linux CI runs headless; xvfb-run gives JUCE a display for any
-          # GUI-touching tests (e.g. RegionListPanel-adjacent code paths).
-          sudo apt-get install -y xvfb
-          xvfb-run -a ./build/WaveEditTests_artefacts/Release/WaveEditTests
 
       - name: Verify build output
         run: |

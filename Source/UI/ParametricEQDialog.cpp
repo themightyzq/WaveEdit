@@ -303,11 +303,7 @@ ParametricEQDialog::~ParametricEQDialog()
 {
     // Stop preview when dialog is destroyed and reset bypass
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-    {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setPreviewBypassed(false);
-    }
+        m_audioEngine->stopSelectionPreview();
 }
 
 std::optional<ParametricEQ::Parameters> ParametricEQDialog::showDialog(
@@ -405,10 +401,7 @@ void ParametricEQDialog::visibilityChanged()
     {
         // Stop preview when dialog is hidden
         if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-        {
-            m_audioEngine->stop();
-            m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        }
+            m_audioEngine->stopSelectionPreview();
     }
 }
 
@@ -459,9 +452,7 @@ void ParametricEQDialog::onPreviewClicked()
     // Toggle behavior: if preview is playing, stop it
     if (m_isPreviewPlaying && m_audioEngine->isPlaying())
     {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
+        m_audioEngine->stopSelectionPreview();
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
@@ -472,44 +463,11 @@ void ParametricEQDialog::onPreviewClicked()
         return;
     }
 
-    // Using REALTIME_DSP mode for instant parameter updates
-
-    // 0. Stop any current playback FIRST
-    if (m_audioEngine->isPlaying())
-    {
-        m_audioEngine->stop();
-    }
-
-    // 1. Clear stale loop points (CRITICAL for coordinate system)
-    m_audioEngine->clearLoopPoints();
-
-    // 2. Configure looping based on loop toggle
-    bool shouldLoop = m_loopToggle.getToggleState();
-    m_audioEngine->setLooping(shouldLoop);
-
-    // 3. Set preview mode to REALTIME_DSP for instant parameter changes
+    // Configure the effect, then hand selection/loop/transport to the shared helper.
     m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
-
-    // 4. Set initial EQ parameters
-    ParametricEQ::Parameters params = getCurrentParameters();
-    m_audioEngine->setParametricEQPreview(params, true);
-
-    // 5. Set preview selection offset for accurate cursor positioning
-    m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
-
-    // 6. Set position and loop points in FILE coordinates
-    double selectionStartSec = m_selectionStart / m_bufferManager->getSampleRate();
-    double selectionEndSec = m_selectionEnd / m_bufferManager->getSampleRate();
-
-    m_audioEngine->setPosition(selectionStartSec);
-
-    if (shouldLoop)
-    {
-        m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
-    }
-
-    // 7. Start playback
-    m_audioEngine->play();
+    m_audioEngine->setParametricEQPreview(getCurrentParameters(), true);
+    m_audioEngine->startSelectionPreview(m_selectionStart, m_selectionEnd,
+                                         m_loopToggle.getToggleState());
 
     // 8. Update button state for toggle
     m_isPreviewPlaying = true;

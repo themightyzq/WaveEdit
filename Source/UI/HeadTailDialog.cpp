@@ -15,6 +15,7 @@
 
 #include "HeadTailDialog.h"
 #include "../DSP/HeadTailEngine.h"
+#include "../Audio/AudioEngine.h"
 #include "ThemeManager.h"
 #include "UIConstants.h"
 
@@ -212,10 +213,18 @@ void HeadTailDialog::WaveformPreview::drawBoundaryLines(juce::Graphics& g,
 //==============================================================================
 
 HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
-                                double sampleRate)
-    : m_audioBuffer(audioBuffer)
-    , m_sampleRate(sampleRate)
+                                double sampleRate,
+                                AudioEngine* audioEngine,
+                                juce::Component* documentLifeline)
+    : m_sampleRate(sampleRate)
+    , m_audioEngine(audioEngine)
+    , m_documentLifeline(documentLifeline)
 {
+    // Own a copy of the source audio. Used for A/B preview AND for the overlay /
+    // waveform display, so nothing in this async dialog reads the live document
+    // buffer (which could be reallocated or freed while the dialog is open).
+    m_originalBuffer.makeCopyOf(audioBuffer);
+
     //--------------------------------------------------------------------------
     // Section 1: Intelligent Trim
 
@@ -338,7 +347,7 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     //--------------------------------------------------------------------------
     // Waveform preview
 
-    m_waveformPreview = std::make_unique<WaveformPreview>(m_audioBuffer);
+    m_waveformPreview = std::make_unique<WaveformPreview>(m_originalBuffer);
     addAndMakeVisible(m_waveformPreview.get());
 
     //--------------------------------------------------------------------------
@@ -357,63 +366,48 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     // an AudioEngine reference is threaded through to this dialog (cross-file
     // dependency — requires DSPController and AudioEngine changes).
     m_bypassButton.setButtonText("Bypass");
-    m_bypassButton.setEnabled(false);  // Not yet wired to AudioEngine
+    m_bypassButton.setEnabled(false);  // Enabled only while previewing (startPreview).
+    m_bypassButton.onClick = [this]()
+    {
+        if (! m_previewActive || ! engineUsable())
+            return;
+        m_bypassActive = ! m_bypassActive;
+        m_bypassButton.setButtonText(m_bypassActive ? "Bypassed" : "Bypass");
+        if (m_bypassActive)
+            m_bypassButton.setColour(juce::TextButton::buttonColourId,
+                                     ui::colour(ui::kButtonBypassActive));
+        else
+            m_bypassButton.removeColour(juce::TextButton::buttonColourId);
+
+        reloadActiveBuffer();   // startBufferPreview restarts playback itself
+    };
     addAndMakeVisible(m_bypassButton);
 
     m_loopToggle.setButtonText("Loop");
     m_loopToggle.setToggleState(true, juce::dontSendNotification);  // Default ON per §6.8
-    m_loopToggle.setEnabled(false);  // Not yet wired to AudioEngine
+    m_loopToggle.onClick = [this]()
+    {
+        if (m_previewActive && engineUsable())
+            reloadActiveBuffer();   // startBufferPreview restarts playback itself
+    };
     addAndMakeVisible(m_loopToggle);
 
     m_previewButton.setButtonText("Preview");
     m_previewButton.onClick = [this]()
     {
-        auto recipe = buildRecipe();
-
-        // Run detection to get visual boundaries
-        if (recipe.detectEnabled && m_audioBuffer.getNumSamples() > 0)
-        {
-            auto [boundaryStart, boundaryEnd] =
-                HeadTailEngine::detectBoundaries(m_audioBuffer, m_sampleRate, recipe);
-
-            m_waveformPreview->setDetectionBoundaries(boundaryStart, boundaryEnd);
-
-            // Estimate final keep region after pads
-            auto padSamples = [&](float ms) -> int64_t
-            {
-                return static_cast<int64_t>(ms * m_sampleRate / 1000.0);
-            };
-
-            int64_t keepStart = juce::jmax((int64_t)0,
-                                           boundaryStart - padSamples(recipe.leadingPadMs));
-            int64_t keepEnd   = juce::jmin((int64_t)m_audioBuffer.getNumSamples(),
-                                            boundaryEnd + padSamples(recipe.trailingPadMs));
-
-            m_waveformPreview->setTrimRegion(keepStart, keepEnd);
-        }
-        else
-        {
-            // Show trim based on fixed head/tail sliders only
-            auto padSamples = [&](float ms) -> int64_t
-            {
-                return static_cast<int64_t>(ms * m_sampleRate / 1000.0);
-            };
-
-            int64_t keepStart = padSamples(recipe.headTrimMs);
-            int64_t totalSamples = m_audioBuffer.getNumSamples();
-            int64_t keepEnd   = totalSamples - padSamples(recipe.tailTrimMs);
-            keepEnd = juce::jmax(keepStart, keepEnd);
-
-            m_waveformPreview->setTrimRegion(keepStart, keepEnd);
-        }
-
+        updateOverlay();
         updateSummary();
+        if (m_previewActive)
+            stopPreview();
+        else
+            startPreview();
     };
     addAndMakeVisible(m_previewButton);
 
     m_applyButton.setButtonText("Apply");
     m_applyButton.onClick = [this]()
     {
+        stopPreview();   // tear down before applying so the doc isn't left in preview mode
         if (onApply)
             onApply(buildRecipe());
 
@@ -425,6 +419,7 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     m_cancelButton.setButtonText("Cancel");
     m_cancelButton.onClick = [this]()
     {
+        stopPreview();
         if (onCancel)
             onCancel();
 
@@ -451,8 +446,154 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     });
 }
 
+bool HeadTailDialog::previewIsPlayable(int numSamples, int numChannels) noexcept
+{
+    return numSamples > 0 && numChannels > 0;
+}
+
+//==============================================================================
+// Audio preview (§6.8)
+
+void HeadTailDialog::updateOverlay()
+{
+    auto recipe = buildRecipe();
+
+    auto padSamples = [&](float ms) -> int64_t
+    {
+        return static_cast<int64_t>(ms * m_sampleRate / 1000.0);
+    };
+
+    if (recipe.detectEnabled && m_originalBuffer.getNumSamples() > 0)
+    {
+        auto [boundaryStart, boundaryEnd] =
+            HeadTailEngine::detectBoundaries(m_originalBuffer, m_sampleRate, recipe);
+
+        m_waveformPreview->setDetectionBoundaries(boundaryStart, boundaryEnd);
+
+        int64_t keepStart = juce::jmax((int64_t)0,
+                                       boundaryStart - padSamples(recipe.leadingPadMs));
+        int64_t keepEnd   = juce::jmin((int64_t)m_originalBuffer.getNumSamples(),
+                                        boundaryEnd + padSamples(recipe.trailingPadMs));
+
+        m_waveformPreview->setTrimRegion(keepStart, keepEnd);
+    }
+    else
+    {
+        int64_t keepStart    = padSamples(recipe.headTrimMs);
+        int64_t totalSamples = m_originalBuffer.getNumSamples();
+        int64_t keepEnd      = juce::jmax(keepStart, totalSamples - padSamples(recipe.tailTrimMs));
+
+        m_waveformPreview->setTrimRegion(keepStart, keepEnd);
+    }
+}
+
+void HeadTailDialog::renderProcessed()
+{
+    try
+    {
+        HeadTailEngine::process(m_originalBuffer, m_sampleRate, buildRecipe(), m_processedBuffer);
+    }
+    catch (const std::exception& e)
+    {
+        juce::Logger::writeToLog("HeadTailDialog::renderProcessed - " + juce::String(e.what()));
+        m_processedBuffer.setSize(0, 0);
+    }
+
+    m_processedPlayable = previewIsPlayable(m_processedBuffer.getNumSamples(),
+                                            m_processedBuffer.getNumChannels());
+}
+
+bool HeadTailDialog::engineUsable() const noexcept
+{
+    // The engine lives inside the Document; if the document (and its
+    // WaveformDisplay lifeline) is gone, the engine pointer is dangling.
+    return m_audioEngine != nullptr && m_documentLifeline.getComponent() != nullptr;
+}
+
+bool HeadTailDialog::reloadActiveBuffer()
+{
+    if (! engineUsable() || ! m_previewActive)
+        return false;
+
+    // The shared offline-buffer helper sets OFFLINE_BUFFER mode, loads the
+    // buffer, wires looping, seeks to 0, and starts playback (returns false on
+    // an empty buffer). Used for the initial start and for bypass/loop/re-render.
+    const auto& buf = m_bypassActive ? m_originalBuffer : m_processedBuffer;
+    return m_audioEngine->startBufferPreview(buf, m_sampleRate, buf.getNumChannels(),
+                                             m_loopToggle.getToggleState());
+}
+
+void HeadTailDialog::startPreview()
+{
+    if (! engineUsable())
+        return;
+
+    renderProcessed();
+    if (! m_processedPlayable)
+    {
+        m_summaryEditor.setText("Result is empty - nothing to preview.", juce::dontSendNotification);
+        return;
+    }
+
+    m_previewActive = true;
+    m_bypassActive  = false;
+    if (! reloadActiveBuffer())   // loads + loops + plays via startBufferPreview
+    {
+        stopPreview();
+        return;
+    }
+
+    m_previewButton.setButtonText("STOP");   // short label: "Stop Preview" was clipped
+    m_previewButton.setColour(juce::TextButton::buttonColourId,
+                              ui::colour(ui::kButtonPreviewActive));
+    m_bypassButton.setEnabled(true);
+}
+
+void HeadTailDialog::stopPreview()
+{
+    if (engineUsable())
+        m_audioEngine->stopSelectionPreview();
+    stopTimer();
+
+    m_previewActive = false;
+    m_bypassActive  = false;
+    m_previewButton.setButtonText("Preview");
+    m_previewButton.removeColour(juce::TextButton::buttonColourId);
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.removeColour(juce::TextButton::buttonColourId);
+    m_bypassButton.setEnabled(false);
+}
+
+void HeadTailDialog::timerCallback()
+{
+    stopTimer();
+    if (! m_previewActive)
+        return;
+
+    if (! engineUsable())   // document closed while a re-render was pending
+    {
+        stopPreview();
+        return;
+    }
+
+    renderProcessed();
+    if (! m_processedPlayable)
+    {
+        m_summaryEditor.setText("Result is empty - nothing to preview.", juce::dontSendNotification);
+        stopPreview();
+        return;
+    }
+
+    updateOverlay();
+    reloadActiveBuffer();   // startBufferPreview restarts playback itself
+}
+
 HeadTailDialog::~HeadTailDialog()
 {
+    // Safety net for every close path (Esc, window X, document close): ensure
+    // the engine is never left in preview mode on the live document.
+    stopTimer();
+    stopPreview();
 }
 
 bool HeadTailDialog::keyPressed(const juce::KeyPress& key)
@@ -776,11 +917,16 @@ void HeadTailDialog::updateSummary()
     if (step == 1)
         summary = "(No operations configured)";
 
-    if (m_sampleRate > 0.0 && m_audioBuffer.getNumSamples() > 0)
+    if (m_sampleRate > 0.0 && m_originalBuffer.getNumSamples() > 0)
     {
-        double originalMs = ((double)m_audioBuffer.getNumSamples() / m_sampleRate) * 1000.0;
+        double originalMs = ((double)m_originalBuffer.getNumSamples() / m_sampleRate) * 1000.0;
         summary += "\nDuration: " + juce::String(originalMs, 1) + " ms";
     }
 
     m_summaryEditor.setText(summary, juce::dontSendNotification);
+
+    // Debounced preview re-render: every control change funnels through here,
+    // so a single hook covers all sliders/combos/toggles. Coalesces rapid edits.
+    if (m_previewActive)
+        startTimer(kPreviewDebounceMs);
 }
