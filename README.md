@@ -155,10 +155,9 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Import/export custom templates
 
 **Quality**:
-- ✅ Automated test suite (372 groups / ~207,000 assertions locally;
-  CI is similar with a handful of device-dependent groups skipped via
-  `WAVEEDIT_CI=1`, 100% pass rate). Runs locally via
-  `./build-and-run.command` and in CI on every push.
+- ✅ Extensively tested: 372 test groups / ~207,000 assertions, 100% pass
+  rate. The automated test suite is maintained in the project's development
+  repository (not bundled in this download).
 - ✅ Sub-1 second startup, 60fps rendering
 - ✅ <10ms waveform updates, <10ms playback latency
 
@@ -344,30 +343,11 @@ Windows:
 
 ## Testing
 
-**Build and run tests**:
-```bash
-cmake --build build --target WaveEditTests
-./build/WaveEditTests_artefacts/Debug/WaveEditTests
-```
-
-**Test output**:
-```
-╔══════════════════════════════════════════════════════════════╗
-║         WaveEdit Automated Test Suite by ZQ SFX             ║
-╚══════════════════════════════════════════════════════════════╝
-
-Total test groups: 372
-Total assertions: 206947
-Passed: 206947
-Failed: 0
-
-✅ All tests PASSED
-```
-
-**Test infrastructure**:
-- Unit tests: Individual components (AudioEngine, AudioBufferManager, etc.)
-- Integration tests: Components working together
-- End-to-end tests: Complete workflows (open → edit → save)
+WaveEdit ships with an extensive automated test suite (372 test groups /
+~207,000 assertions across unit, integration, and end-to-end tests). The
+suite is maintained in the project's development repository and is not
+included in this build-from-source distribution. The application builds and
+runs without it.
 
 ---
 
