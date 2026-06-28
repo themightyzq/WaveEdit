@@ -134,11 +134,7 @@ NormalizeDialog::~NormalizeDialog()
 {
     // Stop any preview playback and reset bypass state
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-    {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setPreviewBypassed(false);
-    }
+        m_audioEngine->stopSelectionPreview();
 }
 
 void NormalizeDialog::paint(juce::Graphics& g)
@@ -243,10 +239,7 @@ void NormalizeDialog::visibilityChanged()
     {
         // Stop preview when dialog is hidden
         if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-        {
-            m_audioEngine->stop();
-            m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        }
+            m_audioEngine->stopSelectionPreview();
     }
 }
 
@@ -381,10 +374,7 @@ void NormalizeDialog::onPreviewClicked()
     // Toggle behavior: if preview is playing, stop it
     if (m_isPreviewPlaying && m_audioEngine->isPlaying())
     {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-        m_audioEngine->setNormalizePreview(0.0f, false);  // Disable normalize processor
-        m_audioEngine->setPreviewBypassed(false);  // Reset bypass state
+        m_audioEngine->stopSelectionPreview();
         m_isPreviewPlaying = false;
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
@@ -396,59 +386,23 @@ void NormalizeDialog::onPreviewClicked()
         return;
     }
 
-    // Following GainDialog pattern (GainDialog.cpp:289-365)
-
-    // 0. Stop any current playback FIRST
-    if (m_audioEngine->isPlaying())
-    {
-        m_audioEngine->stop();
-    }
-
-    // 1. Clear stale loop points (CRITICAL for coordinate system)
-    m_audioEngine->clearLoopPoints();
-
-    // 2. Configure looping based on loop toggle
-    bool shouldLoop = m_loopToggle.getToggleState();
-    m_audioEngine->setLooping(shouldLoop);
-
-    // 3. Calculate required gain for normalization
+    // Compute the required normalization gain. H18: guard a non-finite level
+    // (e.g. RMS on a silent/zero-length selection) which would otherwise push
+    // +inf gain to the audio thread.
     const float targetDB = static_cast<float>(m_targetLevelSlider.getValue());
-    float currentLevel = (m_mode == NormalizeMode::RMS) ? m_currentRMSDB : m_currentPeakDB;
-
-    // H18: Guard — non-finite currentLevel (e.g. RMS on silent/zero-length
-    // selection) would push +inf gain to the audio thread.
+    const float currentLevel = (m_mode == NormalizeMode::RMS) ? m_currentRMSDB : m_currentPeakDB;
     if (!std::isfinite(currentLevel))
         return;
-
     const float requiredGainDB = targetDB - currentLevel;
-
-    // H18: Sanity check the computed gain is also finite.
     if (!std::isfinite(requiredGainDB))
         return;
 
-    // 4. Set preview mode to REALTIME_DSP for instant parameter changes
+    // Configure the effect, then hand the selection/loop/transport setup to the
+    // shared engine helper.
     m_audioEngine->setPreviewMode(PreviewMode::REALTIME_DSP);
-
-    // 5. Set normalize parameters
     m_audioEngine->setNormalizePreview(requiredGainDB, true);
-
-    // 6. Set preview selection offset for accurate cursor positioning
-    m_audioEngine->setPreviewSelectionOffset(m_selectionStart);
-
-    // 7. Set position and loop points in FILE coordinates
-    const double sampleRate = m_bufferManager->getSampleRate();
-    double selectionStartSec = m_selectionStart / sampleRate;
-    double selectionEndSec = m_selectionEnd / sampleRate;
-
-    m_audioEngine->setPosition(selectionStartSec);
-
-    if (shouldLoop)
-    {
-        m_audioEngine->setLoopPoints(selectionStartSec, selectionEndSec);
-    }
-
-    // 8. Start playback
-    m_audioEngine->play();
+    m_audioEngine->startSelectionPreview(m_selectionStart, m_selectionEnd,
+                                         m_loopToggle.getToggleState());
 
     // 9. Update button state for toggle
     m_isPreviewPlaying = true;
@@ -468,10 +422,7 @@ void NormalizeDialog::onApplyClicked()
 
     // Stop any preview playback
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-    {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-    }
+        m_audioEngine->stopSelectionPreview();
 
     if (m_applyCallback)
     {
@@ -485,10 +436,7 @@ void NormalizeDialog::onCancelClicked()
 {
     // Stop any preview playback
     if (m_audioEngine && m_audioEngine->getPreviewMode() != PreviewMode::DISABLED)
-    {
-        m_audioEngine->stop();
-        m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
-    }
+        m_audioEngine->stopSelectionPreview();
 
     if (m_cancelCallback)
     {

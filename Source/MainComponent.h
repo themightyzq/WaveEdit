@@ -378,6 +378,13 @@ public:
         // Set up command manager
         m_commandManager.registerAllCommandsForTarget(this);
 
+        // Keep the menu bar's command-item enabled-states in sync with the
+        // command manager. Without this watch, the native macOS menu never
+        // reflects getCommandInfo() after its initial build, so command items --
+        // even always-on ones like File > Open -- stay greyed. Pairs with the
+        // commandStatusChanged() call on document changes (see currentDocumentChanged).
+        setApplicationCommandManagerToWatch(&m_commandManager);
+
         // Add keyboard mappings
         addKeyListener(m_commandManager.getKeyMappings());
 
@@ -650,6 +657,11 @@ public:
 
         // Repaint to update display
         repaint();
+
+        // Refresh menu/command enabled-states for the new document: a file may
+        // now be loaded (or unloaded), so File/Edit/Process/Plugin items must
+        // re-evaluate. The watch set in the constructor pushes this to the menu.
+        m_commandManager.commandStatusChanged();
     }
 
     void documentAdded(Document* document, int index) override

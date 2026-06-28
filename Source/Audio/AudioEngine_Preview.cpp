@@ -17,6 +17,7 @@
 */
 
 #include "AudioEngine.h"
+#include <cmath>
 
 //==============================================================================
 // Preview System Implementation
@@ -33,9 +34,8 @@ void AudioEngine::setPreviewMode(PreviewMode mode)
     // This allows other engines to auto-mute themselves during preview
     if (mode != PreviewMode::DISABLED && oldMode == PreviewMode::DISABLED)
     {
-        // P2 FIX: Reset DSP processor state for clean preview
-        // Prevents filter state carryover between different selections
-        m_fadeProcessor.reset();
+        // Reset stateful DSP so filter history doesn't carry between selections.
+        // (FadeProcessor is position-driven and stateless, so it needs no reset.)
         m_dcOffsetProcessor.reset();
 
         // Entering preview mode - register this engine as the previewing one
@@ -206,38 +206,17 @@ void AudioEngine::setNormalizePreview(float gainDB, bool enabled)
 
 void AudioEngine::setFadePreview(bool fadeIn, int curveType, float durationMs, bool enabled)
 {
-    // Thread-safe: Can be called from UI thread
+    // Thread-safe: can be called from the message thread. The FadeProcessor is
+    // position-driven, so there is no counter to reset -- the audio callback
+    // derives the fade position from the transport each block.
 
-    // Set fade type
-    m_fadeProcessor.fadeType.store(fadeIn ?
-        FadeProcessor::FadeType::FADE_IN :
-        FadeProcessor::FadeType::FADE_OUT);
+    m_fadeProcessor.fadeIn.store(fadeIn);
+    m_fadeProcessor.curveType.store(juce::jlimit(0, 3, curveType)); // 0=Lin,1=Log,2=Exp,3=S-Curve
 
-    // Set curve type (validate range)
-    FadeProcessor::CurveType curve = FadeProcessor::CurveType::LINEAR;
-    switch (curveType)
-    {
-        case 0: curve = FadeProcessor::CurveType::LINEAR; break;
-        case 1: curve = FadeProcessor::CurveType::LOGARITHMIC; break;
-        case 2: curve = FadeProcessor::CurveType::EXPONENTIAL; break;
-        case 3: curve = FadeProcessor::CurveType::S_CURVE; break;
-        default: curve = FadeProcessor::CurveType::LINEAR; break;
-    }
-    m_fadeProcessor.curveType.store(curve);
-
-    // Convert duration from ms to samples
-    double sampleRate = m_sampleRate.load();
-    if (sampleRate > 0)
-    {
-        float durationSamples = (durationMs / 1000.0f) * static_cast<float>(sampleRate);
-        m_fadeProcessor.fadeDurationSamples.store(durationSamples);
-    }
-
-    // Reset sample counter for fresh fade
-    if (!m_fadeProcessor.enabled.load() && enabled)
-    {
-        m_fadeProcessor.reset();
-    }
+    // Fade span (file samples) = duration converted at the file sample rate.
+    const double sampleRate = m_sampleRate.load();
+    if (sampleRate > 0.0)
+        m_fadeProcessor.fadeDurationSamples.store((durationMs / 1000.0f) * static_cast<float>(sampleRate));
 
     m_fadeProcessor.enabled.store(enabled);
 }
@@ -262,9 +241,9 @@ void AudioEngine::resetAllPreviewProcessors()
 {
     // Thread-safe: Can be called from message thread
     // Resets processors with internal state (filter history, etc.)
-    m_fadeProcessor.reset();
     m_dcOffsetProcessor.reset();
-    // Note: GainProcessor and NormalizeProcessor are stateless (pure gain)
+    // Note: GainProcessor, NormalizeProcessor and the (position-driven)
+    // FadeProcessor are stateless and need no reset.
     // Note: ParametricEQ reset is handled by setParametricEQBands when reconfigured
 }
 
@@ -343,4 +322,123 @@ double AudioEngine::getPreviewSelectionOffsetSeconds() const
     }
 
     return static_cast<double>(offsetSamples) / currentSampleRate;
+}
+
+//==============================================================================
+// Shared preview helpers (pure) + session control
+//==============================================================================
+
+AudioEngine::PreviewRegion AudioEngine::computePreviewRegion(int64_t selectionStart,
+                                                             int64_t selectionEnd,
+                                                             double sampleRate,
+                                                             int64_t totalSamples,
+                                                             bool loop) noexcept
+{
+    PreviewRegion region;
+
+    if (sampleRate <= 0.0 || totalSamples <= 0)
+        return region; // invalid: nothing to preview
+
+    // Clamp the selection into [0, totalSamples].
+    int64_t start = juce::jlimit<int64_t>(0, totalSamples, selectionStart);
+    int64_t end   = juce::jlimit<int64_t>(0, totalSamples, selectionEnd);
+
+    // Empty or inverted selection => preview the whole buffer.
+    if (end <= start)
+    {
+        start = 0;
+        end   = totalSamples;
+    }
+
+    region.valid    = true;
+    region.startSec = static_cast<double>(start) / sampleRate;
+    region.endSec   = static_cast<double>(end)   / sampleRate;
+    region.loop     = loop;
+    return region;
+}
+
+float AudioEngine::fadeGainAt(double posInSpanSamples, double fadeDurationSamples,
+                              bool fadeIn, int curveType) noexcept
+{
+    if (fadeDurationSamples <= 0.0)
+        return 1.0f; // instantaneous fade -> unity
+
+    const float progress = static_cast<float>(
+        juce::jlimit(0.0, 1.0, posInSpanSamples / fadeDurationSamples));
+
+    float gain = progress; // linear (curveType 0)
+    switch (curveType)
+    {
+        case 1: gain = std::log10(1.0f + progress * 9.0f); break;                       // logarithmic
+        case 2: gain = (std::exp(progress * 2.0f) - 1.0f) / (std::exp(2.0f) - 1.0f); break; // exponential
+        case 3: gain = 0.5f * (1.0f + std::tanh(6.0f * (progress - 0.5f))); break;       // S-curve
+        default: break;
+    }
+
+    return fadeIn ? gain : (1.0f - gain);
+}
+
+void AudioEngine::startSelectionPreview(int64_t selectionStart, int64_t selectionEnd, bool loop)
+{
+    const double sr = m_sampleRate.load();
+    const auto total = static_cast<int64_t>(std::llround(getTotalLength() * sr)); // getTotalLength() is seconds
+
+    const PreviewRegion region = computePreviewRegion(selectionStart, selectionEnd, sr, total, loop);
+    if (!region.valid)
+        return;
+
+    // Cursor/visualisation offset + the fade's position reference (file seconds).
+    setPreviewSelectionOffset(static_cast<int64_t>(std::llround(region.startSec * sr)));
+    m_previewRegionStartSec.store(region.startSec);
+
+    clearLoopPoints();
+    setLooping(region.loop);
+    if (region.loop)
+        setLoopPoints(region.startSec, region.endSec);
+
+    setPosition(region.startSec);
+    play();
+}
+
+bool AudioEngine::startBufferPreview(const juce::AudioBuffer<float>& buffer, double sampleRate,
+                                     int numChannels, bool loop)
+{
+    if (buffer.getNumSamples() <= 0 || numChannels <= 0 || sampleRate <= 0.0)
+        return false;
+
+    setPreviewMode(PreviewMode::OFFLINE_BUFFER);
+    if (!loadPreviewBuffer(buffer, sampleRate, numChannels))
+        return false;
+
+    const double durationSec = buffer.getNumSamples() / sampleRate;
+    m_previewRegionStartSec.store(0.0); // offline buffer plays from 0
+
+    clearLoopPoints();
+    setLooping(loop);
+    if (loop)
+        setLoopPoints(0.0, durationSec);
+
+    setPosition(0.0);
+    play();
+    return true;
+}
+
+void AudioEngine::stopSelectionPreview()
+{
+    // Order matters: stop() also clears loop state, so clear/disable afterwards.
+    stop();
+    clearLoopPoints();
+    setLooping(false);
+
+    // Disable every preview effect so the next preview starts from a clean slate.
+    setGainPreview(0.0f, false);
+    setNormalizePreview(0.0f, false);
+    setFadePreview(true, 0, 0.0f, false);
+    setDCOffsetPreview(false);
+    setParametricEQPreview(ParametricEQ::Parameters{}, false);
+    setDynamicEQPreview(DynamicParametricEQ::Parameters{}, false);
+
+    setPreviewBypassed(false);
+    setPreviewMode(PreviewMode::DISABLED);
+    m_previewRegionStartSec.store(0.0);
 }

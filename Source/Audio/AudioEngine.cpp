@@ -879,6 +879,10 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
     // Prepare the transport source for playback
     if (device != nullptr)
     {
+        // Capture the device output rate (may differ from the file rate). The
+        // position-driven fade preview needs it to map output samples to file time.
+        m_deviceSampleRate.store(device->getCurrentSampleRate());
+
         m_transportSource.prepareToPlay(device->getCurrentBufferSizeSamples(),
                                          device->getCurrentSampleRate());
 
@@ -1107,10 +1111,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             m_dynamicEQ->applyEQ(buffer);
         }
 
-        // 6. Apply fade processor last (affects overall envelope)
+        // 6. Apply fade processor last (affects overall envelope).
+        // Position-driven: feed the current transport position within the fade
+        // span (file samples) + the file-samples-per-output-sample ratio, so the
+        // fade is rate-independent and re-aligns on each loop wrap. (sampleRate
+        // here is the FILE rate, m_sampleRate.)
         if (sampleRate > 0)
         {
-            m_fadeProcessor.process(buffer, sampleRate);
+            const double deviceRate = m_deviceSampleRate.load();
+            const double posSec = m_transportSource.getCurrentPosition() - m_previewRegionStartSec.load();
+            const double posFileSamples = juce::jmax(0.0, posSec) * sampleRate;
+            const double fileSamplesPerOutputSample = (deviceRate > 0.0) ? (sampleRate / deviceRate) : 1.0;
+            m_fadeProcessor.process(buffer, posFileSamples, fileSamplesPerOutputSample);
         }
 
         // 7. Apply preview plugin instance (for OfflinePluginDialog real-time preview)
