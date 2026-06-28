@@ -129,10 +129,16 @@ REFACTORING_STATUS.md
 *_PHASE*.md
 
 # Internal development scripts and QA docs (not needed for building)
-# Anchored to repo root — does NOT match .github/scripts/
+# Anchored to repo root.
 /scripts/
+.github/scripts/
 QA_Plans/
 QA_TEST_PLAN_SUMMARY.txt
+
+# Automated test suite — dev-only, kept in Diversion, not shipped to the
+# public GitHub repo (the app builds without it; the CMake test target is
+# guarded by if(EXISTS Tests/TestRunner.cpp)).
+/Tests/
 
 # Test source files that aren't part of main test suite
 Source/Test*.cpp
