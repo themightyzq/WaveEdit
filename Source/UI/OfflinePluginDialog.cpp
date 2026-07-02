@@ -19,6 +19,7 @@
 #include "../Plugins/PluginManager.h"
 #include "../Plugins/PluginChainRenderer.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 
 juce::Colour OfflinePluginDialog::backgroundColour() const
 {
@@ -64,7 +65,8 @@ OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
     addAndMakeVisible(m_titleLabel);
 
     // Search box
-    m_searchBox.setTextToShowWhenEmpty("Filter plugins...", juce::Colours::grey);
+    m_searchBox.setTextToShowWhenEmpty("Filter plugins...",
+                                        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     m_searchBox.onTextChange = [this]() { onSearchTextChanged(); };
     {
         const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
@@ -422,7 +424,7 @@ void OfflinePluginDialog::selectedRowsChanged(int lastRowSelected)
     // If we wanted single-click to load plugins, we'd need to debounce or use a timer
     // to avoid loading the wrong plugin during rapid selection changes.
 
-    const int selectedRow = m_pluginTable.getSelectedRow();
+    [[maybe_unused]] const int selectedRow = m_pluginTable.getSelectedRow();
     DBG("[PLUGIN SELECT] selectedRowsChanged: lastRowSelected=" + juce::String(lastRowSelected)
         + ", getSelectedRow()=" + juce::String(selectedRow));
 
@@ -712,7 +714,8 @@ void OfflinePluginDialog::enableRealtimePreview()
 
     // Update button appearance
     m_previewButton.setButtonText("Stop Preview");
-    m_previewButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    m_previewButton.setColour(juce::TextButton::buttonColourId,
+                               waveedit::ui::colour(waveedit::ui::kButtonPreviewActive));
 }
 
 void OfflinePluginDialog::onApplyClicked()

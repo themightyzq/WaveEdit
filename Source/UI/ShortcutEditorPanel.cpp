@@ -102,6 +102,7 @@ public:
         exitModalState(1);
         return true;
     }
+    using juce::Component::keyPressed;
 
 private:
     juce::Label m_instructionLabel;

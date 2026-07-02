@@ -10,6 +10,7 @@
 
 #include "BatchProcessorDialog.h"
 #include "../UI/UIConstants.h"
+#include "../UI/ThemeManager.h"
 
 namespace waveedit
 {
@@ -161,7 +162,8 @@ BatchProcessorDialog::BatchProcessorDialog()
     #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     m_patternHelpLabel.setFont(juce::Font(12.0f));
     #pragma GCC diagnostic pop
-    m_patternHelpLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+    m_patternHelpLabel.setColour(juce::Label::textColourId,
+                                  waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     addAndMakeVisible(m_patternHelpLabel);
 
     // Pattern help button "?"
@@ -185,7 +187,8 @@ BatchProcessorDialog::BatchProcessorDialog()
     #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     m_outputPreviewEditor.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
     #pragma GCC diagnostic pop
-    m_outputPreviewEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff1e1e1e));
+    m_outputPreviewEditor.setColour(juce::TextEditor::backgroundColourId,
+                                     waveedit::ThemeManager::getInstance().getCurrent().background);
     addAndMakeVisible(m_outputPreviewEditor);
 
     addAndMakeVisible(m_formatLabel);
@@ -293,7 +296,7 @@ BatchProcessorDialog::~BatchProcessorDialog()
 
 void BatchProcessorDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2b2b2b));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().panel);
 }
 
 void BatchProcessorDialog::resized()
@@ -451,7 +454,7 @@ bool BatchProcessorDialog::showDialog()
 
     juce::DialogWindow::LaunchOptions options;
     options.dialogTitle = "Batch Processor";
-    options.dialogBackgroundColour = juce::Colour(waveedit::ui::kBackgroundPrimary);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.content.setOwned(new BatchProcessorDialog());
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
@@ -832,13 +835,15 @@ void BatchProcessorDialog::onSameAsSourceToggled()
     if (sameAsSource)
     {
         m_outputDirEditor.setText("(Same as source file)", false);
-        m_outputDirEditor.setColour(juce::TextEditor::textColourId, juce::Colour(ui::kTextMuted));
+        m_outputDirEditor.setColour(juce::TextEditor::textColourId,
+                                    waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     }
     else
     {
         if (m_outputDirEditor.getText() == "(Same as source file)")
             m_outputDirEditor.setText("", false);
-        m_outputDirEditor.setColour(juce::TextEditor::textColourId, juce::Colour(ui::kTextPrimary));
+        m_outputDirEditor.setColour(juce::TextEditor::textColourId,
+                                    waveedit::ThemeManager::getInstance().getCurrent().text);
     }
 
     updateOutputPreview();
@@ -1432,7 +1437,7 @@ BatchProcessorSettings BatchProcessorDialog::gatherSettings()
     // Plugin chain
     settings.usePluginChain = m_usePluginChainToggle.getToggleState();
     settings.pluginChainPresetPath = m_pluginPresetEditor.getText().trim();
-    settings.pluginTailSeconds = m_pluginTailSlider.getValue();
+    settings.pluginTailSeconds = static_cast<float>(m_pluginTailSlider.getValue());
 
     // Output format
     switch (m_formatCombo.getSelectedId())

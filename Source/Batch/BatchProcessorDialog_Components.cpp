@@ -17,6 +17,7 @@
 
 #include "BatchProcessorDialog.h"
 #include "../UI/UIConstants.h"
+#include "../UI/ThemeManager.h"
 
 namespace waveedit
 {
@@ -228,6 +229,11 @@ void DSPOperationComponent::showDetailsPopup()
                           "Curve: " + m_curveCombo.getText();
             break;
 
+        case BatchDSPOperation::NONE:
+        case BatchDSPOperation::PARAMETRIC_EQ:
+        case BatchDSPOperation::GRAPHICAL_EQ:
+        case BatchDSPOperation::REVERSE:
+        case BatchDSPOperation::INVERT:
         default:
             title = "Operation Details";
             description = "No additional details available for this operation.";
@@ -250,18 +256,20 @@ void DSPOperationComponent::showDetailsPopup()
 
 void DSPOperationComponent::paint(juce::Graphics& g)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Fill background - brighter if drag highlighted
     if (m_dragHighlight)
-        g.fillAll(juce::Colour(0xff4a5a4a));  // Subtle green tint for drop target
+        g.fillAll(theme.panel.interpolatedWith(theme.success, 0.25f));  // Subtle green tint for drop target
     else
-        g.fillAll(juce::Colour(0xff383838));
+        g.fillAll(theme.panel);
 
     // Border
-    g.setColour(m_dragHighlight ? juce::Colour(0xff88aa88) : juce::Colour(0xff505050));
+    g.setColour(m_dragHighlight ? theme.success : theme.border);
     g.drawRect(getLocalBounds(), 1);
 
     // Draw drag handle indicator (three horizontal lines on the left)
-    g.setColour(juce::Colour(0xff707070));
+    g.setColour(theme.textMuted);
     auto handleArea = getLocalBounds().removeFromLeft(12);
     int midY = handleArea.getCentreY();
     for (int i = -1; i <= 1; ++i)
@@ -330,6 +338,12 @@ BatchDSPSettings DSPOperationComponent::getSettings() const
             settings.fadeDurationMs = static_cast<float>(m_paramSlider.getValue());
             settings.fadeType = m_curveCombo.getSelectedId() - 1;
             break;
+        case BatchDSPOperation::NONE:
+        case BatchDSPOperation::DC_OFFSET:
+        case BatchDSPOperation::PARAMETRIC_EQ:
+        case BatchDSPOperation::GRAPHICAL_EQ:
+        case BatchDSPOperation::REVERSE:
+        case BatchDSPOperation::INVERT:
         default:
             break;
     }
@@ -355,6 +369,12 @@ void DSPOperationComponent::setSettings(const BatchDSPSettings& settings)
             m_paramSlider.setValue(settings.fadeDurationMs, juce::dontSendNotification);
             m_curveCombo.setSelectedId(settings.fadeType + 1, juce::dontSendNotification);
             break;
+        case BatchDSPOperation::NONE:
+        case BatchDSPOperation::DC_OFFSET:
+        case BatchDSPOperation::PARAMETRIC_EQ:
+        case BatchDSPOperation::GRAPHICAL_EQ:
+        case BatchDSPOperation::REVERSE:
+        case BatchDSPOperation::INVERT:
         default:
             break;
     }
@@ -395,6 +415,11 @@ void DSPOperationComponent::updateParameterVisibility()
             showCurve = true;
             break;
 
+        case BatchDSPOperation::NONE:
+        case BatchDSPOperation::PARAMETRIC_EQ:
+        case BatchDSPOperation::GRAPHICAL_EQ:
+        case BatchDSPOperation::REVERSE:
+        case BatchDSPOperation::INVERT:
         default:
             showSlider = false;
             break;
@@ -431,8 +456,9 @@ DSPChainPanel::DSPChainPanel()
 
 void DSPChainPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2b2b2b));
-    g.setColour(juce::Colour(0xff3d3d3d));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
+    g.setColour(theme.border);
     g.drawRect(getLocalBounds(), 1);
 }
 
@@ -686,14 +712,15 @@ void BatchProcessorDialog::FileListModel::paintListBoxItem(int rowNumber, juce::
         return;
 
     const auto& info = m_files[static_cast<size_t>(rowNumber)];
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
 
     // Background
     if (rowIsSelected)
-        g.fillAll(juce::Colour(0xff3d6ea5));
+        g.fillAll(theme.selection);
     else if (rowNumber % 2 == 0)
-        g.fillAll(juce::Colour(0xff2b2b2b));
+        g.fillAll(theme.panel);
     else
-        g.fillAll(juce::Colour(0xff323232));
+        g.fillAll(theme.panelAlternate);
 
     // Status icon
     int iconX = 5;
@@ -704,25 +731,25 @@ void BatchProcessorDialog::FileListModel::paintListBoxItem(int rowNumber, juce::
     switch (info.status)
     {
         case BatchJobStatus::PENDING:
-            statusColour = juce::Colour(ui::kStatusPending);
+            statusColour = theme.textMuted;
             statusIcon = "o";
             break;
         case BatchJobStatus::LOADING:
         case BatchJobStatus::PROCESSING:
         case BatchJobStatus::SAVING:
-            statusColour = juce::Colour(0xffffaa00);
+            statusColour = theme.warning;
             statusIcon = "..";
             break;
         case BatchJobStatus::COMPLETED:
-            statusColour = juce::Colour(0xff00cc00);
+            statusColour = theme.success;
             statusIcon = "OK";
             break;
         case BatchJobStatus::FAILED:
-            statusColour = juce::Colour(0xffff4444);
+            statusColour = theme.error;
             statusIcon = "X";
             break;
         case BatchJobStatus::SKIPPED:
-            statusColour = juce::Colour(0xffaaaa00);
+            statusColour = theme.warning.darker(0.4f);  // Distinct from PENDING (muted) and PROCESSING (warning)
             statusIcon = ">>";
             break;
     }
@@ -733,7 +760,7 @@ void BatchProcessorDialog::FileListModel::paintListBoxItem(int rowNumber, juce::
     // Filename
     int nameX = iconX + iconSize + 5;
     int nameWidth = width - nameX - 120;  // Reserve space for size and duration
-    g.setColour(juce::Colours::white);
+    g.setColour(theme.text);
     g.drawText(info.fileName, nameX, 0, nameWidth, height, juce::Justification::centredLeft, true);
 
     // Progress bar for processing files
@@ -750,14 +777,14 @@ void BatchProcessorDialog::FileListModel::paintListBoxItem(int rowNumber, juce::
         int progressBarHeight = 4;
 
         // Background
-        g.setColour(juce::Colour(0xff1a1a1a));
+        g.setColour(theme.panelAlternate);
         g.fillRoundedRectangle(static_cast<float>(progressBarX),
                                static_cast<float>(progressBarY),
                                static_cast<float>(progressBarWidth),
                                static_cast<float>(progressBarHeight), 2.0f);
 
         // Progress fill
-        g.setColour(juce::Colour(0xff00aaff));
+        g.setColour(theme.accent);
         int fillWidth = static_cast<int>(progressBarWidth * info.progress);
         g.fillRoundedRectangle(static_cast<float>(progressBarX),
                                static_cast<float>(progressBarY),
@@ -768,7 +795,7 @@ void BatchProcessorDialog::FileListModel::paintListBoxItem(int rowNumber, juce::
     // File size
     int sizeX = nameX + nameWidth + 5;
     int sizeWidth = 55;
-    g.setColour(juce::Colour(0xffaaaaaa));
+    g.setColour(theme.textMuted);
     g.drawText(info.getFormattedSize(), sizeX, 0, sizeWidth, height, juce::Justification::centredRight);
 
     // Duration (or progress percentage when processing)
@@ -777,13 +804,13 @@ void BatchProcessorDialog::FileListModel::paintListBoxItem(int rowNumber, juce::
 
     if (isProcessing)
     {
-        g.setColour(juce::Colour(0xff00aaff));
+        g.setColour(theme.accent);
         g.drawText(juce::String(static_cast<int>(info.progress * 100)) + "%",
                    durationX, 0, durationWidth, height, juce::Justification::centredRight);
     }
     else
     {
-        g.setColour(juce::Colour(0xff88bbff));
+        g.setColour(theme.accent);
         g.drawText(info.getFormattedDuration(), durationX, 0, durationWidth, height, juce::Justification::centredRight);
     }
 }

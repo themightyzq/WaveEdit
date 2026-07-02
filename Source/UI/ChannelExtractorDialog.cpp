@@ -15,6 +15,7 @@
 
 #include "ChannelExtractorDialog.h"
 #include "UIConstants.h"
+#include "ThemeManager.h"
 
 namespace
 {
@@ -31,6 +32,12 @@ ChannelExtractorDialog::ChannelExtractorDialog(int currentChannels, const juce::
     , m_sourceFileName(sourceFileName)
 {
     setSize(DIALOG_WIDTH, DIALOG_HEIGHT);
+
+    // Read once: this dialog is a short-lived modal (stack-allocated in
+    // showDialog(), destroyed when the modal loop returns), so a live
+    // ThemeManager ChangeListener isn't needed -- colours are correct
+    // for whatever theme is active when the dialog is opened.
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
 
     // Title
     m_titleLabel.setText("Channel Extractor", juce::dontSendNotification);
@@ -114,7 +121,7 @@ ChannelExtractorDialog::ChannelExtractorDialog(int currentChannels, const juce::
     addAndMakeVisible(m_outputDirButton);
 
     m_outputDirLabel.setText("(Not selected)", juce::dontSendNotification);
-    m_outputDirLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_outputDirLabel.setColour(juce::Label::textColourId, theme.textMuted);
     addAndMakeVisible(m_outputDirLabel);
 
     // Filename preview
@@ -125,8 +132,8 @@ ChannelExtractorDialog::ChannelExtractorDialog(int currentChannels, const juce::
     m_filenamePreview.setReadOnly(true);
     m_filenamePreview.setScrollbarsShown(true);
     m_filenamePreview.setFont(juce::FontOptions(11.0f));
-    m_filenamePreview.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xFF1E1E1E));
-    m_filenamePreview.setColour(juce::TextEditor::textColourId, juce::Colours::lightgrey);
+    m_filenamePreview.setColour(juce::TextEditor::backgroundColourId, theme.background);
+    m_filenamePreview.setColour(juce::TextEditor::textColourId, theme.text);
     addAndMakeVisible(m_filenamePreview);
 
     // Buttons
@@ -192,7 +199,8 @@ void ChannelExtractorDialog::onChooseOutputDirectory()
             {
                 m_outputDirectory = result;
                 m_outputDirLabel.setText(result.getFileName(), juce::dontSendNotification);
-                m_outputDirLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+                m_outputDirLabel.setColour(juce::Label::textColourId,
+                    waveedit::ThemeManager::getInstance().getCurrent().text);
                 m_outputDirLabel.setTooltip(result.getFullPathName());
                 updateFilenamePreview();
             }

@@ -330,7 +330,7 @@ public:
 
     int getSizeInUnits() override
     {
-        return sizeof(*this) + m_originalRegions.size() * sizeof(Region);
+        return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_originalRegions.size()) * sizeof(Region));
     }
 
 private:

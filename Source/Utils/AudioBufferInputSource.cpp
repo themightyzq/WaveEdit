@@ -30,7 +30,8 @@ AudioBufferInputSource::AudioBufferInputSource(const juce::AudioBuffer<float>& b
     // CRITICAL: Validate buffer size to prevent integer overflow in WAV generation
     // WAV format has ~4GB limit, but we use a safer 2GB limit
     const juce::int64 estimatedSize = static_cast<juce::int64>(buffer.getNumSamples()) *
-                                       numChannels * sizeof(juce::int16) + 44;
+                                       static_cast<juce::int64>(numChannels) *
+                                       static_cast<juce::int64>(sizeof(juce::int16)) + 44;
     jassert(estimatedSize <= 0x7FFFFFFF); // 2GB safety limit
 
     if (estimatedSize > 0x7FFFFFFF)

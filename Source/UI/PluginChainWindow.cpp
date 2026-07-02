@@ -142,10 +142,16 @@ void PluginChainWindow::PluginRowComponent::updateBypassButtonAppearance(bool is
 
     if (isBypassed)
     {
-        // Bypassed state: warning surface (consistent with PluginChainPanel)
+        // Bypassed state: warning surface (consistent with PluginChainPanel).
+        // Text colour is computed against the warning surface itself (not
+        // theme.text) since that surface's brightness is independent of the
+        // theme's normal text/background contrast pairing.
+        const auto bypassTextColour = theme.warning.getPerceivedBrightness() > 0.5f
+                                           ? juce::Colours::black
+                                           : juce::Colours::white;
         m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
         m_bypassButton.setColour(juce::TextButton::buttonOnColourId, theme.warning.brighter(0.1f));
-        m_bypassButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        m_bypassButton.setColour(juce::TextButton::textColourOffId, bypassTextColour);
     }
     else
     {
@@ -161,9 +167,9 @@ void PluginChainWindow::PluginRowComponent::applyRowTheme()
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
 
     m_moveUpButton.setColour(juce::TextButton::buttonColourId, theme.panelAlternate);
-    m_moveUpButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_moveUpButton.setColour(juce::TextButton::textColourOffId, theme.text);
     m_moveDownButton.setColour(juce::TextButton::buttonColourId, theme.panelAlternate);
-    m_moveDownButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_moveDownButton.setColour(juce::TextButton::textColourOffId, theme.text);
 
     m_editButton.setColour(juce::TextButton::buttonColourId, theme.panel);
     m_editButton.setColour(juce::TextButton::buttonOnColourId, theme.panelAlternate);
@@ -403,7 +409,8 @@ PluginChainWindow::PluginChainWindow(PluginChain* chain, AutomationManager* auto
     m_searchLabel.setText("Search:", juce::dontSendNotification);
     addAndMakeVisible(m_searchLabel);
 
-    m_searchBox.setTextToShowWhenEmpty("Filter plugins...", juce::Colours::grey);
+    m_searchBox.setTextToShowWhenEmpty("Filter plugins...",
+                                        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     m_searchBox.onTextChange = [this]() { onSearchTextChanged(); };
     addAndMakeVisible(m_searchBox);
 
@@ -713,6 +720,10 @@ void PluginChainWindow::applyThemeColours()
     m_scanProgressBar.setColour(juce::ProgressBar::backgroundColourId,
                                  theme.background.brighter(0.1f));
     m_scanProgressBar.setColour(juce::ProgressBar::foregroundColourId, theme.accent);
+
+    // Re-skin the cached placeholder-text colour on theme switch (setTextToShowWhenEmpty
+    // captures the colour at call time, so it must be re-applied here).
+    m_searchBox.setTextToShowWhenEmpty("Filter plugins...", theme.textMuted);
 
     // Re-skin existing chain rows: updateContent() re-runs
     // refreshComponentForRow() -> PluginRowComponent::update() -> applyRowTheme().

@@ -21,8 +21,7 @@
 #include "../Utils/UndoActions/AudioUndoActions.h"
 #include "../UI/ErrorDialog.h"
 
-ClipboardController::ClipboardController(DocumentManager& docManager)
-    : m_documentManager(docManager)
+ClipboardController::ClipboardController(DocumentManager& /*docManager*/)
 {
 }
 
@@ -159,14 +158,9 @@ void ClipboardController::copySelection(Document* doc)
 
             if (focusedChannels != -1)
             {
-                // Count focused channels for log message
-                int focusedCount = 0;
-                for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
-                    if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
-
                 DBG(juce::String::formatted(
-                    "Copied %.2f seconds (%d channel%s) to clipboard",
-                    selectionEnd - selectionStart, focusedCount, focusedCount != 1 ? "s" : ""));
+                    "Copied %.2f seconds to clipboard",
+                    selectionEnd - selectionStart));
             }
             else
             {
@@ -205,12 +199,7 @@ void ClipboardController::cutSelection(Document* doc)
 
         if (focusedChannels != -1)
         {
-            int focusedCount = 0;
-            for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
-                if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
-
-            DBG(juce::String::formatted(
-                "Cut %d channel%s to clipboard (silenced)", focusedCount, focusedCount != 1 ? "s" : ""));
+            DBG("Cut selection to clipboard (per-channel)");
         }
         else
         {
@@ -513,14 +502,9 @@ void ClipboardController::deleteSelection(Document* doc)
             // Perform the silence and add to undo manager
             doc->getUndoManager().perform(silenceAction);
 
-            // Count focused channels for log message
-            int focusedCount = 0;
-            for (int ch = 0; ch < doc->getBufferManager().getNumChannels(); ++ch)
-                if ((focusedChannels & (1 << ch)) != 0) focusedCount++;
-
             DBG(juce::String::formatted(
-                "Silenced %.2f seconds on %d channel%s (per-channel delete)",
-                selectionEnd - selectionStart, focusedCount, focusedCount != 1 ? "s" : ""));
+                "Silenced %.2f seconds (per-channel delete)",
+                selectionEnd - selectionStart));
         }
         else
         {

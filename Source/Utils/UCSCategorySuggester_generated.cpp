@@ -8,8 +8,10 @@
     Auto-generated keyword-mapping table for the UCS v8.2.1 category
     taxonomy. Built from UCS v8.2.1 Full List.xlsx and lifted into this
     standalone translation unit so the rest of UCSCategorySuggester.cpp
-    can stay under the §7.5 file-size cap. This file is exempt from
+    can stay under the Sec 7.5 file-size cap. This file is exempt from
     the cap as data-only generated code.
+
+    DO NOT EDIT BY HAND. Regenerate with scripts/generate_ucs_mappings.py.
 
   ==============================================================================
 */
@@ -733,7 +735,7 @@ void UCSCategorySuggester::initializeKeywordMappings()
 
     // FOOD & DRINK Category
     m_mappings.push_back({"FOOD & DRINK", "COOKING",
-        {"food & drink", "baked", "baking", "barbecuing", "blending", "boil", "boiled", "boiling", "broiling", "burning", "buttering", "canning", "caramelization", "catering", "chopping", "cookery", "cooking", "cookpot", "cuisine", "culinary", "decorating", "defrosting", "dicing", "fry", "gourmet", "grill", "grilling", "mixing", "pantry", "parboiling", "precooking", "preparation", "prepare", "preparing", "prepping", "recipe", "recipes", "reheating", "roasting", "salting", "sauteing", "saut√©ing", "saut‚àö¬©", "seasoning", "sizzle", "slicing", "steam", "steaming", "stew", "stir"}});
+        {"food & drink", "baked", "baking", "barbecuing", "blending", "boil", "boiled", "boiling", "broiling", "burning", "buttering", "canning", "caramelization", "catering", "chopping", "cookery", "cooking", "cookpot", "cuisine", "culinary", "decorating", "defrosting", "dicing", "fry", "gourmet", "grill", "grilling", "mixing", "pantry", "parboiling", "precooking", "preparation", "prepare", "preparing", "prepping", "recipe", "recipes", "reheating", "roasting", "salting", "sauteing", "saute", "seasoning", "sizzle", "slicing", "steam", "steaming", "stew", "stir", "stovetop"}});
     m_mappings.push_back({"FOOD & DRINK", "DRINKING",
         {"food & drink", "drinking", "alcohol", "ale", "beer", "beverage", "beverages", "booze", "boozing", "brew", "chai", "champagne", "chug", "chugging", "cider", "cocktail", "coffee", "coke", "cola", "consumed", "consuming", "consummation", "consumption", "drink", "drinkable", "drinker", "drinkers", "gatorade", "gin", "glug", "gulp", "gulping", "guzzling", "imbibe", "imbibing", "intoxication", "juice", "kombucha", "lemonade", "liquor", "liquoring", "margarita", "martini", "milk", "rum", "sip", "sipping", "slurp", "slurping", "soda"}});
     m_mappings.push_back({"FOOD & DRINK", "EATING",
@@ -1641,6 +1643,6 @@ void UCSCategorySuggester::initializeKeywordMappings()
     m_mappings.push_back({"WOOD", "TONAL",
         {"wood", "2x4", "beam", "board", "bowed", "dowel", "frequency", "hardwood", "harmonic", "joist", "log", "lumber", "melodic", "melodious", "musical", "ping", "pitch", "plank", "plywood", "rafter", "resonance", "resonant", "ring", "shing", "softwood", "sonorous", "sound", "stud", "timber", "timbre", "tonal", "tone"}});
 
-    DBG("UCSCategorySuggester initialized with " +
+    juce::Logger::writeToLog("UCSCategorySuggester initialized with " +
                             juce::String(m_mappings.size()) + " official UCS v8.2.1 category mappings");
 }

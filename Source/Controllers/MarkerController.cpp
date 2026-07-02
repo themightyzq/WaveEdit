@@ -109,7 +109,6 @@ void MarkerController::deleteSelectedMarker(Document* doc)
 
     // Save marker info for logging
     juce::String markerName = marker->getName();
-    int64_t markerPosition = marker->getPosition();
 
     // Create undo action
     doc->getUndoManager().beginNewTransaction("Delete Marker");
@@ -122,9 +121,8 @@ void MarkerController::deleteSelectedMarker(Document* doc)
     doc->getUndoManager().perform(undoAction);
 
     DBG(juce::String::formatted(
-        "Deleted marker '%s' at sample %lld",
-        markerName.toRawUTF8(),
-        markerPosition
+        "Deleted marker '%s'",
+        markerName.toRawUTF8()
     ));
 }
 
@@ -403,10 +401,10 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
                 auto newName = alertWindow->getTextEditorContents("name");
                 if (newName.isNotEmpty())
                 {
-                    auto* marker = doc->getMarkerManager().getMarker(markerIndex);
-                    if (marker)
+                    auto* markerToRename = doc->getMarkerManager().getMarker(markerIndex);
+                    if (markerToRename)
                     {
-                        marker->setName(newName);
+                        markerToRename->setName(newName);
                         doc->getMarkerManager().saveToFile(doc->getFile());
                         doc->getMarkerDisplay().repaint();
                         DBG("Marker renamed to: " + newName);

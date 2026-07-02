@@ -59,7 +59,7 @@ std::vector<UCSCategorySuggester::Suggestion> UCSCategorySuggester::suggestCateg
 
     // Return top N suggestions
     if (suggestions.size() > static_cast<size_t>(maxSuggestions))
-        suggestions.resize(maxSuggestions);
+        suggestions.resize(static_cast<size_t>(maxSuggestions));
 
     return suggestions;
 }

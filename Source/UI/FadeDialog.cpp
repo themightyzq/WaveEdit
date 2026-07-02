@@ -32,11 +32,11 @@ FadeDialog::FadeDialog(FadeDirection direction,
                        int64_t selectionStart,
                        int64_t selectionEnd)
     : m_direction(direction)
+    , m_curvePreview(direction == FadeDirection::FadeIn)
     , m_audioEngine(audioEngine)
     , m_bufferManager(bufferManager)
     , m_selectionStart(selectionStart)
     , m_selectionEnd(selectionEnd)
-    , m_curvePreview(direction == FadeDirection::FadeIn)
 {
     // Determine title and instruction based on direction
     juce::String title;

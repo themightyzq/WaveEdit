@@ -18,6 +18,7 @@
 #include "../UI/PluginChainWindow.h"
 #include "../UI/AutomationLanesPanel.h"
 #include "../UI/ErrorDialog.h"
+#include "../UI/ThemeManager.h"
 
 void PluginController::showPluginManagerDialog(Document* currentDoc)
 {
@@ -25,7 +26,7 @@ void PluginController::showPluginManagerDialog(Document* currentDoc)
 
     juce::DialogWindow::LaunchOptions options;
     options.dialogTitle = "Plugin Manager";
-    options.dialogBackgroundColour = juce::Colour(0xff1e1e1e);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().background;
     options.content.setNonOwned(&dialog);
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;

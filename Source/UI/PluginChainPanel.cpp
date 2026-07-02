@@ -142,7 +142,7 @@ void PluginChainPanel::PluginRowComponent::updateMoveButtonStates(int index, int
     m_moveDownButton.setEnabled(index < totalCount - 1);
 }
 
-void PluginChainPanel::PluginRowComponent::paint(juce::Graphics& g)
+void PluginChainPanel::PluginRowComponent::paint(juce::Graphics& /*g*/)
 {
     // Note: Background is painted by paintListBoxItem(), not here
     // This component is transparent to allow ListBox drag-and-drop to work
@@ -181,9 +181,15 @@ void PluginChainPanel::PluginRowComponent::updateBypassButtonAppearance(bool isB
 
     if (isBypassed)
     {
-        // Bypassed state: warning surface to make it obvious
+        // Bypassed state: warning surface to make it obvious. Text colour is
+        // computed against the warning surface itself (not theme.text) since
+        // that surface's brightness is independent of the theme's normal
+        // text/background contrast pairing.
+        const auto bypassTextColour = theme.warning.getPerceivedBrightness() > 0.5f
+                                           ? juce::Colours::black
+                                           : juce::Colours::white;
         m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
-        m_bypassButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        m_bypassButton.setColour(juce::TextButton::textColourOffId, bypassTextColour);
     }
     else
     {
@@ -506,7 +512,7 @@ int PluginChainPanel::getNumRows()
     return m_chain != nullptr ? m_chain->getNumPlugins() : 0;
 }
 
-void PluginChainPanel::paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height,
+void PluginChainPanel::paintListBoxItem(int rowNumber, juce::Graphics& g, int /*width*/, int /*height*/,
                                          bool rowIsSelected)
 {
     // Background
@@ -648,8 +654,14 @@ void PluginChainPanel::applyThemeColours()
     m_listBox.setColour(juce::ListBox::outlineColourId, theme.border);
     m_emptyLabel.setColour(juce::Label::textColourId, theme.textMuted);
     m_latencyLabel.setColour(juce::Label::textColourId, theme.textMuted);
+    // Text colour is computed against the success surface itself (not
+    // theme.text) since that surface's brightness is independent of the
+    // theme's normal text/background contrast pairing.
+    const auto applyTextColour = theme.success.getPerceivedBrightness() > 0.5f
+                                      ? juce::Colours::black
+                                      : juce::Colours::white;
     m_applyToSelectionButton.setColour(juce::TextButton::buttonColourId, theme.success);
-    m_applyToSelectionButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    m_applyToSelectionButton.setColour(juce::TextButton::textColourOffId, applyTextColour);
     m_renderOptionsGroup.setColour(juce::GroupComponent::outlineColourId, theme.border);
     m_renderOptionsGroup.setColour(juce::GroupComponent::textColourId, theme.text);
     m_tailLengthLabel.setColour(juce::Label::textColourId, theme.text);

@@ -168,9 +168,9 @@ public:
 
         bool operator==(const BandParameters& other) const
         {
-            return frequency == other.frequency
-                && gain == other.gain
-                && q == other.q
+            return juce::exactlyEqual(frequency, other.frequency)
+                && juce::exactlyEqual(gain, other.gain)
+                && juce::exactlyEqual(q, other.q)
                 && filterType == other.filterType
                 && enabled == other.enabled;
         }
@@ -203,7 +203,7 @@ public:
         {
             if (bands.size() != other.bands.size())
                 return false;
-            if (outputGain != other.outputGain)
+            if (!juce::exactlyEqual(outputGain, other.outputGain))
                 return false;
             for (size_t i = 0; i < bands.size(); ++i)
                 if (bands[i] != other.bands[i])

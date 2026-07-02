@@ -102,8 +102,8 @@ void DSPController::applyGainAdjustment(Document* doc, float gainDB, int64_t sta
         else if (doc->getWaveformDisplay().hasSelection())
         {
             // No explicit bounds - check current selection (for keyboard shortcuts)
-            startSampleInt = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-            int endSampleInt = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+            startSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+            int endSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
             numSamples = endSampleInt - startSampleInt;
             isSelection = true;
         }
@@ -230,7 +230,7 @@ void DSPController::showNormalizeDialog(Document* doc, juce::Component* parent)
     NormalizeDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
 
     // Set up callbacks
-    dialog.onApply([this, doc, &dialog](float targetDB) {
+    dialog.onApply([doc, &dialog](float targetDB) {
         // Get selection or entire file
         int startSampleInt = 0;
         int numSamples = doc->getBufferManager().getBuffer().getNumSamples();
@@ -238,8 +238,8 @@ void DSPController::showNormalizeDialog(Document* doc, juce::Component* parent)
 
         if (doc->getWaveformDisplay().hasSelection())
         {
-            startSampleInt = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-            int endSampleInt = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+            startSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+            int endSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
             numSamples = endSampleInt - startSampleInt;
             isSelection = true;
         }
@@ -411,10 +411,10 @@ void DSPController::showFadeInDialog(Document* doc, juce::Component* parent)
     FadeDialog dialog(FadeDirection::FadeIn, &doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
 
     // Set up callbacks
-    dialog.onApply([this, doc, &dialog]() {
+    dialog.onApply([doc, &dialog]() {
         // Get selection
-        int startSampleInt = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-        int endSampleInt = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+        int startSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+        int endSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
         int numSamples = endSampleInt - startSampleInt;
 
         // Store before state for undo (MUST happen before any processing)
@@ -567,10 +567,10 @@ void DSPController::showFadeOutDialog(Document* doc, juce::Component* parent)
     FadeDialog dialog(FadeDirection::FadeOut, &doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
 
     // Set up callbacks
-    dialog.onApply([this, doc, &dialog]() {
+    dialog.onApply([doc, &dialog]() {
         // Get selection
-        int startSampleInt = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-        int endSampleInt = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+        int startSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+        int endSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
         int numSamples = endSampleInt - startSampleInt;
 
         // Store before state for undo (MUST happen before any processing)
@@ -705,7 +705,6 @@ void DSPController::applyDCOffset(Document* doc)
     {
         // Determine if we have a selection or should process entire file
         auto& waveform = doc->getWaveformDisplay();
-        auto& engine = doc->getAudioEngine();
         bool hasSelection = waveform.hasSelection();
 
         // Get bounds (selection or entire file)
@@ -713,13 +712,13 @@ void DSPController::applyDCOffset(Document* doc)
 
         if (hasSelection)
         {
-            startSampleInt = doc->getBufferManager().timeToSample(waveform.getSelectionStart());
-            endSampleInt = doc->getBufferManager().timeToSample(waveform.getSelectionEnd());
+            startSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(waveform.getSelectionStart()));
+            endSampleInt = static_cast<int>(doc->getBufferManager().timeToSample(waveform.getSelectionEnd()));
         }
         else
         {
             startSampleInt = 0;
-            endSampleInt = doc->getBufferManager().getBuffer().getNumSamples();
+            endSampleInt = static_cast<int>(doc->getBufferManager().getBuffer().getNumSamples());
         }
         numSamples = endSampleInt - startSampleInt;
 
@@ -849,8 +848,8 @@ void DSPController::applyNormalize(Document* doc)
 
         if (doc->getWaveformDisplay().hasSelection())
         {
-            startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-            int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+            startSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+            int endSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
             numSamples = endSample - startSample;
             isSelection = true;
         }
@@ -932,8 +931,8 @@ void DSPController::applyFadeIn(Document* doc)
         }
 
         // Get selection
-        int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-        int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+        int startSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+        int endSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
         int numSamples = endSample - startSample;
 
         if (numSamples <= 0)
@@ -988,8 +987,8 @@ void DSPController::applyFadeOut(Document* doc)
         }
 
         // Get selection
-        int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-        int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+        int startSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+        int endSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
         int numSamples = endSample - startSample;
 
         if (numSamples <= 0)
@@ -1045,8 +1044,8 @@ void DSPController::silenceSelection(Document* doc)
 
         // Get selection
         auto& buffer = doc->getBufferManager().getMutableBuffer();
-        int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-        int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+        int startSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+        int endSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
         int numSamples = endSample - startSample;
 
         if (numSamples <= 0)
@@ -1208,8 +1207,8 @@ void DSPController::trimToSelection(Document* doc)
 
         // Get selection
         auto& buffer = doc->getBufferManager().getMutableBuffer();
-        int startSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart());
-        int endSample = doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd());
+        int startSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionStart()));
+        int endSample = static_cast<int>(doc->getBufferManager().timeToSample(doc->getWaveformDisplay().getSelectionEnd()));
 
         if (startSample < 0 || endSample > buffer.getNumSamples() || startSample >= endSample)
         {

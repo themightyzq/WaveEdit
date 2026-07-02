@@ -103,7 +103,7 @@ private:
     {
     public:
         AvailableButtonsModel(ToolbarCustomizationDialog& owner) : m_owner(owner) {}
-        int getNumRows() override { return m_owner.m_availableButtons.size(); }
+        int getNumRows() override { return static_cast<int>(m_owner.m_availableButtons.size()); }
         void paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height,
                               bool rowIsSelected) override;
         juce::var getDragSourceDescription(const juce::SparseSet<int>& selectedRows) override;
@@ -117,7 +117,7 @@ private:
     {
     public:
         CurrentButtonsModel(ToolbarCustomizationDialog& owner) : m_owner(owner) {}
-        int getNumRows() override { return m_owner.m_currentLayout.buttons.size(); }
+        int getNumRows() override { return static_cast<int>(m_owner.m_currentLayout.buttons.size()); }
         void paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height,
                               bool rowIsSelected) override;
         juce::var getDragSourceDescription(const juce::SparseSet<int>& selectedRows) override;

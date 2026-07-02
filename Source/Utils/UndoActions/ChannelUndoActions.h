@@ -226,12 +226,7 @@ public:
                                           true, true); // preserveView=true, preserveEditCursor=true
 
         // Log the operation
-        int channelCount = 0;
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            if ((m_channelMask & (1 << ch)) != 0) channelCount++;
-
-        DBG(juce::String::formatted(
-            "Applied silence to %d channel(s) in selection", channelCount));
+        DBG("Applied silence to channels in selection");
 
         return true;
     }

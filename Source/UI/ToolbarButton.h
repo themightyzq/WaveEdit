@@ -129,7 +129,6 @@ public:
     void paint(juce::Graphics& g) override;
 
 private:
-    int m_width;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToolbarSeparator)
 };
 
@@ -143,6 +142,5 @@ public:
     void paint(juce::Graphics& g) override;
 
 private:
-    int m_minWidth;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToolbarSpacer)
 };
