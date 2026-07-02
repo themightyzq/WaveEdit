@@ -109,8 +109,8 @@ void WaveEditLookAndFeel::drawButtonBackground(juce::Graphics& g,
 
 void WaveEditLookAndFeel::drawButtonText(juce::Graphics& g,
                                           juce::TextButton& button,
-                                          bool shouldDrawButtonAsHighlighted,
-                                          bool shouldDrawButtonAsDown)
+                                          bool /*shouldDrawButtonAsHighlighted*/,
+                                          bool /*shouldDrawButtonAsDown*/)
 {
     auto font = getTextButtonFont(button, button.getHeight());
     g.setFont(font);
@@ -130,8 +130,8 @@ void WaveEditLookAndFeel::drawButtonText(juce::Graphics& g,
 
 void WaveEditLookAndFeel::drawToggleButton(juce::Graphics& g,
                                             juce::ToggleButton& button,
-                                            bool shouldDrawButtonAsHighlighted,
-                                            bool shouldDrawButtonAsDown)
+                                            bool /*shouldDrawButtonAsHighlighted*/,
+                                            bool /*shouldDrawButtonAsDown*/)
 {
     const auto& t = theme();
 
@@ -180,7 +180,7 @@ void WaveEditLookAndFeel::drawToggleButton(juce::Graphics& g,
 void WaveEditLookAndFeel::drawComboBox(juce::Graphics& g,
                                         int width,
                                         int height,
-                                        bool isButtonDown,
+                                        bool /*isButtonDown*/,
                                         int buttonX,
                                         int buttonY,
                                         int buttonW,

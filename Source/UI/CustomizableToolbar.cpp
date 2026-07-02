@@ -292,17 +292,6 @@ void CustomizableToolbar::layoutButtons()
 {
     auto bounds = getLocalBounds().reduced(4, 2);
 
-    // Layout transport first if present
-    int transportIndex = -1;
-    for (int i = 0; i < static_cast<int>(m_currentLayout.buttons.size()); ++i)
-    {
-        if (m_currentLayout.buttons[static_cast<size_t>(i)].type == ToolbarButtonType::TRANSPORT)
-        {
-            transportIndex = i;
-            break;
-        }
-    }
-
     // First pass: calculate total fixed width and count spacers
     int totalFixedWidth = 0;
     int spacerCount = 0;
@@ -374,7 +363,6 @@ void CustomizableToolbar::layoutButtons()
 
 int CustomizableToolbar::getInsertIndexForPosition(int x) const
 {
-    int componentX = 4;
     int index = 0;
 
     // Check transport position
@@ -383,7 +371,6 @@ int CustomizableToolbar::getInsertIndexForPosition(int x) const
         int midPoint = m_compactTransport->getX() + m_compactTransport->getWidth() / 2;
         if (x < midPoint)
             return index;
-        componentX = m_compactTransport->getRight() + 2;
         index++;
     }
 
@@ -393,7 +380,6 @@ int CustomizableToolbar::getInsertIndexForPosition(int x) const
         int midPoint = comp->getX() + comp->getWidth() / 2;
         if (x < midPoint)
             return index;
-        componentX = comp->getRight() + 2;
         index++;
     }
 

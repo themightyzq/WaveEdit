@@ -30,8 +30,8 @@
 // NameEditor implementation
 //==============================================================================
 
-RegionListPanel::NameEditor::NameEditor(RegionListPanel& owner, int row)
-    : owner(owner), rowNumber(row)
+RegionListPanel::NameEditor::NameEditor(RegionListPanel& ownerPanel, int /*row*/)
+    : owner(ownerPanel)
 {
     setMultiLine(false);
     setReturnKeyStartsNewLine(false);
@@ -167,8 +167,7 @@ RegionListPanel::RegionListPanel(RegionManager* regionManager, double sampleRate
 
     m_patternHelpLabel.setText("Use {n} for numbers, {N} for zero-padded, {original} for original name",
                                juce::dontSendNotification);
-    m_patternHelpLabel.setColour(juce::Label::textColourId, juce::Colour(waveedit::ui::kTextMuted));
-    m_patternHelpLabel.setFont(juce::Font(11.0f));
+    m_patternHelpLabel.setFont(waveedit::ui::smallFont());
     m_patternHelpLabel.setVisible(false);
     m_batchRenameSection.addAndMakeVisible(m_patternHelpLabel);
 
@@ -373,8 +372,9 @@ void RegionListPanel::applyThemeColours()
     m_searchBox.setColour(juce::TextEditor::textColourId, theme.text);
     m_searchBox.setColour(juce::TextEditor::outlineColourId, theme.border);
 
-    // Empty-state hint
+    // Empty-state hint + batch-rename help text
     m_emptyLabel.setColour(juce::Label::textColourId, theme.textMuted);
+    m_patternHelpLabel.setColour(juce::Label::textColourId, theme.textMuted);
 
     // Table + header
     m_table.setColour(juce::ListBox::backgroundColourId, theme.background);
@@ -814,7 +814,7 @@ void RegionListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
         {
             // Show the preview of the new name after all batch operations are applied
             juce::String newName = generateNewName(filteredRegion.originalIndex, *region);
-            g.setColour(juce::Colours::lightgreen);  // Distinguish preview text
+            g.setColour(waveedit::ThemeManager::getInstance().getCurrent().success);  // Distinguish preview text
             g.drawText(newName, 4, 0, width - 8, height,
                       juce::Justification::centredLeft, true);
             break;
@@ -1317,218 +1317,3 @@ juce::String RegionListPanel::formatTimeForDisplay(double timeInSeconds) const
     return AudioUnits::formatTime(timeInSeconds, m_sampleRate, m_timeFormat);
 }
 
-void RegionListPanel::expandBatchRenameSection(bool expand)
-{
-    m_batchRenameSectionExpanded = expand;
-    m_batchRenameSection.setVisible(expand);
-
-    // Show/hide the "New Name" preview column
-    m_table.getHeader().setColumnVisible(NewNameColumn, expand);
-
-    // Update button text to show current state
-    m_batchRenameToggleButton.setButtonText(expand ? "Hide Batch Rename" : "Batch Rename");
-
-    // Trigger relayout
-    resized();
-
-    // If expanding, update preview to show current selection
-    if (expand)
-    {
-        updateBatchRenamePreview();
-    }
-}
-
-//==============================================================================
-// Batch rename helper methods (stubs for now - will be implemented in Phase 2.4-2.8)
-//==============================================================================
-
-void RegionListPanel::updateBatchRenameMode()
-{
-    // Future: Update UI based on current rename mode (not currently called)
-}
-
-void RegionListPanel::updateBatchRenamePreview()
-{
-    // Trigger table repaint to update the "New Name" column preview
-    // The preview is now shown directly in the table's NewNameColumn
-    m_table.repaint();
-}
-
-juce::String RegionListPanel::generateNewName(int index, const Region& region) const
-{
-    // Apply ALL rename operations cumulatively (Pattern → Find/Replace → Prefix/Suffix)
-    // This allows users to preview the combined effect of all operations
-
-    juce::String newName = region.getName();
-
-    // STEP 1: Apply Pattern operation (if pattern has been customized from default)
-    {
-        // Pattern mode: Replace {n}, {N}, {original} placeholders
-        juce::String patternName = m_customPattern;
-
-        // Calculate the region number (1-based index from m_startNumber)
-        int regionNumber = m_startNumber + index;
-
-        // Replace {n} with sequential number
-        patternName = patternName.replace("{n}", juce::String(regionNumber));
-
-        // Replace {N} with zero-padded number
-        // Determine padding width based on total number of regions
-        auto selectedIndices = getSelectedRegionIndices();
-        int maxNumber = m_startNumber + static_cast<int>(selectedIndices.size()) - 1;
-        int paddingWidth = juce::String(maxNumber).length();
-        juce::String paddedNumber = juce::String(regionNumber).paddedLeft('0', paddingWidth);
-        patternName = patternName.replace("{N}", paddedNumber);
-
-        // Replace {original} with original region name
-        patternName = patternName.replace("{original}", newName);
-
-        // Use pattern result as new base name
-        newName = patternName;
-    }
-
-    // STEP 2: Apply Find/Replace operation to the result from step 1
-    {
-        if (!m_findText.isEmpty())
-        {
-            if (m_replaceAll)
-            {
-                // Replace all occurrences
-                if (m_caseSensitive)
-                {
-                    newName = newName.replace(m_findText, m_replaceText);
-                }
-                else
-                {
-                    // JUCE doesn't have replaceIgnoreCase, so implement manually
-                    juce::String result;
-                    juce::String remaining = newName;
-                    juce::String findLower = m_findText.toLowerCase();
-
-                    while (true)
-                    {
-                        int pos = remaining.toLowerCase().indexOf(findLower);
-                        if (pos < 0)
-                        {
-                            // No more matches - append remaining text
-                            result += remaining;
-                            break;
-                        }
-
-                        // Append text before match + replacement
-                        result += remaining.substring(0, pos);
-                        result += m_replaceText;
-
-                        // Continue with text after match
-                        remaining = remaining.substring(pos + m_findText.length());
-                    }
-
-                    newName = result;
-                }
-            }
-            else
-            {
-                // Replace first occurrence only
-                if (m_caseSensitive)
-                {
-                    newName = newName.replaceFirstOccurrenceOf(m_findText, m_replaceText);
-                }
-                else
-                {
-                    // JUCE doesn't have replaceFirstOccurrenceOfIgnoreCase, so we need to implement it
-                    // Find the first occurrence (case-insensitive) and replace it
-                    int pos = newName.toLowerCase().indexOf(m_findText.toLowerCase());
-                    if (pos >= 0)
-                    {
-                        newName = newName.substring(0, pos) + m_replaceText +
-                                 newName.substring(pos + m_findText.length());
-                    }
-                }
-            }
-        }
-    }
-
-    // STEP 3: Apply Prefix/Suffix operation to the result from step 2
-    {
-        // Add prefix
-        if (!m_prefixText.isEmpty())
-        {
-            newName = m_prefixText + newName;
-        }
-
-        // Add sequential numbering (before suffix)
-        if (m_addNumbering)
-        {
-            int regionNumber = m_startNumber + index;
-            newName = newName + " " + juce::String(regionNumber);
-        }
-
-        // Add suffix
-        if (!m_suffixText.isEmpty())
-        {
-            newName = newName + m_suffixText;
-        }
-    }
-
-    return newName;
-}
-
-void RegionListPanel::applyBatchRename()
-{
-    if (!m_regionManager || !m_listener)
-        return;
-
-    // Get selected region indices
-    auto selectedIndices = getSelectedRegionIndices();
-    if (selectedIndices.empty())
-    {
-        // No regions selected - show message
-        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
-                                                "Batch Rename",
-                                                "No regions selected.\n\nSelect one or more regions to rename.");
-        return;
-    }
-
-    // Generate new names for all selected regions
-    std::vector<juce::String> newNames;
-    newNames.reserve(selectedIndices.size());
-
-    for (int i = 0; i < static_cast<int>(selectedIndices.size()); ++i)
-    {
-        int regionIndex = selectedIndices[i];
-        const auto* region = m_regionManager->getRegion(regionIndex);
-
-        if (region)
-        {
-            juce::String newName = generateNewName(i, *region);
-            newNames.push_back(newName);
-        }
-        else
-        {
-            // Region invalid - this shouldn't happen
-            newNames.push_back(juce::String());
-        }
-    }
-
-    // Call listener to create undo action and apply renames
-    // The listener (Main.cpp) will:
-    // 1. Collect old names
-    // 2. Create BatchRenameRegionUndoAction
-    // 3. Add to undo manager
-    // 4. Perform the action (applies renames)
-    // 5. Refresh RegionDisplay
-    m_listener->regionListPanelBatchRenameApply(selectedIndices, newNames);
-
-    // Collapse batch rename section
-    expandBatchRenameSection(false);
-
-    // Refresh table to show updated names
-    m_table.updateContent();
-    m_table.repaint();
-}
-
-void RegionListPanel::cancelBatchRename()
-{
-    // Collapse section without applying changes
-    expandBatchRenameSection(false);
-}

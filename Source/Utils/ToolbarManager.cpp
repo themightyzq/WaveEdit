@@ -118,9 +118,7 @@ bool ToolbarManager::importLayout(const juce::File& file, bool makeActive)
     juce::StringArray errors;
     if (!layout.validate(errors))
     {
-        DBG("ToolbarManager: Layout validation failed:");
-        for (const auto& error : errors)
-            DBG("  " + error);
+        DBG("ToolbarManager: Layout validation failed");
         return false;
     }
 

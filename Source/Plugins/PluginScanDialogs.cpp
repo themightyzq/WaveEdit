@@ -14,6 +14,7 @@
 */
 
 #include "PluginScanDialogs.h"
+#include "../UI/ThemeManager.h"
 
 //==============================================================================
 // PluginScanErrorDialog Implementation
@@ -27,15 +28,17 @@ PluginScanErrorDialog::PluginScanErrorDialog(const juce::String& pluginName,
       m_isCrash(isCrash)
 {
     // Title
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     if (isCrash)
     {
         m_titleLabel.setText("Plugin Crashed During Scan", juce::dontSendNotification);
-        m_titleLabel.setColour(juce::Label::textColourId, juce::Colours::orangered);
+        m_titleLabel.setColour(juce::Label::textColourId, theme.error);
     }
     else
     {
         m_titleLabel.setText("Plugin Scan Failed", juce::dontSendNotification);
-        m_titleLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+        m_titleLabel.setColour(juce::Label::textColourId, theme.warning);
     }
     m_titleLabel.setFont(juce::FontOptions(18.0f).withStyle("Bold"));
     m_titleLabel.setJustificationType(juce::Justification::centred);
@@ -54,7 +57,7 @@ PluginScanErrorDialog::PluginScanErrorDialog(const juce::String& pluginName,
     // Error message
     m_errorLabel.setText("Error: " + errorMessage, juce::dontSendNotification);
     m_errorLabel.setFont(juce::FontOptions(12.0f));
-    m_errorLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    m_errorLabel.setColour(juce::Label::textColourId, theme.text);
     addAndMakeVisible(m_errorLabel);
 
     // Hint
@@ -71,7 +74,7 @@ PluginScanErrorDialog::PluginScanErrorDialog(const juce::String& pluginName,
                             juce::dontSendNotification);
     }
     m_hintLabel.setFont(juce::FontOptions(11.0f));
-    m_hintLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_hintLabel.setColour(juce::Label::textColourId, theme.textMuted);
     m_hintLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_hintLabel);
 
@@ -97,11 +100,12 @@ PluginScanErrorDialog::~PluginScanErrorDialog() = default;
 
 void PluginScanErrorDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
     // Warning icon area
     auto iconBounds = getLocalBounds().removeFromTop(50).reduced(10);
-    g.setColour(m_isCrash ? juce::Colours::orangered : juce::Colours::orange);
+    g.setColour(m_isCrash ? theme.error : theme.warning);
     g.setFont(juce::FontOptions(32.0f));
     g.drawText(m_isCrash ? "!" : "?", iconBounds, juce::Justification::centred);
 }
@@ -169,7 +173,7 @@ PluginScanErrorDialog::Result PluginScanErrorDialog::showDialog(
 
     // Create the dialog window
     juce::DialogWindow dlg(isCrash ? "Plugin Crashed" : "Plugin Scan Error",
-                           juce::Colour(0xff2a2a2a), true, false);
+                           waveedit::ThemeManager::getInstance().getCurrent().panel, true, false);
     dlg.setContentOwned(dialog.release(), true);
     dlg.centreWithSize(450, 220);
     dlg.setResizable(false, false);
@@ -246,7 +250,8 @@ PluginScanSummaryDialog::PluginScanSummaryDialog(const PluginScanSummary& summar
 
         // Failed plugins table
         m_failedTable.setModel(this);
-        m_failedTable.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff1e1e1e));
+        m_failedTable.setColour(juce::ListBox::backgroundColourId,
+            waveedit::ThemeManager::getInstance().getCurrent().background);
         m_failedTable.setRowHeight(24);
         m_failedTable.getHeader().addColumn("Status", StatusColumn, 60, 50, 80);
         m_failedTable.getHeader().addColumn("Plugin", NameColumn, 200, 100, 400);
@@ -273,19 +278,20 @@ PluginScanSummaryDialog::~PluginScanSummaryDialog() = default;
 
 void PluginScanSummaryDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
     // Success/warning icon
     auto iconBounds = getLocalBounds().removeFromTop(50).reduced(10);
     if (m_failedCount == 0)
     {
-        g.setColour(juce::Colours::lightgreen);
+        g.setColour(theme.success);
         g.setFont(juce::FontOptions(32.0f));
         g.drawText("OK", iconBounds, juce::Justification::centred);
     }
     else
     {
-        g.setColour(juce::Colours::orange);
+        g.setColour(theme.warning);
         g.setFont(juce::FontOptions(32.0f));
         g.drawText("!", iconBounds, juce::Justification::centred);
     }
@@ -332,12 +338,14 @@ void PluginScanSummaryDialog::paintRowBackground(juce::Graphics& g, int rowNumbe
                                                    int /*width*/, int /*height*/,
                                                    bool rowIsSelected)
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     if (rowIsSelected)
-        g.fillAll(juce::Colour(0xff3a3a3a));
+        g.fillAll(theme.selection);
     else if (rowNumber % 2 == 1)
-        g.fillAll(juce::Colour(0xff252525));
+        g.fillAll(theme.panelAlternate);
     else
-        g.fillAll(juce::Colour(0xff1e1e1e));
+        g.fillAll(theme.panel);
 }
 
 void PluginScanSummaryDialog::paintCell(juce::Graphics& g, int rowNumber, int columnId,
@@ -346,6 +354,7 @@ void PluginScanSummaryDialog::paintCell(juce::Graphics& g, int rowNumber, int co
     if (rowNumber < 0 || rowNumber >= m_failedResults.size())
         return;
 
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     const auto& result = m_failedResults[rowNumber];
 
     g.setFont(juce::FontOptions(12.0f));
@@ -361,16 +370,21 @@ void PluginScanSummaryDialog::paintCell(juce::Graphics& g, int rowNumber, int co
             {
                 case PluginScanResult::Status::Crashed:
                     statusIcon = "CRASH";
-                    statusColour = juce::Colours::orangered;
+                    statusColour = theme.error;
                     break;
                 case PluginScanResult::Status::Timeout:
                     statusIcon = "TIMEOUT";
-                    statusColour = juce::Colours::orange;
+                    statusColour = theme.warning;
                     break;
+                case PluginScanResult::Status::Pending:
+                case PluginScanResult::Status::Success:
+                case PluginScanResult::Status::Skipped:
+                case PluginScanResult::Status::Blacklisted:
+                case PluginScanResult::Status::Cached:
                 case PluginScanResult::Status::Failed:
                 default:
                     statusIcon = "FAIL";
-                    statusColour = juce::Colours::indianred;
+                    statusColour = theme.error;
                     break;
             }
 
@@ -380,12 +394,12 @@ void PluginScanSummaryDialog::paintCell(juce::Graphics& g, int rowNumber, int co
         }
 
         case NameColumn:
-            g.setColour(juce::Colours::white);
+            g.setColour(theme.text);
             g.drawText(result.pluginName, 4, 0, width - 8, height, juce::Justification::centredLeft, true);
             break;
 
         case ReasonColumn:
-            g.setColour(juce::Colours::lightgrey);
+            g.setColour(theme.textMuted);
             g.drawText(result.errorMessage, 4, 0, width - 8, height, juce::Justification::centredLeft, true);
             break;
 
@@ -491,7 +505,8 @@ void PluginScanSummaryDialog::showDialog(const PluginScanSummary& summary)
     auto dialog = std::make_unique<PluginScanSummaryDialog>(summary);
 
     // Create the dialog window
-    juce::DialogWindow dlg("Scan Summary", juce::Colour(0xff2a2a2a), true, false);
+    juce::DialogWindow dlg("Scan Summary",
+                           waveedit::ThemeManager::getInstance().getCurrent().panel, true, false);
     dlg.setContentOwned(dialog.release(), true);
     dlg.centreWithSize(500, 450);
     dlg.setResizable(true, true);
@@ -519,8 +534,9 @@ PluginTimeoutDialog::PluginTimeoutDialog(const juce::String& pluginName, int tim
     : m_pluginName(pluginName)
 {
     // Title
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     m_titleLabel.setText("Plugin Taking Longer Than Expected", juce::dontSendNotification);
-    m_titleLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+    m_titleLabel.setColour(juce::Label::textColourId, theme.warning);
     m_titleLabel.setFont(juce::FontOptions(18.0f).withStyle("Bold"));
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
@@ -541,7 +557,7 @@ PluginTimeoutDialog::PluginTimeoutDialog(const juce::String& pluginName, int tim
                             "libraries, or license validation may require extra time.",
                             juce::dontSendNotification);
     m_messageLabel.setFont(juce::FontOptions(12.0f));
-    m_messageLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    m_messageLabel.setColour(juce::Label::textColourId, theme.text);
     m_messageLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_messageLabel);
 
@@ -549,7 +565,7 @@ PluginTimeoutDialog::PluginTimeoutDialog(const juce::String& pluginName, int tim
     m_hintLabel.setText("Choose an action:",
                          juce::dontSendNotification);
     m_hintLabel.setFont(juce::FontOptions(11.0f));
-    m_hintLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_hintLabel.setColour(juce::Label::textColourId, theme.textMuted);
     m_hintLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_hintLabel);
 
@@ -567,7 +583,7 @@ PluginTimeoutDialog::PluginTimeoutDialog(const juce::String& pluginName, int tim
     m_blacklistButton.setButtonText("Always Skip");
     m_blacklistButton.onClick = [this]() { onBlacklistClicked(); };
     m_blacklistButton.setTooltip("Skip and add to blacklist (never scan again)");
-    m_blacklistButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff8B4513));
+    m_blacklistButton.setColour(juce::TextButton::buttonColourId, theme.warning);
     addAndMakeVisible(m_blacklistButton);
 
     setSize(500, 260);
@@ -577,11 +593,12 @@ PluginTimeoutDialog::~PluginTimeoutDialog() = default;
 
 void PluginTimeoutDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
     // Clock/timer icon area
     auto iconBounds = getLocalBounds().removeFromTop(50).reduced(10);
-    g.setColour(juce::Colours::orange);
+    g.setColour(theme.warning);
     g.setFont(juce::FontOptions(32.0f));
     g.drawText("scan", iconBounds, juce::Justification::centred); // scan timeout indicator
 }
@@ -647,7 +664,8 @@ PluginTimeoutDialog::Result PluginTimeoutDialog::showDialog(
     auto dialog = std::make_unique<PluginTimeoutDialog>(pluginName, timeoutSeconds);
 
     // Create the dialog window
-    juce::DialogWindow dlg("Plugin Timeout", juce::Colour(0xff2a2a2a), true, false);
+    juce::DialogWindow dlg("Plugin Timeout",
+                           waveedit::ThemeManager::getInstance().getCurrent().panel, true, false);
     dlg.setContentOwned(dialog.release(), true);
     dlg.centreWithSize(500, 260);
     dlg.setResizable(false, false);
@@ -702,22 +720,23 @@ PluginScanProgressDialog::PluginScanProgressDialog(CancelCallback onCancel)
     addAndMakeVisible(m_statusLabel);
 
     // Current plugin
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     m_currentPluginLabel.setText("", juce::dontSendNotification);
     m_currentPluginLabel.setFont(juce::FontOptions(11.0f));
-    m_currentPluginLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    m_currentPluginLabel.setColour(juce::Label::textColourId, theme.text);
     m_currentPluginLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_currentPluginLabel);
 
     // Progress bar
     m_progressBar.setPercentageDisplay(true);
-    m_progressBar.setColour(juce::ProgressBar::backgroundColourId, juce::Colour(0xff333333));
-    m_progressBar.setColour(juce::ProgressBar::foregroundColourId, juce::Colour(0xff4a9eff));
+    m_progressBar.setColour(juce::ProgressBar::backgroundColourId, theme.panelAlternate);
+    m_progressBar.setColour(juce::ProgressBar::foregroundColourId, theme.accent);
     addAndMakeVisible(m_progressBar);
 
     // Elapsed time
     m_elapsedTimeLabel.setText("Elapsed: 0:00", juce::dontSendNotification);
     m_elapsedTimeLabel.setFont(juce::FontOptions(11.0f));
-    m_elapsedTimeLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_elapsedTimeLabel.setColour(juce::Label::textColourId, theme.textMuted);
     m_elapsedTimeLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_elapsedTimeLabel);
 
@@ -814,7 +833,7 @@ void PluginScanProgressDialog::setComplete()
 
 void PluginScanProgressDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    g.fillAll(waveedit::ThemeManager::getInstance().getCurrent().panel);
 }
 
 void PluginScanProgressDialog::resized()
@@ -876,7 +895,7 @@ juce::DialogWindow* PluginScanProgressDialog::showInWindow()
 {
     juce::DialogWindow::LaunchOptions options;
     options.dialogTitle = "Plugin Scan";
-    options.dialogBackgroundColour = juce::Colour(0xff2a2a2a);
+    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
     options.escapeKeyTriggersCloseButton = false;
     options.useNativeTitleBar = true;
     options.resizable = false;

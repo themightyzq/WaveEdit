@@ -95,15 +95,11 @@ void RegionController::addRegionFromSelection(Document* doc)
             int channel = 0;  // Use first channel for snap detection
             int searchRadius = 1000;  // 1000 samples (~22ms at 44.1kHz)
 
-            int64_t originalStart = startSample;
-            int64_t originalEnd = endSample;
-
             startSample = AudioUnits::snapToZeroCrossing(startSample, buffer, channel, searchRadius);
             endSample = AudioUnits::snapToZeroCrossing(endSample, buffer, channel, searchRadius);
 
             DBG(juce::String::formatted(
-                "Zero-crossing snap: start %lld -> %lld, end %lld -> %lld",
-                originalStart, startSample, originalEnd, endSample));
+                "Zero-crossing snap applied to selection boundaries"));
         }
     }
 
@@ -388,7 +384,7 @@ void RegionController::showStripSilenceDialog(Document* doc, juce::Component* pa
     auto* dialog = new StripSilenceDialog(doc->getRegionManager(), buffer, sampleRate);
 
     // Set up Apply callback with retrospective undo support
-    dialog->onApply = [this, doc, currentFile, oldRegions = oldRegions](int numRegionsCreated) mutable
+    dialog->onApply = [doc, currentFile, oldRegions](int /*numRegionsCreated*/) mutable
     {
         // Get current region display from document
         auto& regionDisplay = doc->getRegionDisplay();
@@ -423,7 +419,7 @@ void RegionController::showStripSilenceDialog(Document* doc, juce::Component* pa
         // Request repaint to show created regions
         regionDisplay.repaint();
 
-        DBG("Auto Region: Created " + juce::String(numRegionsCreated) + " regions with undo support");
+        DBG("Auto Region: Created regions with undo support");
     };
 
     // Set up Cancel callback
@@ -659,7 +655,7 @@ void RegionController::pasteRegionsFromClipboard(Document* doc)
         cursorSample));
 }
 
-void RegionController::showBatchExportDialog(Document* doc, juce::Component* parent)
+void RegionController::showBatchExportDialog(Document* doc, juce::Component* /*parent*/)
 {
     if (!doc)
         return;
@@ -867,14 +863,10 @@ void RegionController::nudgeRegionBoundary(Document* doc, bool nudgeStart, bool 
     doc->getUndoManager().perform(undoAction);
 
     // Log the nudge
-    double oldTime = doc->getBufferManager().sampleToTime(oldPosition);
-    double newTime = doc->getBufferManager().sampleToTime(newPosition);
     DBG(juce::String::formatted(
-        "Nudged region '%s' %s: %.3fs -> %.3fs (delta: %lld samples)",
+        "Nudged region '%s' %s by %lld samples",
         region->getName().toRawUTF8(),
         nudgeStart ? "start" : "end",
-        oldTime,
-        newTime,
         increment
     ));
 }
@@ -887,7 +879,7 @@ void RegionController::setupRegionCallbacks(Document* doc)
     auto& regionDisplay = doc->getRegionDisplay();
 
     // onRegionClicked: Select region and update waveform selection
-    regionDisplay.onRegionClicked = [this, doc](int regionIndex)
+    regionDisplay.onRegionClicked = [doc](int regionIndex)
     {
         if (!doc)
             return;
@@ -1134,8 +1126,8 @@ void RegionController::setupRegionCallbacks(Document* doc)
             [doc, regionIndex](int64_t newStart, int64_t newEnd)
             {
                 // Callback when user clicks OK
-                Region* region = doc->getRegionManager().getRegion(regionIndex);
-                if (!region)
+                Region* liveRegion = doc->getRegionManager().getRegion(regionIndex);
+                if (!liveRegion)
                     return;
 
                 // M3: the dialog validated against the buffer length captured
@@ -1143,9 +1135,9 @@ void RegionController::setupRegionCallbacks(Document* doc)
                 // shrunk the buffer since, so re-clamp against the CURRENT
                 // length before applying. Reject the edit if it collapses to
                 // an empty range.
-                const int64_t currentTotal = doc->getBufferManager().getNumSamples();
-                newStart = juce::jlimit<int64_t>(0, currentTotal, newStart);
-                newEnd   = juce::jlimit<int64_t>(0, currentTotal, newEnd);
+                const int64_t currentBufferSize = doc->getBufferManager().getNumSamples();
+                newStart = juce::jlimit<int64_t>(0, currentBufferSize, newStart);
+                newEnd   = juce::jlimit<int64_t>(0, currentBufferSize, newEnd);
                 if (newEnd <= newStart)
                 {
                     juce::AlertWindow::showMessageBoxAsync(
@@ -1158,8 +1150,8 @@ void RegionController::setupRegionCallbacks(Document* doc)
                 }
 
                 // Get old boundaries for undo
-                int64_t oldStart = region->getStartSample();
-                int64_t oldEnd = region->getEndSample();
+                int64_t oldStart = liveRegion->getStartSample();
+                int64_t oldEnd = liveRegion->getEndSample();
 
                 // Skip if boundaries haven't changed
                 if (oldStart == newStart && oldEnd == newEnd)
@@ -1169,7 +1161,7 @@ void RegionController::setupRegionCallbacks(Document* doc)
                 }
 
                 // Start a new transaction
-                juce::String transactionName = "Edit Region Boundaries: " + region->getName();
+                juce::String transactionName = "Edit Region Boundaries: " + liveRegion->getName();
                 doc->getUndoManager().beginNewTransaction(transactionName);
 
                 // Create undo action
@@ -1196,7 +1188,7 @@ void RegionController::setupRegionCallbacks(Document* doc)
 
                 DBG(juce::String::formatted(
                     "Edited region '%s' boundaries: %lld-%lld → %lld-%lld samples",
-                    region->getName().toRawUTF8(),
+                    liveRegion->getName().toRawUTF8(),
                     oldStart, oldEnd, newStart, newEnd));
             }
         );

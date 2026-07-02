@@ -50,7 +50,8 @@ PluginManagerDialog::PluginManagerDialog()
     m_searchLabel.setText("Search:", juce::dontSendNotification);
     addAndMakeVisible(m_searchLabel);
 
-    m_searchBox.setTextToShowWhenEmpty("Search plugins...", juce::Colours::grey);
+    m_searchBox.setTextToShowWhenEmpty("Search plugins...",
+                                        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     m_searchBox.onTextChange = [this]() { onSearchTextChanged(); };
     addAndMakeVisible(m_searchBox);
 

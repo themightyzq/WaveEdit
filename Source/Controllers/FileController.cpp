@@ -27,11 +27,9 @@
 
 //==============================================================================
 FileController::FileController(DocumentManager& docManager,
-                               AudioFileManager& fileManager,
-                               juce::ApplicationCommandManager& cmdManager)
+                               AudioFileManager& fileManager)
     : m_documentManager(docManager),
-      m_fileManager(fileManager),
-      m_commandManager(cmdManager)
+      m_fileManager(fileManager)
 {
 }
 

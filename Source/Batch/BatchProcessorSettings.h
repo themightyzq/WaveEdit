@@ -107,6 +107,8 @@ class BatchProcessorSettings
 public:
     BatchProcessorSettings() = default;
     ~BatchProcessorSettings() = default;
+    BatchProcessorSettings(const BatchProcessorSettings&) = default;
+    BatchProcessorSettings& operator=(const BatchProcessorSettings&) = default;
 
     // =========================================================================
     // Input Files

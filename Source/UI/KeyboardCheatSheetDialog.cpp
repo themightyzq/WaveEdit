@@ -144,7 +144,7 @@ int KeyboardCheatSheetDialog::getNumRows()
 }
 
 void KeyboardCheatSheetDialog::paintRowBackground(juce::Graphics& g, int rowNumber,
-                                                    int width, int height, bool rowIsSelected)
+                                                    int /*width*/, int /*height*/, bool rowIsSelected)
 {
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     if (rowIsSelected)
@@ -189,9 +189,9 @@ void KeyboardCheatSheetDialog::paintCell(juce::Graphics& g, int rowNumber, int c
     g.drawText(text, 2, 0, width - 4, height, juce::Justification::centredLeft, true);
 }
 
-juce::Component* KeyboardCheatSheetDialog::refreshComponentForCell(int rowNumber, int columnId,
-                                                                     bool isRowSelected,
-                                                                     juce::Component* existingComponentToUpdate)
+juce::Component* KeyboardCheatSheetDialog::refreshComponentForCell(int /*rowNumber*/, int /*columnId*/,
+                                                                     bool /*isRowSelected*/,
+                                                                     juce::Component* /*existingComponentToUpdate*/)
 {
     // No custom components needed for this simple table
     jassert(existingComponentToUpdate == nullptr);

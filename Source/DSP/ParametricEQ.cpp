@@ -111,15 +111,15 @@ void ParametricEQ::applyEQ(juce::AudioBuffer<float>& buffer, const Parameters& p
     }
 
     // Check if parameters have changed
-    if (params.low.frequency != m_currentParams.low.frequency ||
-        params.low.gain != m_currentParams.low.gain ||
-        params.low.q != m_currentParams.low.q ||
-        params.mid.frequency != m_currentParams.mid.frequency ||
-        params.mid.gain != m_currentParams.mid.gain ||
-        params.mid.q != m_currentParams.mid.q ||
-        params.high.frequency != m_currentParams.high.frequency ||
-        params.high.gain != m_currentParams.high.gain ||
-        params.high.q != m_currentParams.high.q)
+    if (!juce::exactlyEqual(params.low.frequency, m_currentParams.low.frequency) ||
+        !juce::exactlyEqual(params.low.gain, m_currentParams.low.gain) ||
+        !juce::exactlyEqual(params.low.q, m_currentParams.low.q) ||
+        !juce::exactlyEqual(params.mid.frequency, m_currentParams.mid.frequency) ||
+        !juce::exactlyEqual(params.mid.gain, m_currentParams.mid.gain) ||
+        !juce::exactlyEqual(params.mid.q, m_currentParams.mid.q) ||
+        !juce::exactlyEqual(params.high.frequency, m_currentParams.high.frequency) ||
+        !juce::exactlyEqual(params.high.gain, m_currentParams.high.gain) ||
+        !juce::exactlyEqual(params.high.q, m_currentParams.high.q))
     {
         m_currentParams = params;
         m_coefficientsNeedUpdate = true;

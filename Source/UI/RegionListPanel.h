@@ -90,7 +90,7 @@ public:
          *
          * @param regionIndices Indices of the regions to rename
          */
-        virtual void regionListPanelBatchRename(const std::vector<int>& regionIndices) {}
+        virtual void regionListPanelBatchRename(const std::vector<int>& /*regionIndices*/) {}
 
         /**
          * Called when the user applies batch rename changes.
@@ -99,8 +99,8 @@ public:
          * @param regionIndices Indices of the regions being renamed
          * @param newNames New names for the regions (same order as indices)
          */
-        virtual void regionListPanelBatchRenameApply(const std::vector<int>& regionIndices,
-                                                      const std::vector<juce::String>& newNames) {}
+        virtual void regionListPanelBatchRenameApply(const std::vector<int>& /*regionIndices*/,
+                                                      const std::vector<juce::String>& /*newNames*/) {}
     };
 
     /**
@@ -256,7 +256,6 @@ private:
 
     private:
         RegionListPanel& owner;
-        int rowNumber;
     };
 
     //==============================================================================

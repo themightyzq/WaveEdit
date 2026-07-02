@@ -46,8 +46,8 @@ juce::AudioBuffer<float> apply(const juce::AudioBuffer<float>& input,
         c.reserve(static_cast<size_t>(numSamples) * 2);
 
     constexpr int kChunkFrames = 4096;
-    std::vector<float> interleavedIn (static_cast<size_t>(kChunkFrames) * numChannels);
-    std::vector<float> interleavedOut(static_cast<size_t>(kChunkFrames) * numChannels);
+    std::vector<float> interleavedIn (static_cast<size_t>(kChunkFrames) * static_cast<size_t>(numChannels));
+    std::vector<float> interleavedOut(static_cast<size_t>(kChunkFrames) * static_cast<size_t>(numChannels));
 
     auto drainOutput = [&]()
     {

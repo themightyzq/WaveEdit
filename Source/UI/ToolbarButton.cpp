@@ -554,7 +554,6 @@ juce::CommandID ToolbarButton::getCommandID() const
 // ToolbarSeparator
 
 ToolbarSeparator::ToolbarSeparator(int width)
-    : m_width(width)
 {
     setSize(width, 36);
     // Make separator click-through so right-clicks pass to parent toolbar
@@ -573,7 +572,6 @@ void ToolbarSeparator::paint(juce::Graphics& g)
 // ToolbarSpacer
 
 ToolbarSpacer::ToolbarSpacer(int minWidth)
-    : m_minWidth(minWidth)
 {
     setSize(minWidth, 36);
     // Make spacer click-through so right-clicks pass to parent toolbar

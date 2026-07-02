@@ -268,7 +268,7 @@ void BWFEditorDialog::buttonClicked(juce::Button* button)
     }
 }
 
-void BWFEditorDialog::textEditorTextChanged(juce::TextEditor& editor)
+void BWFEditorDialog::textEditorTextChanged(juce::TextEditor& /*editor*/)
 {
     updateCharacterCounts();
 }

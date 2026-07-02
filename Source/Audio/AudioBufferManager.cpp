@@ -395,7 +395,7 @@ bool AudioBufferManager::silenceRangeForChannels(int64_t startSample, int64_t nu
     }
 
     // Silence only the specified channels
-    int numChannelsSilenced = 0;
+    [[maybe_unused]] int numChannelsSilenced = 0;
     for (int ch = 0; ch < m_buffer.getNumChannels(); ++ch)
     {
         if ((channelMask & (1 << ch)) != 0)
@@ -405,8 +405,10 @@ bool AudioBufferManager::silenceRangeForChannels(int64_t startSample, int64_t nu
         }
     }
 
+    #if JUCE_DEBUG
     DBG("AudioBufferManager: Silenced " + juce::String(numSamples) +
                              " samples on " + juce::String(numChannelsSilenced) + " channels");
+    #endif
 
     return true;
 }

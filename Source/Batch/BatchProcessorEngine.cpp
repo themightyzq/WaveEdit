@@ -129,6 +129,10 @@ void BatchProcessorEngine::run()
                 m_summary.skippedFiles++;
                 break;
 
+            case BatchJobStatus::PENDING:
+            case BatchJobStatus::LOADING:
+            case BatchJobStatus::PROCESSING:
+            case BatchJobStatus::SAVING:
             default:
                 break;
         }

@@ -29,8 +29,8 @@
 // NameEditor implementation
 //==============================================================================
 
-MarkerListPanel::NameEditor::NameEditor(MarkerListPanel& owner, int row)
-    : owner(owner), rowNumber(row)
+MarkerListPanel::NameEditor::NameEditor(MarkerListPanel& ownerPanel, int /*row*/)
+    : owner(ownerPanel)
 {
     setMultiLine(false);
     setReturnKeyStartsNewLine(false);
@@ -239,7 +239,6 @@ juce::DocumentWindow* MarkerListPanel::showInWindow(bool modal)
             : juce::DocumentWindow("Marker List",
                                   waveedit::ThemeManager::getInstance().getCurrent().background,
                                   juce::DocumentWindow::allButtons)
-            , markerPanel(panel)
             , commandManager(cm)
         {
             setUsingNativeTitleBar(true);
@@ -266,7 +265,6 @@ juce::DocumentWindow* MarkerListPanel::showInWindow(bool modal)
         }
 
     private:
-        MarkerListPanel* markerPanel;
         juce::ApplicationCommandManager* commandManager;
     };
 
@@ -329,7 +327,7 @@ int MarkerListPanel::getNumRows()
     return m_filteredMarkers.size();
 }
 
-void MarkerListPanel::paintRowBackground(juce::Graphics& g, int rowNumber, int width, int height,
+void MarkerListPanel::paintRowBackground(juce::Graphics& g, int rowNumber, int /*width*/, int /*height*/,
                                         bool rowIsSelected)
 {
     if (rowIsSelected)
@@ -343,7 +341,7 @@ void MarkerListPanel::paintRowBackground(juce::Graphics& g, int rowNumber, int w
 }
 
 void MarkerListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
-                               int width, int height, bool rowIsSelected)
+                               int width, int height, bool /*rowIsSelected*/)
 {
     if (rowNumber < 0 || rowNumber >= m_filteredMarkers.size())
         return;
@@ -680,8 +678,8 @@ void MarkerListPanel::sortMarkers()
     class MarkerComparator
     {
     public:
-        MarkerComparator(int columnId, bool forwards, double sampleRate)
-            : sortColumnId(columnId), sortForwards(forwards), sampleRate(sampleRate)
+        MarkerComparator(int columnId, bool forwards, double /*sampleRate*/)
+            : sortColumnId(columnId), sortForwards(forwards)
         {
         }
 
@@ -713,7 +711,6 @@ void MarkerListPanel::sortMarkers()
     private:
         int sortColumnId;
         bool sortForwards;
-        double sampleRate;
     };
 
     MarkerComparator comparator(m_sortColumnId, m_sortForwards, m_sampleRate);
