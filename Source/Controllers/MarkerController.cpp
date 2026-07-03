@@ -25,6 +25,7 @@
 #include "../Utils/Marker.h"
 #include "../Utils/UndoActions/MarkerUndoActions.h"
 #include "../Utils/UndoActions/RegionUndoActions.h"
+#include "../UI/SidecarNotifications.h"
 #include <set>
 
 MarkerController::MarkerController()
@@ -270,6 +271,8 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
 
         doc->setModified(true);
         DBG("Renamed marker to: " + newName);
+
+        SidecarNotifications::warnIfSidecarNowRequired(*doc, &doc->getMarkerDisplay());
     };
 
     // onMarkerColorChanged: Update marker color with undo support (C4)
@@ -302,6 +305,8 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
 
         doc->setModified(true);
         DBG("Changed marker color");
+
+        SidecarNotifications::warnIfSidecarNowRequired(*doc, &doc->getMarkerDisplay());
     };
 
     // onMarkerDeleted: Remove marker from manager with undo support

@@ -14,23 +14,8 @@
 */
 
 #include "RegionManager.h"
+#include "SidecarPolicy.h"
 #include <juce_core/juce_core.h>
-
-namespace
-{
-    // Color palette for region visualization
-    const juce::Colour kRegionColorPalette[] = {
-        juce::Colours::lightblue,
-        juce::Colours::lightgreen,
-        juce::Colours::lightyellow,
-        juce::Colours::lightcoral,
-        juce::Colours::lightpink,
-        juce::Colours::lightsalmon,
-        juce::Colours::lightseagreen,
-        juce::Colours::lightskyblue
-    };
-    constexpr int kNumRegionColors = 8;
-}
 
 RegionManager::RegionManager()
     : m_primarySelectionIndex(-1)
@@ -558,15 +543,31 @@ juce::File RegionManager::getRegionFilePath(const juce::File& audioFile)
 
 bool RegionManager::saveToFile(const juce::File& audioFile) const
 {
-    juce::ScopedLock lock(m_lock);
-
     juce::File regionFile = getRegionFilePath(audioFile);
+
+    // Opt-in sidecar: with regions embedded in the WAV cue/adtl chunks, only
+    // CREATE a new sidecar when the regions carry data the WAV cannot represent
+    // (custom color or non-ASCII name). An existing sidecar is always kept
+    // updated -- we never delete a user's file.
+    if (!regionFile.existsAsFile() && !SidecarPolicy::regionsNeedSidecar(*this))
+        return true;
+
+    juce::ScopedLock lock(m_lock);
 
     // Create JSON object
     auto* root = new juce::DynamicObject();
 
     root->setProperty("version", "1.0");
     root->setProperty("audioFile", audioFile.getFileName());
+
+    // Audio fingerprint for staleness detection on load: if the WAV changes
+    // outside WaveEdit after this write, the sidecar is treated as stale and
+    // the user is asked which markers/regions to trust.
+    if (audioFile.existsAsFile())
+    {
+        root->setProperty("audioLength", audioFile.getSize());
+        root->setProperty("audioModTime", audioFile.getLastModificationTime().toMilliseconds());
+    }
 
     // Serialize regions array
     juce::Array<juce::var> regionsArray;
@@ -769,9 +770,10 @@ void RegionManager::autoCreateRegions(const juce::AudioBuffer<float>& buffer,
         juce::String regionName = "Region " + juce::String(i + 1);
         Region region(regionName, start, end);
 
-        // Assign color based on index (cycle through palette)
-        int colorIndex = i % kNumRegionColors;
-        region.setColor(kRegionColorPalette[colorIndex]);
+        // Assign color based on index (deterministic palette). This same
+        // mapping is what SidecarPolicy treats as "non-custom", so an
+        // auto-created set embeds into the WAV without needing a sidecar.
+        region.setColor(SidecarPolicy::autoRegionColor(i));
 
         addRegion(region);
     }

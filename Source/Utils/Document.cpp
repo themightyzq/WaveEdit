@@ -24,6 +24,7 @@
 #include "../Audio/AudioFileManager.h"
 #include "../Automation/AutomationRecorder.h"
 #include "../Plugins/PluginChain.h"
+#include "SidecarPolicy.h"
 
 Document::Document(const juce::File& file)
     : m_file(file),
@@ -168,8 +169,8 @@ bool Document::loadFile(const juce::File& file)
     m_regionDisplay.setVisibleRange(0.0, m_bufferManager.getLengthInSeconds());
     m_regionDisplay.setAudioBuffer(&m_bufferManager.getBuffer());  // Phase 3.3 - For zero-crossing snap
 
-    // Load regions from sidecar JSON file (if exists)
-    m_regionManager.loadFromFile(file);
+    // Regions + markers are loaded together below (loadRegionsAndMarkers) so the
+    // sidecar/embedded-cue precedence is applied consistently to both.
 
     // Connect WaveformDisplay to RegionManager for region overlay rendering
     m_waveformDisplay.setRegionManager(&m_regionManager);
@@ -179,8 +180,11 @@ bool Document::loadFile(const juce::File& file)
     m_markerDisplay.setTotalDuration(m_bufferManager.getLengthInSeconds());
     m_markerDisplay.setVisibleRange(0.0, m_bufferManager.getLengthInSeconds());
 
-    // Load markers from sidecar JSON file (if exists)
-    m_markerManager.loadFromFile(file);
+    // Load regions + markers, applying sidecar/embedded-cue precedence:
+    //   - sidecar present and fresh  -> sidecar wins
+    //   - no sidecar                 -> import the WAV's embedded cues
+    //   - sidecar present but stale  -> keep sidecar, flag a conflict for the UI
+    loadRegionsAndMarkers(file);
 
     // Load automation lanes from sidecar JSON file (Phase 6, if exists).
     // Lanes reference plugins by index/parameterID; if the user opens
@@ -340,11 +344,28 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
                                     file.getFileExtension() + " format)");
         }
 
+        // Embed markers + regions as WAV cue/adtl chunks (WAV only). Always
+        // embed so the file is self-describing. This must happen BEFORE the
+        // sidecar writes below so their staleness fingerprint captures the
+        // final on-disk file (cue embedding rewrites the file).
+        if (file.hasFileExtension(".wav"))
+        {
+            WavCueData cues;
+            buildCueDataForSave(cues);
+            if (!fileManager.writeCueChunks(file, cues))
+            {
+                juce::Logger::writeToLog("Document::saveFile - failed to embed cue chunks: "
+                                         + fileManager.getLastError());
+            }
+        }
+
         // Update document state
         m_file = file;
         m_isModified = false;
 
-        // Save region data as sidecar JSON
+        // Save region data as sidecar JSON (opt-in: only written when the
+        // regions carry data the WAV cannot represent, or a sidecar already
+        // exists -- see RegionManager::saveToFile).
         m_regionManager.saveToFile(file);
 
         // Save marker data as sidecar JSON
@@ -361,5 +382,127 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         juce::String errorMsg = fileManager.getLastError();
         juce::Logger::writeToLog("Error saving file: " + errorMsg);
         return false;
+    }
+}
+
+//==============================================================================
+// Embedded-cue / sidecar reconciliation
+
+void Document::loadRegionsAndMarkers(const juce::File& file)
+{
+    m_embeddedCues = WavCueData();
+    m_sidecarConflict = false;
+
+    // Read any embedded WAV cue/adtl chunks up front (cheap; message thread).
+    if (file.hasFileExtension(".wav"))
+    {
+        AudioFileManager fileManager;
+        fileManager.readCueChunks(file, m_embeddedCues);
+    }
+
+    const juce::File regionSidecar = RegionManager::getRegionFilePath(file);
+    const juce::File markerSidecar = MarkerManager::getMarkerFilePath(file);
+    const bool haveSidecar = regionSidecar.existsAsFile() || markerSidecar.existsAsFile();
+
+    if (!haveSidecar)
+    {
+        // No sidecar at all: import whatever the WAV carries. Files with no
+        // embedded cues simply produce empty region/marker sets.
+        importEmbeddedCues(m_embeddedCues);
+        return;
+    }
+
+    // A sidecar is present -- it is the richer store, so it wins by default.
+    const int64_t totalSamples = m_bufferManager.getBuffer().getNumSamples();
+    m_regionManager.loadFromFile(file, totalSamples);
+    m_markerManager.loadFromFile(file);
+
+    // If the audio changed outside WaveEdit since the sidecar was written AND
+    // the file actually carries its own cues, flag a conflict. The sidecar is
+    // kept for now; the UI asks the user which to trust.
+    const bool stale =
+        (regionSidecar.existsAsFile()
+         && SidecarPolicy::sidecarStaleAgainst(regionSidecar, file))
+        || (markerSidecar.existsAsFile()
+            && SidecarPolicy::sidecarStaleAgainst(markerSidecar, file));
+
+    if (stale && !m_embeddedCues.isEmpty())
+        m_sidecarConflict = true;
+}
+
+void Document::importEmbeddedCues(const WavCueData& cues)
+{
+    const int64_t totalSamples = m_bufferManager.getBuffer().getNumSamples();
+
+    m_regionManager.removeAllRegions();
+    m_markerManager.removeAllMarkers();
+
+    for (const auto& m : cues.markers)
+    {
+        const int64_t pos = juce::jlimit<int64_t>(0, totalSamples, m.position);
+        m_markerManager.addMarker(Marker(m.name, pos));  // default (yellow)
+    }
+
+    int index = 0;
+    for (const auto& r : cues.regions)
+    {
+        const int64_t start = juce::jlimit<int64_t>(0, totalSamples, r.start);
+        const int64_t end = juce::jlimit<int64_t>(0, totalSamples, r.start + r.length);
+        if (end <= start)
+            continue;
+
+        Region region(r.name, start, end);
+        region.setColor(SidecarPolicy::autoRegionColor(index));  // deterministic
+        m_regionManager.addRegion(region);
+        ++index;
+    }
+}
+
+void Document::adoptEmbeddedMarkersAndRegions()
+{
+    importEmbeddedCues(m_embeddedCues);
+    m_sidecarConflict = false;
+    setModified(true);
+}
+
+bool Document::takeSidecarRequirementTransition()
+{
+    const bool needs = SidecarPolicy::regionsNeedSidecar(m_regionManager)
+                    || SidecarPolicy::markersNeedSidecar(m_markerManager);
+
+    if (!needs)
+    {
+        // Back to fully embeddable: re-arm so a later transition warns again.
+        m_sidecarRequirementAnnounced = false;
+        return false;
+    }
+
+    if (m_sidecarRequirementAnnounced)
+        return false;
+
+    m_sidecarRequirementAnnounced = true;
+    return true;
+}
+
+void Document::buildCueDataForSave(WavCueData& out) const
+{
+    const auto markers = m_markerManager.getAllMarkers();
+    for (const auto& m : markers)
+    {
+        WavCueMarker cm;
+        cm.name = SidecarPolicy::toAsciiLabel(m.getName());
+        cm.position = static_cast<juce::int64>(m.getPosition());
+        out.markers.add(cm);
+    }
+
+    const auto& regions = m_regionManager.getAllRegions();
+    for (int i = 0; i < regions.size(); ++i)
+    {
+        const auto& r = regions.getReference(i);
+        WavCueRegion cr;
+        cr.name = SidecarPolicy::toAsciiLabel(r.getName());
+        cr.start = static_cast<juce::int64>(r.getStartSample());
+        cr.length = static_cast<juce::int64>(r.getLengthInSamples());
+        out.regions.add(cr);
     }
 }
