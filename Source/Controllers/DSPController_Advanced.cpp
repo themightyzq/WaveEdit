@@ -43,6 +43,7 @@
 #include "../UI/ErrorDialog.h"
 #include "../DSP/HeadTailEngine.h"
 #include "../UI/HeadTailDialog.h"
+#include "../UI/TimePitchDialog.h"
 #include "../UI/LoopingToolsDialog.h"
 #include "../UI/ThemeManager.h"
 #include "../Plugins/PluginManager.h"
@@ -873,79 +874,89 @@ namespace
                                description + " failed: " + juce::String(e.what()));
         }
     }
+
+    // Validate the applied value, short-circuit identity, build the recipe, and
+    // apply it. Shared by both the Time Stretch and Pitch Shift Apply callbacks.
+    void applyTimePitchValue(Document* doc, TimePitchDialog::Mode mode, double value)
+    {
+        if (std::abs(value) < 1.0e-6)
+            return;  // identity
+
+        TimePitchEngine::Recipe recipe;
+        juce::String desc;
+
+        if (mode == TimePitchDialog::Mode::TimeStretch)
+        {
+            if (value < -50.0 || value > 500.0)
+            {
+                ErrorDialog::show("Time Stretch",
+                                  "Tempo change out of range. Use -50 to +500.");
+                return;
+            }
+            recipe.tempoPercent = value;
+            desc = juce::String::formatted("Time stretch %+.1f%%", value);
+        }
+        else
+        {
+            if (value < -24.0 || value > 24.0)
+            {
+                ErrorDialog::show("Pitch Shift",
+                                  "Semitone count out of range. Use -24 to +24.");
+                return;
+            }
+            recipe.pitchSemitones = value;
+            desc = juce::String::formatted("Pitch shift %+.2f semitones", value);
+        }
+
+        applyTimePitchToDocument(doc, recipe, desc);
+    }
+
+    // Construct + launch the shared TimePitchDialog for either mode. Mirrors
+    // DSPController::showHeadTailDialog: passes the AudioEngine plus the
+    // document's WaveformDisplay as a SafePointer lifeline for the async dialog.
+    void showTimePitchDialog(Document* doc, TimePitchDialog::Mode mode)
+    {
+        if (! doc || ! doc->getAudioEngine().isFileLoaded())
+            return;
+
+        auto& waveform = doc->getWaveformDisplay();
+        const auto& buffer = doc->getBufferManager().getBuffer();
+        const double sr = doc->getAudioEngine().getSampleRate();
+
+        auto* dialog = new TimePitchDialog(mode, buffer, sr,
+                                           waveform.hasSelection(),
+                                           waveform.getSelectionStart(),
+                                           waveform.getEditCursorPosition(),
+                                           &doc->getAudioEngine(),
+                                           &waveform);
+
+        dialog->onApply = [doc, mode](double value)
+        {
+            applyTimePitchValue(doc, mode, value);
+        };
+        dialog->onCancel = []() {};
+
+        juce::DialogWindow::LaunchOptions options;
+        options.dialogTitle = (mode == TimePitchDialog::Mode::TimeStretch)
+            ? "Time Stretch" : "Pitch Shift";
+        options.dialogBackgroundColour =
+            waveedit::ThemeManager::getInstance().getCurrent().panel;
+        options.content.setOwned(dialog);
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar            = true;
+        options.resizable                    = false;
+        options.launchAsync();
+    }
 }
 
 void DSPController::showTimeStretchDialog(Document* doc, juce::Component* /*parent*/)
 {
-    if (! doc || ! doc->getAudioEngine().isFileLoaded())
-        return;
-
-    juce::AlertWindow dialog(
-        "Time Stretch",
-        "Stretch or compress the file's tempo without changing pitch.\n"
-        "Range: -50% (half speed) to +500% (6x speed).",
-        juce::AlertWindow::NoIcon);
-
-    dialog.addTextEditor("tempoPercent", "0.0", "Tempo change (%)");
-    dialog.addButton("Apply",  1, juce::KeyPress(juce::KeyPress::returnKey));
-    dialog.addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-
-    if (dialog.runModalLoop() != 1)
-        return;
-
-    const double tempoPercent = dialog.getTextEditorContents("tempoPercent").getDoubleValue();
-    if (std::abs(tempoPercent) < 1.0e-6)
-        return;  // identity
-
-    if (tempoPercent < -50.0 || tempoPercent > 500.0)
-    {
-        ErrorDialog::show("Time Stretch",
-                          "Tempo change out of range. Use -50 to +500.");
-        return;
-    }
-
-    TimePitchEngine::Recipe recipe;
-    recipe.tempoPercent = tempoPercent;
-
-    const auto desc = juce::String::formatted("Time stretch %+.1f%%", tempoPercent);
-    applyTimePitchToDocument(doc, recipe, desc);
+    showTimePitchDialog(doc, TimePitchDialog::Mode::TimeStretch);
 }
 
 void DSPController::showPitchShiftDialog(Document* doc, juce::Component* /*parent*/)
 {
-    if (! doc || ! doc->getAudioEngine().isFileLoaded())
-        return;
-
-    juce::AlertWindow dialog(
-        "Pitch Shift",
-        "Shift the file's pitch without changing length.\n"
-        "Use whole semitones (e.g. 12 = 1 octave up) or fractions for cents.\n"
-        "Range: -24 to +24 semitones.",
-        juce::AlertWindow::NoIcon);
-
-    dialog.addTextEditor("semitones", "0.0", "Semitones");
-    dialog.addButton("Apply",  1, juce::KeyPress(juce::KeyPress::returnKey));
-    dialog.addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-
-    if (dialog.runModalLoop() != 1)
-        return;
-
-    const double semitones = dialog.getTextEditorContents("semitones").getDoubleValue();
-    if (std::abs(semitones) < 1.0e-6)
-        return;  // identity
-
-    if (semitones < -24.0 || semitones > 24.0)
-    {
-        ErrorDialog::show("Pitch Shift",
-                          "Semitone count out of range. Use -24 to +24.");
-        return;
-    }
-
-    TimePitchEngine::Recipe recipe;
-    recipe.pitchSemitones = semitones;
-
-    const auto desc = juce::String::formatted("Pitch shift %+.2f semitones", semitones);
-    applyTimePitchToDocument(doc, recipe, desc);
+    showTimePitchDialog(doc, TimePitchDialog::Mode::PitchShift);
 }
 
 //==============================================================================
