@@ -204,14 +204,36 @@ inline juce::Colour colour(juce::uint32 c)
 }
 
 /**
+ * @brief Construct a Font via the JUCE 8 FontOptions API with LEGACY
+ *        typeface metrics.
+ *
+ * The deprecated juce::Font constructors used TypefaceMetricsKind::legacy;
+ * FontOptions defaults to ::portable, which changes text layout subtly.
+ * All app font construction goes through these wrappers so migrated code
+ * renders pixel-identically to the pre-JUCE-8 constructors. Switching the
+ * whole app to portable metrics is a separate, visually-verified decision.
+ */
+inline juce::Font legacyFont(juce::FontOptions options)
+{
+    return juce::Font(options.withMetricsKind(juce::TypefaceMetricsKind::legacy));
+}
+
+inline juce::Font legacyFont(float height, int styleFlags = juce::Font::plain)
+{
+    return legacyFont(juce::FontOptions(height, styleFlags));
+}
+
+inline juce::Font legacyFont(const juce::String& typefaceName, float height, int styleFlags)
+{
+    return legacyFont(juce::FontOptions(typefaceName, height, styleFlags));
+}
+
+/**
  * @brief Create a dialog title font
  */
 inline juce::Font dialogTitleFont()
 {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return juce::Font(kFontDialogTitle, juce::Font::bold);
-    #pragma GCC diagnostic pop
+    return legacyFont(kFontDialogTitle, juce::Font::bold);
 }
 
 /**
@@ -219,10 +241,7 @@ inline juce::Font dialogTitleFont()
  */
 inline juce::Font sectionHeaderFont()
 {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return juce::Font(kFontSectionHeader, juce::Font::bold);
-    #pragma GCC diagnostic pop
+    return legacyFont(kFontSectionHeader, juce::Font::bold);
 }
 
 /**
@@ -230,10 +249,7 @@ inline juce::Font sectionHeaderFont()
  */
 inline juce::Font bodyFont()
 {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return juce::Font(kFontBody, juce::Font::plain);
-    #pragma GCC diagnostic pop
+    return legacyFont(kFontBody, juce::Font::plain);
 }
 
 /**
@@ -241,10 +257,7 @@ inline juce::Font bodyFont()
  */
 inline juce::Font boldValueFont()
 {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return juce::Font(kFontBodyBold, juce::Font::bold);
-    #pragma GCC diagnostic pop
+    return legacyFont(kFontBodyBold, juce::Font::bold);
 }
 
 /**
@@ -252,10 +265,7 @@ inline juce::Font boldValueFont()
  */
 inline juce::Font smallFont()
 {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return juce::Font(kFontSmall, juce::Font::plain);
-    #pragma GCC diagnostic pop
+    return legacyFont(kFontSmall, juce::Font::plain);
 }
 
 /**
@@ -263,10 +273,7 @@ inline juce::Font smallFont()
  */
 inline juce::Font monospaceFont()
 {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return juce::Font(juce::Font::getDefaultMonospacedFontName(), kFontMonospace, juce::Font::bold);
-    #pragma GCC diagnostic pop
+    return legacyFont(juce::Font::getDefaultMonospacedFontName(), kFontMonospace, juce::Font::bold);
 }
 
 } // namespace ui

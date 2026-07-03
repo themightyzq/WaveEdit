@@ -301,16 +301,17 @@ bool SaveAsOptionsPanel::isMP3EncoderAvailable()
     }
 
     // Actually test if we can create a writer (verifies LAME is functional)
-    // Use a MemoryOutputStream to avoid file system I/O during detection
-    juce::MemoryOutputStream dummyStream;
-    std::unique_ptr<juce::AudioFormatWriter> writer(
-        mp3Format->createWriterFor(&dummyStream,
-                                    44100.0,  // sample rate
-                                    2,        // channels
-                                    16,       // bits per sample
-                                    {},       // metadata
-                                    5)        // quality (0-10)
-    );
+    // Use a MemoryOutputStream to avoid file system I/O during detection.
+    // Must be heap-allocated: the writer assumes ownership of the stream on
+    // success (the old code passed a stack stream to the ownership-taking
+    // API, which was a latent invalid-delete).
+    std::unique_ptr<juce::OutputStream> dummyStream = std::make_unique<juce::MemoryOutputStream>();
+    auto writer = mp3Format->createWriterFor(dummyStream,
+                                             juce::AudioFormatWriterOptions()
+                                                 .withSampleRate(44100.0)
+                                                 .withNumChannels(2)
+                                                 .withBitsPerSample(16)
+                                                 .withQualityOptionIndex(5));
 
     if (writer == nullptr)
     {

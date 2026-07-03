@@ -16,6 +16,7 @@
 #include "TransportControls.h"
 #include "WaveformDisplay.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 
 //==============================================================================
 // Icon Creation Helper Functions
@@ -150,7 +151,7 @@ TransportControls::TransportControls(AudioEngine& audioEngine, WaveformDisplay& 
     // jitter horizontally as it updates ~20x/sec (REVIEW-DESIGN H12).
     m_timeLabel = std::make_unique<juce::Label>("Time", "00:00:00.000");
     m_timeLabel->setJustificationType(juce::Justification::centred);
-    m_timeLabel->setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::bold));
+    m_timeLabel->setFont(waveedit::ui::legacyFont(juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::bold));
     addAndMakeVisible(m_timeLabel.get());
 
     // Apply theme colours (icons + time label) and reflect initial loop state.

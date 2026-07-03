@@ -41,7 +41,7 @@ ChannelExtractorDialog::ChannelExtractorDialog(int currentChannels, const juce::
 
     // Title
     m_titleLabel.setText("Channel Extractor", juce::dontSendNotification);
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
+    m_titleLabel.setFont(waveedit::ui::legacyFont(18.0f, juce::Font::bold));
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
@@ -52,7 +52,7 @@ ChannelExtractorDialog::ChannelExtractorDialog(int currentChannels, const juce::
 
     m_sourceValueLabel.setText(sourceFileName + " (" + juce::String(currentChannels) + " channels)",
                                 juce::dontSendNotification);
-    m_sourceValueLabel.setFont(juce::Font(13.0f, juce::Font::bold));
+    m_sourceValueLabel.setFont(waveedit::ui::legacyFont(13.0f, juce::Font::bold));
     addAndMakeVisible(m_sourceValueLabel);
 
     // Channel selection group
@@ -63,7 +63,7 @@ ChannelExtractorDialog::ChannelExtractorDialog(int currentChannels, const juce::
 
     // Selection count
     m_selectionCountLabel.setText("0 channels selected", juce::dontSendNotification);
-    m_selectionCountLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    m_selectionCountLabel.setFont(waveedit::ui::legacyFont(12.0f, juce::Font::bold));
     addAndMakeVisible(m_selectionCountLabel);
 
     // Select All / Select None buttons

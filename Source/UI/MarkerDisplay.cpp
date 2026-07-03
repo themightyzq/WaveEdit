@@ -55,7 +55,7 @@ void MarkerDisplay::paint(juce::Graphics& g)
 
         // Draw label at top
         juce::String labelText = marker->getName();
-        int labelWidth = g.getCurrentFont().getStringWidth(labelText) + 8;
+        int labelWidth = juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), labelText) + 8;
         int labelX = x - labelWidth / 2;
 
         // Clamp label to visible area

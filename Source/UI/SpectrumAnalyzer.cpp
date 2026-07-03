@@ -15,6 +15,7 @@
 
 #include "SpectrumAnalyzer.h"
 #include "../Audio/AudioEngine.h"
+#include "UIConstants.h"
 #include <cmath>
 
 //==============================================================================
@@ -417,7 +418,7 @@ juce::Colour SpectrumAnalyzer::getColorForMagnitude(float dB) const
 void SpectrumAnalyzer::drawFrequencyAxis(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     g.setColour(juce::Colours::grey);
-    g.setFont(juce::Font("Monospace", 9.0f, juce::Font::plain));
+    g.setFont(waveedit::ui::legacyFont("Monospace", 9.0f, juce::Font::plain));
 
     // Draw frequency markings at key points (20, 50, 100, 200, 500, 1k, 2k, 5k, 10k, 20k)
     const float frequencies[] = { 20.0f, 50.0f, 100.0f, 200.0f, 500.0f,
@@ -454,7 +455,7 @@ void SpectrumAnalyzer::drawFrequencyAxis(juce::Graphics& g, juce::Rectangle<floa
 void SpectrumAnalyzer::drawMagnitudeAxis(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     g.setColour(juce::Colours::grey);
-    g.setFont(juce::Font("Monospace", 9.0f, juce::Font::plain));
+    g.setFont(waveedit::ui::legacyFont("Monospace", 9.0f, juce::Font::plain));
 
     // Draw dB scale markings at key points
     const float dBMarkings[] = { 0.0f, -10.0f, -20.0f, -30.0f, -40.0f, -50.0f, -60.0f, -70.0f };
