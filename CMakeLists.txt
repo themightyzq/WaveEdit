@@ -1031,6 +1031,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/PluginChainPersistenceTests.cpp          # Plugin chain state persistence (XML/JSON + named presets)
             Tests/Unit/LargeOperationUndoTests.cpp              # Undo/redo correctness at large (multi-million-sample) buffer sizes
             Tests/Unit/SettingsPersistenceTests.cpp             # UX finding 1: generic settings round-trip + old-format compat
+            Tests/Unit/MonitorFoldDownTests.cpp                 # H7: surround monitoring fold-down matrix (ITU-R BS.775)
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6
