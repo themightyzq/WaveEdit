@@ -228,6 +228,12 @@ private:
 
     // Processing
     void onStartClicked();
+
+    /** UX26: warns when the run would overwrite its own source files.
+        On confirm, ENABLES settings.overwriteExisting so the per-job guard
+        honors the user's explicit choice. Returns false if the user backs
+        out (impl in _Components.cpp). */
+    bool confirmSourceOverwrites(BatchProcessorSettings& settings);
     void onCancelClicked();
     void onCloseClicked();
     bool validateSettings();

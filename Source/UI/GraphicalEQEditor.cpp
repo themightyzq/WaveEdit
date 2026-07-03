@@ -75,6 +75,10 @@ GraphicalEQEditor::GraphicalEQEditor(const DynamicParametricEQ::Parameters& init
 {
     m_sampleRate.store(44100.0);
 
+    // Allow the editor to receive Enter/Esc even when no child control holds
+    // focus (UX12).
+    setWantsKeyboardFocus(true);
+
     // Initialize FFT buffers
     m_fftData.fill(0.0f);
     m_scopeData.fill(0.0f);
@@ -336,6 +340,28 @@ void GraphicalEQEditor::resized()
 
     // Update control point positions when window resizes
     updateControlPointPositions();
+}
+
+bool GraphicalEQEditor::keyPressed(const juce::KeyPress& key)
+{
+    // Enter applies, Escape cancels (UX12). The dialog's own escape handling is
+    // disabled (escapeKeyTriggersCloseButton = false) so we route both here to
+    // guarantee the preview is stopped through the button handlers.
+    if (key == juce::KeyPress::returnKey)
+    {
+        if (m_applyButton.onClick)
+            m_applyButton.onClick();
+        return true;
+    }
+
+    if (key == juce::KeyPress::escapeKey)
+    {
+        if (m_cancelButton.onClick)
+            m_cancelButton.onClick();
+        return true;
+    }
+
+    return false;
 }
 
 void GraphicalEQEditor::timerCallback()
@@ -799,7 +825,14 @@ void GraphicalEQEditor::drawGrid(juce::Graphics& g, juce::Rectangle<float> bound
 
 void GraphicalEQEditor::pushAudioData(const float* buffer, int numSamples)
 {
-    juce::SpinLock::ScopedLockType lock(m_fftLock);
+    // H3 FIX: this runs on the audio thread (fed from AudioEngine's
+    // audioDeviceIOCallbackWithContext). Never block the real-time thread on
+    // a lock contended by the message-thread processFFT() -- try-lock and
+    // simply skip this block on contention (matching the m_analyzerLock
+    // try-lock pattern one level up in AudioEngine.cpp).
+    juce::SpinLock::ScopedTryLockType lock(m_fftLock);
+    if (!lock.isLocked())
+        return;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -1231,16 +1264,26 @@ void GraphicalEQEditor::onBypassClicked()
     s_lastBypassState = newBypassState;
 
     // Update button appearance
+    // H5 FIX: bypass-active colour follows the active theme's warning token
+    // (was a fixed 0xffff8c00 orange, invisible/wrong-contrast in Light and
+    // High Contrast). Read at click-time, matching PluginChainPanel.cpp's
+    // updateBypassButtonAppearance() pattern.
     if (!bypassed)
     {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        const auto bypassTextColour = theme.warning.getPerceivedBrightness() > 0.5f
+                                           ? juce::Colours::black
+                                           : juce::Colours::white;
         m_bypassButton.setButtonText("Bypassed");
-        m_bypassButton.setColour(juce::TextButton::buttonColourId,
-                                 waveedit::ui::colour(waveedit::ui::kButtonBypassActive));
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
+        m_bypassButton.setColour(juce::TextButton::textColourOffId, bypassTextColour);
     }
     else
     {
         m_bypassButton.setButtonText("Bypass");
         m_bypassButton.setColour(juce::TextButton::buttonColourId,
                                  getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        m_bypassButton.setColour(juce::TextButton::textColourOffId,
+                                 getLookAndFeel().findColour(juce::TextButton::textColourOffId));
     }
 }

@@ -976,27 +976,19 @@ private:
     };
     DCOffsetProcessor m_dcOffsetProcessor;
 
-    // C5 FIX: the pending-EQ structs contain std::vector payloads, so the atomic
-    // "changed" flag alone is not enough to publish them safely. m_eqParamsLock
-    // guards every read/write of the pending structs. The message thread takes it
-    // (blocking) when staging new params; the audio thread uses tryEnter() and
-    // skips the param swap for this block on contention (keeping last-good params),
-    // so it never blocks or reallocates while another thread reallocates the vector.
-    juce::SpinLock m_eqParamsLock;
+    // C1/C2 FIX: parameter staging and coefficient building live inside the
+    // EQ classes themselves now (message-thread setParameters() builds under
+    // the class's own lock; audio-thread applyEQ() try-locks, adopts values
+    // without allocating, and processes). The engine only keeps the enable
+    // flags and forwards parameters on the message thread.
 
     // Parametric EQ processor for real-time preview (3-band fixed)
     std::unique_ptr<ParametricEQ> m_parametricEQ;
     juce::Atomic<bool> m_parametricEQEnabled{false};
-    ParametricEQ::Parameters m_parametricEQParams;  // Accessed only from audio thread after atomic flag
-    juce::Atomic<bool> m_parametricEQParamsChanged{false};
-    ParametricEQ::Parameters m_pendingParametricEQParams;  // Written from message thread (guarded by m_eqParamsLock)
 
     // Dynamic Parametric EQ processor for real-time preview (20-band, multiple filter types)
     std::unique_ptr<DynamicParametricEQ> m_dynamicEQ;
     juce::Atomic<bool> m_dynamicEQEnabled{false};
-    DynamicParametricEQ::Parameters m_dynamicEQParams;  // Accessed only from audio thread after atomic flag
-    juce::Atomic<bool> m_dynamicEQParamsChanged{false};
-    DynamicParametricEQ::Parameters m_pendingDynamicEQParams;  // Written from message thread (guarded by m_eqParamsLock)
 
     // VST3/AU Plugin Chain for real-time effects processing
     PluginChain m_pluginChain;

@@ -36,6 +36,13 @@
         "alt"
       ]
     },
+    "fileEditiXMLMetadata": {
+      "key": "X",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
     "fileExit": {
       "key": "Q",
       "modifiers": [
@@ -106,16 +113,26 @@
         "alt"
       ]
     },
+    "editMarkSelectionStart": {
+      "key": "I",
+      "modifiers": []
+    },
+    "editMarkSelectionEnd": {
+      "key": "O",
+      "modifiers": []
+    },
     "_comment_playback": "=== PLAYBACK OPERATIONS (5 commands) - Manual Pages 26-27 ===",
     "playbackPlay": {
       "key": "Space",
       "modifiers": []
     },
     "playbackPause": {
-      "key": "Space",
-      "modifiers": [
-        "cmd"
-      ]
+      "key": "Enter",
+      "modifiers": []
+    },
+    "playbackStop": {
+      "key": "Escape",
+      "modifiers": []
     },
     "playbackLoop": {
       "key": "L",
@@ -189,6 +206,13 @@
       "modifiers": [
         "cmd",
         "alt"
+      ]
+    },
+    "viewToggleRegions": {
+      "key": "H",
+      "modifiers": [
+        "cmd",
+        "shift"
       ]
     },
     "_comment_process": "=== PROCESSING OPERATIONS (7 commands) - Manual Page 43 ===",
@@ -336,12 +360,6 @@
         "shift"
       ]
     },
-    "snapPreferences": {
-      "key": "G",
-      "modifiers": [
-        "shift"
-      ]
-    },
     "_comment_help": "=== HELP OPERATIONS (2 commands) ===",
     "helpAbout": {
       "key": "A",
@@ -381,13 +399,13 @@
     "tabNext": {
       "key": "Tab",
       "modifiers": [
-        "cmd"
+        "ctrl"
       ]
     },
     "tabPrevious": {
       "key": "Tab",
       "modifiers": [
-        "cmd",
+        "ctrl",
         "shift"
       ]
     },
@@ -605,6 +623,20 @@
       "key": "M",
       "modifiers": [
         "cmd",
+        "shift"
+      ]
+    },
+    "_comment_plugins": "=== PLUGIN / AUTOMATION OPERATIONS ===",
+    "pluginBypassAll": {
+      "key": "B",
+      "modifiers": [
+        "ctrl"
+      ]
+    },
+    "automationToggleRecordArm": {
+      "key": "A",
+      "modifiers": [
+        "ctrl",
         "shift"
       ]
     }

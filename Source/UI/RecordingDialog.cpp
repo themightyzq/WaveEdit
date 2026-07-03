@@ -17,6 +17,24 @@
 #include "ThemeManager.h"
 #include "UIConstants.h"
 
+namespace
+{
+    //==========================================================================
+    // VU-meter domain-visualisation colours (§6.11 carve-out). These are the
+    // meter's green/yellow/red bar segments and clip latch — intentionally
+    // specific, kept here as named constants rather than scattered literals.
+    const juce::Colour kMeterGreen  { 0xff2ecc40 };  // safe zone
+    const juce::Colour kMeterYellow { 0xffffdc00 };  // caution zone
+    const juce::Colour kMeterRed    { 0xffff4136 };  // hot zone
+    const juce::Colour kMeterClip   { 0xffff0000 };  // latched clip segment
+
+    // dBFS scale and standard colour breakpoints.
+    constexpr float kMeterFloorDb    = -60.0f;  // left edge of the meter
+    constexpr float kMeterYellowDb   = -18.0f;  // green -> yellow
+    constexpr float kMeterRedDb      =  -6.0f;  // yellow -> red
+    constexpr int   kClipSegmentPx   = 6;       // width of the clip latch
+}
+
 //==============================================================================
 // LevelMeter Implementation
 
@@ -29,38 +47,61 @@ void RecordingDialog::LevelMeter::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
 
-    // Background
-    g.setColour(juce::Colours::darkgrey);
+    // Chrome (background + border) from the active theme (§6.11 / M5).
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.setColour(theme.panelAlternate);
     g.fillRect(bounds);
 
-    // Level bar (green → yellow → red gradient)
-    float levelWidth = bounds.getWidth() * m_level;
+    // Map the linear peak to dBFS, then to a 0..1 fill across [-60 dB .. 0 dB].
+    const float db = juce::Decibels::gainToDecibels(m_level, kMeterFloorDb);
+    const float norm = juce::jlimit(0.0f, 1.0f,
+        juce::jmap(db, kMeterFloorDb, 0.0f, 0.0f, 1.0f));
+
+    const float levelWidth = bounds.getWidth() * norm;
     juce::Rectangle<float> levelBar(bounds.getX(), bounds.getY(), levelWidth, bounds.getHeight());
 
-    if (m_level < 0.7f)
-    {
-        g.setColour(juce::Colours::green);
-    }
-    else if (m_level < 0.9f)
-    {
-        g.setColour(juce::Colours::yellow);
-    }
+    // Colour the fill by the zone the current peak sits in.
+    if (db < kMeterYellowDb)
+        g.setColour(kMeterGreen);
+    else if (db < kMeterRedDb)
+        g.setColour(kMeterYellow);
     else
-    {
-        g.setColour(juce::Colours::red);
-    }
+        g.setColour(kMeterRed);
 
     g.fillRect(levelBar);
 
-    // Border
-    g.setColour(juce::Colours::black);
-    g.drawRect(bounds, 1.0f);
+    // Latching clip indicator: a red segment pinned to the right edge that
+    // stays lit after any >= 0 dBFS peak until cleared (click / record start).
+    if (m_clipped)
+    {
+        g.setColour(kMeterClip);
+        g.fillRect(bounds.removeFromRight(static_cast<float>(kClipSegmentPx)));
+    }
+
+    // Border from the active theme.
+    g.setColour(theme.border);
+    g.drawRect(getLocalBounds().toFloat(), 1.0f);
 }
 
-void RecordingDialog::LevelMeter::setLevel(float level)
+void RecordingDialog::LevelMeter::setLevel(float linearPeak)
 {
-    m_level = juce::jlimit(0.0f, 1.0f, level);
+    // Detect clip BEFORE clamping: >= 0 dBFS means linear peak >= 1.0.
+    if (linearPeak >= 1.0f)
+        m_clipped = true;
+
+    m_level = juce::jlimit(0.0f, 1.0f, linearPeak);
     repaint();
+}
+
+void RecordingDialog::LevelMeter::resetClip()
+{
+    m_clipped = false;
+    repaint();
+}
+
+void RecordingDialog::LevelMeter::mouseDown(const juce::MouseEvent&)
+{
+    resetClip();
 }
 
 //==============================================================================
@@ -77,7 +118,7 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     m_inputDeviceSelector.addListener(this);
     addAndMakeVisible(m_inputDeviceSelector);
     populateInputDevices();
-    m_inputDeviceSelector.setEnabled(false);  // Non-functional (see comboBoxChanged)
+    m_currentInputDeviceId = m_inputDeviceSelector.getSelectedId();
 
     // Sample rate selection
     m_sampleRateLabel.setText("Sample Rate:", juce::dontSendNotification);
@@ -86,7 +127,7 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     m_sampleRateSelector.addListener(this);
     addAndMakeVisible(m_sampleRateSelector);
     populateSampleRates();
-    m_sampleRateSelector.setEnabled(false);  // Non-functional (see comboBoxChanged)
+    m_currentSampleRateId = m_sampleRateSelector.getSelectedId();
 
     // Channel configuration
     m_channelConfigLabel.setText("Channels:", juce::dontSendNotification);
@@ -95,7 +136,6 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     m_channelConfigSelector.addListener(this);
     addAndMakeVisible(m_channelConfigSelector);
     populateChannelConfigurations();
-    m_channelConfigSelector.setEnabled(false);  // Non-functional (see comboBoxChanged)
 
     // Recording controls
     m_recordButton.setButtonText("Record");
@@ -134,6 +174,11 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     // Level meters
     addAndMakeVisible(m_leftLevelMeter);
     addAndMakeVisible(m_rightLevelMeter);
+
+    // Sync the engine with the default channel choice and set the right
+    // meter/label visibility. Done AFTER the meters are added so its
+    // setVisible() isn't clobbered by the addAndMakeVisible() calls above.
+    applyChannelSelection();
 
     // Listen to recording engine state changes
     m_recordingEngine->addChangeListener(this);
@@ -272,18 +317,108 @@ void RecordingDialog::buttonClicked(juce::Button* button)
 
 void RecordingDialog::comboBoxChanged(juce::ComboBox* comboBox)
 {
+    // Never reconfigure the device mid-take (data loss). The combos are
+    // disabled while recording, so this is belt-and-braces.
+    if (m_recordingEngine->isRecording())
+        return;
+
     if (comboBox == &m_inputDeviceSelector)
-    {
-        // Future: Update input device configuration
-    }
+        handleInputDeviceChange();
     else if (comboBox == &m_sampleRateSelector)
-    {
-        // Future: Update sample rate configuration
-    }
+        handleSampleRateChange();
     else if (comboBox == &m_channelConfigSelector)
+        applyChannelSelection();
+}
+
+//==============================================================================
+// Device / rate / channel switching
+
+bool RecordingDialog::applyDeviceSetup(const juce::AudioDeviceManager::AudioDeviceSetup& newSetup,
+                                       juce::String& error)
+{
+    // Stop the monitoring feed across the reconfigure so the level meters
+    // aren't reading a half-torn-down device, then restart it afterward.
+    m_deviceManager.removeAudioCallback(m_recordingEngine.get());
+    error = m_deviceManager.setAudioDeviceSetup(newSetup, true /* treatAsChosenDevice */);
+    m_deviceManager.addAudioCallback(m_recordingEngine.get());
+
+    return error.isEmpty();
+}
+
+void RecordingDialog::handleInputDeviceChange()
+{
+    const int newId = m_inputDeviceSelector.getSelectedId();
+    if (newId == m_currentInputDeviceId)
+        return;
+
+    const juce::String chosenDevice = m_inputDeviceSelector.getText();
+
+    auto setup = m_deviceManager.getAudioDeviceSetup();
+    setup.inputDeviceName = chosenDevice;
+    setup.useDefaultInputChannels = true;
+
+    juce::String error;
+    if (! applyDeviceSetup(setup, error))
     {
-        // Future: Update channel configuration
+        // Roll back to the last good selection and tell the user why.
+        m_inputDeviceSelector.setSelectedId(m_currentInputDeviceId, juce::dontSendNotification);
+        showStatusError("Could not switch input device: " + error);
+        return;
     }
+
+    m_currentInputDeviceId = newId;
+
+    // A new device may expose different rates / channel counts.
+    populateSampleRates();
+    m_currentSampleRateId = m_sampleRateSelector.getSelectedId();
+    populateChannelConfigurations();
+    applyChannelSelection();
+
+    updateUIState();  // refresh status text back to "Ready to record"
+}
+
+void RecordingDialog::handleSampleRateChange()
+{
+    const int newId = m_sampleRateSelector.getSelectedId();
+    if (newId == 0 || newId == m_currentSampleRateId)
+        return;
+
+    // The combo item ID is the rate in Hz (see populateSampleRates()).
+    auto setup = m_deviceManager.getAudioDeviceSetup();
+    setup.sampleRate = static_cast<double>(newId);
+
+    juce::String error;
+    if (! applyDeviceSetup(setup, error))
+    {
+        m_sampleRateSelector.setSelectedId(m_currentSampleRateId, juce::dontSendNotification);
+        showStatusError("Could not switch sample rate: " + error);
+        return;
+    }
+
+    m_currentSampleRateId = newId;
+    updateUIState();
+}
+
+void RecordingDialog::applyChannelSelection()
+{
+    // The channel-combo item ID IS the recorded channel count (1 or 2).
+    const int channelCount = juce::jmax(1, m_channelConfigSelector.getSelectedId());
+    m_recordingEngine->setRequestedChannelCount(channelCount);
+
+    // Mono captures a single channel; hide the right meter/label so the UI
+    // doesn't imply a second channel is being recorded.
+    const bool stereo = (channelCount >= 2);
+    m_rightLevelLabel.setVisible(stereo);
+    m_rightLevelMeter.setVisible(stereo);
+    if (! stereo)
+        m_rightLevelMeter.setLevel(0.0f);
+}
+
+void RecordingDialog::showStatusError(const juce::String& message)
+{
+    m_statusLabel.setText(message, juce::dontSendNotification);
+    m_statusLabel.setColour(juce::Label::textColourId,
+        waveedit::ThemeManager::getInstance().getCurrent().error);
 }
 
 //==============================================================================
@@ -312,6 +447,12 @@ void RecordingDialog::changeListenerCallback(juce::ChangeBroadcaster* source)
             (m_statusLabel.getText() == "No audio input device available");
         m_statusLabel.setColour(juce::Label::textColourId,
             (isRecording || isNoDeviceMessage) ? theme.error : theme.text);
+
+        // The meters read theme tokens at paint() time (no cached colours),
+        // but repaint them explicitly so the chrome updates immediately on a
+        // theme switch rather than waiting for the next level tick.
+        m_leftLevelMeter.repaint();
+        m_rightLevelMeter.repaint();
 
         repaint();
     }
@@ -353,6 +494,15 @@ void RecordingDialog::timerCallback()
     if (m_recordingEngine->isRecording())
     {
         updateElapsedTime();
+
+        // Surface the RAM cap honestly: show how much record time is left
+        // before the 1-hour buffer fills (derived from real buffer capacity).
+        const double remaining = m_recordingEngine->getRemainingRecordSeconds();
+        const int totalSecs = juce::jmax(0, static_cast<int>(remaining));
+        const juce::String remainingText =
+            juce::String::formatted("Recording - %02d:%02d remaining",
+                                    totalSecs / 60, totalSecs % 60);
+        m_statusLabel.setText(remainingText, juce::dontSendNotification);
     }
 }
 
@@ -425,15 +575,25 @@ void RecordingDialog::populateInputDevices()
 
     if (m_inputDeviceSelector.getNumItems() == 0)
     {
+        m_hasInputDevice = false;
+
         m_inputDeviceSelector.addItem("No input devices available", 1);
         m_inputDeviceSelector.setSelectedId(1, juce::dontSendNotification);
         m_inputDeviceSelector.setEnabled(false);
 
-        // CRITICAL: Disable record button when no audio device available
+        // CRITICAL: Disable record button + config combos when no audio
+        // device is available (there is nothing to configure or capture).
         m_recordButton.setEnabled(false);
+        m_sampleRateSelector.setEnabled(false);
+        m_channelConfigSelector.setEnabled(false);
         m_statusLabel.setText("No audio input device available", juce::dontSendNotification);
         m_statusLabel.setColour(juce::Label::textColourId,
             waveedit::ThemeManager::getInstance().getCurrent().error);
+    }
+    else
+    {
+        m_hasInputDevice = true;
+        m_inputDeviceSelector.setEnabled(true);
     }
 }
 
@@ -441,94 +601,57 @@ void RecordingDialog::populateSampleRates()
 {
     m_sampleRateSelector.clear(juce::dontSendNotification);
 
-    // Common sample rates
-    juce::StringArray sampleRates = { "44100 Hz", "48000 Hz", "88200 Hz", "96000 Hz" };
-    for (int i = 0; i < sampleRates.size(); ++i)
+    auto* currentDevice = m_deviceManager.getCurrentAudioDevice();
+    if (currentDevice == nullptr)
     {
-        m_sampleRateSelector.addItem(sampleRates[i], i + 1);
+        // No device -> nothing meaningful to offer.
+        m_sampleRateSelector.setEnabled(false);
+        return;
     }
 
-    // Select current sample rate
-    auto currentDevice = m_deviceManager.getCurrentAudioDevice();
-    if (currentDevice != nullptr)
-    {
-        double currentSampleRate = currentDevice->getCurrentSampleRate();
-        juce::String currentRateString = juce::String(static_cast<int>(currentSampleRate)) + " Hz";
+    // The combo item ID encodes the rate directly (rounded Hz), so a switch
+    // handler can recover the exact rate without a parallel lookup table.
+    const auto availableRates = currentDevice->getAvailableSampleRates();
+    const double currentRate = currentDevice->getCurrentSampleRate();
 
-        for (int i = 0; i < sampleRates.size(); ++i)
-        {
-            if (sampleRates[i] == currentRateString)
-            {
-                m_sampleRateSelector.setSelectedId(i + 1, juce::dontSendNotification);
-                break;
-            }
-        }
+    for (auto rate : availableRates)
+    {
+        const int id = static_cast<int>(rate);  // e.g. 48000
+        m_sampleRateSelector.addItem(juce::String(id) + " Hz", id);
+
+        if (std::abs(rate - currentRate) < 1.0)
+            m_sampleRateSelector.setSelectedId(id, juce::dontSendNotification);
     }
 
-    if (m_sampleRateSelector.getSelectedId() == 0)
-    {
-        m_sampleRateSelector.setSelectedId(1, juce::dontSendNotification);  // Default to 44.1kHz
-    }
+    // Fall back to the first available rate if the current one wasn't listed.
+    if (m_sampleRateSelector.getSelectedId() == 0 && m_sampleRateSelector.getNumItems() > 0)
+        m_sampleRateSelector.setSelectedItemIndex(0, juce::dontSendNotification);
+
+    m_sampleRateSelector.setEnabled(m_hasInputDevice && m_sampleRateSelector.getNumItems() > 0);
 }
 
 void RecordingDialog::populateChannelConfigurations()
 {
     m_channelConfigSelector.clear(juce::dontSendNotification);
 
-    // Get current audio device
-    auto* currentDevice = m_deviceManager.getCurrentAudioDevice();
-    if (currentDevice != nullptr)
-    {
-        // Get input channel names
-        auto inputChannelNames = currentDevice->getInputChannelNames();
+    // Simple, honest semantics (documented inline in the item text):
+    //   Mono   -> records the first device input channel (input 1).
+    //   Stereo -> records the first two device input channels (inputs 1-2).
+    // No downmix is performed. The item ID IS the recorded channel count.
+    m_channelConfigSelector.addItem("Mono (records input 1)", 1);
 
-        // Add specific input channel options
-        if (inputChannelNames.size() > 0)
-        {
-            // Add mono options for each available input channel
-            for (int i = 0; i < inputChannelNames.size(); ++i)
-            {
-                juce::String channelName = inputChannelNames[i];
-                m_channelConfigSelector.addItem("Mono: " + channelName, i + 1);
-            }
+    // Only offer stereo if the device actually exposes >= 2 input channels.
+    int availableInputs = 2;
+    if (auto* currentDevice = m_deviceManager.getCurrentAudioDevice())
+        availableInputs = currentDevice->getActiveInputChannels().countNumberOfSetBits();
 
-            // Add stereo pairs if we have multiple inputs
-            if (inputChannelNames.size() >= 2)
-            {
-                int stereoBaseId = inputChannelNames.size() + 1;
-                for (int i = 0; i < inputChannelNames.size() - 1; i += 2)
-                {
-                    juce::String pairName = inputChannelNames[i] + " + " + inputChannelNames[i + 1];
-                    m_channelConfigSelector.addItem("Stereo: " + pairName, stereoBaseId + (i / 2));
-                }
-            }
+    if (availableInputs >= 2)
+        m_channelConfigSelector.addItem("Stereo (records inputs 1-2)", 2);
 
-            // Default to first stereo pair if available, otherwise first mono channel
-            if (inputChannelNames.size() >= 2)
-            {
-                int defaultStereoId = inputChannelNames.size() + 1;
-                m_channelConfigSelector.setSelectedId(defaultStereoId, juce::dontSendNotification);
-            }
-            else
-            {
-                m_channelConfigSelector.setSelectedId(1, juce::dontSendNotification);
-            }
-        }
-        else
-        {
-            // Fallback if we can't get channel names
-            m_channelConfigSelector.addItem("Mono (1 channel)", 1);
-            m_channelConfigSelector.addItem("Stereo (2 channels)", 2);
-            m_channelConfigSelector.setSelectedId(2, juce::dontSendNotification);
-        }
-    }
-    else
-    {
-        // No device - show generic options
-        m_channelConfigSelector.addItem("Mono (1 channel)", 1);
-        m_channelConfigSelector.addItem("Stereo (2 channels)", 2);
-        m_channelConfigSelector.setSelectedId(2, juce::dontSendNotification);
-    }
+    // Default to stereo when available, otherwise mono.
+    m_channelConfigSelector.setSelectedId(availableInputs >= 2 ? 2 : 1, juce::dontSendNotification);
+
+    m_channelConfigSelector.setEnabled(m_hasInputDevice);
 }
 
 void RecordingDialog::startRecording()
@@ -550,6 +673,11 @@ void RecordingDialog::startRecording()
     {
         m_bufferFullHandled = false;  // Reset buffer-full latch for the new session
         m_recordingStartTime = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+
+        // Fresh take -> clear any latched clip from monitoring.
+        m_leftLevelMeter.resetClip();
+        m_rightLevelMeter.resetClip();
+
         updateUIState();
 
         if (m_recordingStateCallback)
@@ -590,11 +718,15 @@ void RecordingDialog::updateUIState()
 {
     bool isRecording = m_recordingEngine->isRecording();
 
-    m_recordButton.setEnabled(!isRecording);
+    m_recordButton.setEnabled(!isRecording && m_hasInputDevice);
     m_stopButton.setEnabled(isRecording);
 
-    // Note: input device / sample rate / channel combos remain disabled
-    // (non-functional, see comboBoxChanged); do not re-enable here.
+    // Device churn mid-take is data loss: lock the config combos while
+    // recording, re-enable them (if a device exists) once stopped.
+    const bool configEnabled = (!isRecording && m_hasInputDevice);
+    m_inputDeviceSelector.setEnabled(configEnabled);
+    m_sampleRateSelector.setEnabled(configEnabled && m_sampleRateSelector.getNumItems() > 0);
+    m_channelConfigSelector.setEnabled(configEnabled);
 
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     if (isRecording)
@@ -619,11 +751,11 @@ void RecordingDialog::updateElapsedTime()
 
 void RecordingDialog::updateLevelMeters()
 {
-    float leftLevel = m_recordingEngine->getInputPeakLevel(0);
-    float rightLevel = m_recordingEngine->getInputPeakLevel(1);
+    m_leftLevelMeter.setLevel(m_recordingEngine->getInputPeakLevel(0));
 
-    m_leftLevelMeter.setLevel(leftLevel);
-    m_rightLevelMeter.setLevel(rightLevel);
+    // Only feed the right meter in stereo (it is hidden in mono).
+    if (m_rightLevelMeter.isVisible())
+        m_rightLevelMeter.setLevel(m_recordingEngine->getInputPeakLevel(1));
 }
 
 juce::String RecordingDialog::formatTime(double seconds) const

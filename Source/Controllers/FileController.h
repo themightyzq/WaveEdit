@@ -77,7 +77,13 @@ public:
     bool hasUnsavedChanges() const;
 
     /**
-     * Save all modified documents. Returns true if all saves succeeded.
+     * Save all modified documents ahead of quitting. Titled documents are
+     * written in place; each modified UNTITLED document (e.g. a fresh
+     * recording) prompts the user per document -- Save As / Discard /
+     * Cancel. Returns true when every modified document has been saved or
+     * explicitly discarded (safe to quit), false if the user cancelled or a
+     * save failed (must NOT quit). Runs synchronously via the app's modal
+     * Save As dialog, matching closeFile()'s per-document close prompt.
      */
     bool saveAllModifiedDocuments();
 
@@ -130,6 +136,31 @@ public:
     static void deleteAutoSavesFor(const juce::File& originalFile);
 
     /**
+     * List every auto-save written for an UNTITLED (never-saved) document,
+     * newest first. Untitled auto-saves are named
+     * "autosave_Untitled-<token>_<hash>_<timestamp>.wav" so they can be
+     * located without a real source file to key on. Exposed (and UI-free)
+     * so a future launch-time recovery scan can offer these takes; see the
+     * note in performAutoSave() about the remaining wiring.
+     */
+    static juce::Array<juce::File> findUntitledAutoSaves();
+
+    /**
+     * Launch-time crash recovery for UNTITLED documents. Scans for auto-saves
+     * left by untitled takes (e.g. a recording never saved, then a crash) via
+     * findUntitledAutoSaves() and, if any exist, offers the user
+     * Recover / Discard / Keep. "Recover" loads each take into a new modified
+     * tab (so the quit-time untitled-save prompt then covers it); "Discard"
+     * deletes the takes; "Keep" leaves them on disk for a later launch.
+     *
+     * Call once, after the main window exists (see the app host's
+     * initialise()). Titled-document recovery is offered per file on open
+     * (offerCrashRecovery); this is its untitled counterpart, which has no
+     * source file to key on and so must be scanned for explicitly.
+     */
+    void offerUntitledCrashRecovery();
+
+    /**
      * Set callback for UI refresh after file operations (e.g. repaint).
      */
     void setOnUIRefreshNeeded(std::function<void()> callback) { m_onUIRefreshNeeded = std::move(callback); }
@@ -153,6 +184,14 @@ private:
 
     /** Show the recovery dialog and act on the user's choice. */
     void offerCrashRecovery(Document* doc, const juce::File& originalFile);
+
+    /**
+     * Run the modal Save As dialog for @p doc and write the result.
+     * Returns true if the document was saved, false if the user cancelled
+     * the dialog or the write failed. Shared by saveFileAs() and the
+     * untitled-document branch of saveAllModifiedDocuments().
+     */
+    bool saveDocumentAs(Document* doc);
 
     /** Trigger UI refresh if callback is set */
     void requestUIRefresh();

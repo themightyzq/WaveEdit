@@ -34,7 +34,7 @@ namespace CommandIDs
         fileExit        = 0x1006,
         filePreferences = 0x1007,  // Cmd+, - Preferences/Settings dialog
         fileEditBWFMetadata = 0x1008,  // Edit BWF metadata dialog
-        fileEditiXMLMetadata = 0x1009,  // Edit iXML/SoundMiner metadata dialog
+        fileEditiXMLMetadata = 0x1009,  // Cmd+Alt+X - Edit iXML/SoundMiner metadata dialog
 
         // Edit Operations (0x2000 - 0x20FF)
         editUndo        = 0x2000,
@@ -45,7 +45,9 @@ namespace CommandIDs
         editDelete      = 0x2005,
         editSelectAll   = 0x2006,
         editSilence     = 0x2007,  // Alt+Shift+S - Fill selection with silence
-        editTrim        = 0x2008,  // Ctrl+T - Delete everything OUTSIDE selection
+        editTrim        = 0x2008,  // Cmd+T - Delete everything OUTSIDE selection
+        editMarkSelectionStart = 0x2009,  // I - Set selection start (in-point) at cursor
+        editMarkSelectionEnd   = 0x200A,  // O - Set selection end (out-point) at cursor
 
         // Playback Operations (0x3000 - 0x30FF)
         playbackPlay    = 0x3000,
@@ -86,7 +88,7 @@ namespace CommandIDs
         processIncreaseGain = 0x5005,  // Shift+Up (increase by +1 dB)
         processDecreaseGain = 0x5006,  // Shift+Down (decrease by -1 dB)
         processParametricEQ = 0x5007,  // Shift+E - 3-band Parametric EQ dialog
-        processGraphicalEQ = 0x5008,  // Cmd+E - Graphical Parametric EQ editor
+        processGraphicalEQ = 0x5008,  // Cmd+Alt+E - Graphical Parametric EQ editor
         processChannelConverter = 0x5009,  // Cmd+Shift+U - Channel Converter dialog
         processReverse          = 0x500A,  // Ctrl+R - Reverse audio
         processInvert           = 0x500B,  // Ctrl+I - Invert polarity
@@ -97,14 +99,14 @@ namespace CommandIDs
         // Navigation Operations (0x6000 - 0x60FF)
         navigateLeft         = 0x6000,  // Arrow left (uses current snap increment)
         navigateRight        = 0x6001,  // Arrow right (uses current snap increment)
-        navigateStart        = 0x6004,  // Ctrl+Left (jump to start)
-        navigateEnd          = 0x6005,  // Ctrl+Right (jump to end)
+        navigateStart        = 0x6004,  // Cmd+Left (jump to start)
+        navigateEnd          = 0x6005,  // Cmd+Right (jump to end)
         navigatePageLeft     = 0x6006,  // Page Up (1s default)
         navigatePageRight    = 0x6007,  // Page Down
         navigateHomeVisible  = 0x6008,  // Home (first visible sample)
         navigateEndVisible   = 0x6009,  // End (last visible sample)
         navigateCenterView   = 0x600A,  // Period (.) - center on cursor/selection
-        navigateGoToPosition = 0x600B,  // Cmd+G - Go To Position dialog
+        navigateGoToPosition = 0x600B,  // Cmd+Shift+G - Go To Position dialog
 
         // Selection Operations (0x7000 - 0x70FF)
         selectExtendLeft     = 0x7000,  // Shift+Left Arrow - extend selection left
@@ -115,12 +117,12 @@ namespace CommandIDs
         selectExtendPageRight= 0x7005,  // Shift+Page Down - extend selection right by page
 
         // Snap Operations (0x8000 - 0x80FF)
-        snapCycleMode        = 0x8000,  // G key - toggle snap on/off (maintains last increment)
+        snapCycleMode        = 0x8000,  // T key - toggle snap on/off (maintains last increment)
         snapToggleZeroCrossing = 0x8001, // Z key - quick toggle zero crossing
         // NOTE (L7): snapPreferences is NOT registered in getAllCommands()/perform();
-        // it is referenced by Source/UI/ShortcutEditorPanel.cpp and Templates/Keymaps/
-        // ProTools.json, so the ID is retained rather than removed. It is intentionally
-        // absent from any keypress binding in Default.json.
+        // it is referenced by Source/UI/ShortcutEditorPanel.cpp, so the ID is retained
+        // rather than removed. It is intentionally absent from any keypress binding in
+        // the shipped keymap templates (Default/ProTools/SoundForge).
         snapPreferences      = 0x8002,  // (unregistered) open snap preferences
 
         // Help Operations (0x9000 - 0x90FF)
@@ -145,7 +147,7 @@ namespace CommandIDs
 
         // Region Operations (0xB000 - 0xB0FF) - Phase 3 Tier 2
         regionAdd       = 0xB000,  // R - Create region from selection
-        regionDelete    = 0xB001,  // Cmd+Shift+Delete - Delete region under cursor
+        regionDelete    = 0xB001,  // Cmd+Delete - Delete region under cursor
         regionNext      = 0xB002,  // ] - Jump to and select next region
         regionPrevious  = 0xB003,  // [ - Jump to and select previous region
         regionSelectInverse = 0xB004,  // Cmd+Shift+I - Select everything NOT in regions
@@ -154,15 +156,15 @@ namespace CommandIDs
         regionExportAll = 0xB007,  // Cmd+Alt+R - Export each region as separate file (Batch Export)
         regionShowList  = 0xB008,  // Cmd+Shift+R - Show/hide Region List Panel
         regionSnapToZeroCrossing = 0xB009,  // Phase 3.3 - Toggle region zero-crossing snap preference
-        regionNudgeStartLeft = 0xB00A,  // Cmd+Shift+Left - Nudge region start boundary left by snap increment
-        regionNudgeStartRight = 0xB00B,  // Cmd+Shift+Right - Nudge region start boundary right by snap increment
+        regionNudgeStartLeft = 0xB00A,  // Cmd+Alt+Left - Nudge region start boundary left by snap increment
+        regionNudgeStartRight = 0xB00B,  // Cmd+Alt+Right - Nudge region start boundary right by snap increment
         regionNudgeEndLeft = 0xB00C,  // Shift+Alt+Left - Nudge region end boundary left by snap increment
         regionNudgeEndRight = 0xB00D,  // Shift+Alt+Right - Nudge region end boundary right by snap increment
         regionBatchRename = 0xB00E,  // Phase 3.4 - Batch rename multiple selected regions
         regionMerge = 0xB00F,  // Cmd+J - Merge selected adjacent regions
         regionSplit = 0xB010,  // Cmd+K - Split region at cursor position (moved from Cmd+R to avoid conflict with playbackRecord)
-        regionCopy = 0xB011,  // Cmd+Shift+C - Copy region definitions to clipboard
-        regionPaste = 0xB012,  // Cmd+Shift+V - Paste regions at cursor position
+        regionCopy = 0xB011,  // Cmd+Alt+C - Copy region definitions to clipboard
+        regionPaste = 0xB012,  // Cmd+Alt+V - Paste regions at cursor position
 
         // Marker Operations (0xC000 - 0xC0FF) - Phase 3.4
         markerAdd       = 0xC000,  // M - Add marker at cursor position
@@ -182,11 +184,11 @@ namespace CommandIDs
         // rather than removed. It is intentionally unbound in Default.json.
         pluginAddPlugin     = 0xD001,  // (unregistered) Open Plugin Manager dialog
         pluginApplyChain    = 0xD002,  // Cmd+P - Apply chain to selection (offline render)
-        pluginBypassAll     = 0xD003,  // Cmd+B - Bypass all plugins in chain
+        pluginBypassAll     = 0xD003,  // Ctrl+B - Bypass all plugins in chain (Cmd+B is Batch Processor)
         pluginRescan        = 0xD004,  // Rescan VST3/AU plugins
         pluginShowSettings  = 0xD005,  // Plugin scan path settings
         pluginClearCache    = 0xD006,  // Clear plugin cache and rescan
-        pluginOffline       = 0xD007,  // Cmd+Shift+O - Apply single plugin offline
+        pluginOffline       = 0xD007,  // Ctrl+Shift+O - Apply single plugin offline
         automationToggleRecordArm = 0xD008,  // Toggle global automation record-arm (Phase 4)
         pluginShowAutomationLanes = 0xD009,  // Cmd+Alt+L - Show Automation Lanes panel (Phase 5)
 
@@ -195,7 +197,7 @@ namespace CommandIDs
         toolbarReset        = 0xE001,  // Reset toolbar to default layout
 
         // Batch Operations (0xF000 - 0xF0FF)
-        fileBatchProcessor  = 0xF000,  // Cmd+Alt+B - Batch Processor dialog
+        fileBatchProcessor  = 0xF000,  // Cmd+B - Batch Processor dialog
 
         // Tools Operations (0xF100 - 0xF1FF)
         toolsChannelConverter = 0xF100,  // Cmd+Shift+U - Channel Converter dialog (moved from Process menu)

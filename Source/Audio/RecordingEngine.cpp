@@ -57,6 +57,7 @@ bool RecordingEngine::startRecording()
     {
         juce::ScopedLock lock(m_bufferLock);
         m_droppedSampleCount.store(0);
+        resolveRecordChannels();  // set m_numChannels before sizing the buffer
         if (! ensureRecordingBufferAllocated())
         {
             juce::Logger::writeToLog("RecordingEngine::startRecording: "
@@ -74,12 +75,23 @@ bool RecordingEngine::startRecording()
     return true;
 }
 
+void RecordingEngine::resolveRecordChannels()
+{
+    // Caller holds m_bufferLock. Clamp the user request to the sane range
+    // and to what the current device actually provides (if known).
+    int resolved = juce::jlimit(1, MAX_CHANNELS, m_requestedChannels.load());
+    const int deviceInputs = m_deviceInputChannels.load();
+    if (deviceInputs > 0)
+        resolved = juce::jmin(resolved, deviceInputs);
+    m_numChannels.store(juce::jmax(1, resolved));
+}
+
 bool RecordingEngine::ensureRecordingBufferAllocated()
 {
     // Caller holds m_bufferLock. Allocate ~1 hour at the current rate.
     const double sr = m_sampleRate.load();
     const int    ch = juce::jmax(1, m_numChannels.load());
-    const int maxSamples = static_cast<int>(sr * 3600.0);  // 1 hour
+    const int maxSamples = static_cast<int>(sr * kMaxRecordSeconds);  // 1 hour
     if (maxSamples <= 0)
         return false;
 
@@ -160,6 +172,39 @@ int RecordingEngine::getRecordedNumChannels() const
     return m_numChannels.load();
 }
 
+void RecordingEngine::setRequestedChannelCount(int channelCount)
+{
+    // Applied on the next startRecording(); do not disturb an active take.
+    if (m_recordingState.load() != RecordingState::RECORDING)
+        m_requestedChannels.store(juce::jlimit(1, MAX_CHANNELS, channelCount));
+}
+
+int RecordingEngine::getRequestedChannelCount() const
+{
+    return juce::jlimit(1, MAX_CHANNELS, m_requestedChannels.load());
+}
+
+double RecordingEngine::getMaxRecordSeconds() const
+{
+    return kMaxRecordSeconds;
+}
+
+double RecordingEngine::getRemainingRecordSeconds() const
+{
+    const double sr = m_sampleRate.load();
+    if (sr <= 0.0)
+        return 0.0;
+
+    // Capacity is fixed for the duration of a take (only resized under lock
+    // at record start), so reading getNumSamples() lock-free here is safe.
+    const int capacity = m_recordedBuffer.getNumSamples();
+    if (capacity <= 0)
+        return kMaxRecordSeconds;  // not yet allocated -> full cap available
+
+    const int used = m_recordedSampleCount.load();
+    return juce::jmax(0, capacity - used) / sr;
+}
+
 double RecordingEngine::getRecordingDuration() const
 {
     double sr = m_sampleRate.load();
@@ -219,7 +264,13 @@ void RecordingEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
     // allocation is gigabytes under the lock. The buffer is allocated
     // lazily in startRecording() instead.
     m_sampleRate = device->getCurrentSampleRate();
-    m_numChannels = juce::jmin(device->getActiveInputChannels().countNumberOfSetBits(), MAX_CHANNELS);
+
+    // Record how many input channels the device exposes so the recorded
+    // channel count can be resolved (against the user's mono/stereo choice)
+    // on record start. Do NOT set m_numChannels here — that is the RESOLVED
+    // recorded count and is decided in resolveRecordChannels() so the user's
+    // mono/stereo selection is not clobbered by a device reconfigure.
+    m_deviceInputChannels = juce::jmin(device->getActiveInputChannels().countNumberOfSetBits(), MAX_CHANNELS);
 }
 
 void RecordingEngine::audioDeviceStopped()

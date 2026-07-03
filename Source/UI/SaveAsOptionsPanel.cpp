@@ -454,8 +454,23 @@ void SaveAsOptionsPanel::updateUIForFormat()
     m_qualitySlider.setVisible(isCompressed);
     m_qualityValueLabel.setVisible(isCompressed);
 
-    // Hide warning label (MP3 is no longer an option)
-    m_warningLabel.setVisible(false);
+    // H8: BWF/iXML metadata (bext/iXML chunks) is a RIFF/WAV construct and
+    // cannot be stored in FLAC or OGG via JUCE's writers, so it is silently
+    // dropped on a compressed Save As. Warn the user in the dialog rather than
+    // dropping it without notice. (Not blocking -- the save still proceeds.)
+    if (isCompressed)
+    {
+        m_warningLabel.setText("Note: BWF/iXML metadata is not stored in this format "
+                               "and will not be written. Compressed formats are "
+                               "encoded from 24-bit audio; the bit-depth choice "
+                               "does not apply.",
+                               juce::dontSendNotification);
+        m_warningLabel.setVisible(true);
+    }
+    else
+    {
+        m_warningLabel.setVisible(false);
+    }
 
     // Reflow now that row visibility has changed (N8: hidden rows no longer
     // consume layout height).

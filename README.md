@@ -121,11 +121,14 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Gain adjustment (±1dB with `Shift+Up/Down`)
 - ✅ 3-band Parametric EQ (Low/Mid/High shelves)
 - ✅ 20-band Graphical EQ (Bell, Shelf, Cut, Notch, Bandpass filters with real-time curve)
-- ✅ Normalize (0dB peak)
+- ✅ Normalize (-0.1 dB default; Peak and RMS modes)
 - ✅ Fade in/out with 4 curve types (Linear, Exponential, Logarithmic, S-Curve) and visual preview
 - ✅ DC offset removal
 - ✅ Silence selection
 - ✅ Trim (delete outside selection)
+- ✅ Reverse and Invert (polarity flip)
+- ✅ Resample (sample-rate conversion)
+- ✅ Time Stretch and Pitch Shift (SoundTouch; independent tempo/pitch)
 
 **Regions** 🆕:
 - ✅ Create, rename, delete, navigate
@@ -139,7 +142,7 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ BWF (Broadcast Wave Format) support
 - ✅ iXML metadata with UCS v8.2.1 categories (753 mappings)
 - ✅ SoundMiner Extended fields (FXName, Description, Keywords, Designer)
-- ✅ File Properties dialog (`Cmd+Enter`) with UCS suggestions
+- ✅ File Properties dialog (`Alt+Enter`) with UCS suggestions
 - ✅ Persistent metadata embedded in WAV files
 
 **Navigation**:
@@ -173,7 +176,7 @@ No project files, no import wizards. Just open → edit → save.
 - ✅ Configure FFT size and window function from View menu submenus
 
 **Batch Processor** 🆕:
-- ✅ Process multiple audio files with identical DSP settings (`Cmd+Alt+B`)
+- ✅ Process multiple audio files with identical DSP settings (`Cmd+B`)
 - ✅ DSP chain: Gain, Normalize, DC Offset, Fade In/Out, EQ presets
 - ✅ Plugin chain support (apply VST3/AU effect chains)
 - ✅ Save/load chain presets via the Plugin Chain window's
@@ -227,9 +230,7 @@ No project files, no import wizards. Just open → edit → save.
 ### What's Next
 
 Planned features:
-- Additional DSP operations (reverb, compressor, noise reduction;
-  time-stretch + pitch-shift via SoundTouch already shipped under
-  Process menu)
+- Additional DSP operations (reverb, compressor, noise reduction)
 - More export formats
 - Plugin preset management improvements
 
@@ -370,6 +371,7 @@ editor.
 | Save As | `Cmd+Shift+S` |
 | File Properties | `Alt+Enter` |
 | Edit BWF Metadata | `Cmd+Alt+B` |
+| Edit iXML Metadata | `Cmd+Alt+X` |
 | Preferences | `Cmd+,` |
 | Quit | `Cmd+Q` |
 
@@ -377,6 +379,8 @@ editor.
 | Action | Shortcut |
 |--------|----------|
 | Select All | `Cmd+A` |
+| Mark In | `I` |
+| Mark Out | `O` |
 | Extend selection (by snap) | `Shift+Left/Right` |
 | Extend to visible start/end | `Shift+Home/End` |
 | Extend by page | `Shift+PageUp/PageDown` |
@@ -442,15 +446,30 @@ editor.
 | DC Offset Removal | `Cmd+Shift+D` |
 | Parametric EQ | `Shift+E` |
 | Graphical EQ | `Cmd+Alt+E` |
+| Reverse | `Ctrl+R` |
+| Invert Polarity | `Ctrl+I` |
+| Resample | `Ctrl+Shift+R` |
+| Time Stretch | `Ctrl+Shift+T` |
+| Pitch Shift | `Ctrl+Shift+P` |
 | Channel Converter | `Cmd+Shift+U` |
 | Batch Processor | `Cmd+B` |
+
+### Tools
+| Action | Shortcut |
+|--------|----------|
+| Channel Extractor | `Cmd+Shift+X` |
+| Head & Tail Editor | `Ctrl+H` |
+| Looping Tools | `Cmd+L` |
 
 ### Plugins
 | Action | Shortcut |
 |--------|----------|
 | Show Plugin Chain | `Cmd+Shift+P` |
 | Apply Plugin Chain | `Cmd+P` |
+| Offline Plugin Processing | `Ctrl+Shift+O` |
+| Bypass All Plugins | `Ctrl+B` |
 | Show Automation Lanes | `Cmd+Alt+L` |
+| Arm Automation Recording | `Ctrl+Shift+A` |
 
 ### Regions
 | Action | Shortcut |
@@ -468,6 +487,7 @@ editor.
 | Next / Previous Region | `]` / `[` |
 | Select All Regions | `Cmd+Alt+A` |
 | Invert Region Selection | `Cmd+Shift+I` |
+| Convert Regions to Markers | `Ctrl+Shift+G` |
 | Nudge Region Start | `Cmd+Alt+Left/Right` |
 | Nudge Region End | `Shift+Alt+Left/Right` |
 | Edit Boundaries | Right-click → Edit Boundaries |
@@ -480,6 +500,7 @@ editor.
 | Next Marker | `Shift+]` |
 | Previous Marker | `Shift+[` |
 | Delete Marker | `Cmd+Shift+Delete` |
+| Convert Markers to Regions | `Ctrl+Shift+M` |
 
 ### View
 | Action | Shortcut |
@@ -487,6 +508,7 @@ editor.
 | Auto-Scroll | `Cmd+Shift+F` |
 | Auto-Preview Regions | `Cmd+Alt+P` |
 | Spectrum Analyzer | `Cmd+Alt+S` |
+| Toggle Region Overlay | `Cmd+Shift+H` |
 
 ### Tabs
 | Action | Shortcut |
@@ -496,6 +518,12 @@ editor.
 | Close Tab | `Cmd+W` |
 | Close All Tabs | `Cmd+Shift+W` |
 | Select Tab 1-9 | `Cmd+1` … `Cmd+9` |
+
+### Toolbar
+| Action | Shortcut |
+|--------|----------|
+| Customize Toolbar | `Ctrl+Shift+K` |
+| Reset Toolbar | `Ctrl+Shift+J` |
 
 ### Help
 | Action | Shortcut |

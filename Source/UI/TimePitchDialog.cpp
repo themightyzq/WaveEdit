@@ -32,6 +32,7 @@ TimePitchDialog::TimePitchDialog(Mode mode,
                                  double sampleRate,
                                  bool hasSelection,
                                  double selectionStartSeconds,
+                                 double selectionEndSeconds,
                                  double cursorSeconds,
                                  AudioEngine* audioEngine,
                                  juce::Component* documentLifeline)
@@ -42,14 +43,25 @@ TimePitchDialog::TimePitchDialog(Mode mode,
 {
     const bool isStretch = (m_mode == Mode::TimeStretch);
 
+    m_hasSelection          = hasSelection;
+    m_selectionStartSeconds = selectionStartSeconds;
+    m_selectionEndSeconds   = selectionEndSeconds;
+
     if (sampleRate > 0.0)
         m_fullDurationSeconds = (double) audioBuffer.getNumSamples() / sampleRate;
+
+    // Apply is selection-scoped when a selection exists, so projections and the
+    // target-duration entry describe the selected range (else the whole file).
+    m_processDurationSeconds =
+        (hasSelection && selectionEndSeconds > selectionStartSeconds)
+            ? (selectionEndSeconds - selectionStartSeconds)
+            : m_fullDurationSeconds;
 
     // Own a copy of the preview excerpt (not the live document buffer). Rendering
     // the whole file through SoundTouch is slow, so we only render this excerpt.
     const auto range = computePreviewExcerpt(audioBuffer.getNumSamples(), sampleRate,
                                              hasSelection, selectionStartSeconds,
-                                             cursorSeconds);
+                                             selectionEndSeconds, cursorSeconds);
     const int excerptLen = (int) juce::jmax((juce::int64) 0, range.getLength());
     if (excerptLen > 0 && audioBuffer.getNumChannels() > 0)
     {
@@ -111,6 +123,32 @@ TimePitchDialog::TimePitchDialog(Mode mode,
     addAndMakeVisible(m_summaryLabel);
 
     //--------------------------------------------------------------------------
+    // Target-duration entry (TimeStretch only) -- type an exact output length.
+
+    if (isStretch)
+    {
+        m_targetLabel.setText("Target duration (s):", juce::dontSendNotification);
+        m_targetLabel.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(m_targetLabel);
+
+        m_targetEditor.setJustification(juce::Justification::centredLeft);
+        m_targetEditor.setInputRestrictions(12, "0123456789.");
+        m_targetEditor.onReturnKey  = [this]() { commitTargetDuration(); };
+        m_targetEditor.onFocusLost  = [this]() { commitTargetDuration(); };
+        addAndMakeVisible(m_targetEditor);
+    }
+
+    //--------------------------------------------------------------------------
+    // Scope line -- makes it explicit that Apply matches Preview's scope.
+
+    m_scopeLabel.setJustificationType(juce::Justification::centredLeft);
+    m_scopeLabel.setFont(ui::smallFont());
+    m_scopeLabel.setColour(juce::Label::textColourId,
+                           waveedit::ThemeManager::getInstance().getCurrent().textMuted);
+    addAndMakeVisible(m_scopeLabel);
+    updateScopeLabel();
+
+    //--------------------------------------------------------------------------
     // Footer buttons (Sec 6.8).
 
     m_previewButton.setButtonText("Preview");
@@ -132,10 +170,21 @@ TimePitchDialog::TimePitchDialog(Mode mode,
         m_bypassActive = ! m_bypassActive;
         m_bypassButton.setButtonText(m_bypassActive ? "Bypassed" : "Bypass");
         if (m_bypassActive)
-            m_bypassButton.setColour(juce::TextButton::buttonColourId,
-                                     ui::colour(ui::kButtonBypassActive));
+        {
+            // Themed warning surface with brightness-computed text (Sec 6.11),
+            // mirroring PluginChainPanel::updateBypassButtonAppearance().
+            const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+            const auto textColour = theme.warning.getPerceivedBrightness() > 0.5f
+                                        ? juce::Colours::black
+                                        : juce::Colours::white;
+            m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
+            m_bypassButton.setColour(juce::TextButton::textColourOffId, textColour);
+        }
         else
+        {
             m_bypassButton.removeColour(juce::TextButton::buttonColourId);
+            m_bypassButton.removeColour(juce::TextButton::textColourOffId);
+        }
 
         reloadActiveBuffer();   // startBufferPreview restarts playback itself
     };
@@ -178,7 +227,8 @@ TimePitchDialog::TimePitchDialog(Mode mode,
     // Initial state.
 
     updateSummary();
-    setSize(490, 220);
+    // TimeStretch adds a target-duration row; both modes add a scope line.
+    setSize(490, isStretch ? 288 : 248);
 
     setWantsKeyboardFocus(true);
     juce::Component::SafePointer<juce::Slider> safeSlider(&m_paramSlider);
@@ -202,8 +252,19 @@ void TimePitchDialog::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
     if (source == &waveedit::ThemeManager::getInstance())
     {
-        m_helpLabel.setColour(juce::Label::textColourId,
-                              waveedit::ThemeManager::getInstance().getCurrent().textMuted);
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        m_helpLabel.setColour(juce::Label::textColourId, theme.textMuted);
+        m_scopeLabel.setColour(juce::Label::textColourId, theme.textMuted);
+
+        // Re-apply the cached bypass-active colour so it tracks the new theme.
+        if (m_bypassActive)
+        {
+            const auto textColour = theme.warning.getPerceivedBrightness() > 0.5f
+                                        ? juce::Colours::black
+                                        : juce::Colours::white;
+            m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
+            m_bypassButton.setColour(juce::TextButton::textColourOffId, textColour);
+        }
         repaint();
     }
 }
@@ -215,7 +276,7 @@ void TimePitchDialog::changeListenerCallback(juce::ChangeBroadcaster* source)
 juce::Range<juce::int64> TimePitchDialog::computePreviewExcerpt(
     juce::int64 totalSamples, double sampleRate,
     bool hasSelection, double selectionStartSeconds,
-    double cursorSeconds) noexcept
+    double selectionEndSeconds, double cursorSeconds) noexcept
 {
     if (totalSamples <= 0 || sampleRate <= 0.0)
         return { 0, 0 };
@@ -226,7 +287,17 @@ juce::Range<juce::int64> TimePitchDialog::computePreviewExcerpt(
 
     const juce::int64 maxLen =
         (juce::int64) std::llround(kPreviewSeconds * sampleRate);
-    const juce::int64 end = juce::jmin(totalSamples, start + maxLen);
+    juce::int64 end = juce::jmin(totalSamples, start + maxLen);
+
+    // When a selection exists, never preview past its end -- Apply is
+    // selection-scoped, so preview and Apply must cover the same range
+    // (capped at kPreviewSeconds when the selection is longer).
+    if (hasSelection)
+    {
+        juce::int64 selEnd = (juce::int64) std::llround(selectionEndSeconds * sampleRate);
+        selEnd = juce::jlimit(start, totalSamples, selEnd);
+        end = juce::jmin(end, selEnd);
+    }
 
     return { start, end };
 }
@@ -313,7 +384,7 @@ void TimePitchDialog::startPreview()
         return;
     }
 
-    m_previewButton.setButtonText("STOP");
+    m_previewButton.setButtonText("Stop Preview");   // matches sibling dialogs (Sec 6.8)
     m_previewButton.setColour(juce::TextButton::buttonColourId,
                               ui::colour(ui::kButtonPreviewActive));
     m_bypassButton.setEnabled(true);
@@ -331,6 +402,7 @@ void TimePitchDialog::stopPreview()
     m_previewButton.removeColour(juce::TextButton::buttonColourId);
     m_bypassButton.setButtonText("Bypass");
     m_bypassButton.removeColour(juce::TextButton::buttonColourId);
+    m_bypassButton.removeColour(juce::TextButton::textColourOffId);
     m_bypassButton.setEnabled(false);
 }
 
@@ -370,13 +442,17 @@ void TimePitchDialog::updateSummary()
         // Slower tempo -> longer output: scale by 100 / (100 + tempoPercent).
         // tempoPercent is clamped to [-50, +500], so the denominator stays >= 50.
         const double denom = 100.0 + tempoPercent;
-        if (m_fullDurationSeconds > 0.0 && denom > 0.0)
+        if (m_processDurationSeconds > 0.0 && denom > 0.0)
         {
-            const double projected = m_fullDurationSeconds * (100.0 / denom);
+            const double projected = m_processDurationSeconds * (100.0 / denom);
             m_summaryLabel.setText(
                 "Projected duration: " + juce::String(projected, 3) + " s"
-                + "  (was " + juce::String(m_fullDurationSeconds, 3) + " s)",
+                + "  (was " + juce::String(m_processDurationSeconds, 3) + " s)",
                 juce::dontSendNotification);
+
+            // Reflect the projected length back into the target-duration editor.
+            // setText(false) does not notify, so this never re-triggers commit.
+            m_targetEditor.setText(juce::String(projected, 3), false);
         }
         else
         {
@@ -386,15 +462,67 @@ void TimePitchDialog::updateSummary()
     else
     {
         const double semis = m_paramSlider.getValue();
+        // Snap sub-audible residue (e.g. 5e-14) to a clean zero for display.
+        double cents = semis * 100.0;
+        if (std::abs(cents) < 0.05)
+            cents = 0.0;
         m_summaryLabel.setText(
             "Length is preserved. Shift: " + juce::String(semis, 2)
-            + " semitones (" + juce::String(semis * 100.0, 0) + " cents).",
+            + " semitones (" + juce::String(cents, 1) + " cents).",
             juce::dontSendNotification);
     }
 
     // Debounced preview re-render: a single hook covers the slider.
     if (m_previewActive)
         startTimer(kPreviewDebounceMs);
+}
+
+void TimePitchDialog::updateScopeLabel()
+{
+    if (m_hasSelection && m_selectionEndSeconds > m_selectionStartSeconds)
+    {
+        m_scopeLabel.setText(
+            "Applies to: selection (" + formatTime(m_selectionStartSeconds)
+            + " - " + formatTime(m_selectionEndSeconds) + ")",
+            juce::dontSendNotification);
+    }
+    else
+    {
+        m_scopeLabel.setText("Applies to: entire file", juce::dontSendNotification);
+    }
+}
+
+void TimePitchDialog::commitTargetDuration()
+{
+    if (m_mode != Mode::TimeStretch)
+        return;
+
+    const double target = m_targetEditor.getText().getDoubleValue();
+    if (target <= 0.0 || m_processDurationSeconds <= 0.0)
+    {
+        updateSummary();   // reject invalid input; restore the shown target
+        return;
+    }
+
+    // tempoPercent so that processDuration * 100 / (100 + tempo) == target.
+    double tempoPercent = (m_processDurationSeconds / target - 1.0) * 100.0;
+    tempoPercent = juce::jlimit(-50.0, 500.0, tempoPercent);
+
+    // Notify so onValueChange -> updateSummary() refreshes the readout/editor.
+    m_paramSlider.setValue(tempoPercent, juce::sendNotificationSync);
+}
+
+juce::String TimePitchDialog::formatTime(double seconds)
+{
+    if (seconds < 0.0)
+        seconds = 0.0;
+
+    const int totalMs = (int) std::llround(seconds * 1000.0);
+    const int minutes = totalMs / 60000;
+    const int secs    = (totalMs / 1000) % 60;
+    const int millis  = totalMs % 1000;
+
+    return juce::String::formatted("%02d:%02d.%03d", minutes, secs, millis);
 }
 
 //==============================================================================
@@ -444,6 +572,18 @@ void TimePitchDialog::resized()
 
     area.removeFromTop(ui::kRowGap);
     m_summaryLabel.setBounds(area.removeFromTop(20));
+
+    // Target-duration entry (TimeStretch only).
+    if (m_mode == Mode::TimeStretch)
+    {
+        area.removeFromTop(ui::kRowGap);
+        auto targetRow = area.removeFromTop(ui::kInputHeight);
+        m_targetLabel.setBounds(targetRow.removeFromLeft(140));
+        m_targetEditor.setBounds(targetRow.removeFromLeft(120));
+    }
+
+    area.removeFromTop(ui::kRowGap);
+    m_scopeLabel.setBounds(area.removeFromTop(18));
 
     //--------------------------------------------------------------------------
     // Footer -- Sec 6.8: Left Preview | Bypass | Loop   Right Cancel | Apply.

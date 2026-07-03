@@ -47,6 +47,13 @@
         "cmd"
       ]
     },
+    "fileEditiXMLMetadata": {
+      "key": "X",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
     "_comment_edit": "=== EDIT OPERATIONS ===",
     "editUndo": {
       "key": "Z",
@@ -100,6 +107,14 @@
       "modifiers": [
         "cmd"
       ]
+    },
+    "editMarkSelectionStart": {
+      "key": "I",
+      "modifiers": []
+    },
+    "editMarkSelectionEnd": {
+      "key": "O",
+      "modifiers": []
     },
     "_comment_playback": "=== PLAYBACK OPERATIONS ===",
     "playbackPlay": {
@@ -172,6 +187,13 @@
     },
     "viewAutoPreviewRegions": {
       "key": "P",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "viewToggleRegions": {
+      "key": "H",
       "modifiers": [
         "cmd",
         "shift"
@@ -334,13 +356,13 @@
     "tabNext": {
       "key": "Tab",
       "modifiers": [
-        "cmd"
+        "ctrl"
       ]
     },
     "tabPrevious": {
       "key": "Tab",
       "modifiers": [
-        "cmd",
+        "ctrl",
         "shift"
       ]
     },
@@ -501,11 +523,8 @@
       ]
     },
     "regionSplit": {
-      "key": "K",
-      "modifiers": [
-        "cmd",
-        "shift"
-      ]
+      "key": "S",
+      "modifiers": []
     },
     "regionCopy": {
       "key": "C",
@@ -550,6 +569,39 @@
       "modifiers": [
         "cmd",
         "alt"
+      ]
+    },
+    "_comment_plugins": "=== PLUGIN / AUTOMATION OPERATIONS ===",
+    "pluginShowChain": {
+      "key": "F11",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "pluginApplyChain": {
+      "key": "P",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "pluginOffline": {
+      "key": "P",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
+    "pluginBypassAll": {
+      "key": "B",
+      "modifiers": [
+        "ctrl"
+      ]
+    },
+    "automationToggleRecordArm": {
+      "key": "A",
+      "modifiers": [
+        "ctrl",
+        "shift"
       ]
     },
     "_comment_help": "=== HELP OPERATIONS ===",

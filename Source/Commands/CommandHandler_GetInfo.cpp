@@ -259,6 +259,20 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded() && doc->getWaveformDisplay().hasSelection());
                 break;
 
+            case CommandIDs::editMarkSelectionStart:
+                result.setInfo("Mark In", "Set selection start (in-point) at the cursor", "Edit", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::editMarkSelectionEnd:
+                result.setInfo("Mark Out", "Set selection end (out-point) at the cursor", "Edit", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
             case CommandIDs::playbackPlay:
                 result.setInfo("Play/Stop", "Play or stop playback from cursor", "Playback", 0);
                 // Single binding only (Space). The keymap defines no alternate; the

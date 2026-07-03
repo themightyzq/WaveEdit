@@ -647,6 +647,8 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::editSelectAll] = "editSelectAll";
         commandNameMap[CommandIDs::editSilence] = "editSilence";
         commandNameMap[CommandIDs::editTrim] = "editTrim";
+        commandNameMap[CommandIDs::editMarkSelectionStart] = "editMarkSelectionStart";
+        commandNameMap[CommandIDs::editMarkSelectionEnd] = "editMarkSelectionEnd";
 
         // Playback operations
         commandNameMap[CommandIDs::playbackPlay] = "playbackPlay";
@@ -814,6 +816,7 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::editUndo, CommandIDs::editRedo, CommandIDs::editCut,
             CommandIDs::editCopy, CommandIDs::editPaste, CommandIDs::editDelete,
             CommandIDs::editSelectAll, CommandIDs::editSilence, CommandIDs::editTrim,
+            CommandIDs::editMarkSelectionStart, CommandIDs::editMarkSelectionEnd,
 
             // Playback operations (0x3000-0x30FF)
             CommandIDs::playbackPlay, CommandIDs::playbackPause, CommandIDs::playbackStop,

@@ -296,8 +296,20 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
         .withNumChannels(buffer.getNumChannels())
         .withBitsPerSample(bitDepth)
         .withMetadataValues(metadataMap)
-        .withQualityOptionIndex(0)
-        .withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::integral);  // Force PCM for 8-bit
+        .withQualityOptionIndex(0);
+
+    // H1: the sample format must match the user's bit-depth choice. WaveEdit's
+    // only 32-bit WAV option is "32-bit Float" (see SaveAsOptionsPanel), so
+    // bitDepth == 32 unambiguously means IEEE float here. The previous code
+    // ALWAYS forced SampleFormat::integral, which wrote 32-bit INTEGER PCM for
+    // a float request (WavAudioFormat: usesFloatingPointData = bits == 32 &&
+    // sampleFormat != integral). Force integral only for 8-bit (unsigned PCM),
+    // floatingPoint for 32-bit, and leave 16/24-bit on JUCE's default (which
+    // is integer PCM for those widths).
+    if (bitDepth == 8)
+        options = options.withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::integral);
+    else if (bitDepth == 32)
+        options = options.withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::floatingPoint);
 
     // New JUCE 8 API takes unique_ptr by non-const lvalue reference and transfers ownership
     std::unique_ptr<juce::AudioFormatWriter> writer = wavFormat->createWriterFor(outputStream, options);

@@ -53,7 +53,10 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
     m_freqSlider.setRange(20.0, 20000.0, 1.0);
     m_freqSlider.setSkewFactorFromMidPoint(1000.0);  // Logarithmic scale
     m_freqSlider.setValue(1000.0);
-    m_freqSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    // UX20: editable text box so a value can be typed (e.g. 3150 Hz), matching
+    // the app-wide TextBoxRight slider convention.
+    m_freqSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    m_freqSlider.setTextValueSuffix(" Hz");
     m_freqSlider.onValueChange = [this]() {
         updateValueLabels();
         if (auto* parent = findParentComponentOfClass<ParametricEQDialog>())
@@ -63,7 +66,10 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
 
     m_freqValueLabel.setJustificationType(juce::Justification::centredLeft);
     m_freqValueLabel.setFont(ui::monospaceFont());
-    addAndMakeVisible(m_freqValueLabel);
+    // UX20: the editable slider text box now shows the value; keep the label as
+    // an invisible child so updateValueLabels() stays valid without a second
+    // (redundant) number in the row.
+    addChildComponent(m_freqValueLabel);
 
     // Gain controls
     m_gainLabel.setJustificationType(juce::Justification::centredRight);
@@ -72,7 +78,9 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
     m_gainSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     m_gainSlider.setRange(-20.0, 20.0, 0.1);
     m_gainSlider.setValue(0.0);
-    m_gainSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    // UX20: editable text box (type a dB value directly).
+    m_gainSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    m_gainSlider.setTextValueSuffix(" dB");
     m_gainSlider.onValueChange = [this]() {
         updateValueLabels();
         if (auto* parent = findParentComponentOfClass<ParametricEQDialog>())
@@ -82,7 +90,7 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
 
     m_gainValueLabel.setJustificationType(juce::Justification::centredLeft);
     m_gainValueLabel.setFont(ui::monospaceFont());
-    addAndMakeVisible(m_gainValueLabel);
+    addChildComponent(m_gainValueLabel);  // UX20: invisible (slider text box shows value)
 
     // Q controls
     m_qLabel.setJustificationType(juce::Justification::centredRight);
@@ -92,7 +100,8 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
     m_qSlider.setRange(0.1, 10.0, 0.01);
     m_qSlider.setValue(0.707);
     m_qSlider.setSkewFactorFromMidPoint(0.707);  // Logarithmic scale centered on 0.707
-    m_qSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    // UX20: editable text box (type a Q value directly).
+    m_qSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
     m_qSlider.onValueChange = [this]() {
         updateValueLabels();
         if (auto* parent = findParentComponentOfClass<ParametricEQDialog>())
@@ -102,7 +111,7 @@ ParametricEQDialog::BandControl::BandControl(const juce::String& bandName)
 
     m_qValueLabel.setJustificationType(juce::Justification::centredLeft);
     m_qValueLabel.setFont(ui::monospaceFont());
-    addAndMakeVisible(m_qValueLabel);
+    addChildComponent(m_qValueLabel);  // UX20: invisible (slider text box shows value)
 
     // Initialize value labels
     updateValueLabels();
@@ -124,12 +133,10 @@ void ParametricEQDialog::BandControl::resized()
     m_titleLabel.setBounds(area.removeFromTop(20));
     area.removeFromTop(5);
 
-    // Frequency row
+    // Frequency row (slider carries its own editable text box on the right).
     auto freqRow = area.removeFromTop(24);
     m_freqLabel.setBounds(freqRow.removeFromLeft(70));
     freqRow.removeFromLeft(5);
-    m_freqValueLabel.setBounds(freqRow.removeFromRight(70));
-    freqRow.removeFromRight(5);
     m_freqSlider.setBounds(freqRow);
 
     area.removeFromTop(3);
@@ -138,8 +145,6 @@ void ParametricEQDialog::BandControl::resized()
     auto gainRow = area.removeFromTop(24);
     m_gainLabel.setBounds(gainRow.removeFromLeft(70));
     gainRow.removeFromLeft(5);
-    m_gainValueLabel.setBounds(gainRow.removeFromRight(70));
-    gainRow.removeFromRight(5);
     m_gainSlider.setBounds(gainRow);
 
     area.removeFromTop(3);
@@ -148,8 +153,6 @@ void ParametricEQDialog::BandControl::resized()
     auto qRow = area.removeFromTop(24);
     m_qLabel.setBounds(qRow.removeFromLeft(70));
     qRow.removeFromLeft(5);
-    m_qValueLabel.setBounds(qRow.removeFromRight(70));
-    qRow.removeFromRight(5);
     m_qSlider.setBounds(qRow);
 }
 
@@ -514,15 +517,25 @@ void ParametricEQDialog::onBypassClicked()
     s_lastBypassState = newBypassState;
 
     // Update button appearance
+    // H5 FIX: bypass-active colour follows the active theme's warning token
+    // (was a fixed 0xffff8c00 orange). Read at click-time, matching
+    // PluginChainPanel.cpp's updateBypassButtonAppearance() pattern.
     if (!bypassed)
     {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        const auto bypassTextColour = theme.warning.getPerceivedBrightness() > 0.5f
+                                           ? juce::Colours::black
+                                           : juce::Colours::white;
         m_bypassButton.setButtonText("Bypassed");
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, ui::colour(ui::kButtonBypassActive));
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
+        m_bypassButton.setColour(juce::TextButton::textColourOffId, bypassTextColour);
     }
     else
     {
         m_bypassButton.setButtonText("Bypass");
         m_bypassButton.setColour(juce::TextButton::buttonColourId,
                                  getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        m_bypassButton.setColour(juce::TextButton::textColourOffId,
+                                 getLookAndFeel().findColour(juce::TextButton::textColourOffId));
     }
 }

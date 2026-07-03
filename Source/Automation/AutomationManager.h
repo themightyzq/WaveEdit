@@ -76,6 +76,13 @@ public:
     /** Shift plugin indices when a plugin is inserted or removed from the chain. */
     void shiftPluginIndices(int fromIndex, int delta);
 
+    /**
+     * Remap lane plugin indices after a chain reorder, using the same
+     * insertion semantics as PluginChain::movePlugin (toIndex is the
+     * pre-adjustment insertion position and may equal the chain size).
+     */
+    void movePluginLanes(int fromIndex, int toIndex);
+
     //==========================================================================
     // Playback (called from audio thread context)
 

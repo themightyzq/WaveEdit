@@ -93,6 +93,21 @@ public:
     int addPlugin(const juce::PluginDescription& description);
 
     /**
+     * Add a plugin and apply saved state/bypass BEFORE it becomes visible to
+     * the audio thread. Preset/state restoration must use this instead of
+     * addPlugin() + setState(): setState() on an already-published node races
+     * a concurrent processBlock() inside third-party plugin code (C4).
+     *
+     * @param description  Plugin to instantiate
+     * @param initialState Saved state to apply pre-publish (may be empty)
+     * @param bypassed     Saved bypass flag
+     * @return Index of the added plugin, or -1 on failure
+     */
+    int addPluginConfigured(const juce::PluginDescription& description,
+                            const juce::MemoryBlock& initialState,
+                            bool bypassed);
+
+    /**
      * Insert a plugin at a specific position.
      * @param description Plugin to add
      * @param index Position to insert at (clamped to valid range)
