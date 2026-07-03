@@ -50,8 +50,17 @@ void WaveEditLookAndFeel::applyThemeColours()
 
     setColour(juce::Label::textColourId, t.text);
 
+    // UX 19 FIX: trackColourId was t.panel, identical to the process-dialog
+    // background (dialogs paint theme.panel, e.g. NormalizeDialog::paint) in
+    // all three themes -- a near-max value (long filled portion) rendered as
+    // an invisible bar with only a floating thumb dot visible. LookAndFeel_V4
+    // draws the *filled* value track in trackColourId and the full-length
+    // unfilled groove in backgroundColourId, so give the fill the same
+    // accent token already used for progress indicators elsewhere (e.g.
+    // ProgressBar::foregroundColourId in PluginManagerDialog) -- always
+    // distinct from panel/panelAlternate in Dark, Light and High Contrast.
     setColour(juce::Slider::thumbColourId, t.accent);
-    setColour(juce::Slider::trackColourId, t.panel);
+    setColour(juce::Slider::trackColourId, t.accent);
     setColour(juce::Slider::backgroundColourId, t.panelAlternate);
 
     // Menus inherit the theme so right-click / dropdown surfaces re-skin too.

@@ -196,6 +196,20 @@ public:
      */
     juce::StringArray validate() const;
 
+    /**
+     * @brief Return the source files this batch's own outputs would overwrite.
+     *
+     * A collision occurs when a job's computed output path is the same file as
+     * one of the batch's own input files -- e.g. "Same as source" plus a
+     * passthrough naming pattern. These are the most destructive overwrites
+     * (they clobber the originals), so a caller should require
+     * overwriteExisting and confirm the count before running (UX26). Returns
+     * the colliding source file paths (empty when there are none).
+     *
+     * @param presetName Preset name used to expand the {preset} naming token.
+     */
+    juce::StringArray findSourceOverwriteCollisions(const juce::String& presetName = "") const;
+
     juce::var toVar() const;
     static BatchProcessorSettings fromVar(const juce::var& v);
 };

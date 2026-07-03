@@ -25,11 +25,9 @@
 #include "../Utils/Region.h"
 #include "../Utils/Settings.h"
 #include "../Utils/AudioUnits.h"
-#include "../Utils/RegionExporter.h"
 #include "../Utils/UndoableEdits.h"
 #include "../Utils/UndoActions/RegionUndoActions.h"
 #include "../UI/StripSilenceDialog.h"
-#include "../UI/BatchExportDialog.h"
 #include "../UI/EditRegionBoundariesDialog.h"
 #include "../UI/ThemeManager.h"
 #include <algorithm>
@@ -76,7 +74,12 @@ void RegionController::addRegionFromSelection(Document* doc)
 
     if (!doc->getWaveformDisplay().hasSelection())
     {
-        DBG("Cannot create region: No selection");
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::InfoIcon,
+            "Add Region",
+            "Please select a region of audio first. The new region will span "
+            "the current selection.",
+            "OK");
         return;
     }
 
@@ -655,134 +658,11 @@ void RegionController::pasteRegionsFromClipboard(Document* doc)
         cursorSample));
 }
 
-void RegionController::showBatchExportDialog(Document* doc, juce::Component* /*parent*/)
-{
-    if (!doc)
-        return;
-
-    // Validate preconditions
-    if (!doc->getAudioEngine().isFileLoaded())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "No Audio File",
-            "Please load an audio file before exporting regions.",
-            "OK"
-        );
-        return;
-    }
-
-    // Check if we have regions to export
-    if (doc->getRegionManager().getNumRegions() == 0)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::InfoIcon,
-            "No Regions to Export",
-            "There are no regions defined in this file.\n\n"
-            "Create regions first using:\n"
-            "  - R - Create region from selection\n"
-            "  - Cmd+Shift+R - Auto-create regions (Strip Silence)",
-            "OK"
-        );
-        return;
-    }
-
-    // Show the batch export dialog
-    auto exportSettings = BatchExportDialog::showDialog(
-        doc->getFile(),
-        doc->getRegionManager()
-    );
-
-    if (!exportSettings.has_value())
-    {
-        // User cancelled
-        return;
-    }
-
-    // Prepare export settings for RegionExporter
-    RegionExporter::ExportSettings settings;
-    settings.outputDirectory = exportSettings->outputDirectory;
-    settings.includeRegionName = exportSettings->includeRegionName;
-    settings.includeIndex = exportSettings->includeIndex;
-    settings.bitDepth = 24; // Default to 24-bit for professional quality
-
-    // Copy advanced naming options (Phase 4 enhancements)
-    settings.customTemplate = exportSettings->customTemplate;
-    settings.prefix = exportSettings->prefix;
-    settings.suffix = exportSettings->suffix;
-    settings.usePaddedIndex = exportSettings->usePaddedIndex;
-    settings.suffixBeforeIndex = exportSettings->suffixBeforeIndex;
-
-    // Create progress dialog with progress value
-    double progressValue = 0.0;
-    auto progressDialog = std::make_unique<juce::AlertWindow>(
-        "Exporting Regions",
-        "Exporting regions to separate files...",
-        juce::AlertWindow::NoIcon
-    );
-    progressDialog->addProgressBarComponent(progressValue);
-    progressDialog->enterModalState();
-
-    // Export regions with progress callback
-    int totalRegions = doc->getRegionManager().getNumRegions();
-    int exportedCount = RegionExporter::exportRegions(
-        doc->getBufferManager().getBuffer(),
-        doc->getAudioEngine().getSampleRate(),
-        doc->getRegionManager(),
-        doc->getFile(),
-        settings,
-        [dlg = progressDialog.get(), totalRegions, &progressValue](int current, int total, const juce::String& regionName)
-        {
-            // Update progress value (referenced by AlertWindow)
-            progressValue = static_cast<double>(current + 1) / static_cast<double>(total);
-
-            // Update message
-            dlg->setMessage("Exporting: " + regionName +
-                           " (" + juce::String(current + 1) + "/" +
-                           juce::String(totalRegions) + ")");
-
-            return true; // Continue export
-        }
-    );
-
-    // Close progress dialog
-    progressDialog->exitModalState(0);
-    progressDialog.reset();
-
-    // Show result message
-    if (exportedCount == totalRegions)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::InfoIcon,
-            "Export Complete",
-            "Successfully exported " + juce::String(exportedCount) +
-            " region" + (exportedCount > 1 ? "s" : "") + " to:\n\n" +
-            settings.outputDirectory.getFullPathName(),
-            "OK"
-        );
-    }
-    else if (exportedCount > 0)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Partial Export",
-            "Exported " + juce::String(exportedCount) + " of " +
-            juce::String(totalRegions) + " regions.\n\n" +
-            "Check the console log for details about failed exports.",
-            "OK"
-        );
-    }
-    else
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Export Failed",
-            "Failed to export any regions.\n\n"
-            "Check the console log for error details.",
-            "OK"
-        );
-    }
-}
+// NOTE: showBatchExportDialog() is implemented in RegionController_Export.cpp
+// (background-threaded export with progress/cancel + result summary). Kept in a
+// separate translation unit to hold RegionController.cpp under the size cap and
+// to keep its heavy UI dependencies (ProgressDialog, BatchExportDialog) out of
+// the region-core unit.
 
 void RegionController::nudgeRegionBoundary(Document* doc, bool nudgeStart, bool moveLeft)
 {

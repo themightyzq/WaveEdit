@@ -831,3 +831,38 @@ juce::String BatchProcessorDialog::FileListModel::getTooltipForRow(int row)
 }
 
 } // namespace waveedit
+
+//==============================================================================
+// UX26: pre-run guard -- a batch whose output pattern resolves onto one of its
+// own SOURCE files silently destroys inputs. Name the collision count and make
+// the user opt in explicitly (the per-job guard in BatchJob still backstops).
+bool waveedit::BatchProcessorDialog::confirmSourceOverwrites(BatchProcessorSettings& settings)
+{
+    const auto collisions = settings.findSourceOverwriteCollisions();
+    if (collisions.isEmpty())
+        return true;
+
+    juce::String message =
+        juce::String(collisions.size())
+        + (collisions.size() == 1 ? " input file would be OVERWRITTEN by its own output:\n\n"
+                                  : " input files would be OVERWRITTEN by their own outputs:\n\n");
+    const int shown = juce::jmin(5, collisions.size());
+    for (int i = 0; i < shown; ++i)
+        message += "  " + collisions[i] + "\n";
+    if (collisions.size() > shown)
+        message += "  ...and " + juce::String(collisions.size() - shown) + " more\n";
+    message += "\nThe original audio in these files will be lost.";
+
+    if (! juce::AlertWindow::showOkCancelBox(
+            juce::AlertWindow::WarningIcon,
+            "Overwrite Source Files?",
+            message,
+            "Overwrite Sources",
+            "Cancel"))
+        return false;
+
+    // The user explicitly confirmed the destructive run: enable the flag the
+    // per-job guard checks, so the confirmation actually takes effect.
+    settings.overwriteExisting = true;
+    return true;
+}

@@ -277,7 +277,13 @@ void FileController::saveFile(Document* doc, std::function<void()> onSaved)
 //==============================================================================
 void FileController::saveFileAs(Document* doc, juce::Component* /*parent*/)
 {
-    if (!doc) return;
+    saveDocumentAs(doc);
+}
+
+//==============================================================================
+bool FileController::saveDocumentAs(Document* doc)
+{
+    if (!doc) return false;
 
     // Get current file, or provide default for unsaved documents
     juce::File currentFile = doc->getAudioEngine().getCurrentFile();
@@ -296,11 +302,11 @@ void FileController::saveFileAs(Document* doc, juce::Component* /*parent*/)
 
     // If user cancelled, exit
     if (!result.has_value())
-        return;
+        return false;
 
     auto settings = result.value();
 
-    DBG("FileController::saveFileAs - Saving as " + settings.format.toUpperCase() +
+    DBG("FileController::saveDocumentAs - Saving as " + settings.format.toUpperCase() +
                              " - Bit depth: " + juce::String(settings.bitDepth) +
                              ", Quality: " + juce::String(settings.quality) +
                              ", Sample rate: " + juce::String(settings.targetSampleRate > 0.0 ? settings.targetSampleRate : sourceSampleRate, 0) + " Hz");
@@ -316,20 +322,24 @@ void FileController::saveFileAs(Document* doc, juce::Component* /*parent*/)
         // Add to recent files
         Settings::getInstance().addRecentFile(settings.targetFile);
 
+        // The on-disk file is now the canonical version -- drop any auto-saves
+        // (including untitled recovery takes) now superseded by this save.
+        deleteAutoSavesFor(settings.targetFile);
+
         requestUIRefresh();
 
-        DBG("FileController::saveFileAs - Saved: " + settings.targetFile.getFullPathName());
+        DBG("FileController::saveDocumentAs - Saved: " + settings.targetFile.getFullPathName());
+        return true;
     }
-    else
-    {
-        // Show error dialog
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Save As Failed",
-            "Could not save file as: " + settings.targetFile.getFileName() + "\n\n" +
-            "Failed to write file. Check console for details.",
-            "OK");
-    }
+
+    // Show error dialog
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::AlertWindow::WarningIcon,
+        "Save As Failed",
+        "Could not save file as: " + settings.targetFile.getFileName() + "\n\n" +
+        "Failed to write file. Check console for details.",
+        "OK");
+    return false;
 }
 
 //==============================================================================
@@ -352,35 +362,60 @@ bool FileController::hasUnsavedChanges() const
 //==============================================================================
 bool FileController::saveAllModifiedDocuments()
 {
-    // Save all modified documents
+    // Save all modified documents ahead of quitting.
     for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
     {
-        if (auto* doc = m_documentManager.getDocument(i))
+        auto* doc = m_documentManager.getDocument(i);
+        if (!doc || !doc->isModified())
+            continue;
+
+        // Switch to this document's tab so the user sees what they are being
+        // prompted about.
+        m_documentManager.setCurrentDocumentIndex(i);
+
+        auto currentFile = doc->getAudioEngine().getCurrentFile();
+        if (currentFile.existsAsFile())
         {
-            if (doc->isModified())
+            // Titled document: save in place.
+            bool success = doc->saveFile(currentFile, doc->getBufferManager().getBitDepth());
+            if (!success)
             {
-                // Switch to this document's tab
-                m_documentManager.setCurrentDocumentIndex(i);
-
-                // Save it
-                auto currentFile = doc->getAudioEngine().getCurrentFile();
-                if (!currentFile.existsAsFile())
-                {
-                    // File doesn't exist, would need Save As - abort for now
-                    DBG("FileController::saveAllModifiedDocuments - Cannot auto-save untitled document - skipping");
-                    continue;
-                }
-
-                bool success = doc->saveFile(currentFile, doc->getBufferManager().getBitDepth());
-                if (!success)
-                {
-                    juce::Logger::writeToLog("FileController::saveAllModifiedDocuments - Failed to save: " + doc->getFilename());
-                    return false;  // Abort on first failure
-                }
+                juce::Logger::writeToLog("FileController::saveAllModifiedDocuments - Failed to save: "
+                                         + doc->getFilename());
+                return false;  // Abort quit on first failure
             }
+
+            // On-disk file is canonical now -- clear any superseded auto-saves.
+            deleteAutoSavesFor(currentFile);
+            continue;
         }
+
+        // Untitled document (e.g. a fresh recording): previously skipped here,
+        // silently discarding the take on quit (UX finding 2). Prompt the user
+        // per document instead. Uses the same synchronous modal pattern as
+        // closeFile()'s per-document close prompt.
+        int choice = juce::AlertWindow::showYesNoCancelBox(
+            juce::AlertWindow::WarningIcon,
+            "Save Changes",
+            "Save changes to \"" + doc->getFilename() + "\" before quitting?",
+            "Save As...",
+            "Discard",
+            "Cancel",
+            nullptr,
+            nullptr);
+
+        if (choice == 0)          // Cancel: abort the whole quit.
+            return false;
+        if (choice == 2)          // Discard: leave this take unsaved, keep going.
+            continue;
+
+        // Save As... -- run the modal chooser. A cancelled chooser or a failed
+        // write must NOT silently drop the take, so treat it as "cancel quit".
+        if (!saveDocumentAs(doc))
+            return false;
     }
-    return true;  // All saves successful
+
+    return true;  // Every modified document saved or explicitly discarded.
 }
 
 //==============================================================================
@@ -504,23 +539,45 @@ void FileController::performAutoSave()
         if (!doc || !doc->isModified())
             continue;  // Skip unmodified documents
 
-        // Check if document has a file (skip untitled documents for now)
-        if (!doc->getAudioEngine().isFileLoaded())
+        // Nothing to recover if there's no audio yet.
+        const auto& buffer = doc->getBufferManager().getBuffer();
+        if (buffer.getNumSamples() <= 0)
             continue;
+
+        // Key the auto-save on the document's source file when it has one.
+        // UNTITLED documents (e.g. a fresh recording) have no file on disk and
+        // used to be skipped entirely -- so a crash lost the take (UX finding
+        // 2). Synthesize a stable per-document recovery identity so untitled
+        // takes are auto-saved too. The token is derived from the document's
+        // address: stable for the life of the document (successive auto-saves
+        // therefore group + clean up together) and unique across concurrently
+        // open untitled documents. The synthetic path never exists on disk, so
+        // a recovery scan treats every such auto-save as newer than its
+        // (absent) original and lists it.
+        //
+        // NOTE: offerCrashRecovery() only fires when a file is OPENED, and an
+        // untitled take is never re-opened by path on the next launch. These
+        // takes are instead surfaced by offerUntitledCrashRecovery(), a
+        // launch-time scan the app host calls once after the window exists.
+        juce::File originalFile = doc->getAudioEngine().getCurrentFile();
+        if (!originalFile.existsAsFile())
+        {
+            const auto token = juce::String::toHexString(
+                static_cast<juce::int64>(reinterpret_cast<juce::pointer_sized_int>(doc)));
+            originalFile = autoSaveDir.getChildFile("Untitled-" + token + ".wav");
+        }
 
         // Create auto-save filename:
         //   autosave_[stem]_[pathHash]_[timestamp].wav
         // The pathHash (from AutoSaveRecovery::autoSavePrefixFor) keeps two
         // same-named files in different directories from colliding (M4), and
         // gives cleanup a robust grouping token (M5).
-        juce::File originalFile = doc->getAudioEngine().getCurrentFile();
         juce::String timestamp = juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
         juce::String autoSaveFilename = AutoSaveRecovery::autoSavePrefixFor(originalFile)
                                             + timestamp + ".wav";
         juce::File autoSaveFile = autoSaveDir.getChildFile(autoSaveFilename);
 
         // Get audio data (on message thread - safe)
-        const auto& buffer = doc->getBufferManager().getBuffer();
         double sampleRate = doc->getAudioEngine().getSampleRate();
         int bitDepth = doc->getAudioEngine().getBitDepth();
 
@@ -718,6 +775,149 @@ juce::Array<juce::File> FileController::findOrphanedAutoSaves(const juce::File& 
 void FileController::deleteAutoSavesFor(const juce::File& originalFile)
 {
     AutoSaveRecovery::deleteAutoSavesFor(originalFile);
+}
+
+juce::Array<juce::File> FileController::findUntitledAutoSaves()
+{
+    juce::Array<juce::File> result;
+
+    auto dir = AutoSaveRecovery::getAutoSaveDirectory();
+    if (!dir.isDirectory())
+        return result;
+
+    // Untitled takes are written as "autosave_Untitled-<token>_...wav" (see
+    // performAutoSave). Match that prefix; there is no real source file to key
+    // on, so every match is a candidate recovery take.
+    dir.findChildFiles(result, juce::File::findFiles, false, "autosave_Untitled-*.wav");
+
+    // Newest first, so callers can offer the latest take.
+    struct ByMTimeDesc
+    {
+        static int compareElements(const juce::File& a, const juce::File& b)
+        {
+            const auto ta = a.getLastModificationTime();
+            const auto tb = b.getLastModificationTime();
+            if (ta > tb) return -1;
+            if (ta < tb) return 1;
+            return 0;
+        }
+    };
+    ByMTimeDesc cmp;
+    result.sort(cmp, false);
+    return result;
+}
+
+//==============================================================================
+// Load one untitled auto-save take into a brand-new document tab. Mirrors the
+// document setup in createNewFile() (buffer + engine + waveform/region/marker
+// displays) but seeds it from the recovered audio. Reads the take's own sample
+// rate/channel count from its header (getFileInfo) -- there is no source
+// document to inherit them from. Returns true if a tab was created.
+//
+// Free function (not capturing FileController::this) so the async recovery
+// callback stays valid even if the controller's owner is torn down mid-dialog,
+// matching offerCrashRecovery()'s capture discipline.
+static bool recoverUntitledTakeInto(DocumentManager& docManager,
+                                    AudioFileManager& fileMgr,
+                                    const juce::File& take)
+{
+    AudioFileInfo info;
+    if (!fileMgr.getFileInfo(take, info) || info.sampleRate <= 0.0)
+    {
+        juce::Logger::writeToLog("FileController::offerUntitledCrashRecovery - could not read "
+                                 + take.getFullPathName() + " -- keeping it on disk");
+        return false;
+    }
+
+    juce::AudioBuffer<float> recovered;
+    if (!fileMgr.loadIntoBufferUnchecked(take, recovered) || recovered.getNumSamples() <= 0)
+    {
+        juce::Logger::writeToLog("FileController::offerUntitledCrashRecovery - empty/failed load "
+                                 + take.getFullPathName() + " -- keeping it on disk");
+        return false;
+    }
+
+    auto* newDoc = docManager.createDocument();
+    if (newDoc == nullptr)
+        return false;
+
+    const double sampleRate    = info.sampleRate;
+    const int    numChannels   = recovered.getNumChannels();
+    const double durationSecs  = recovered.getNumSamples() / sampleRate;
+
+    auto& buffer = newDoc->getBufferManager().getMutableBuffer();
+    buffer = recovered;
+
+    newDoc->getAudioEngine().loadFromBuffer(recovered, sampleRate, numChannels);
+    newDoc->getWaveformDisplay().reloadFromBuffer(recovered, sampleRate, false, false);
+
+    newDoc->getRegionDisplay().setSampleRate(sampleRate);
+    newDoc->getRegionDisplay().setTotalDuration(durationSecs);
+    newDoc->getRegionDisplay().setVisibleRange(0.0, durationSecs);
+    newDoc->getRegionDisplay().setAudioBuffer(&buffer);
+
+    newDoc->getMarkerDisplay().setSampleRate(sampleRate);
+    newDoc->getMarkerDisplay().setTotalDuration(durationSecs);
+
+    // Recovered but never committed to a real file: mark modified so the
+    // quit-time untitled-save prompt (saveAllModifiedDocuments) covers it.
+    newDoc->setModified(true);
+    docManager.setCurrentDocument(newDoc);
+    return true;
+}
+
+void FileController::offerUntitledCrashRecovery()
+{
+    auto takes = findUntitledAutoSaves();
+    if (takes.isEmpty())
+        return;
+
+    const auto& newest = takes.getReference(0);
+    const auto when     = newest.getLastModificationTime().toString(true, true, true, true);
+
+    juce::String body;
+    body << "WaveEdit found " << takes.size() << " unsaved recording"
+         << (takes.size() == 1 ? "" : "s") << " from a previous session.\n\n"
+         << "The most recent is from " << when << ".\n\n"
+         << "Recover into new tabs? You can then Save As to keep them.";
+
+    auto opts = juce::MessageBoxOptions()
+                    .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                    .withTitle("Recover Unsaved Recordings?")
+                    .withMessage(body)
+                    .withButton("Recover")
+                    .withButton("Discard")
+                    .withButton("Keep & Continue");
+
+    auto* docManager = &m_documentManager;
+    auto* fileMgr    = &m_fileManager;
+    auto takesCopy   = takes;
+    auto refreshUI   = m_onUIRefreshNeeded;
+
+    juce::AlertWindow::showAsync(opts,
+        [docManager, fileMgr, takesCopy, refreshUI](int result)
+        {
+            // 1 = Recover, 2 = Discard, anything else = Keep & Continue.
+            if (result == 2)
+            {
+                for (const auto& f : takesCopy)
+                    f.deleteFile();
+                return;
+            }
+            if (result != 1)
+                return;  // Keep & Continue: leave takes on disk for next launch.
+
+            for (const auto& take : takesCopy)
+            {
+                // Only delete a take once it is safely loaded into a tab, so a
+                // failed recovery keeps the backup for a later attempt.
+                if (recoverUntitledTakeInto(*docManager, *fileMgr, take))
+                    take.deleteFile();
+            }
+
+            if (refreshUI)
+                refreshUI();
+        });
 }
 
 void FileController::offerCrashRecovery(Document* doc, const juce::File& originalFile)

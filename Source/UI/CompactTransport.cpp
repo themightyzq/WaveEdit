@@ -17,6 +17,7 @@
 #include "WaveformDisplay.h"
 #include "ThemeManager.h"
 #include "UIConstants.h"
+#include <cmath>
 
 //==============================================================================
 // Icon Creation - Compact 16x16 icons for 24px buttons
@@ -295,8 +296,37 @@ void CompactTransport::resized()
 {
     auto bounds = getLocalBounds().reduced(4, 2);
 
-    const int buttonSize = kButtonSize;
-    const int buttonSpacing = 2;
+    // UX 18 FIX: the time readout is the most-glanced control in this row,
+    // but it used to be laid out last and simply take whatever "remaining
+    // width" the six fixed-size buttons left behind -- at the toolbar's
+    // default width that was as little as ~34px, ellipsizing to "00:0...".
+    // Reserve the label's measured minimum width first and let the
+    // lower-priority buttons (transport controls the user can still
+    // operate via keyboard shortcuts) shrink their size/spacing to fit
+    // whatever remains.
+    const int numButtons = 6; // record, rewind, stop, play/pause, forward, loop
+    const int minTimeLabelWidth = computeMinTimeLabelWidth();
+    const int availableForButtons = bounds.getWidth() - minTimeLabelWidth;
+
+    int buttonSize = kButtonSize;
+    int buttonSpacing = 2;
+    int preLabelSpacing = 4; // extra spacing before time display
+
+    auto buttonRowWidth = [&]
+    {
+        return numButtons * buttonSize + (numButtons - 1) * buttonSpacing + preLabelSpacing;
+    };
+
+    while (buttonRowWidth() > availableForButtons && (buttonSpacing > 0 || preLabelSpacing > 0))
+    {
+        if (preLabelSpacing > 0)
+            preLabelSpacing = juce::jmax(0, preLabelSpacing - 2);
+        else
+            --buttonSpacing;
+    }
+
+    while (buttonRowWidth() > availableForButtons && buttonSize > kMinButtonSize)
+        --buttonSize;
 
     // Layout buttons left to right
     m_recordButton->setBounds(bounds.removeFromLeft(buttonSize));
@@ -315,10 +345,38 @@ void CompactTransport::resized()
     bounds.removeFromLeft(buttonSpacing);
 
     m_loopButton->setBounds(bounds.removeFromLeft(buttonSize));
-    bounds.removeFromLeft(buttonSpacing + 4);  // Extra spacing before time display
+    bounds.removeFromLeft(preLabelSpacing);
 
-    // Time display takes remaining width
+    // Time display takes the remaining width, which is now guaranteed to be
+    // at least minTimeLabelWidth whenever the host toolbar grants this
+    // component at least kPreferredWidth.
     m_timeLabel->setBounds(bounds.reduced(0, 4));
+}
+
+int CompactTransport::computeMinTimeLabelWidth() const
+{
+    // Longest realistic string per TimeFormat, measured with the label's
+    // actual font rather than guessed/hardcoded pixel widths. Samples is
+    // technically unbounded, so it is bounded here to a representative
+    // worst case (~10 hours at 192kHz) rather than an arbitrary digit count.
+    static const juce::StringArray kWorstCaseStrings {
+        "23:59:59.999",   // TimeFormat::Time      (HH:MM:SS.mmm)
+        "59:59.99",       // TimeFormat::CompactTime (MM:SS.ms)
+        "6,912,000,000"   // TimeFormat::Samples    (representative bound)
+    };
+
+    const auto font = m_timeLabel->getFont();
+    juce::GlyphArrangement glyphs;
+    float maxWidth = 0.0f;
+
+    for (const auto& text : kWorstCaseStrings)
+    {
+        glyphs.clear();
+        glyphs.addLineOfText(font, text, 0.0f, 0.0f);
+        maxWidth = juce::jmax(maxWidth, glyphs.getBoundingBox(0, -1, true).getWidth());
+    }
+
+    return static_cast<int>(std::ceil(maxWidth)) + 8; // small internal padding
 }
 
 void CompactTransport::mouseDown(const juce::MouseEvent& event)

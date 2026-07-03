@@ -374,10 +374,21 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
         m_bypassActive = ! m_bypassActive;
         m_bypassButton.setButtonText(m_bypassActive ? "Bypassed" : "Bypass");
         if (m_bypassActive)
-            m_bypassButton.setColour(juce::TextButton::buttonColourId,
-                                     ui::colour(ui::kButtonBypassActive));
+        {
+            // Themed warning surface with brightness-computed text (Sec 6.11),
+            // mirroring PluginChainPanel::updateBypassButtonAppearance().
+            const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+            const auto textColour = theme.warning.getPerceivedBrightness() > 0.5f
+                                        ? juce::Colours::black
+                                        : juce::Colours::white;
+            m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
+            m_bypassButton.setColour(juce::TextButton::textColourOffId, textColour);
+        }
         else
+        {
             m_bypassButton.removeColour(juce::TextButton::buttonColourId);
+            m_bypassButton.removeColour(juce::TextButton::textColourOffId);
+        }
 
         reloadActiveBuffer();   // startBufferPreview restarts playback itself
     };
@@ -561,6 +572,7 @@ void HeadTailDialog::stopPreview()
     m_previewButton.removeColour(juce::TextButton::buttonColourId);
     m_bypassButton.setButtonText("Bypass");
     m_bypassButton.removeColour(juce::TextButton::buttonColourId);
+    m_bypassButton.removeColour(juce::TextButton::textColourOffId);
     m_bypassButton.setEnabled(false);
 }
 

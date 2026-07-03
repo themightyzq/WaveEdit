@@ -416,7 +416,6 @@ private:
     //==============================================================================
     double m_sampleRate = 0;
     int m_maxBlockSize = 0;
-    int m_numChannels = 2;  // H4: filters-per-band; grown to match the processed buffer
 
     /** Ensure a band has one filter per channel, sharing the band's coefficients. */
     void ensureBandChannelCount(BandState& band) const;

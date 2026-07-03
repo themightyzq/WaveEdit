@@ -179,6 +179,12 @@ OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
     m_previewButton.setEnabled(false);
     addAndMakeVisible(m_previewButton);
 
+    // Bypass button (§6.8) - A/B compare, enabled only during preview
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.onClick = [this]() { onBypassClicked(); };
+    m_bypassButton.setEnabled(false);
+    addAndMakeVisible(m_bypassButton);
+
     // Cancel button
     m_cancelButton.setButtonText("Cancel");
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
@@ -189,6 +195,9 @@ OfflinePluginDialog::OfflinePluginDialog(AudioEngine* audioEngine,
     m_applyButton.onClick = [this]() { onApplyClicked(); };
     m_applyButton.setEnabled(false);
     addAndMakeVisible(m_applyButton);
+
+    // Receive Enter/Esc even when no child control holds focus (UX12).
+    setWantsKeyboardFocus(true);
 
     // Load plugin list
     refreshPluginList();
@@ -271,10 +280,12 @@ void OfflinePluginDialog::resized()
     const int buttonWidth = 90;
     const int buttonSpacing = 10;
 
-    // Left side: Preview and Loop
+    // Left side: Preview + Bypass + Loop (standardized §6.8 order)
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(buttonSpacing);
-    m_loopCheckbox.setBounds(buttonRow.removeFromLeft(80));
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(70));   // Slightly narrower
+    buttonRow.removeFromLeft(buttonSpacing);
+    m_loopCheckbox.setBounds(buttonRow.removeFromLeft(60));   // Loop toggle
 
     // Right side: Cancel and Apply
     m_applyButton.setBounds(buttonRow.removeFromRight(buttonWidth));
@@ -716,6 +727,10 @@ void OfflinePluginDialog::enableRealtimePreview()
     m_previewButton.setButtonText("Stop Preview");
     m_previewButton.setColour(juce::TextButton::buttonColourId,
                                waveedit::ui::colour(waveedit::ui::kButtonPreviewActive));
+
+    // Enable A/B bypass during preview (starts un-bypassed).
+    m_audioEngine->setPreviewBypassed(false);
+    m_bypassButton.setEnabled(true);
 }
 
 void OfflinePluginDialog::onApplyClicked()
@@ -773,6 +788,7 @@ void OfflinePluginDialog::disablePreview()
         m_audioEngine->setLooping(false);
         m_audioEngine->setPreviewPluginInstance(nullptr);
         m_audioEngine->setPreviewMode(PreviewMode::DISABLED);
+        m_audioEngine->setPreviewBypassed(false);
 
         m_isPreviewActive = false;
         m_isPreviewPlaying = false;
@@ -780,5 +796,64 @@ void OfflinePluginDialog::disablePreview()
         m_previewButton.setButtonText("Preview");
         m_previewButton.setColour(juce::TextButton::buttonColourId,
                                   getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+
+        // Reset the bypass button to its idle appearance and disable it.
+        m_bypassButton.setEnabled(false);
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId,
+                                 getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        m_bypassButton.setColour(juce::TextButton::textColourOffId,
+                                 getLookAndFeel().findColour(juce::TextButton::textColourOffId));
     }
+}
+
+void OfflinePluginDialog::onBypassClicked()
+{
+    if (!m_audioEngine)
+        return;
+
+    const bool wasBypassed = m_audioEngine->isPreviewBypassed();
+    const bool nowBypassed = !wasBypassed;
+    m_audioEngine->setPreviewBypassed(nowBypassed);
+
+    // Bypass-active colour follows the active theme's warning token, with a
+    // brightness-contrasting text colour (§6.11 / matches GraphicalEQEditor).
+    if (nowBypassed)
+    {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        const auto textColourForWarning = theme.warning.getPerceivedBrightness() > 0.5f
+                                              ? juce::Colours::black
+                                              : juce::Colours::white;
+        m_bypassButton.setButtonText("Bypassed");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
+        m_bypassButton.setColour(juce::TextButton::textColourOffId, textColourForWarning);
+    }
+    else
+    {
+        m_bypassButton.setButtonText("Bypass");
+        m_bypassButton.setColour(juce::TextButton::buttonColourId,
+                                 getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        m_bypassButton.setColour(juce::TextButton::textColourOffId,
+                                 getLookAndFeel().findColour(juce::TextButton::textColourOffId));
+    }
+}
+
+bool OfflinePluginDialog::keyPressed(const juce::KeyPress& key)
+{
+    // Enter applies (when a plugin is loaded), Escape cancels (UX12).
+    if (key == juce::KeyPress::returnKey)
+    {
+        if (m_applyButton.isEnabled())
+        {
+            onApplyClicked();
+            return true;
+        }
+    }
+    else if (key == juce::KeyPress::escapeKey)
+    {
+        onCancelClicked();
+        return true;
+    }
+
+    return false;
 }

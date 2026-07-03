@@ -271,4 +271,34 @@ juce::StringArray BatchProcessorSettings::validate() const
     return errors;
 }
 
+juce::StringArray BatchProcessorSettings::findSourceOverwriteCollisions(
+    const juce::String& presetName) const
+{
+    juce::StringArray collisions;
+
+    for (int i = 0; i < inputFiles.size(); ++i)
+    {
+        const juce::File inputFile(inputFiles[i]);
+        const juce::String outputName = applyNamingPattern(inputFile, i, presetName);
+
+        // Mirror BatchJob::getOutputFile so the collision test matches what the
+        // run will actually write.
+        const juce::File outputFile = sameAsSource
+            ? inputFile.getParentDirectory().getChildFile(outputName)
+            : outputDirectory.getChildFile(outputName);
+
+        // Compare as File objects (path normalisation) against every source.
+        for (const auto& src : inputFiles)
+        {
+            if (juce::File(src) == outputFile)
+            {
+                collisions.addIfNotAlreadyThere(outputFile.getFullPathName());
+                break;
+            }
+        }
+    }
+
+    return collisions;
+}
+
 } // namespace waveedit

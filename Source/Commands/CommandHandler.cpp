@@ -69,6 +69,8 @@ void CommandHandler::getAllCommands(juce::Array<juce::CommandID>& commands)
         CommandIDs::editDelete,
         CommandIDs::editSilence,
         CommandIDs::editTrim,
+        CommandIDs::editMarkSelectionStart,  // I - Mark selection start at cursor
+        CommandIDs::editMarkSelectionEnd,    // O - Mark selection end at cursor
         CommandIDs::playbackPlay,
         CommandIDs::playbackPause,
         CommandIDs::playbackStop,
@@ -348,6 +350,16 @@ bool CommandHandler::performCommand(MainComponent& mc,
         case CommandIDs::editDelete:
             if (!doc) return false;
             mc.deleteSelection();
+            return true;
+
+        case CommandIDs::editMarkSelectionStart:
+            if (!doc) return false;
+            mc.m_playbackController.markSelectionStart(doc);
+            return true;
+
+        case CommandIDs::editMarkSelectionEnd:
+            if (!doc) return false;
+            mc.m_playbackController.markSelectionEnd(doc);
             return true;
 
         case CommandIDs::playbackPlay:

@@ -172,7 +172,9 @@ void ClipboardController::copySelection(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("ClipboardController::copySelection - " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Copy failed: " + juce::String(e.what()));
+        ErrorDialog::show("Copy",
+            "Could not copy the selection to the clipboard. No changes were made.\n\n"
+            "Details: " + juce::String(e.what()));
     }
 }
 
@@ -209,14 +211,29 @@ void ClipboardController::cutSelection(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("ClipboardController::cutSelection - " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Cut failed: " + juce::String(e.what()));
+        ErrorDialog::show("Cut",
+            "Could not cut the selection. No changes were made -- the original "
+            "audio is intact. Use Undo if anything looks wrong.\n\n"
+            "Details: " + juce::String(e.what()));
     }
 }
 
 void ClipboardController::pasteAtCursor(Document* doc)
 {
-    if (!doc || !AudioClipboard::getInstance().hasAudio() || !doc->getBufferManager().hasAudioData())
+    if (!doc || !doc->getBufferManager().hasAudioData())
     {
+        return;
+    }
+
+    // UX13: give the same visible feedback the DSP paths use instead of a
+    // silent no-op when the user presses Paste with nothing on the clipboard.
+    if (!AudioClipboard::getInstance().hasAudio())
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::InfoIcon,
+            "Paste",
+            "The clipboard is empty. Copy or cut a selection first.",
+            "OK");
         return;
     }
 
@@ -452,7 +469,10 @@ void ClipboardController::pasteAtCursor(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("ClipboardController::pasteAtCursor - " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Paste failed: " + juce::String(e.what()));
+        ErrorDialog::show("Paste",
+            "Could not paste the clipboard audio. No changes were made -- the "
+            "original audio is intact. Use Undo if anything looks wrong.\n\n"
+            "Details: " + juce::String(e.what()));
     }
 }
 
@@ -543,6 +563,9 @@ void ClipboardController::deleteSelection(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("ClipboardController::deleteSelection - " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Delete failed: " + juce::String(e.what()));
+        ErrorDialog::show("Delete",
+            "Could not delete the selection. No changes were made -- the original "
+            "audio is intact. Use Undo if anything looks wrong.\n\n"
+            "Details: " + juce::String(e.what()));
     }
 }

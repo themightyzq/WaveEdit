@@ -17,7 +17,8 @@ namespace TimePitchEngine
 
 juce::AudioBuffer<float> apply(const juce::AudioBuffer<float>& input,
                                 double sampleRate,
-                                const Recipe& recipe)
+                                const Recipe& recipe,
+                                std::function<bool(float)> onProgress)
 {
     const int numChannels = input.getNumChannels();
     const int numSamples  = input.getNumSamples();
@@ -82,6 +83,13 @@ juce::AudioBuffer<float> apply(const juce::AudioBuffer<float>& input,
         st.putSamples(interleavedIn.data(), static_cast<unsigned int>(chunk));
         drainOutput();
         srcPos += chunk;
+
+        // Report progress from the push phase; bail out (empty result) on cancel.
+        if (onProgress != nullptr
+            && ! onProgress(static_cast<float>(srcPos) / static_cast<float>(numSamples)))
+        {
+            return {};
+        }
     }
 
     // Flush internal state and drain whatever's left.

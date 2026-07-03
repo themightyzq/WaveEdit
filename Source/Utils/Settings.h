@@ -49,6 +49,15 @@ public:
     ~Settings();
 
     /**
+     * Construct a Settings bound to an explicit settings file instead of the
+     * shared per-user location. Loads from @p settingsFile if it exists
+     * (falling back to defaults) and does NOT run the legacy-path migration.
+     * Intended for tests and any caller that must not touch the singleton's
+     * on-disk state; the destructor still saves to @p settingsFile.
+     */
+    explicit Settings(const juce::File& settingsFile);
+
+    /**
      * Gets the singleton instance of Settings.
      *
      * @return Reference to the settings instance

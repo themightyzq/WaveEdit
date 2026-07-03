@@ -59,6 +59,9 @@ public:
      * @param hasSelection          True if the document has an active selection.
      * @param selectionStartSeconds Selection start in seconds (used when
      *                              hasSelection is true).
+     * @param selectionEndSeconds   Selection end in seconds (used when
+     *                              hasSelection is true) -- caps the preview
+     *                              excerpt so preview and Apply scope agree.
      * @param cursorSeconds         Edit cursor position in seconds (used when
      *                              there is no selection).
      * @param audioEngine           Engine used for Sec 6.8 preview (may be null,
@@ -72,6 +75,7 @@ public:
                     double sampleRate,
                     bool hasSelection,
                     double selectionStartSeconds,
+                    double selectionEndSeconds,
                     double cursorSeconds,
                     AudioEngine* audioEngine = nullptr,
                     juce::Component* documentLifeline = nullptr);
@@ -103,7 +107,9 @@ public:
      *
      * The excerpt begins at the selection start (when hasSelection is true)
      * else the edit cursor, clamped into [0, totalSamples], and extends up to
-     * kPreviewSeconds of audio, clamped to the end of the buffer.
+     * kPreviewSeconds of audio, clamped to the end of the buffer. When a
+     * selection exists, the excerpt is additionally capped at the selection end
+     * so the preview never plays past the range Apply will actually process.
      *
      * @return An empty range {0,0} for an empty buffer or invalid sample rate.
      */
@@ -111,6 +117,7 @@ public:
                                                           double sampleRate,
                                                           bool hasSelection,
                                                           double selectionStartSeconds,
+                                                          double selectionEndSeconds,
                                                           double cursorSeconds) noexcept;
 
     /** True if a rendered preview buffer with this shape can be played. Pure +
@@ -128,6 +135,12 @@ private:
     juce::Label  m_paramLabel;     // "Tempo change (%)" / "Semitones"
     juce::Slider m_paramSlider;    // The single parameter
     juce::Label  m_summaryLabel;   // Projected duration / status / errors
+    juce::Label  m_scopeLabel;     // "Applies to: selection ..." / "entire file"
+
+    // Target-duration entry (TimeStretch mode only). Typing a duration drives
+    // the tempo slider; slider moves update the shown target.
+    juce::Label      m_targetLabel;
+    juce::TextEditor m_targetEditor;
 
     juce::TextButton   m_previewButton;
     juce::TextButton   m_bypassButton;   // Enabled only while previewing
@@ -141,6 +154,13 @@ private:
     Mode   m_mode;
     double m_sampleRate;
     double m_fullDurationSeconds = 0.0;  // Whole-file duration (for projections)
+
+    // Scope of the operation. When a selection exists, Apply is selection-scoped
+    // (see DSPController), so projections use the selection duration.
+    bool   m_hasSelection          = false;
+    double m_selectionStartSeconds = 0.0;
+    double m_selectionEndSeconds   = 0.0;
+    double m_processDurationSeconds = 0.0;  // Selection duration, else whole file
 
     //==========================================================================
     // Audio preview (Sec 6.8) -- offline-render the recipe on an excerpt.
@@ -176,6 +196,16 @@ private:
 
     /** Rebuild the summary label (projected duration / note) from the value. */
     void updateSummary();
+
+    /** Rebuild the scope line ("Applies to: ...") from the selection state. */
+    void updateScopeLabel();
+
+    /** Commit the typed target duration (TimeStretch): convert to a tempo
+        percent and drive the slider. No-op for invalid / non-positive input. */
+    void commitTargetDuration();
+
+    /** Format a time in seconds as ASCII mm:ss.mmm for the scope line. */
+    static juce::String formatTime(double seconds);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimePitchDialog)
 };

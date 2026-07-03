@@ -15,6 +15,7 @@
 
 #include "SpectrumAnalyzer.h"
 #include "../Audio/AudioEngine.h"
+#include "ThemeManager.h"
 #include "UIConstants.h"
 #include <cmath>
 
@@ -155,8 +156,14 @@ void SpectrumAnalyzer::pushAudioData(const float* buffer, int numSamples)
 
     int fftSize = static_cast<int>(m_currentFFTSize);
 
-    // Thread-safe write to FIFO
-    const juce::SpinLock::ScopedLockType lock(m_fftLock);
+    // H2 FIX: this runs on the audio thread (fed from AudioEngine's
+    // audioDeviceIOCallbackWithContext). Never block the real-time thread on
+    // a lock contended by the message-thread processFFT() -- try-lock and
+    // simply skip this block on contention (matching the m_analyzerLock
+    // try-lock pattern one level up in AudioEngine.cpp).
+    const juce::SpinLock::ScopedTryLockType lock(m_fftLock);
+    if (!lock.isLocked())
+        return;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -283,8 +290,10 @@ void SpectrumAnalyzer::processFFT()
 
 void SpectrumAnalyzer::paint(juce::Graphics& g)
 {
-    // Dark background
-    g.fillAll(juce::Colour(0xff1a1a1a));
+    // H6 FIX: panel chrome follows the active theme (plotted curve/gradient/
+    // peak colors below remain domain-exempt per CLAUDE.md 6.11).
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.waveformBackground);
 
     auto bounds = getLocalBounds().toFloat();
     const float padding = 4.0f;
@@ -417,7 +426,7 @@ juce::Colour SpectrumAnalyzer::getColorForMagnitude(float dB) const
 
 void SpectrumAnalyzer::drawFrequencyAxis(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    g.setColour(juce::Colours::grey);
+    g.setColour(waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     g.setFont(waveedit::ui::legacyFont("Monospace", 9.0f, juce::Font::plain));
 
     // Draw frequency markings at key points (20, 50, 100, 200, 500, 1k, 2k, 5k, 10k, 20k)
@@ -454,7 +463,7 @@ void SpectrumAnalyzer::drawFrequencyAxis(juce::Graphics& g, juce::Rectangle<floa
 
 void SpectrumAnalyzer::drawMagnitudeAxis(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    g.setColour(juce::Colours::grey);
+    g.setColour(waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     g.setFont(waveedit::ui::legacyFont("Monospace", 9.0f, juce::Font::plain));
 
     // Draw dB scale markings at key points

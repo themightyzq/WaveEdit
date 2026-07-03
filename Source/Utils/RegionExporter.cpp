@@ -92,74 +92,128 @@ int RegionExporter::exportRegions(const juce::AudioBuffer<float>& buffer,
                                    const ExportSettings& settings,
                                    ProgressCallback progressCallback)
 {
-    int numRegions = regionManager.getNumRegions();
+    // Thin wrapper: callers that only need the count get it; the real work
+    // (and the per-file failure reporting) lives in exportRegionsEx.
+    ExportResult result = exportRegionsEx(buffer, sampleRate, regionManager,
+                                          sourceFile, settings, progressCallback);
 
+    // Preserve the historical "-1 on invalid directory" contract.
+    if (result.attempted == 0 && result.successCount == 0
+        && (!settings.outputDirectory.exists() || !settings.outputDirectory.isDirectory()))
+    {
+        return -1;
+    }
+
+    return result.successCount;
+}
+
+RegionExporter::ExportResult RegionExporter::exportRegionsEx(
+    const juce::AudioBuffer<float>& buffer,
+    double sampleRate,
+    const RegionManager& regionManager,
+    const juce::File& sourceFile,
+    const ExportSettings& settings,
+    ProgressCallback progressCallback)
+{
+    ExportResult result;
+
+    const int numRegions = regionManager.getNumRegions();
     if (numRegions == 0)
     {
         DBG("RegionExporter: No regions to export");
-        return 0;
+        return result;
     }
 
     if (!settings.outputDirectory.exists() || !settings.outputDirectory.isDirectory())
     {
         DBG("RegionExporter: Invalid output directory");
-        return -1;
+        return result;
     }
 
-    int successCount = 0;
+    // Build the ordered list of region indices to export. Empty selection =>
+    // all regions. Selected indices preserve their ORIGINAL index so generated
+    // filenames match the dialog preview (which also uses the original index).
+    std::vector<int> indices;
+    if (settings.regionIndicesToExport.empty())
+    {
+        for (int i = 0; i < numRegions; ++i)
+            indices.push_back(i);
+    }
+    else
+    {
+        for (int i : settings.regionIndicesToExport)
+            if (i >= 0 && i < numRegions)
+                indices.push_back(i);
+    }
+
+    const int total = static_cast<int>(indices.size());
 
     // H15: track chosen filenames so two regions sanitizing to the same name
     // get _1/_2 suffixes instead of silently overwriting each other.
     std::set<juce::String> usedFilenames;
 
-    for (int i = 0; i < numRegions; ++i)
+    int processed = 0;
+    for (int idx : indices)
     {
-        auto* region = regionManager.getRegion(i);
+        auto* region = regionManager.getRegion(idx);
         if (region == nullptr)
-        {
             continue;
-        }
 
-        // Progress callback
+        // Progress callback (returns false to cancel).
         if (progressCallback != nullptr)
         {
-            bool shouldContinue = progressCallback(i, numRegions, region->getName());
+            bool shouldContinue = progressCallback(processed, total, region->getName());
             if (!shouldContinue)
             {
                 DBG("RegionExporter: Export cancelled by user");
+                result.cancelled = true;
                 break;
             }
         }
+        ++processed;
+        ++result.attempted;
 
-        // Generate filename using full settings (supports templates), then
-        // escape Windows-reserved stems (H16) and dedupe collisions (H15).
-        juce::String filename = generateFilename(sourceFile, *region, i, settings);
+        // Generate filename using full settings (supports templates + format
+        // extension), then escape Windows-reserved stems (H16) and dedupe
+        // collisions (H15).
+        juce::String filename = generateFilename(sourceFile, *region, idx, settings);
         filename = escapeReservedFilename(filename);
         filename = makeUniqueFilename(filename, usedFilenames);
 
         juce::File outputFile = settings.outputDirectory.getChildFile(filename);
 
-        // Export region
+        // Export region in the requested format/bit depth.
         juce::String errorMessage;
+        int effectiveBitDepth = settings.bitDepth;
         bool success = exportSingleRegion(buffer, sampleRate, *region,
                                           outputFile, settings.bitDepth,
-                                          errorMessage);
+                                          errorMessage, settings.format,
+                                          &effectiveBitDepth);
+
+        // M4: if the format capped the bit depth (FLAC cannot exceed 24-bit),
+        // surface it once so the user is told rather than silently coerced.
+        if (success && effectiveBitDepth != settings.bitDepth && result.coercionNote.isEmpty())
+        {
+            result.coercionNote = settings.format.toUpperCase() + " does not support "
+                + juce::String(settings.bitDepth) + "-bit; exported at "
+                + juce::String(effectiveBitDepth) + "-bit instead.";
+        }
 
         if (success)
         {
-            ++successCount;
-            DBG("RegionExporter: Exported region " +
-                                     juce::String(i + 1) + "/" + juce::String(numRegions) +
-                                     " - " + outputFile.getFileName());
+            ++result.successCount;
+            DBG("RegionExporter: Exported region " + juce::String(idx + 1)
+                + " - " + outputFile.getFileName());
         }
         else
         {
-            DBG("RegionExporter: Failed to export region " +
-                                     juce::String(i + 1) + ": " + errorMessage);
+            result.failedNames.add(region->getName());
+            DBG("RegionExporter: Failed to export region " + juce::String(idx + 1)
+                + ": " + errorMessage);
         }
     }
 
-    return successCount;
+    return result;
 }
 
 juce::String RegionExporter::generateFilename(const juce::File& sourceFile,
@@ -233,10 +287,19 @@ juce::String RegionExporter::generateFilename(const juce::File& sourceFile,
         filename = prefix + "_" + filename;
     }
 
-    // Add .wav extension
-    filename += ".wav";
+    // Add the format-appropriate extension. This is the single source of truth
+    // for the generated name -- the batch-export dialog calls this same method
+    // for its preview, so the preview always matches the written file (UX 22).
+    filename += extensionForFormat(settings.format);
 
     return filename;
+}
+
+juce::String RegionExporter::extensionForFormat(const juce::String& format)
+{
+    if (format.equalsIgnoreCase("flac"))
+        return ".flac";
+    return ".wav";
 }
 
 bool RegionExporter::exportSingleRegion(const juce::AudioBuffer<float>& buffer,
@@ -244,7 +307,9 @@ bool RegionExporter::exportSingleRegion(const juce::AudioBuffer<float>& buffer,
                                          const Region& region,
                                          const juce::File& outputFile,
                                          int bitDepth,
-                                         juce::String& errorMessage)
+                                         juce::String& errorMessage,
+                                         const juce::String& format,
+                                         int* effectiveBitDepthOut)
 {
     // Validate region bounds
     int64_t startSample = region.getStartSample();
@@ -272,8 +337,14 @@ bool RegionExporter::exportSingleRegion(const juce::AudioBuffer<float>& buffer,
         return false;
     }
 
-    // Create audio format writer
-    auto writer = createWavWriter(outputFile, sampleRate, buffer.getNumChannels(), bitDepth);
+    // Create audio format writer (WAV or FLAC). effectiveBitDepth reflects any
+    // format-imposed cap (FLAC <= 24-bit) so the caller can report coercion.
+    int effectiveBitDepth = bitDepth;
+    auto writer = createWriter(outputFile, format, sampleRate,
+                               buffer.getNumChannels(), bitDepth, effectiveBitDepth);
+    if (effectiveBitDepthOut != nullptr)
+        *effectiveBitDepthOut = effectiveBitDepth;
+
     if (writer == nullptr)
     {
         errorMessage = "Failed to create audio writer for output file";
@@ -323,14 +394,15 @@ bool RegionExporter::exportSingleRegion(const juce::AudioBuffer<float>& buffer,
     return true;
 }
 
-std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWavWriter(
+std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWriter(
     const juce::File& outputFile,
+    const juce::String& format,
     double sampleRate,
     int numChannels,
-    int bitDepth)
+    int bitDepth,
+    int& effectiveBitDepth)
 {
-    // Create WAV format
-    juce::WavAudioFormat wavFormat;
+    effectiveBitDepth = bitDepth;
 
     // Delete existing file if present
     if (outputFile.existsAsFile())
@@ -347,7 +419,25 @@ std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWavWriter(
         return nullptr;
     }
 
-    // Determine bits per sample (8, 16, 24, or 32-bit)
+    if (format.equalsIgnoreCase("flac"))
+    {
+        // FLAC is a 16/24-bit integer container; it cannot store 8-bit or
+        // 32-bit-float. Clamp into range and report the effective depth so the
+        // caller can tell the user (M4) rather than coercing silently.
+        int bd = juce::jlimit(16, 24, bitDepth);
+        effectiveBitDepth = bd;
+
+        juce::FlacAudioFormat flacFormat;
+        auto options = juce::AudioFormatWriterOptions()
+            .withSampleRate(sampleRate)
+            .withNumChannels(numChannels)
+            .withBitsPerSample(bd)
+            .withQualityOptionIndex(0);
+
+        return flacFormat.createWriterFor(outputStream, options);
+    }
+
+    // WAV (default).
     int bitsPerSample = bitDepth;
     if (bitsPerSample != 8 && bitsPerSample != 16 && bitsPerSample != 24 && bitsPerSample != 32)
     {
@@ -355,16 +445,24 @@ std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWavWriter(
                                  juce::String(bitDepth) + ", using 24-bit");
         bitsPerSample = 24;
     }
+    effectiveBitDepth = bitsPerSample;
 
-    // Build writer options using JUCE 8 AudioFormatWriterOptions API
+    juce::WavAudioFormat wavFormat;
     auto options = juce::AudioFormatWriterOptions()
         .withSampleRate(sampleRate)
         .withNumChannels(numChannels)
         .withBitsPerSample(bitsPerSample)
-        .withQualityOptionIndex(0)
-        .withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::integral);  // Force PCM for 8-bit
+        .withQualityOptionIndex(0);
 
-    // Create writer using JUCE 8 API
+    // H1: match sample format to the requested bit depth. 8-bit is unsigned
+    // integer PCM; 32-bit is IEEE float (WaveEdit's only 32-bit WAV option is
+    // "32-bit Float"). 16/24-bit stay on JUCE's default (integer PCM). The old
+    // unconditional integral wrote 32-bit INTEGER PCM for a float request.
+    if (bitsPerSample == 8)
+        options = options.withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::integral);
+    else if (bitsPerSample == 32)
+        options = options.withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::floatingPoint);
+
     // Note: outputStream ownership is transferred via non-const lvalue reference
     return wavFormat.createWriterFor(outputStream, options);
 }

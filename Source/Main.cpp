@@ -155,6 +155,23 @@ public:
         // Windows/Linux the Finder/Explorer "open document" path). On macOS the
         // open-document event arrives via anotherInstanceStarted() instead.
         openFileInMainWindow(fileFromCommandLine(commandLine));
+
+        // Crash-recovery for UNTITLED takes (e.g. a recording never saved, then
+        // a crash): titled documents are offered recovery when reopened, but an
+        // untitled take has no path to reopen, so it must be scanned for at
+        // launch (UX finding 2). Deferred one tick so the main window is on
+        // screen before the modal appears, matching the app's other startup
+        // dialogs.
+        if (mainWindow != nullptr)
+        {
+            juce::Component::SafePointer<MainComponent> safeComp(
+                dynamic_cast<MainComponent*>(mainWindow->getContentComponent()));
+            juce::Timer::callAfterDelay(600, [safeComp]() mutable
+            {
+                if (safeComp != nullptr)
+                    safeComp->offerUntitledCrashRecovery();
+            });
+        }
     }
 
     void shutdown() override
@@ -185,11 +202,16 @@ public:
                     {
                         if (choice == 1)  // Yes - Save and quit
                         {
+                            // saveAllModifiedDocuments() now handles UNTITLED
+                            // documents too: it prompts Save As / Discard /
+                            // Cancel per untitled take (e.g. a fresh recording)
+                            // instead of silently discarding it (UX finding 2).
+                            // It returns false if the user cancelled any prompt
+                            // or a save failed, in which case we must NOT quit.
                             if (mainComp->saveAllModifiedDocuments())
                             {
                                 quit();
                             }
-                            // If save failed, don't quit
                         }
                         else if (choice == 2)  // No - Quit without saving
                         {

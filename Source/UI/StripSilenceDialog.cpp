@@ -388,17 +388,10 @@ bool StripSilenceDialog::validateParameters()
         return false;
     }
 
-    // Warn if parameters might create too many regions
-    double totalDurationMs = (m_audioBuffer.getNumSamples() / m_sampleRate) * 1000.0;
-    if (minSilenceLengthMs < 50.0 && totalDurationMs > 60000.0)
-    {
-        // For now, just log a warning instead of blocking
-        // In a full implementation, this would use an async dialog
-        DBG("Warning: Min Silence Length is very short (" +
-                                  juce::String(minSilenceLengthMs, 1) +
-                                  " ms). This may create many regions.");
-    }
-
+    // UX25: the "too many regions" caution is now a visible, themed warning
+    // driven by the ACTUAL preview count (see updatePreviewDisplay), rather than
+    // a silent DBG heuristic here -- the real count is only known after
+    // applyStripSilence(true) populates m_previewRegions.
     return true;
 }
 
@@ -409,11 +402,26 @@ void StripSilenceDialog::updatePreviewDisplay()
     // Update waveform preview with regions
     m_waveformPreview->setPreviewRegions(m_previewRegions);
 
-    // Update region count label
+    // Update region count label. UX25: when the parameters would slice the file
+    // into an unwieldy number of regions, surface a visible themed warning
+    // instead of the old silent DBG no-op.
+    static constexpr int kManyRegionsWarnThreshold = 500;
+
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     juce::String countText;
+    juce::Colour countColour = theme.text;
+
     if (numRegions == 0)
     {
         countText = "No regions will be created. Try adjusting parameters.";
+        countColour = theme.textMuted;
+    }
+    else if (numRegions > kManyRegionsWarnThreshold)
+    {
+        countText = "Warning: this will create " + juce::String(numRegions) +
+                    " regions. Raise Min Silence Length or Min Region Length "
+                    "to create fewer.";
+        countColour = theme.warning;
     }
     else
     {
@@ -422,5 +430,6 @@ void StripSilenceDialog::updatePreviewDisplay()
             countText += "s";
     }
 
+    m_regionCountLabel.setColour(juce::Label::textColourId, countColour);
     m_regionCountLabel.setText(countText, juce::dontSendNotification);
 }
