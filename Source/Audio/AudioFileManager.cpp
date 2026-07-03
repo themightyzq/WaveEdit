@@ -873,12 +873,13 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
     }
 
     // Create output stream
-    std::unique_ptr<juce::FileOutputStream> outputStream(new juce::FileOutputStream(file));
-    if (!outputStream->openedOk())
+    auto fileStream = std::make_unique<juce::FileOutputStream>(file);
+    if (!fileStream->openedOk())
     {
         setError("Could not create output stream for file: " + file.getFullPathName());
         return false;
     }
+    std::unique_ptr<juce::OutputStream> outputStream = std::move(fileStream);
 
     // Create audio format writer
     // Note: For compressed formats, bitDepth is typically ignored, and qualityOptionIndex is used instead
@@ -899,21 +900,18 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
                                 juce::String(64 + quality * 25) + " kbps)");
     }
 
-    // IMPORTANT: Release ownership BEFORE createWriterFor
-    // JUCE's createWriterFor may delete the stream on failure,
-    // which would cause double-free if unique_ptr also tries to delete
-    auto* rawStream = outputStream.release();
+    // JUCE 8 API: takes the unique_ptr by reference and only assumes
+    // ownership of the stream when writer creation succeeds
+    auto writerOptions = juce::AudioFormatWriterOptions()
+        .withSampleRate(sampleRate)
+        .withNumChannels(buffer.getNumChannels())
+        .withBitsPerSample(24) // Use 24-bit for best quality with compressed formats
+        .withQualityOptionIndex(quality); // No metadata support for FLAC/OGG via JUCE writer
 
-    writer.reset(format->createWriterFor(rawStream,
-                                         sampleRate,
-                                         static_cast<unsigned int>(buffer.getNumChannels()),
-                                         24, // Use 24-bit for best quality with compressed formats
-                                         {},  // No metadata support for FLAC/OGG via JUCE writer
-                                         quality));
+    writer = format->createWriterFor(outputStream, writerOptions);
 
     if (writer == nullptr)
     {
-        // Note: stream was deleted by createWriterFor on failure
         setError("Could not create audio writer for format: " + extension);
         return false;
     }

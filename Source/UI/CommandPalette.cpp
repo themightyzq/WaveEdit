@@ -145,7 +145,7 @@ void CommandPalette::paint(juce::Graphics& g)
         {
             auto categoryColour = getCategoryColour(entry.category);
             g.setFont(juce::FontOptions(waveedit::ui::kFontTiny, juce::Font::bold));
-            int badgeWidth = g.getCurrentFont().getStringWidth(entry.category) + 10;
+            int badgeWidth = juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), entry.category) + 10;
             auto badgeBounds = contentBounds.removeFromLeft(badgeWidth)
                                    .withSizeKeepingCentre(badgeWidth, 18);
 

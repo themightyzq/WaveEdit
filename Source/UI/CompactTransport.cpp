@@ -216,7 +216,7 @@ CompactTransport::CompactTransport()
     // jitter horizontally as it ticks (REVIEW-DESIGN H12).
     m_timeLabel = std::make_unique<juce::Label>("Time", "00:00.00");
     m_timeLabel->setJustificationType(juce::Justification::centred);
-    m_timeLabel->setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::bold));
+    m_timeLabel->setFont(waveedit::ui::legacyFont(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::bold));
     m_timeLabel->setEditable(false, false, false);
     // Make label clickable to cycle time format, with discoverable affordance.
     m_timeLabel->addMouseListener(this, false);

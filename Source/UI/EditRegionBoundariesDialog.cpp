@@ -15,6 +15,7 @@
 
 #include "EditRegionBoundariesDialog.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 
 namespace
 {
@@ -61,20 +62,20 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
 
     // Title label
     m_titleLabel.setText("Edit Region Boundaries: " + m_regionName, juce::dontSendNotification);
-    m_titleLabel.setFont(juce::Font(20.0f, juce::Font::bold));
+    m_titleLabel.setFont(waveedit::ui::legacyFont(20.0f, juce::Font::bold));
     m_titleLabel.setColour(juce::Label::textColourId, textFn());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
     // Instruction label
     m_instructionLabel.setText("Enter new start and end positions:", juce::dontSendNotification);
-    m_instructionLabel.setFont(juce::Font(14.0f));
+    m_instructionLabel.setFont(waveedit::ui::legacyFont(14.0f));
     m_instructionLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_instructionLabel);
 
     // Format label ("Format:")
     m_formatLabel.setText("Format:", juce::dontSendNotification);
-    m_formatLabel.setFont(juce::Font(14.0f));
+    m_formatLabel.setFont(waveedit::ui::legacyFont(14.0f));
     m_formatLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_formatLabel);
 
@@ -93,14 +94,14 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
 
     // Example label
     m_exampleLabel.setText(getFormatExample(), juce::dontSendNotification);
-    m_exampleLabel.setFont(juce::Font(12.0f));
+    m_exampleLabel.setFont(waveedit::ui::legacyFont(12.0f));
     m_exampleLabel.setColour(juce::Label::textColourId,
         waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     addAndMakeVisible(m_exampleLabel);
 
     // Start position label
     m_startLabel.setText("Start:", juce::dontSendNotification);
-    m_startLabel.setFont(juce::Font(14.0f));
+    m_startLabel.setFont(waveedit::ui::legacyFont(14.0f));
     m_startLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_startLabel);
 
@@ -110,7 +111,7 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
     m_startEditor.setScrollbarsShown(false);
     m_startEditor.setCaretVisible(true);
     m_startEditor.setPopupMenuEnabled(true);
-    m_startEditor.setFont(juce::Font(16.0f));
+    m_startEditor.setFont(waveedit::ui::legacyFont(16.0f));
     m_startEditor.setColour(juce::TextEditor::backgroundColourId,
         waveedit::ThemeManager::getInstance().getCurrent().panelAlternate);
     m_startEditor.setColour(juce::TextEditor::textColourId, textFn());
@@ -122,7 +123,7 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
 
     // End position label
     m_endLabel.setText("End:", juce::dontSendNotification);
-    m_endLabel.setFont(juce::Font(14.0f));
+    m_endLabel.setFont(waveedit::ui::legacyFont(14.0f));
     m_endLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_endLabel);
 
@@ -132,7 +133,7 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
     m_endEditor.setScrollbarsShown(false);
     m_endEditor.setCaretVisible(true);
     m_endEditor.setPopupMenuEnabled(true);
-    m_endEditor.setFont(juce::Font(16.0f));
+    m_endEditor.setFont(waveedit::ui::legacyFont(16.0f));
     m_endEditor.setColour(juce::TextEditor::backgroundColourId,
         waveedit::ThemeManager::getInstance().getCurrent().panelAlternate);
     m_endEditor.setColour(juce::TextEditor::textColourId, textFn());
@@ -144,7 +145,7 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
 
     // Validation label (error/success messages)
     m_validationLabel.setText("", juce::dontSendNotification);
-    m_validationLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    m_validationLabel.setFont(waveedit::ui::legacyFont(12.0f, juce::Font::bold));
     m_validationLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_validationLabel);
 

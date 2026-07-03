@@ -101,6 +101,7 @@
 #include "UI/WaveEditLookAndFeel.h"
 #include "UI/CommandPalette.h"
 #include "UI/SelectionInfoPanel.h"
+#include "UI/UIConstants.h"
 #include "UI/CallbackDocumentWindow.h"
 
 //==============================================================================
@@ -150,7 +151,7 @@ public:
 
         // Setup no-file label
         m_noFileLabel.setText("No audio file loaded", juce::dontSendNotification);
-        m_noFileLabel.setFont(juce::Font(20.0f));
+        m_noFileLabel.setFont(waveedit::ui::legacyFont(20.0f));
         m_noFileLabel.setJustificationType(juce::Justification::centred);
         m_noFileLabel.setColour(juce::Label::textColourId,
                                 waveedit::ThemeManager::getInstance().getCurrent().textMuted);
