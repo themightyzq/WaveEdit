@@ -20,6 +20,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
+#include "ChannelLayout.h"
 #include "../DSP/ParametricEQ.h"
 #include "../DSP/DynamicParametricEQ.h"
 #include "../Plugins/PluginChain.h"
@@ -690,6 +691,37 @@ public:
     int getBitDepth() const;
 
     //==============================================================================
+    // Surround Monitoring Fold-Down (H7)
+
+    /** Fixed-size gain matrix mapping source channels to device output channels.
+        POD, allocation-free: output[o] = sum_i input[i] * m[o][i]. 8 = max
+        supported channels (7.1). */
+    struct FoldDownMatrix
+    {
+        int   numIn  = 0;
+        int   numOut = 0;
+        float m[8][8] = {};
+    };
+
+    /** Pure, static, allocation-free builder for the monitoring fold-down matrix.
+        When sourceChannels <= outputChannels the matrix is a passthrough identity
+        (no fold-down; the mono->stereo case is handled separately in the callback).
+        When sourceChannels > outputChannels it encodes ITU-R BS.775 downmix
+        coefficients (ITU_Standard preset, LFE excluded) using the coefficient
+        VALUES from ChannelLayout.h's ITUCoefficients. Unit-testable. */
+    static FoldDownMatrix buildFoldDownMatrix(int sourceChannels, int outputChannels) noexcept;
+
+    /** Lock-free query: true when surround fold-down monitoring is active
+        (file channels exceed device output channels). */
+    bool isFoldDownActive() const { return m_foldDownActive.load(); }
+
+    /** Lock-free query: source (file) channel count feeding the fold-down. */
+    int getFoldDownSourceChannels() const { return m_foldDownSourceChannels.load(); }
+
+    /** Lock-free query: device output channel count the source is folded to. */
+    int getFoldDownOutputChannels() const { return m_deviceOutputChannels.load(); }
+
+    //==============================================================================
     // ChangeListener Implementation
 
     /**
@@ -805,6 +837,23 @@ private:
     // Channel solo/mute state for monitoring
     std::atomic<bool> m_channelSolo[MAX_CHANNELS];
     std::atomic<bool> m_channelMute[MAX_CHANNELS];
+
+    //==============================================================================
+    // Surround Monitoring Fold-Down (H7)
+    //
+    // When the loaded file has more channels than the device outputs, the audio
+    // callback renders ALL source channels into m_foldDownScratch and folds them
+    // to the device channels via a precomputed gain matrix (ITU-R BS.775, LFE
+    // excluded). The matrix is (re)built on the message/device-prepare thread and
+    // published to the audio thread via a double buffer + atomic index; the audio
+    // thread only reads it (no lock, no allocation). See CLAUDE.md §6.4.
+    std::atomic<int>  m_deviceOutputChannels{2};   // device open count (2 this PR)
+    FoldDownMatrix    m_foldDownMatrix[2];          // double-buffered
+    std::atomic<int>  m_foldDownMatrixIndex{0};     // which buffer is published
+    std::atomic<bool> m_foldDownActive{false};
+    std::atomic<int>  m_foldDownSourceChannels{0};
+    juce::CriticalSection m_foldDownWriteLock;      // writers only; audio thread never locks
+    juce::AudioBuffer<float> m_foldDownScratch;     // preallocated wide render buffer
 
     // Spectrum analyzer (not owned, just a pointer for data feeding).
     // C8 FIX: atomic so the audio thread sees a consistent value and the
@@ -1018,6 +1067,22 @@ private:
      * Updates the playback state and notifies listeners if changed.
      */
     void updatePlaybackState(PlaybackState newState);
+
+    /**
+     * Rebuilds and publishes the fold-down matrix from the current source channel
+     * count and device output channel count. Message/device-prepare thread only
+     * (takes the writer lock; the audio thread never blocks on it).
+     */
+    void rebuildFoldDownMatrix();
+
+    /**
+     * Audio-thread fold-down render: fills 'output' (device channels) by rendering
+     * the transport into the wide scratch buffer, applying per-source-channel
+     * solo/mute, then applying the published fold-down matrix. Allocation-free and
+     * lock-free.
+     */
+    void renderFoldDownBlock(juce::AudioBuffer<float>& output, int numOutputChannels,
+                             int numSamples, int sourceChannels);
 
     /**
      * Validates that the audio file format is supported.

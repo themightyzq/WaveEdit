@@ -365,6 +365,9 @@ bool AudioEngine::loadAudioFile(const juce::File& file)
     // Switch to file playback mode
     m_isPlayingFromBuffer.store(false);
 
+    // H7: recompute the surround fold-down matrix for the new channel count.
+    rebuildFoldDownMatrix();
+
     return true;
 }
 
@@ -468,6 +471,9 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
     // Switch to buffer playback mode
     m_isPlayingFromBuffer.store(true);
 
+    // H7: recompute the surround fold-down matrix for the new channel count.
+    rebuildFoldDownMatrix();
+
     return true;
 }
 
@@ -541,6 +547,9 @@ bool AudioEngine::reloadBufferPreservingPlayback(const juce::AudioBuffer<float>&
     if (wasPlaying)
         m_transportSource.start();
 
+    // H7: recompute the surround fold-down matrix (channel count may have changed).
+    rebuildFoldDownMatrix();
+
     return true;
 }
 
@@ -563,6 +572,9 @@ void AudioEngine::closeAudioFile()
 
     // Clear preview selection offset
     m_previewSelectionStartSamples.store(0);
+
+    // H7: no file loaded -> no fold-down.
+    rebuildFoldDownMatrix();
 }
 
 bool AudioEngine::isFileLoaded() const
@@ -892,6 +904,15 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
         // position-driven fade preview needs it to map output samples to file time.
         m_deviceSampleRate.store(device->getCurrentSampleRate());
 
+        // H7: capture the device output channel count and preallocate the wide
+        // scratch buffer used by the surround fold-down render. Allocation happens
+        // here (device-prepare thread), never in the audio callback (§6.4).
+        const int deviceOutputs = device->getActiveOutputChannels().countNumberOfSetBits();
+        m_deviceOutputChannels.store(juce::jmax(1, deviceOutputs));
+        m_foldDownScratch.setSize(MAX_CHANNELS, device->getCurrentBufferSizeSamples(),
+                                  false, false, true);
+        rebuildFoldDownMatrix();
+
         m_transportSource.prepareToPlay(device->getCurrentBufferSizeSamples(),
                                          device->getCurrentSampleRate());
 
@@ -950,10 +971,25 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         return;
     }
 
-    // Get audio from the transport source
-    juce::AudioSourceChannelInfo channelInfo(buffer);
+    // H7 SURROUND FOLD-DOWN: when the file has more channels than the device
+    // outputs, render ALL source channels into a scratch buffer and fold them to
+    // the device channels using ITU-R BS.775 (LFE excluded). Without this, the
+    // transport only fills min(sourceChannels, outputChannels), so channels beyond
+    // the first two are silently inaudible. Otherwise render straight into output.
+    const int  sourceChannels  = m_numChannels.load();
+    const bool foldDownActive  = m_foldDownActive.load()
+                                 && sourceChannels > numOutputChannels;
 
-    m_transportSource.getNextAudioBlock(channelInfo);
+    if (foldDownActive)
+    {
+        renderFoldDownBlock(buffer, numOutputChannels, numSamples, sourceChannels);
+    }
+    else
+    {
+        // Get audio from the transport source
+        juce::AudioSourceChannelInfo channelInfo(buffer);
+        m_transportSource.getNextAudioBlock(channelInfo);
+    }
 
     //==============================================================================
     // LOOP POINT HANDLING: Sample-accurate loop point checking
@@ -1019,8 +1055,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // If the source is mono (1 channel) but output is stereo (2 channels),
     // duplicate the mono channel to both L and R for center-panned playback.
     // This matches professional audio editor behavior (Sound Forge, Pro Tools, etc.)
-    int sourceChannels = m_numChannels.load();
-    if (sourceChannels == 1 && numOutputChannels == 2)
+    // (Skipped when folding down: mono can never trigger fold-down, but guard for clarity.)
+    if (!foldDownActive && sourceChannels == 1 && numOutputChannels == 2)
     {
         // Duplicate mono (channel 0) to right channel (channel 1)
         // The transport source already filled channel 0, now copy it to channel 1
@@ -1121,27 +1157,33 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
     //==============================================================================
     // CHANNEL SOLO/MUTE: Apply per-channel monitoring controls
-    // This runs after all DSP processing so users hear the final result with solo/mute applied
-    bool anySolo = hasAnySolo();
-    for (int ch = 0; ch < juce::jmin(numOutputChannels, MAX_CHANNELS); ++ch)
+    // This runs after all DSP processing so users hear the final result with solo/mute applied.
+    // When folding down, solo/mute is applied to the SOURCE channels inside
+    // renderFoldDownBlock() (BEFORE the fold), so the output channels here are the
+    // fold targets and must NOT be gated again.
+    if (!foldDownActive)
     {
-        bool shouldMuteChannel = false;
+        bool anySolo = hasAnySolo();
+        for (int ch = 0; ch < juce::jmin(numOutputChannels, MAX_CHANNELS); ++ch)
+        {
+            bool shouldMuteChannel = false;
 
-        // Check if channel should be silent
-        if (m_channelMute[ch].load())
-        {
-            // Explicit mute always silences the channel
-            shouldMuteChannel = true;
-        }
-        else if (anySolo && !m_channelSolo[ch].load())
-        {
-            // If any channel is solo'd, non-solo'd channels are silenced
-            shouldMuteChannel = true;
-        }
+            // Check if channel should be silent
+            if (m_channelMute[ch].load())
+            {
+                // Explicit mute always silences the channel
+                shouldMuteChannel = true;
+            }
+            else if (anySolo && !m_channelSolo[ch].load())
+            {
+                // If any channel is solo'd, non-solo'd channels are silenced
+                shouldMuteChannel = true;
+            }
 
-        if (shouldMuteChannel)
-        {
-            buffer.clear(ch, 0, numSamples);
+            if (shouldMuteChannel)
+            {
+                buffer.clear(ch, 0, numSamples);
+            }
         }
     }
 
@@ -1270,6 +1312,179 @@ bool AudioEngine::validateAudioFormat(juce::AudioFormatReader* reader)
 
     // Format is valid
     return true;
+}
+
+//==============================================================================
+// Surround Monitoring Fold-Down (H7)
+
+AudioEngine::FoldDownMatrix AudioEngine::buildFoldDownMatrix(int sourceChannels,
+                                                             int outputChannels) noexcept
+{
+    using namespace waveedit;
+
+    constexpr int maxCh = 8;  // 7.1 is the highest supported layout
+    FoldDownMatrix result;
+    result.numIn  = juce::jlimit(0, maxCh, sourceChannels);
+    result.numOut = juce::jlimit(0, maxCh, outputChannels);
+
+    // Passthrough identity when the source fits the device outputs (no fold-down).
+    // The mono->stereo special case is handled separately in the audio callback.
+    if (sourceChannels <= outputChannels)
+    {
+        for (int ch = 0; ch < result.numIn; ++ch)
+            result.m[ch][ch] = ITUCoefficients::kUnityGain;
+        return result;
+    }
+
+    // Fold-down: ITU-R BS.775 (ITU_Standard preset, LFE excluded). The coefficient
+    // VALUES come from ChannelLayout.h's ITUCoefficients (not duplicated here); the
+    // speaker-position -> target mapping mirrors ChannelConverter::mixdownToStereo /
+    // mixdownToMono.
+    ChannelLayout layout = ChannelLayout::fromChannelCount(sourceChannels);
+
+    if (outputChannels == 2)
+    {
+        const float centerGain   = ITUCoefficients::kMinus3dB;
+        const float surroundGain = ITUCoefficients::kMinus3dB;   // ITU_Standard
+
+        for (int i = 0; i < result.numIn; ++i)
+        {
+            const ChannelInfo& info = layout.getChannelInfo(i);
+            float lg = 0.0f, rg = 0.0f;
+
+            switch (info.speakerPosition)
+            {
+                case SpeakerPosition::FRONT_LEFT:    lg = ITUCoefficients::kUnityGain; break;
+                case SpeakerPosition::FRONT_RIGHT:   rg = ITUCoefficients::kUnityGain; break;
+                case SpeakerPosition::FRONT_CENTER:  lg = rg = centerGain; break;
+                case SpeakerPosition::LOW_FREQUENCY: break;   // LFE excluded
+                case SpeakerPosition::BACK_LEFT:
+                case SpeakerPosition::SIDE_LEFT:     lg = surroundGain; break;
+                case SpeakerPosition::BACK_RIGHT:
+                case SpeakerPosition::SIDE_RIGHT:    rg = surroundGain; break;
+                case SpeakerPosition::BACK_CENTER:
+                    lg = rg = surroundGain * ITUCoefficients::kMinus3dB;
+                    break;
+                default: break;  // unknown position -> dropped
+            }
+
+            result.m[0][i] = lg;
+            result.m[1][i] = rg;
+        }
+    }
+    else if (outputChannels == 1)
+    {
+        for (int i = 0; i < result.numIn; ++i)
+        {
+            const ChannelInfo& info = layout.getChannelInfo(i);
+            float g = 0.0f;
+
+            switch (info.speakerPosition)
+            {
+                case SpeakerPosition::FRONT_LEFT:
+                case SpeakerPosition::FRONT_RIGHT:   g = ITUCoefficients::kMinus3dB; break;
+                case SpeakerPosition::FRONT_CENTER:  g = ITUCoefficients::kUnityGain; break;
+                case SpeakerPosition::LOW_FREQUENCY: g = 0.0f; break;  // LFE excluded
+                case SpeakerPosition::BACK_LEFT:
+                case SpeakerPosition::BACK_RIGHT:
+                case SpeakerPosition::SIDE_LEFT:
+                case SpeakerPosition::SIDE_RIGHT:
+                case SpeakerPosition::BACK_CENTER:   g = ITUCoefficients::kMinus6dB; break;
+                default: g = 1.0f / static_cast<float>(juce::jmax(1, sourceChannels)); break;
+            }
+
+            result.m[0][i] = g;
+        }
+    }
+    else
+    {
+        // General fold-down to >2 outputs: copy matching channels, drop the rest.
+        for (int ch = 0; ch < juce::jmin(result.numIn, result.numOut); ++ch)
+            result.m[ch][ch] = ITUCoefficients::kUnityGain;
+    }
+
+    return result;
+}
+
+void AudioEngine::rebuildFoldDownMatrix()
+{
+    const int src   = m_numChannels.load();
+    const int outCh = m_deviceOutputChannels.load();
+
+    // Writer-side lock ONLY (message thread + device-prepare). The audio thread
+    // never takes this lock; it reads via the atomic index + double buffer, so it
+    // never blocks. Serialises the two possible writers against each other.
+    const juce::ScopedLock sl(m_foldDownWriteLock);
+
+    const int writeIndex = 1 - m_foldDownMatrixIndex.load();
+    m_foldDownMatrix[writeIndex] = buildFoldDownMatrix(src, outCh);
+    m_foldDownMatrixIndex.store(writeIndex);                 // publish new matrix
+
+    m_foldDownActive.store(src > 0 && outCh > 0 && src > outCh);
+    m_foldDownSourceChannels.store(src);
+}
+
+void AudioEngine::renderFoldDownBlock(juce::AudioBuffer<float>& output,
+                                      int numOutputChannels, int numSamples,
+                                      int sourceChannels)
+{
+    constexpr int maxCh = 8;
+    const int src = juce::jmin(sourceChannels, maxCh);
+
+    // Safety: if the preallocated scratch cannot hold this block, degrade to a
+    // direct render into the output (only the leading channels audible). NEVER
+    // allocate on the audio thread (§6.4).
+    if (m_foldDownScratch.getNumChannels() < src
+        || m_foldDownScratch.getNumSamples() < numSamples)
+    {
+        juce::AudioSourceChannelInfo fallback(output);
+        m_transportSource.getNextAudioBlock(fallback);
+        return;
+    }
+
+    // Build a src-channel VIEW over the scratch buffer (no allocation).
+    float* scratchChans[maxCh];
+    for (int c = 0; c < src; ++c)
+        scratchChans[c] = m_foldDownScratch.getWritePointer(c);
+
+    juce::AudioBuffer<float> wide(scratchChans, src, numSamples);
+    wide.clear();
+
+    juce::AudioSourceChannelInfo wideInfo(&wide, 0, numSamples);
+    m_transportSource.getNextAudioBlock(wideInfo);
+
+    // Per-channel solo/mute gating on SOURCE channels, applied BEFORE the fold so
+    // that e.g. soloing channel 5 of a 5.1 file folds channel 5 to its BS.775
+    // targets (rather than gating a fold target after the mix).
+    const bool anySolo = hasAnySolo();
+    for (int i = 0; i < src; ++i)
+    {
+        const bool muteCh = m_channelMute[i].load() || (anySolo && !m_channelSolo[i].load());
+        if (muteCh)
+            wide.clear(i, 0, numSamples);
+    }
+
+    // Fold-down: output[o] = sum_i wide[i] * m[o][i]. 'output' is already cleared
+    // by the caller. Read the published matrix via the atomic index (lock-free).
+    const int idx = m_foldDownMatrixIndex.load();
+    const FoldDownMatrix& mtx = m_foldDownMatrix[idx];
+    const int outN = juce::jmin(juce::jmin(numOutputChannels, mtx.numOut), maxCh);
+    const int inN  = juce::jmin(src, mtx.numIn);
+
+    for (int o = 0; o < outN; ++o)
+    {
+        float* dst = output.getWritePointer(o);
+        for (int i = 0; i < inN; ++i)
+        {
+            const float g = mtx.m[o][i];
+            if (g == 0.0f)
+                continue;
+
+            const float* srcp = wide.getReadPointer(i);
+            for (int k = 0; k < numSamples; ++k)
+                dst[k] += srcp[k] * g;
+        }
+    }
 }
 
 //==============================================================================
