@@ -35,6 +35,7 @@
 #include "BWFMetadata.h"
 #include "iXMLMetadata.h"
 #include "../Automation/AutomationManager.h"
+#include "../Audio/AudioFileManager.h"
 
 /**
  * Document class represents a single audio file with all associated state.
@@ -265,6 +266,37 @@ public:
      */
     void closeFile();
 
+    //==============================================================================
+    // Embedded-cue / sidecar reconciliation
+
+    /**
+     * True when this document was opened with a markers/regions sidecar that is
+     * stale relative to the audio file (the WAV changed outside WaveEdit since
+     * the sidecar was written) AND the WAV carries its own embedded cues. The
+     * UI should prompt the user which to trust. The sidecar was kept by default
+     * (Cancel behavior); call adoptEmbeddedMarkersAndRegions() to switch.
+     */
+    bool hasSidecarConflict() const { return m_sidecarConflict; }
+
+    /** Clears the sidecar-conflict flag (e.g. after the user keeps the sidecar). */
+    void clearSidecarConflict() { m_sidecarConflict = false; }
+
+    /**
+     * Replaces the currently loaded markers/regions with the ones embedded in
+     * the audio file's cue/adtl chunks, resolving a sidecar conflict in favor of
+     * the file. Marks the document modified so the next save updates the sidecar.
+     */
+    void adoptEmbeddedMarkersAndRegions();
+
+    /**
+     * One-shot detector for the "document just became sidecar-required" edit.
+     * Returns true exactly once each time the document transitions from
+     * fully-embeddable to sidecar-required (a custom color or non-ASCII name was
+     * introduced); subsequent calls return false until it becomes embeddable
+     * again. The UI uses this to raise the "Companion File Created" warning.
+     */
+    bool takeSidecarRequirementTransition();
+
 private:
     // File information
     juce::File m_file;
@@ -299,8 +331,23 @@ private:
     // Saved state (for tab switching)
     double m_savedPlaybackPosition;
 
+    // Markers/regions embedded in the audio file's cue/adtl chunks, captured at
+    // load time so a sidecar conflict can be resolved in favor of the file.
+    WavCueData m_embeddedCues;
+    bool m_sidecarConflict = false;
+    bool m_sidecarRequirementAnnounced = false;
+
     /** Refresh AutomationRecorder dispatchers when the plugin chain changes. */
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+
+    /** Load regions+markers with sidecar/embedded-cue precedence (see .cpp). */
+    void loadRegionsAndMarkers(const juce::File& file);
+
+    /** Replace in-memory markers/regions from parsed WAV cue data. */
+    void importEmbeddedCues(const WavCueData& cues);
+
+    /** Collect current markers/regions (ASCII-labelled) for cue embedding. */
+    void buildCueDataForSave(WavCueData& out) const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Document)
 };
