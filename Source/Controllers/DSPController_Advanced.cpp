@@ -942,10 +942,13 @@ namespace
 
         if (hasSelection)
         {
+            // timeToSample returns int64_t, which GCC treats as a distinct
+            // type from juce::int64 on Linux -- cast so jlimit's template
+            // deduction sees one type on every platform.
             rangeStart = juce::jlimit((juce::int64) 0, totalSamples,
-                                      bufferManager.timeToSample(selStartSeconds));
+                                      (juce::int64) bufferManager.timeToSample(selStartSeconds));
             const juce::int64 rangeEnd = juce::jlimit((juce::int64) 0, totalSamples,
-                                                      bufferManager.timeToSample(selEndSeconds));
+                                                      (juce::int64) bufferManager.timeToSample(selEndSeconds));
             rangeLen = rangeEnd - rangeStart;
 
             if (rangeLen <= 0)
