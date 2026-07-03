@@ -775,6 +775,24 @@ public:
 
             g.drawText(info, leftSection, juce::Justification::centredLeft, true);
 
+            // Surround fold-down badge (H7): never fold down silently. Shown at the
+            // far right in the theme warning colour when the file has more channels
+            // than the device outputs (e.g. a 5.1 file monitored on a stereo device).
+            if (doc->getAudioEngine().isFoldDownActive())
+            {
+                auto foldSection = statusBar.removeFromRight(180);
+                const int srcCh = doc->getAudioEngine().getFoldDownSourceChannels();
+                const int outCh = doc->getAudioEngine().getFoldDownOutputChannels();
+                waveedit::ChannelLayout srcLayout(srcCh);
+                juce::String outLabel = (outCh == 2) ? "ST"
+                                        : (outCh == 1) ? "Mono"
+                                        : juce::String(outCh) + " ch";
+                juce::String foldBadge = "[" + srcLayout.getLayoutName() + " -> " + outLabel + "]";
+                g.setColour(theme.warning);
+                g.setFont(waveedit::ui::smallFont());
+                g.drawText(foldBadge, foldSection.reduced(5, 0), juce::Justification::centred, true);
+            }
+
             // Clipboard info in the middle
             if (AudioClipboard::getInstance().hasAudio())
             {
