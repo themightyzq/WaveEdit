@@ -33,7 +33,7 @@ namespace
                                              const juce::Font& font,
                                              float maxWidth)
     {
-        if (font.getStringWidthFloat(text) <= maxWidth)
+        if (juce::GlyphArrangement::getStringWidth(font, text) <= maxWidth)
             return text;
 
         // Plain ASCII so the glyph renders in every typeface (a Unicode "…"
@@ -45,7 +45,7 @@ namespace
 
         // Shrink the stem from its tail until stem + … + ext fits.
         while (stem.isNotEmpty()
-               && font.getStringWidthFloat(stem + ellipsis + ext) > maxWidth)
+               && juce::GlyphArrangement::getStringWidth(font, stem + ellipsis + ext) > maxWidth)
         {
             stem = stem.dropLastCharacters(1);
         }

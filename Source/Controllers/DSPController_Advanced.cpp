@@ -222,9 +222,9 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
             break;
     }
 
-    // createWriterFor takes ownership of the stream and may delete it on
-    // failure — release the unique_ptr BEFORE calling to avoid double-free.
-    auto createWriter = [&](juce::OutputStream* stream, int numChannels)
+    // JUCE 8 createWriterFor takes the unique_ptr by reference and only
+    // assumes ownership of the stream when writer creation succeeds.
+    auto createWriter = [&](std::unique_ptr<juce::OutputStream>& stream, int numChannels)
         -> std::unique_ptr<juce::AudioFormatWriter>
     {
         const int writerBitDepth =
@@ -234,10 +234,12 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
             (result->exportFormat == ChannelExtractorDialog::ExportFormat::OGG)
                 ? 5 : 0;
 
-        return std::unique_ptr<juce::AudioFormatWriter>(
-            audioFormat->createWriterFor(stream, sampleRate,
-                                         static_cast<unsigned int>(numChannels),
-                                         writerBitDepth, {}, qualityIndex));
+        return audioFormat->createWriterFor(stream,
+                                            juce::AudioFormatWriterOptions()
+                                                .withSampleRate(sampleRate)
+                                                .withNumChannels(numChannels)
+                                                .withBitsPerSample(writerBitDepth)
+                                                .withQualityOptionIndex(qualityIndex));
     };
 
     try
@@ -257,12 +259,11 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
                 monoBuffer.copyFrom(0, 0, bufferManager.getBuffer(),
                                     srcChannel, 0, static_cast<int>(bufferManager.getNumSamples()));
 
-                auto outputStream = outFile.createOutputStream();
+                std::unique_ptr<juce::OutputStream> outputStream = outFile.createOutputStream();
                 if (!outputStream) continue;
 
-                auto* rawStream = outputStream.release();
-                auto writer = createWriter(rawStream, 1);
-                if (!writer) continue; // stream deleted by createWriterFor on failure
+                auto writer = createWriter(outputStream, 1);
+                if (!writer) continue;
 
                 if (writer->writeFromAudioSampleBuffer(monoBuffer, 0, monoBuffer.getNumSamples()))
                     ++successCount;
@@ -290,15 +291,14 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
             auto combinedBuffer = waveedit::ChannelConverter::extractChannels(
                 bufferManager.getBuffer(), result->channels);
 
-            auto outputStream = outFile.createOutputStream();
+            std::unique_ptr<juce::OutputStream> outputStream = outFile.createOutputStream();
             if (!outputStream)
             {
                 ErrorDialog::show("Export Error", "Failed to create output file.");
                 return;
             }
 
-            auto* rawStream = outputStream.release();
-            auto writer = createWriter(rawStream, combinedBuffer.getNumChannels());
+            auto writer = createWriter(outputStream, combinedBuffer.getNumChannels());
             if (!writer)
             {
                 ErrorDialog::show("Export Error",

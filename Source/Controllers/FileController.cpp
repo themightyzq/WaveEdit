@@ -631,7 +631,7 @@ juce::ThreadPoolJob::JobStatus FileController::AutoSaveJob::runJob()
     try
     {
         // Create output stream
-        auto outputStream = targetFile.createOutputStream();
+        std::unique_ptr<juce::OutputStream> outputStream = targetFile.createOutputStream();
         if (!outputStream)
         {
             logFailure("Could not create output stream");
@@ -643,24 +643,18 @@ juce::ThreadPoolJob::JobStatus FileController::AutoSaveJob::runJob()
         if (safeBitDepth <= 0) safeBitDepth = 16;
         else if (safeBitDepth > 32) safeBitDepth = 32;
 
-        // IMPORTANT: Release ownership BEFORE createWriterFor
-        // JUCE's createWriterFor may delete the stream on failure,
-        // which would cause double-free if unique_ptr also tries to delete
-        auto* rawStream = outputStream.release();
-
-        // Create WAV writer
+        // Create WAV writer (JUCE 8 API: takes the unique_ptr by reference
+        // and only assumes ownership of the stream on success)
         juce::WavAudioFormat wavFormat;
-        std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
-            rawStream,
-            sampleRate,
-            static_cast<unsigned int>(bufferCopy.getNumChannels()),
-            safeBitDepth,
-            {},
-            0));
+        auto writer = wavFormat.createWriterFor(
+            outputStream,
+            juce::AudioFormatWriterOptions()
+                .withSampleRate(sampleRate)
+                .withNumChannels(bufferCopy.getNumChannels())
+                .withBitsPerSample(safeBitDepth));
 
         if (!writer)
         {
-            // Note: stream was deleted by createWriterFor on failure
             logFailure("Could not create audio writer");
             return jobHasFinished;
         }

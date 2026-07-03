@@ -15,6 +15,7 @@
 
 #include "RecordingDialog.h"
 #include "ThemeManager.h"
+#include "UIConstants.h"
 
 //==============================================================================
 // LevelMeter Implementation
@@ -114,12 +115,12 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
 
     // Status display
     m_statusLabel.setText("Ready to record", juce::dontSendNotification);
-    m_statusLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+    m_statusLabel.setFont(waveedit::ui::legacyFont(16.0f, juce::Font::bold));
     m_statusLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_statusLabel);
 
     m_elapsedTimeLabel.setText("00:00.000", juce::dontSendNotification);
-    m_elapsedTimeLabel.setFont(juce::Font(24.0f, juce::Font::bold));
+    m_elapsedTimeLabel.setFont(waveedit::ui::legacyFont(24.0f, juce::Font::bold));
     m_elapsedTimeLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_elapsedTimeLabel);
 

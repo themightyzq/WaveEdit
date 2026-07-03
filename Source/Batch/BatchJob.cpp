@@ -540,7 +540,7 @@ bool BatchJob::saveOutputFile(std::function<bool(float, const juce::String&)>& p
         format = std::make_unique<juce::WavAudioFormat>();
     }
 
-    std::unique_ptr<juce::FileOutputStream> outputStream(outputFile.createOutputStream());
+    std::unique_ptr<juce::OutputStream> outputStream(outputFile.createOutputStream());
 
     if (!outputStream)
     {
@@ -549,22 +549,16 @@ bool BatchJob::saveOutputFile(std::function<bool(float, const juce::String&)>& p
         return false;
     }
 
-    // IMPORTANT: Release ownership BEFORE createWriterFor
-    // JUCE's createWriterFor may delete the stream on failure,
-    // which would cause double-free if unique_ptr also tries to delete
-    auto* rawStream = outputStream.release();
-
-    std::unique_ptr<juce::AudioFormatWriter> writer(
-        format->createWriterFor(rawStream,
-                                m_sampleRate,
-                                static_cast<unsigned int>(m_numChannels),
-                                bitsPerSample,
-                                {},
-                                0));
+    // JUCE 8 API: takes the unique_ptr by reference and only assumes
+    // ownership of the stream when writer creation succeeds
+    auto writer = format->createWriterFor(outputStream,
+                                          juce::AudioFormatWriterOptions()
+                                              .withSampleRate(m_sampleRate)
+                                              .withNumChannels(m_numChannels)
+                                              .withBitsPerSample(bitsPerSample));
 
     if (!writer)
     {
-        // Note: stream was deleted by createWriterFor on failure
         m_result.status = BatchJobStatus::FAILED;
         m_result.errorMessage = "Cannot create audio writer for: " + outputFile.getFullPathName();
         return false;
