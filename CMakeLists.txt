@@ -163,6 +163,8 @@ target_sources(WaveEdit
         Source/UI/StripSilenceDialog.h
         Source/UI/HeadTailDialog.cpp
         Source/UI/HeadTailDialog.h
+        Source/UI/TimePitchDialog.cpp
+        Source/UI/TimePitchDialog.h
         Source/UI/LoopingToolsDialog.cpp
         Source/UI/LoopingToolsDialog.h
         Source/UI/CommandPalette.cpp
@@ -768,6 +770,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/StripSilenceDialog.h
         Source/UI/HeadTailDialog.cpp
         Source/UI/HeadTailDialog.h
+        Source/UI/TimePitchDialog.cpp
+        Source/UI/TimePitchDialog.h
         Source/Utils/Document.cpp
         Source/Utils/Document.h
         Source/Utils/DocumentManager.cpp
@@ -1018,6 +1022,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/AutomationLanesPanelRowIndexTests.cpp    # M16 row index
             Tests/Unit/RecordingEngineTests.cpp                 # M17/M18 recording
             Tests/Unit/HeadTailPreviewTests.cpp                 # HeadTail preview guard
+            Tests/Unit/TimePitchDialogTests.cpp                 # TimePitch preview excerpt range
             Tests/Unit/PreviewSystemTests.cpp                   # shared preview helpers (region + fade gain)
             Tests/Unit/PluginChainPersistenceTests.cpp          # Plugin chain state persistence (XML/JSON + named presets)
             Tests/Unit/LargeOperationUndoTests.cpp              # Undo/redo correctness at large (multi-million-sample) buffer sizes
