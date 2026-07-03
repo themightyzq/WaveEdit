@@ -94,7 +94,8 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
     // Example label
     m_exampleLabel.setText(getFormatExample(), juce::dontSendNotification);
     m_exampleLabel.setFont(juce::Font(12.0f));
-    m_exampleLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    m_exampleLabel.setColour(juce::Label::textColourId,
+        waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     addAndMakeVisible(m_exampleLabel);
 
     // Start position label
@@ -284,7 +285,7 @@ void EditRegionBoundariesDialog::comboBoxChanged(juce::ComboBox* comboBox)
 }
 
 //==============================================================================
-void EditRegionBoundariesDialog::showDialog(juce::Component* parentComponent,
+void EditRegionBoundariesDialog::showDialog(juce::Component* /*parentComponent*/,
                                             const Region& region,
                                             AudioUnits::TimeFormat currentFormat,
                                             double sampleRate,

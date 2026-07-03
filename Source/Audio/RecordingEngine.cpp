@@ -238,7 +238,7 @@ void RecordingEngine::audioDeviceIOCallbackWithContext(const float* const* input
                                                        float* const* outputChannelData,
                                                        int numOutputChannels,
                                                        int numSamples,
-                                                       const juce::AudioIODeviceCallbackContext& context)
+                                                       const juce::AudioIODeviceCallbackContext& /*context*/)
 {
     // Clear output buffers (recording doesn't need playback)
     for (int i = 0; i < numOutputChannels; ++i)

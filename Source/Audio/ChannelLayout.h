@@ -223,8 +223,10 @@ public:
             case ChannelLayoutType::Surround_5_1: return 6;
             case ChannelLayoutType::Surround_6_1: return 7;
             case ChannelLayoutType::Surround_7_1: return 8;
-            default: return 0;
+            case ChannelLayoutType::Unknown:
+            case ChannelLayoutType::Custom:       return 0;
         }
+        return 0;
     }
 
     //==========================================================================
@@ -335,9 +337,12 @@ private:
                 return FRONT_LEFT | FRONT_RIGHT | FRONT_CENTER | LOW_FREQUENCY |
                        BACK_LEFT | BACK_RIGHT | SIDE_LEFT | SIDE_RIGHT;
 
-            default:
+            case ChannelLayoutType::Unknown:
+            case ChannelLayoutType::Custom:
                 return 0;
         }
+
+        return 0;  // Unreachable today; guards a future enumerator falling through
     }
 
     //==========================================================================

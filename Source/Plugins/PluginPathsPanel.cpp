@@ -14,9 +14,12 @@
 */
 
 #include "PluginPathsPanel.h"
+#include "../UI/ThemeManager.h"
 
 PluginPathsPanel::PluginPathsPanel()
 {
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
     // Title
     m_titleLabel.setText("VST3 Plugin Search Paths", juce::dontSendNotification);
     m_titleLabel.setFont(juce::FontOptions(16.0f).withStyle("Bold"));
@@ -29,13 +32,13 @@ PluginPathsPanel::PluginPathsPanel()
         "Default paths are always searched. You can add custom directories below.",
         juce::dontSendNotification);
     m_descriptionLabel.setFont(juce::FontOptions(11.0f));
-    m_descriptionLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    m_descriptionLabel.setColour(juce::Label::textColourId, theme.text);
     m_descriptionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_descriptionLabel);
 
     // Paths list
     m_pathsList.setModel(this);
-    m_pathsList.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff1e1e1e));
+    m_pathsList.setColour(juce::ListBox::backgroundColourId, theme.background);
     m_pathsList.setRowHeight(28);
     m_pathsList.setMultipleSelectionEnabled(false);
     addAndMakeVisible(m_pathsList);
@@ -81,14 +84,15 @@ PluginPathsPanel::~PluginPathsPanel() = default;
 
 void PluginPathsPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff2a2a2a));
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    g.fillAll(theme.panel);
 
     // Separator between default and custom paths
     auto bounds = getLocalBounds().reduced(20);
     bounds.removeFromTop(85);  // Skip title and description
 
     int separatorY = bounds.getY() + bounds.getHeight() / 2 - 50;
-    g.setColour(juce::Colour(0xff444444));
+    g.setColour(theme.border);
     g.drawHorizontalLine(separatorY, 20.0f, static_cast<float>(getWidth() - 20));
 }
 
@@ -135,15 +139,16 @@ void PluginPathsPanel::paintListBoxItem(int rowNumber, juce::Graphics& g,
     if (rowNumber < 0 || rowNumber >= m_paths.size())
         return;
 
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     const auto& entry = m_paths[rowNumber];
 
     // Background
     if (rowIsSelected)
-        g.fillAll(juce::Colour(0xff3a3a3a));
+        g.fillAll(theme.selection);
     else if (rowNumber % 2 == 1)
-        g.fillAll(juce::Colour(0xff252525));
+        g.fillAll(theme.panelAlternate);
     else
-        g.fillAll(juce::Colour(0xff1e1e1e));
+        g.fillAll(theme.panel);
 
     // Icon/indicator for default vs custom
     int iconWidth = 20;
@@ -151,33 +156,33 @@ void PluginPathsPanel::paintListBoxItem(int rowNumber, juce::Graphics& g,
 
     if (entry.isDefault)
     {
-        g.setColour(juce::Colours::grey);
+        g.setColour(theme.textMuted);
         g.setFont(juce::FontOptions(10.0f));
         g.drawText("[S]", iconBounds, juce::Justification::centred); // System
     }
     else
     {
-        g.setColour(juce::Colours::lightgreen);
+        g.setColour(theme.success);
         g.setFont(juce::FontOptions(10.0f));
         g.drawText("[C]", iconBounds, juce::Justification::centred); // Custom
     }
 
     // Path text
-    g.setColour(entry.isDefault ? juce::Colours::grey : juce::Colours::white);
+    g.setColour(entry.isDefault ? theme.textMuted : theme.text);
     g.setFont(juce::FontOptions(12.0f));
 
     // Check if path exists
     juce::File dir(entry.path);
     if (!dir.isDirectory())
     {
-        g.setColour(juce::Colours::indianred);
+        g.setColour(theme.error);
     }
 
     g.drawText(entry.path, iconWidth + 8, 0, width - iconWidth - 12, height,
                juce::Justification::centredLeft, true);
 }
 
-void PluginPathsPanel::listBoxItemClicked(int row, const juce::MouseEvent& /*e*/)
+void PluginPathsPanel::listBoxItemClicked(int /*row*/, const juce::MouseEvent& /*e*/)
 {
     updateRemoveButtonState();
 }
@@ -384,7 +389,8 @@ void PluginPathsPanel::showDialog()
     std::unique_ptr<PluginPathsPanel> panel(new PluginPathsPanel());
 
     // Create the dialog window
-    juce::DialogWindow dlg("VST3 Plugin Paths", juce::Colour(0xff2a2a2a), true, false);
+    juce::DialogWindow dlg("VST3 Plugin Paths",
+                           waveedit::ThemeManager::getInstance().getCurrent().panel, true, false);
     dlg.setContentOwned(panel.release(), true);
     dlg.centreWithSize(500, 400);
     dlg.setResizable(true, true);

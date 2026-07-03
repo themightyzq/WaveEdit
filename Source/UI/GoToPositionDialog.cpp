@@ -244,7 +244,7 @@ void GoToPositionDialog::comboBoxChanged(juce::ComboBox* comboBox)
 }
 
 //==============================================================================
-void GoToPositionDialog::showDialog(juce::Component* parentComponent,
+void GoToPositionDialog::showDialog(juce::Component* /*parentComponent*/,
                                     AudioUnits::TimeFormat currentFormat,
                                     double sampleRate,
                                     double fps,

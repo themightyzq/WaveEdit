@@ -439,14 +439,15 @@ bool DynamicParametricEQ::setBandParameters(int index, const BandParameters& par
     if (index < 0 || index >= static_cast<int>(m_parameters.bands.size()))
         return false;
 
-    if (m_parameters.bands[index] != params)
+    auto bandIndex = static_cast<size_t>(index);
+    if (m_parameters.bands[bandIndex] != params)
     {
-        m_parameters.bands[index] = params;
+        m_parameters.bands[bandIndex] = params;
 
         if (index < static_cast<int>(m_bandStates.size()))
         {
-            m_bandStates[index].params = params;
-            m_bandStates[index].needsUpdate = true;
+            m_bandStates[bandIndex].params = params;
+            m_bandStates[bandIndex].needsUpdate = true;
         }
 
         m_parametersChanged.store(true);
@@ -462,7 +463,7 @@ DynamicParametricEQ::BandParameters DynamicParametricEQ::getBandParameters(int i
     if (index < 0 || index >= static_cast<int>(m_parameters.bands.size()))
         return BandParameters();
 
-    return m_parameters.bands[index];
+    return m_parameters.bands[static_cast<size_t>(index)];
 }
 
 int DynamicParametricEQ::getNumBands() const
@@ -478,12 +479,13 @@ bool DynamicParametricEQ::setBandEnabled(int index, bool enabled)
     if (index < 0 || index >= static_cast<int>(m_parameters.bands.size()))
         return false;
 
-    if (m_parameters.bands[index].enabled != enabled)
+    auto bandIndex = static_cast<size_t>(index);
+    if (m_parameters.bands[bandIndex].enabled != enabled)
     {
-        m_parameters.bands[index].enabled = enabled;
+        m_parameters.bands[bandIndex].enabled = enabled;
 
         if (index < static_cast<int>(m_bandStates.size()))
-            m_bandStates[index].params.enabled = enabled;
+            m_bandStates[bandIndex].params.enabled = enabled;
 
         m_parametersChanged.store(true);
     }

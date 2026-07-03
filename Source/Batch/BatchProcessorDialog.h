@@ -361,7 +361,7 @@ private:
         void paintListBoxItem(int rowNumber, juce::Graphics& g,
                                int width, int height, bool rowIsSelected) override;
 
-        juce::String getTooltipForRow(int row);
+        juce::String getTooltipForRow(int row) override;
         juce::String getTooltip() override { return {}; }
 
         void setHoveredRow(int row) { m_hoveredRow = row; }

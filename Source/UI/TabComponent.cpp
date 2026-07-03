@@ -194,13 +194,13 @@ void TabButton::mouseDown(const juce::MouseEvent& event)
     }
 }
 
-void TabButton::mouseEnter(const juce::MouseEvent& event)
+void TabButton::mouseEnter(const juce::MouseEvent& /*event*/)
 {
     m_isHovering = true;
     repaint();
 }
 
-void TabButton::mouseExit(const juce::MouseEvent& event)
+void TabButton::mouseExit(const juce::MouseEvent& /*event*/)
 {
     m_isHovering = false;
     m_isHoveringClose = false;
@@ -296,7 +296,7 @@ void TabComponent::resized()
     }
 }
 
-void TabComponent::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+void TabComponent::mouseWheelMove(const juce::MouseEvent& /*event*/, const juce::MouseWheelDetails& wheel)
 {
     if (m_needsScrollBar)
     {
@@ -337,7 +337,7 @@ void TabComponent::documentAdded(Document* document, int index)
     resized();
 }
 
-void TabComponent::documentRemoved(Document* document, int index)
+void TabComponent::documentRemoved(Document* document, int /*index*/)
 {
     // Find and remove the tab
     for (int i = 0; i < m_tabs.size(); ++i)
@@ -428,7 +428,7 @@ void TabComponent::tabRightClicked(TabButton* tab, const juce::MouseEvent& event
     showTabContextMenu(tab, event.getScreenPosition());
 }
 
-void TabComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double newRangeStart)
+void TabComponent::scrollBarMoved(juce::ScrollBar* /*scrollBar*/, double newRangeStart)
 {
     m_scrollOffset = static_cast<int>(newRangeStart);
     resized();

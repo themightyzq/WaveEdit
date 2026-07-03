@@ -18,6 +18,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "../Utils/RegionManager.h"
+#include "ThemeManager.h"
 
 /**
  * Auto Region Dialog - Auto-create regions from non-silent audio sections.
@@ -123,17 +124,19 @@ private:
         void paint(juce::Graphics& g) override
         {
             auto bounds = getLocalBounds();
+            const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
 
-            // Draw background
-            g.fillAll(juce::Colour(0xff1a1a1a));
+            // Draw background (this preview hosts a waveform, so use the
+            // dedicated waveform surface token rather than the generic panel)
+            g.fillAll(theme.waveformBackground);
 
             // Draw border
-            g.setColour(juce::Colours::grey);
+            g.setColour(theme.border);
             g.drawRect(bounds, 1);
 
             if (m_audioBuffer.getNumSamples() == 0)
             {
-                g.setColour(juce::Colours::white);
+                g.setColour(theme.text);
                 g.drawText("No audio loaded", bounds, juce::Justification::centred);
                 return;
             }

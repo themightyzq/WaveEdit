@@ -105,6 +105,8 @@ target_sources(WaveEdit
         Source/UI/WaveformDisplay.cpp
         Source/UI/WaveformDisplay_Render.cpp
         Source/UI/WaveformDisplay_Interact.cpp
+        Source/UI/SelectionInfoPanel.h
+        Source/UI/CallbackDocumentWindow.h
         Source/UI/WaveformDisplay.h
         Source/UI/TransportControls.cpp
         Source/UI/TransportControls.h
@@ -209,6 +211,7 @@ target_sources(WaveEdit
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
         Source/UI/RegionListPanel.cpp
+        Source/UI/RegionListPanel_BatchRename.cpp
         Source/UI/RegionListPanel.h
         Source/UI/MarkerListPanel.cpp
         Source/UI/MarkerListPanel.h
@@ -707,6 +710,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/WaveformDisplay.cpp
         Source/UI/WaveformDisplay_Render.cpp
         Source/UI/WaveformDisplay_Interact.cpp
+        Source/UI/SelectionInfoPanel.h
+        Source/UI/CallbackDocumentWindow.h
         Source/UI/WaveformDisplay.h
         Source/UI/TransportControls.cpp
         Source/UI/TransportControls.h
@@ -774,6 +779,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
         Source/UI/RegionListPanel.cpp
+        Source/UI/RegionListPanel_BatchRename.cpp
         Source/UI/RegionListPanel.h
         Source/Utils/Marker.cpp
         Source/Utils/Marker.h
@@ -1013,6 +1019,8 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/RecordingEngineTests.cpp                 # M17/M18 recording
             Tests/Unit/HeadTailPreviewTests.cpp                 # HeadTail preview guard
             Tests/Unit/PreviewSystemTests.cpp                   # shared preview helpers (region + fade gain)
+            Tests/Unit/PluginChainPersistenceTests.cpp          # Plugin chain state persistence (XML/JSON + named presets)
+            Tests/Unit/LargeOperationUndoTests.cpp              # Undo/redo correctness at large (multi-million-sample) buffer sizes
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6

@@ -258,13 +258,13 @@ namespace AudioUnits
                               double sampleRate,
                               double fps = 30.0)
     {
-        if (mode == SnapMode::Off)
-            return sample;
-
         int64_t snapInterval = 0;
 
         switch (mode)
         {
+            case SnapMode::Off:
+                return sample;
+
             case SnapMode::Samples:
                 snapInterval = increment;
                 break;

@@ -176,12 +176,12 @@ public:
             if (mainComp->hasUnsavedChanges())
             {
                 // Show warning and get user choice
-                int result = juce::NativeMessageBox::showYesNoCancelBox(
+                juce::NativeMessageBox::showYesNoCancelBox(
                     juce::MessageBoxIconType::WarningIcon,
                     "Unsaved Changes",
                     "You have unsaved changes. Do you want to save before quitting?",
                     nullptr,
-                    juce::ModalCallbackFunction::create([this, mainComp](int choice)
+                    juce::ModalCallbackFunction::create([mainComp](int choice)
                     {
                         if (choice == 1)  // Yes - Save and quit
                         {

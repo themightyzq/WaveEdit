@@ -7,6 +7,7 @@
  */
 
 #include "MarkerDisplay.h"
+#include "ThemeManager.h"
 
 MarkerDisplay::MarkerDisplay(MarkerManager& markerManager)
     : m_markerManager(markerManager)
@@ -66,10 +67,12 @@ void MarkerDisplay::paint(juce::Graphics& g)
         g.setColour(juce::Colours::black.withAlpha(0.7f));
         g.fillRect(labelBounds);
 
-        // Draw label border if selected
+        // Draw label border if selected (opaque selection accent -- same
+        // token WaveformDisplay uses for its selection outline, so "this
+        // is the selected item" reads consistently across the editor)
         if (isSelected)
         {
-            g.setColour(juce::Colours::white);
+            g.setColour(waveedit::ThemeManager::getInstance().getCurrent().selection.withAlpha(1.0f));
             g.drawRect(labelBounds, 1);
         }
 
@@ -167,7 +170,7 @@ void MarkerDisplay::mouseDrag(const juce::MouseEvent& event)
     }
 }
 
-void MarkerDisplay::mouseUp(const juce::MouseEvent& event)
+void MarkerDisplay::mouseUp(const juce::MouseEvent& /*event*/)
 {
     if (m_isDragging && m_draggedMarkerIndex >= 0)
     {

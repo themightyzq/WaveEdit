@@ -189,7 +189,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + m_markers.size() * sizeof(Marker); }
+    int getSizeInUnits() override { return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_markers.size()) * sizeof(Marker)); }
 
 private:
     MarkerManager& m_markerManager;
@@ -250,7 +250,7 @@ public:
 
     int getSizeInUnits() override
     {
-        return sizeof(*this) + m_oldName.length() + m_newName.length();
+        return static_cast<int>(sizeof(*this)) + m_oldName.length() + m_newName.length();
     }
 
 private:
@@ -428,7 +428,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + m_markers.size() * sizeof(Marker); }
+    int getSizeInUnits() override { return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_markers.size()) * sizeof(Marker)); }
 
 private:
     MarkerManager& m_markerManager;

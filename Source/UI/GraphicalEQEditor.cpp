@@ -51,7 +51,6 @@ namespace
     constexpr int DIALOG_WIDTH = 900;
     constexpr int DIALOG_HEIGHT = 650;
     constexpr int BUTTON_HEIGHT = 30;
-    constexpr int BUTTON_WIDTH = 100;
     constexpr int MARGIN = 10;
 }
 
@@ -116,7 +115,7 @@ GraphicalEQEditor::GraphicalEQEditor(const DynamicParametricEQ::Parameters& init
         DBG("  " + juce::String(m_params.bands.size()) + " bands");
         for (size_t i = 0; i < m_params.bands.size(); ++i)
         {
-            const auto& band = m_params.bands[i];
+            [[maybe_unused]] const auto& band = m_params.bands[i];
             DBG("  Band " + juce::String(i) + ": " +
                 juce::String(band.frequency) + " Hz, " +
                 juce::String(band.gain) + " dB, Q=" + juce::String(band.q) +
@@ -281,8 +280,8 @@ void GraphicalEQEditor::paint(juce::Graphics& g)
         g.setColour(instructTheme.textMuted);
         g.setFont(waveedit::ui::smallFont());
         g.drawText("Double-click to add band | Right-click band to delete | Scroll wheel to adjust Q",
-                   vizBounds.getX(), vizBounds.getBottom() - 20, vizBounds.getWidth(), 20,
-                   juce::Justification::centred);
+                   static_cast<int>(vizBounds.getX()), static_cast<int>(vizBounds.getBottom()) - 20,
+                   static_cast<int>(vizBounds.getWidth()), 20, juce::Justification::centred);
     }
 }
 
@@ -1029,20 +1028,20 @@ void GraphicalEQEditor::showBandContextMenu(int bandIndex)
         if (result == 0 || static_cast<size_t>(bandIndex) >= m_params.bands.size())
             return;
 
-        auto& band = m_params.bands[static_cast<size_t>(bandIndex)];
+        auto& selectedBand = m_params.bands[static_cast<size_t>(bandIndex)];
 
         if (result >= 1 && result <= 7)
         {
             // Filter type selection
-            band.filterType = static_cast<DynamicParametricEQ::FilterType>(result - 1);
+            selectedBand.filterType = static_cast<DynamicParametricEQ::FilterType>(result - 1);
         }
         else if (result == 10)
         {
-            band.enabled = !band.enabled;
+            selectedBand.enabled = !selectedBand.enabled;
         }
         else if (result == 11)
         {
-            band.gain = 0.0f;
+            selectedBand.gain = 0.0f;
             updateControlPointPositions();
         }
         else if (result == 12)
@@ -1053,7 +1052,7 @@ void GraphicalEQEditor::showBandContextMenu(int bandIndex)
                 "Enter gain value in dB (range: " + juce::String(DynamicParametricEQ::MIN_GAIN, 1) + " to " + juce::String(DynamicParametricEQ::MAX_GAIN, 1) + " dB):",
                 juce::MessageBoxIconType::QuestionIcon);
 
-            alertWindow->addTextEditor("gain", juce::String(band.gain, 1), "Gain (dB):");
+            alertWindow->addTextEditor("gain", juce::String(selectedBand.gain, 1), "Gain (dB):");
             alertWindow->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
             alertWindow->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 
@@ -1064,9 +1063,9 @@ void GraphicalEQEditor::showBandContextMenu(int bandIndex)
             }
 
             alertWindow->enterModalState(true, juce::ModalCallbackFunction::create(
-                [this, bandIndex, alertWindow = alertWindow.release()](int returnValue)
+                [this, bandIndex, rawAlertWindow = alertWindow.release()](int returnValue)
                 {
-                    std::unique_ptr<juce::AlertWindow> aw(alertWindow);
+                    std::unique_ptr<juce::AlertWindow> aw(rawAlertWindow);
                     if (returnValue == 1 && static_cast<size_t>(bandIndex) < m_params.bands.size())
                     {
                         auto* editor = aw->getTextEditor("gain");
@@ -1235,7 +1234,8 @@ void GraphicalEQEditor::onBypassClicked()
     if (!bypassed)
     {
         m_bypassButton.setButtonText("Bypassed");
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffff8c00));
+        m_bypassButton.setColour(juce::TextButton::buttonColourId,
+                                 waveedit::ui::colour(waveedit::ui::kButtonBypassActive));
     }
     else
     {

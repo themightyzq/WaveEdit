@@ -381,8 +381,8 @@ void Meters::drawScale(juce::Graphics& g, juce::Rectangle<float> bounds)
 
         // Draw label
         juce::String label = (dB == 0.0f) ? "0" : juce::String(static_cast<int>(dB));
-        g.drawText(label, bounds.getX(), y - 6.0f, bounds.getWidth() - 8.0f, 12.0f,
-                   juce::Justification::centredRight, false);
+        g.drawText(label, static_cast<int>(bounds.getX()), static_cast<int>(y) - 6,
+                   static_cast<int>(bounds.getWidth()) - 8, 12, juce::Justification::centredRight, false);
     }
 }
 

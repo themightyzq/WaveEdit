@@ -14,6 +14,7 @@
 */
 
 #include "RecordingDialog.h"
+#include "ThemeManager.h"
 
 //==============================================================================
 // LevelMeter Implementation
@@ -98,7 +99,8 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     // Recording controls
     m_recordButton.setButtonText("Record");
     m_recordButton.addListener(this);
-    m_recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
+    m_recordButton.setColour(juce::TextButton::buttonColourId,
+        waveedit::ThemeManager::getInstance().getCurrent().error);
     addAndMakeVisible(m_recordButton);
 
     m_stopButton.setButtonText("Stop");
@@ -135,6 +137,11 @@ RecordingDialog::RecordingDialog(juce::AudioDeviceManager& deviceManager)
     // Listen to recording engine state changes
     m_recordingEngine->addChangeListener(this);
 
+    // This dialog can stay open for the duration of a recording session
+    // (up to the 1-hour buffer cap), so cached colours below need to be
+    // re-applied on a live theme switch, not just read once at construction.
+    waveedit::ThemeManager::getInstance().addChangeListener(this);
+
     // Add audio callback for input monitoring IMMEDIATELY
     // This allows level meters to show input before recording starts
     m_deviceManager.addAudioCallback(m_recordingEngine.get());
@@ -150,6 +157,7 @@ RecordingDialog::~RecordingDialog()
 {
     stopTimer();
     m_recordingEngine->removeChangeListener(this);
+    waveedit::ThemeManager::getInstance().removeChangeListener(this);
 
     // Ensure recording is stopped
     if (m_recordingEngine->isRecording())
@@ -286,6 +294,26 @@ void RecordingDialog::changeListenerCallback(juce::ChangeBroadcaster* source)
     {
         updateUIState();
     }
+    else if (source == &waveedit::ThemeManager::getInstance())
+    {
+        // Re-apply themed colours cached on child components (§6.11).
+        // Deliberately does NOT call updateUIState(): that method also
+        // rewrites the status label's TEXT based on isRecording(), which
+        // would clobber the "No audio input device available" message
+        // (set once in populateInputDevices() and not otherwise tracked
+        // in state). Only colours are touched here, text is left alone.
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+
+        m_recordButton.setColour(juce::TextButton::buttonColourId, theme.error);
+
+        const bool isRecording = m_recordingEngine->isRecording();
+        const bool isNoDeviceMessage =
+            (m_statusLabel.getText() == "No audio input device available");
+        m_statusLabel.setColour(juce::Label::textColourId,
+            (isRecording || isNoDeviceMessage) ? theme.error : theme.text);
+
+        repaint();
+    }
 }
 
 //==============================================================================
@@ -403,7 +431,8 @@ void RecordingDialog::populateInputDevices()
         // CRITICAL: Disable record button when no audio device available
         m_recordButton.setEnabled(false);
         m_statusLabel.setText("No audio input device available", juce::dontSendNotification);
-        m_statusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+        m_statusLabel.setColour(juce::Label::textColourId,
+            waveedit::ThemeManager::getInstance().getCurrent().error);
     }
 }
 
@@ -566,15 +595,16 @@ void RecordingDialog::updateUIState()
     // Note: input device / sample rate / channel combos remain disabled
     // (non-functional, see comboBoxChanged); do not re-enable here.
 
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     if (isRecording)
     {
         m_statusLabel.setText("Recording...", juce::dontSendNotification);
-        m_statusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+        m_statusLabel.setColour(juce::Label::textColourId, theme.error);
     }
     else
     {
         m_statusLabel.setText("Ready to record", juce::dontSendNotification);
-        m_statusLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+        m_statusLabel.setColour(juce::Label::textColourId, theme.text);
     }
 }
 
