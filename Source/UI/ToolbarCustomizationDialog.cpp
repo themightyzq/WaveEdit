@@ -15,6 +15,7 @@
 
 #include "ToolbarCustomizationDialog.h"
 #include "../Commands/CommandIDs.h"
+#include "UIConstants.h"
 
 //==============================================================================
 // AvailableButtonsModel implementation
@@ -38,12 +39,12 @@ void ToolbarCustomizationDialog::AvailableButtonsModel::paintListBoxItem(
     g.fillRoundedRectangle(4, 4, 60, height - 8, 3);
 
     g.setColour(m_owner.m_textColour);
-    g.setFont(juce::Font(11.0f));
+    g.setFont(waveedit::ui::legacyFont(11.0f));
     g.drawText(m_owner.getButtonTypeLabel(button.type), 4, 0, 60, height,
                juce::Justification::centred);
 
     // Button name
-    g.setFont(juce::Font(13.0f));
+    g.setFont(waveedit::ui::legacyFont(13.0f));
     g.drawText(m_owner.getButtonDisplayName(button), 70, 0, width - 75, height,
                juce::Justification::centredLeft);
 }
@@ -83,7 +84,7 @@ void ToolbarCustomizationDialog::CurrentButtonsModel::paintListBoxItem(
 
     // Index number
     g.setColour(m_owner.m_textColour.withAlpha(0.5f));
-    g.setFont(juce::Font(11.0f));
+    g.setFont(waveedit::ui::legacyFont(11.0f));
     g.drawText(juce::String(rowNumber + 1) + ".", 4, 0, 24, height,
                juce::Justification::centredRight);
 
@@ -92,12 +93,12 @@ void ToolbarCustomizationDialog::CurrentButtonsModel::paintListBoxItem(
     g.fillRoundedRectangle(32, 4, 60, height - 8, 3);
 
     g.setColour(m_owner.m_textColour);
-    g.setFont(juce::Font(11.0f));
+    g.setFont(waveedit::ui::legacyFont(11.0f));
     g.drawText(m_owner.getButtonTypeLabel(button.type), 32, 0, 60, height,
                juce::Justification::centred);
 
     // Button name
-    g.setFont(juce::Font(13.0f));
+    g.setFont(waveedit::ui::legacyFont(13.0f));
     g.drawText(m_owner.getButtonDisplayName(button), 98, 0, width - 103, height,
                juce::Justification::centredLeft);
 }
@@ -137,7 +138,7 @@ ToolbarCustomizationDialog::ToolbarCustomizationDialog(
 
     // Title
     m_titleLabel.setText("Customize Toolbar", juce::dontSendNotification);
-    m_titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
+    m_titleLabel.setFont(waveedit::ui::legacyFont(18.0f, juce::Font::bold));
     m_titleLabel.setColour(juce::Label::textColourId, m_textColour);
     addAndMakeVisible(m_titleLabel);
 
@@ -145,13 +146,13 @@ ToolbarCustomizationDialog::ToolbarCustomizationDialog(
     m_instructionsLabel.setText(
         "Drag buttons between lists to add or remove. Use Move Up/Down to reorder.",
         juce::dontSendNotification);
-    m_instructionsLabel.setFont(juce::Font(12.0f));
+    m_instructionsLabel.setFont(waveedit::ui::legacyFont(12.0f));
     m_instructionsLabel.setColour(juce::Label::textColourId, m_textColour.withAlpha(0.7f));
     addAndMakeVisible(m_instructionsLabel);
 
     // Layout selector
     m_layoutLabel.setText("Template:", juce::dontSendNotification);
-    m_layoutLabel.setFont(juce::Font(13.0f));
+    m_layoutLabel.setFont(waveedit::ui::legacyFont(13.0f));
     m_layoutLabel.setColour(juce::Label::textColourId, m_textColour);
     addAndMakeVisible(m_layoutLabel);
 
@@ -173,7 +174,7 @@ ToolbarCustomizationDialog::ToolbarCustomizationDialog(
 
     // Available buttons label
     m_availableLabel.setText("Available Buttons:", juce::dontSendNotification);
-    m_availableLabel.setFont(juce::Font(13.0f, juce::Font::bold));
+    m_availableLabel.setFont(waveedit::ui::legacyFont(13.0f, juce::Font::bold));
     m_availableLabel.setColour(juce::Label::textColourId, m_textColour);
     addAndMakeVisible(m_availableLabel);
 
@@ -187,7 +188,7 @@ ToolbarCustomizationDialog::ToolbarCustomizationDialog(
 
     // Current toolbar label
     m_currentLabel.setText("Current Toolbar:", juce::dontSendNotification);
-    m_currentLabel.setFont(juce::Font(13.0f, juce::Font::bold));
+    m_currentLabel.setFont(waveedit::ui::legacyFont(13.0f, juce::Font::bold));
     m_currentLabel.setColour(juce::Label::textColourId, m_textColour);
     addAndMakeVisible(m_currentLabel);
 
