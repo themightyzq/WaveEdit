@@ -59,6 +59,7 @@ target_sources(WaveEdit
         Source/Audio/AudioBufferManager.h
         Source/Audio/ChannelLayout.h
         Source/Audio/AudioFileManager.cpp
+        Source/Audio/AudioFileManager_Cues.cpp
         Source/Audio/AudioFileManager.h
         Source/Audio/AudioProcessor.cpp
         Source/Audio/AudioProcessor.h
@@ -187,6 +188,8 @@ target_sources(WaveEdit
         Source/Utils/Region.h
         Source/Utils/RegionManager.cpp
         Source/Utils/RegionManager.h
+        Source/Utils/SidecarPolicy.cpp
+        Source/Utils/SidecarPolicy.h
         Source/Utils/RegionExporter.cpp
         Source/Utils/RegionExporter.h
         Source/Utils/Marker.cpp
@@ -213,6 +216,8 @@ target_sources(WaveEdit
         Source/Utils/UndoActions/AutomationUndoActions.h
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
+        Source/UI/SidecarNotifications.cpp
+        Source/UI/SidecarNotifications.h
         Source/UI/RegionListPanel.cpp
         Source/UI/RegionListPanel_BatchRename.cpp
         Source/UI/RegionListPanel.h
@@ -668,6 +673,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Audio/AudioBufferManager.h
         Source/Audio/ChannelLayout.h
         Source/Audio/AudioFileManager.cpp
+        Source/Audio/AudioFileManager_Cues.cpp
         Source/Audio/AudioFileManager.h
         Source/Audio/AudioProcessor.cpp
         Source/Audio/AudioProcessor.h
@@ -781,8 +787,12 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/Region.h
         Source/Utils/RegionManager.cpp
         Source/Utils/RegionManager.h
+        Source/Utils/SidecarPolicy.cpp
+        Source/Utils/SidecarPolicy.h
         Source/UI/RegionDisplay.cpp
         Source/UI/RegionDisplay.h
+        Source/UI/SidecarNotifications.cpp
+        Source/UI/SidecarNotifications.h
         Source/UI/RegionListPanel.cpp
         Source/UI/RegionListPanel_BatchRename.cpp
         Source/UI/RegionListPanel.h
@@ -1012,6 +1022,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/EQMultichannelTests.cpp                  # H3/H4: multichannel EQ
             Tests/Unit/AudioBufferManagerRegressionTests.cpp    # C1 trim, H1 replaceRange atomicity
             Tests/Integration/AudioFileManagerPass2Tests.cpp    # C11 bext+iXML, C15 resample, M7 escape, M8 overflow
+            Tests/Integration/CueChunkTests.cpp                 # WAV cue/adtl embedding + sidecar opt-in
             Tests/Unit/AutoSaveRecoveryPass2Tests.cpp           # M4/M5 autosave path hash + cleanup, H26 drop predicate
             Tests/Unit/DialogInputValidationTests.cpp           # H17/L4 GoTo, H18 gain/normalize NaN/inf
             Tests/Unit/PluginBlacklistTests.cpp                 # M21 exact blacklist match

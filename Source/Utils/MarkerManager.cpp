@@ -7,6 +7,7 @@
  */
 
 #include "MarkerManager.h"
+#include "SidecarPolicy.h"
 
 MarkerManager::MarkerManager()
     : m_selectedMarkerIndex(-1)
@@ -199,12 +200,27 @@ void MarkerManager::setSelectedMarkerIndex(int index)
 
 bool MarkerManager::saveToFile(const juce::File& audioFile) const
 {
+    juce::File markerFile = getMarkerFilePath(audioFile);
+
+    // Opt-in sidecar: markers embed into the WAV cue/adtl chunks, so only
+    // CREATE a new .markers.json when a marker has a custom color or non-ASCII
+    // name. An existing sidecar is always kept updated.
+    if (!markerFile.existsAsFile() && !SidecarPolicy::markersNeedSidecar(*this))
+        return true;
+
     juce::ScopedLock lock(m_lock);
 
     // Create JSON structure
     auto* root = new juce::DynamicObject();
     root->setProperty("version", "1.0");
     root->setProperty("audioFile", audioFile.getFileName());
+
+    // Audio fingerprint for staleness detection on load (see SidecarPolicy).
+    if (audioFile.existsAsFile())
+    {
+        root->setProperty("audioLength", audioFile.getSize());
+        root->setProperty("audioModTime", audioFile.getLastModificationTime().toMilliseconds());
+    }
 
     // Serialize markers
     juce::Array<juce::var> markerArray;
@@ -214,7 +230,6 @@ bool MarkerManager::saveToFile(const juce::File& audioFile) const
     root->setProperty("markers", markerArray);
 
     // Write to file
-    juce::File markerFile = getMarkerFilePath(audioFile);
     juce::var jsonData(root);
     juce::String jsonString = juce::JSON::toString(jsonData, true);  // Pretty-printed
 
