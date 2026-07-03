@@ -16,6 +16,7 @@
 #include "NewFileDialog.h"
 #include "ThemeManager.h"
 #include "UIConstants.h"
+#include "../Audio/ChannelLayout.h"
 
 namespace ui = waveedit::ui;
 
@@ -54,8 +55,13 @@ NewFileDialog::NewFileDialog()
     m_channelsLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(m_channelsLabel);
 
-    m_channelsCombo.addItem("Mono", 1);
-    m_channelsCombo.addItem("Stereo", 2);
+    // UX26: offer 1-8 channels (the renderer already supports up to 8), each
+    // labelled with its ChannelLayout name. The item id IS the channel count.
+    for (int ch = 1; ch <= 8; ++ch)
+    {
+        const juce::String layoutName = waveedit::ChannelLayout::fromChannelCount(ch).getLayoutName();
+        m_channelsCombo.addItem(juce::String(ch) + " - " + layoutName, ch);
+    }
     m_channelsCombo.setSelectedId(2);  // Default: Stereo
     addAndMakeVisible(m_channelsCombo);
 

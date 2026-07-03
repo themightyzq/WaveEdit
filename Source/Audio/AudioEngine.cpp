@@ -53,12 +53,18 @@ void AudioEngine::MemoryAudioSource::setBuffer(const juce::AudioBuffer<float>& b
 
     juce::int64 newPosition = preservePosition ? juce::jmin(savedPosition, newLength) : 0;
 
-    // Swap in the new buffer under a brief lock (pointer assignment only).
+    // Swap in the new buffer under a brief lock (pointer swap only). Use
+    // swap, not move-assign: assignment would release the OLD buffer inside
+    // the lock, and a multi-hundred-MB deallocation would stall any audio
+    // callback blocked on m_lock. After the swap, newBuffer holds the old
+    // buffer and frees it below, outside the locked scope. (M1)
+    BufferPtr incoming = std::move(newBuffer);
     {
         juce::ScopedLock sl(m_lock);
-        m_buffer = std::move(newBuffer);
+        std::swap(m_buffer, incoming);
         m_sampleRate = sampleRate;
     }
+    // 'incoming' now owns the OLD buffer and releases it here, off-lock.
 
     // Publish the new length and position for lock-free readers (L1).
     m_bufferLength.store(newLength);
@@ -68,10 +74,13 @@ void AudioEngine::MemoryAudioSource::setBuffer(const juce::AudioBuffer<float>& b
 void AudioEngine::MemoryAudioSource::clear()
 {
     auto emptyBuffer = std::make_shared<juce::AudioBuffer<float>>();
+    BufferPtr previous;
     {
         juce::ScopedLock sl(m_lock);
+        previous = std::move(m_buffer);
         m_buffer = std::move(emptyBuffer);
     }
+    // 'previous' releases the old buffer here, outside the lock (M1).
     m_bufferLength.store(0);
     m_readPosition.store(0);
 }
@@ -1069,43 +1078,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         // 3. Apply normalize processor (for Normalize dialog)
         m_normalizeProcessor.process(buffer);
 
-        // 4. Update ParametricEQ parameters if changed (thread-safe parameter exchange)
-        // C5 FIX: the pending struct holds vector payloads, so copy it under
-        // m_eqParamsLock. try-lock: if the message thread is mid-write, keep the
-        // last-good params for this block rather than blocking the audio thread.
-        if (m_parametricEQParamsChanged.get())
-        {
-            const juce::SpinLock::ScopedTryLockType tl(m_eqParamsLock);
-            if (tl.isLocked())
-            {
-                m_parametricEQParams = m_pendingParametricEQParams;
-                m_parametricEQParamsChanged.set(false);
-            }
-        }
-
-        // 5. Apply parametric EQ if enabled
+        // 5. Apply parametric EQ if enabled. C1/C2 FIX: parameters and
+        // coefficients are pushed from the message thread via
+        // ParametricEQ::setParameters(); applyEQ() only try-locks, adopts the
+        // staged coefficient values without allocating, and processes.
         if (m_parametricEQEnabled.get() && m_parametricEQ)
         {
-            m_parametricEQ->applyEQ(buffer, m_parametricEQParams);
+            m_parametricEQ->applyEQ(buffer);
         }
 
-        // 5b. Update DynamicParametricEQ parameters if changed (thread-safe parameter exchange)
-        // C5 FIX: same try-lock pattern guarding the vector-backed pending struct.
-        if (m_dynamicEQParamsChanged.get())
-        {
-            const juce::SpinLock::ScopedTryLockType tl(m_eqParamsLock);
-            if (tl.isLocked())
-            {
-                m_dynamicEQParams = m_pendingDynamicEQParams;
-                if (m_dynamicEQ)
-                {
-                    m_dynamicEQ->setParameters(m_dynamicEQParams);
-                }
-                m_dynamicEQParamsChanged.set(false);
-            }
-        }
-
-        // 5c. Apply dynamic parametric EQ if enabled (20-band, multiple filter types)
+        // 5c. Apply dynamic parametric EQ if enabled (20-band, multiple filter
+        // types). Same C1 contract: every mutator builds coefficients on the
+        // message thread under the EQ's own lock; applyEQ() only processes.
         if (m_dynamicEQEnabled.get() && m_dynamicEQ)
         {
             m_dynamicEQ->applyEQ(buffer);

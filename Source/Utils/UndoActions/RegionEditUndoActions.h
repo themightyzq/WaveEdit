@@ -372,19 +372,31 @@ public:
         if (regionIndex < 0) return false;
 
         const bool success = m_regionManager.splitRegion(regionIndex, m_splitSample);
-        if (success && m_regionDisplay) m_regionDisplay->repaint();
+        if (success)
+        {
+            // Capture the newly created second half's stable ID so undo can
+            // remove it by ID rather than by recomputed array position (H8).
+            // splitRegion() inserts the second half immediately after the
+            // first, which still holds m_regionId.
+            const int firstIndex = m_regionManager.getIndexOfRegionId(m_regionId);
+            if (const Region* secondHalf = m_regionManager.getRegion(firstIndex + 1))
+                m_secondHalfId = secondHalf->getId();
+
+            if (m_regionDisplay) m_regionDisplay->repaint();
+        }
         return success;
     }
 
     bool undo() override
     {
-        // The first half keeps the original stable ID; the second half sits
-        // immediately after it. Remove the second half, then restore the
+        // The first half keeps the original stable ID; the second half was
+        // captured by stable ID during perform(). Remove the second half by
+        // ID (H8 -- do NOT trust firstIndex + 1, which an interleaved region
+        // add/delete could point at an unrelated region), then restore the
         // first half's original boundaries.
-        const int firstIndex = m_regionManager.getIndexOfRegionId(m_regionId);
-        if (firstIndex < 0) return false;
-
-        m_regionManager.removeRegion(firstIndex + 1);
+        const int secondIndex = m_regionManager.getIndexOfRegionId(m_secondHalfId);
+        if (secondIndex >= 0)
+            m_regionManager.removeRegion(secondIndex);
 
         Region* firstHalf = m_regionManager.getRegionById(m_regionId);
         if (!firstHalf) return false;
@@ -402,6 +414,7 @@ private:
     RegionManager& m_regionManager;
     RegionDisplay* m_regionDisplay;
     int64_t m_regionId = -1;
+    int64_t m_secondHalfId = -1;  // Stable ID of the second half (captured on perform)
     int64_t m_splitSample;
     Region m_originalRegion;
 

@@ -1436,6 +1436,7 @@ public:
     bool hasUnsavedChanges() const { return m_fileController.hasUnsavedChanges(); }
     bool saveAllModifiedDocuments() { return m_fileController.saveAllModifiedDocuments(); }
     bool confirmDiscardChanges() { return m_fileController.confirmDiscardChanges(); }
+    void offerUntitledCrashRecovery() { m_fileController.offerUntitledCrashRecovery(); }
 
     //==============================================================================
     // Playback Control (delegated to PlaybackController)

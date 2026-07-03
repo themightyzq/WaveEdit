@@ -115,3 +115,42 @@ void PlaybackController::loopRegion(Document* doc)
     engine.setPosition(startTime);
     engine.play();
 }
+
+double PlaybackController::currentCursorPosition(Document* doc) const
+{
+    auto& engine = doc->getAudioEngine();
+    auto& waveform = doc->getWaveformDisplay();
+
+    // While playing, mark against the live playhead so the I/O workflow
+    // captures where you are hearing. When stopped, prefer the edit cursor.
+    if (engine.isPlaying())
+        return engine.getCurrentPosition();
+    if (waveform.hasEditCursor())
+        return waveform.getEditCursorPosition();
+    return waveform.getPlaybackPosition();
+}
+
+void PlaybackController::markSelectionStart(Document* doc)
+{
+    if (doc == nullptr) return;
+    auto& engine = doc->getAudioEngine();
+    if (! engine.isFileLoaded()) return;
+
+    auto& waveform = doc->getWaveformDisplay();
+    const double pos = currentCursorPosition(doc);
+    const double otherEnd = waveform.hasSelection() ? waveform.getSelectionEnd() : pos;
+    // setSelection sorts start/end, so an in-point past the out-point is safe.
+    waveform.setSelection(pos, otherEnd);
+}
+
+void PlaybackController::markSelectionEnd(Document* doc)
+{
+    if (doc == nullptr) return;
+    auto& engine = doc->getAudioEngine();
+    if (! engine.isFileLoaded()) return;
+
+    auto& waveform = doc->getWaveformDisplay();
+    const double pos = currentCursorPosition(doc);
+    const double otherStart = waveform.hasSelection() ? waveform.getSelectionStart() : pos;
+    waveform.setSelection(otherStart, pos);
+}

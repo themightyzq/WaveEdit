@@ -717,9 +717,13 @@ bool RegionListPanel::keyPressed(const juce::KeyPress& key)
         // Let the table handle arrow navigation
         return m_table.keyPressed(key);
     }
-    else if (key == juce::KeyPress::returnKey)
+    else if (key == juce::KeyPress::F2Key)
     {
-        jumpToSelectedRegion();
+        // F2 renames the selected region (UX16). Return deliberately does NOT
+        // rename: all keymap templates bind bare Enter to playbackPause, and a
+        // swallowed Enter that opens an edit box turns the next keystroke into
+        // accidental text. Rename lives on F2 and the right-click menu.
+        startRenamingSelectedRow();
         return true;
     }
     else if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
@@ -814,7 +818,7 @@ void RegionListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
         {
             // Show the preview of the new name after all batch operations are applied
             juce::String newName = generateNewName(filteredRegion.originalIndex, *region);
-            g.setColour(waveedit::ThemeManager::getInstance().getCurrent().success);  // Distinguish preview text
+            g.setColour(waveedit::ThemeManager::getInstance().getCurrent().accent);  // L2: preview text, not a status -- accent, not success
             g.drawText(newName, 4, 0, width - 8, height,
                       juce::Justification::centredLeft, true);
             break;
@@ -824,16 +828,63 @@ void RegionListPanel::paintCell(juce::Graphics& g, int rowNumber, int columnId,
 
 void RegionListPanel::cellClicked(int rowNumber, int columnId, const juce::MouseEvent& event)
 {
-    if (columnId == NameColumn && event.mods.isLeftButtonDown())
+    if (event.mods.isRightButtonDown())
     {
-        // Start editing on click in name column
-        startEditingName(rowNumber);
+        // Right-click a row: select it and offer per-region actions (UX16).
+        showRowContextMenu(rowNumber);
     }
     else if (columnId == ColorColumn && event.mods.isLeftButtonDown())
     {
         // Open a colour picker anchored to the clicked swatch cell
         showColourPickerForRow(rowNumber);
     }
+    // UX16: a left-click on the Name cell no longer enters rename immediately
+    // (that made select-by-click impossible and risked a stray-key rename).
+    // The TableListBox selects the row on the click; rename is via F2/Return
+    // or the right-click menu, and double-click still jumps to the region.
+}
+
+void RegionListPanel::showRowContextMenu(int rowNumber)
+{
+    if (rowNumber < 0 || rowNumber >= m_filteredRegions.size())
+        return;
+
+    // Select the clicked row so the actions operate on it.
+    m_table.selectRow(rowNumber);
+
+    juce::PopupMenu menu;
+    menu.addItem(1, "Rename");
+    menu.addItem(2, "Jump To");
+    menu.addSeparator();
+    menu.addItem(3, "Delete");
+
+    juce::Component::SafePointer<RegionListPanel> safeThis(this);
+    menu.showMenuAsync(juce::PopupMenu::Options(),
+        [safeThis](int result)
+        {
+            if (safeThis == nullptr)
+                return;
+
+            switch (result)
+            {
+                case 1: safeThis->startRenamingSelectedRow(); break;
+                case 2: safeThis->jumpToSelectedRegion();     break;
+                case 3: safeThis->deleteSelectedRegion();     break;
+                default: break;
+            }
+        });
+}
+
+void RegionListPanel::startRenamingSelectedRow()
+{
+    // Rename only when exactly one row is selected (UX16) so a stray key can't
+    // clobber a name during a multi-select.
+    if (m_table.getNumSelectedRows() != 1)
+        return;
+
+    const int selectedRow = m_table.getSelectedRow();
+    if (selectedRow >= 0 && selectedRow < m_filteredRegions.size())
+        startEditingName(selectedRow);
 }
 
 void RegionListPanel::showColourPickerForRow(int rowNumber)
@@ -961,6 +1012,8 @@ void RegionListPanel::deleteKeyPressed(int lastRowSelected)
 void RegionListPanel::returnKeyPressed(int lastRowSelected)
 {
     (void)lastRowSelected;  // Suppress unused parameter warning
+    // Return keeps its long-standing jump behavior (benign if the user
+    // expected the global Enter=Pause). Rename is on F2 / context menu.
     jumpToSelectedRegion();
 }
 

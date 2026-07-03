@@ -25,6 +25,7 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <functional>
 
 namespace TimePitchEngine
 {
@@ -54,9 +55,14 @@ namespace TimePitchEngine
      * @param input          Source audio (planar, JUCE convention).
      * @param sampleRate     Sample rate in Hz.
      * @param recipe         Tempo + pitch parameters.
-     * @return Processed audio buffer. Empty buffer on invalid input.
+     * @param onProgress     Optional progress callback invoked from the chunked
+     *                       processing loop with a 0..1 fraction. Return false to
+     *                       cancel: the engine stops and returns an empty buffer.
+     *                       May be null/empty (no reporting, never cancelled).
+     * @return Processed audio buffer. Empty buffer on invalid input or cancel.
      */
     juce::AudioBuffer<float> apply(const juce::AudioBuffer<float>& input,
                                     double sampleRate,
-                                    const Recipe& recipe);
+                                    const Recipe& recipe,
+                                    std::function<bool(float)> onProgress = {});
 }

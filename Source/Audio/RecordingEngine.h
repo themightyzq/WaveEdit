@@ -117,6 +117,42 @@ public:
     int getRecordedNumChannels() const;
 
     /**
+     * Sets the desired recorded channel count (1 = mono, 2 = stereo).
+     * Applied on the next startRecording(); ignored while recording.
+     * Value is clamped to [1, MAX_CHANNELS]. The engine captures the first
+     * `channelCount` device input channels (mono = input 1, stereo =
+     * inputs 1-2); it does not downmix.
+     *
+     * @param channelCount 1 for mono, 2 for stereo
+     */
+    void setRequestedChannelCount(int channelCount);
+
+    /**
+     * Gets the requested recorded channel count (1 or 2).
+     */
+    int getRequestedChannelCount() const;
+
+    /**
+     * Hard cap on recording duration in seconds (RAM-bounded ring; the
+     * buffer holds this many seconds regardless of channel count because
+     * capacity scales with the sample rate).
+     */
+    static constexpr double kMaxRecordSeconds = 3600.0;  // 1 hour
+
+    /**
+     * Maximum recordable duration in seconds for the current configuration.
+     * Thread-safe; safe to poll from the UI timer.
+     */
+    double getMaxRecordSeconds() const;
+
+    /**
+     * Remaining recordable time in seconds before the RAM cap is hit,
+     * based on the real buffer capacity, the recorded sample count, and
+     * the sample rate. Thread-safe; safe to poll from the UI timer.
+     */
+    double getRemainingRecordSeconds() const;
+
+    /**
      * Gets the total recording duration in seconds.
      *
      * @return Duration in seconds
@@ -180,8 +216,14 @@ private:
     // Recording state
     std::atomic<RecordingState> m_recordingState;
     std::atomic<double> m_sampleRate;
-    std::atomic<int> m_numChannels;
+    std::atomic<int> m_numChannels;   // resolved recorded channel count (set on record start)
     std::atomic<bool> m_bufferFull;  // Set by audio thread when buffer is full
+
+    // User-requested channel count (1 or 2), and the input channel count
+    // reported by the current device. The recorded channel count is
+    // resolved from these on record start (min of the two, at least 1).
+    std::atomic<int> m_requestedChannels { 2 };
+    std::atomic<int> m_deviceInputChannels { 0 };
 
     // Audio buffer for recorded samples
     juce::AudioBuffer<float> m_recordedBuffer;
@@ -236,6 +278,13 @@ private:
      * Caller must hold m_bufferLock.
      */
     bool ensureRecordingBufferAllocated();
+
+    /**
+     * Resolves m_numChannels (the recorded channel count) from the
+     * user-requested count clamped to the device's available input
+     * channels. Called on record START, caller must hold m_bufferLock.
+     */
+    void resolveRecordChannels();
 
     // M17: count of input samples dropped because the audio thread could
     // not acquire m_bufferLock (non-blocking tryEnter). Surfaced to the

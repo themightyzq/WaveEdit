@@ -41,15 +41,23 @@ void DynamicParametricEQ::prepare(double sampleRate, int maxBlockSize)
         band.needsUpdate = true;
     }
 
-    // Force coefficient update
+    // C1 FIX (review follow-up): applyEQ() no longer rebuilds coefficients,
+    // so rebuild them HERE for the (possibly new) sample rate. Without this,
+    // a device sample-rate change would keep playing coefficients built for
+    // the old rate until the next parameter edit.
+    updateCoefficientsLocked();
+
     m_parametersChanged.store(true);
 }
 
 void DynamicParametricEQ::ensureBandChannelCount(BandState& band) const
 {
-    // H4 FIX: one filter per channel (up to MAX_CHANNELS). New filters inherit the
-    // band's coefficients so they process identically to the existing channels.
-    const size_t target = static_cast<size_t>(juce::jlimit(1, MAX_CHANNELS, m_numChannels));
+    // C1 FIX: size every band's filter bank to the app-wide channel ceiling up
+    // front (message thread), so applyEQ() never grows it on the audio thread.
+    // 20 bands x 8 tiny IIR filters is negligible memory; the win is that the
+    // audio thread never allocates. New filters inherit the band's
+    // coefficients so they process identically to the existing channels.
+    const size_t target = static_cast<size_t>(MAX_CHANNELS);
     if (band.filters.size() == target)
         return;
 
@@ -102,6 +110,10 @@ void DynamicParametricEQ::setParameters(const Parameters& newParams)
     // Update output gain
     m_outputGainLinear = juce::Decibels::decibelsToGain(newParams.outputGain);
 
+    // C1 FIX: build the new coefficients HERE, on the message thread, under
+    // the same lock the audio thread try-locks. applyEQ() no longer allocates.
+    updateCoefficientsLocked();
+
     m_parametersChanged.store(true);
 }
 
@@ -138,23 +150,10 @@ void DynamicParametricEQ::applyEQ(juce::dsp::AudioBlock<float>& block)
     const auto numChannels = static_cast<int>(block.getNumChannels());
     const auto numSamples = block.getNumSamples();
 
-    // H4 FIX: grow per-band filter banks to match the actual channel count so
-    // channels 2..7 are processed, not silently bypassed. ensureBandChannelCount
-    // only allocates when the channel count grows; steady-state is allocation-free.
-    // Done before the coefficient update so any newly-added filters are sized and
-    // ready to receive coefficients this block.
-    if (numChannels > m_numChannels)
-    {
-        m_numChannels = juce::jmin(numChannels, MAX_CHANNELS);
-        // Resize every band's filter bank now (not just dirty ones) so already-
-        // coefficient'd bands gain filters for the new channels immediately.
-        for (auto& band : m_bandStates)
-            ensureBandChannelCount(band);
-    }
-
-    // Update coefficients if needed (safe: we hold m_parameterLock).
-    if (m_parametersChanged.exchange(false))
-        updateCoefficientsLocked();
+    // C1 FIX: no coefficient building and no filter-bank growth here anymore.
+    // Every mutator (setParameters/addBand/setBandParameters/...) builds
+    // coefficients and sizes filter banks to MAX_CHANNELS on the message
+    // thread, under this same lock. The audio thread only ever processes.
 
     // Process each enabled band
     for (size_t bandIdx = 0; bandIdx < m_parameters.bands.size(); ++bandIdx)
@@ -411,6 +410,7 @@ int DynamicParametricEQ::addBand(float frequency, FilterType filterType)
     newState.needsUpdate = true;
     m_bandStates.push_back(std::move(newState));
 
+    updateCoefficientsLocked();   // C1: build on the message thread
     m_parametersChanged.store(true);
 
     return static_cast<int>(m_parameters.bands.size()) - 1;
@@ -450,6 +450,7 @@ bool DynamicParametricEQ::setBandParameters(int index, const BandParameters& par
             m_bandStates[bandIndex].needsUpdate = true;
         }
 
+        updateCoefficientsLocked();   // C1: build on the message thread
         m_parametersChanged.store(true);
     }
 

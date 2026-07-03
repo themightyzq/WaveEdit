@@ -147,7 +147,9 @@ void DSPController::applyGainAdjustment(Document* doc, float gainDB, int64_t sta
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("DSPController::applyGainAdjustment - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Gain adjustment failed: " + juce::String(e.what()));
+        ErrorDialog::show("Gain",
+            "Could not apply the gain change. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -822,7 +824,9 @@ void DSPController::applyDCOffset(Document* doc)
     catch (const std::exception& e)
     {
         DBG("DSPController::applyDCOffset - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "DC offset removal failed: " + juce::String(e.what()));
+        ErrorDialog::show("Remove DC Offset",
+            "Could not remove the DC offset. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -909,7 +913,9 @@ void DSPController::applyNormalize(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("DSPController::applyNormalize - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Normalize operation failed: " + juce::String(e.what()));
+        ErrorDialog::show("Normalize",
+            "Could not normalize the audio. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -926,7 +932,11 @@ void DSPController::applyFadeIn(Document* doc)
         // Require selection
         if (!doc->getWaveformDisplay().hasSelection())
         {
-            DBG("Fade In requires a selection");
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Fade In",
+                "Please select a region of audio to fade in.",
+                "OK");
             return;
         }
 
@@ -965,7 +975,9 @@ void DSPController::applyFadeIn(Document* doc)
     catch (const std::exception& e)
     {
         DBG("DSPController::applyFadeIn - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Fade In operation failed: " + juce::String(e.what()));
+        ErrorDialog::show("Fade In",
+            "Could not apply the fade. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -982,7 +994,11 @@ void DSPController::applyFadeOut(Document* doc)
         // Require selection
         if (!doc->getWaveformDisplay().hasSelection())
         {
-            DBG("Fade Out requires a selection");
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Fade Out",
+                "Please select a region of audio to fade out.",
+                "OK");
             return;
         }
 
@@ -1021,7 +1037,9 @@ void DSPController::applyFadeOut(Document* doc)
     catch (const std::exception& e)
     {
         DBG("DSPController::applyFadeOut - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Fade Out operation failed: " + juce::String(e.what()));
+        ErrorDialog::show("Fade Out",
+            "Could not apply the fade. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -1038,7 +1056,11 @@ void DSPController::silenceSelection(Document* doc)
         // Require selection
         if (!doc->getWaveformDisplay().hasSelection())
         {
-            DBG("Silence requires a selection");
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Silence",
+                "Please select a region of audio to silence.",
+                "OK");
             return;
         }
 
@@ -1076,7 +1098,9 @@ void DSPController::silenceSelection(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("DSPController::silenceSelection - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Silence operation failed: " + juce::String(e.what()));
+        ErrorDialog::show("Silence",
+            "Could not silence the selection. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -1130,7 +1154,9 @@ void DSPController::reverseSelection(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("DSPController::reverseSelection - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Reverse failed: " + juce::String(e.what()));
+        ErrorDialog::show("Reverse",
+            "Could not reverse the audio. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -1184,7 +1210,9 @@ void DSPController::invertSelection(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("DSPController::invertSelection - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Invert failed: " + juce::String(e.what()));
+        ErrorDialog::show("Invert",
+            "Could not invert the audio. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -1201,7 +1229,12 @@ void DSPController::trimToSelection(Document* doc)
         // Require selection
         if (!doc->getWaveformDisplay().hasSelection())
         {
-            DBG("Trim requires a selection");
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Trim to Selection",
+                "Please select the region of audio to keep. Trim deletes "
+                "everything outside the selection.",
+                "OK");
             return;
         }
 
@@ -1242,7 +1275,9 @@ void DSPController::trimToSelection(Document* doc)
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("DSPController::trimToSelection - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Trim operation failed: " + juce::String(e.what()));
+        ErrorDialog::show("Trim to Selection",
+            "Could not trim the audio. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -1296,6 +1331,8 @@ void DSPController::applyDCOffsetRemoval(Document* doc)
     catch (const std::exception& e)
     {
         DBG("DSPController::applyDCOffsetRemoval - Error: " + juce::String(e.what()));
-        ErrorDialog::show("Error", "DC offset removal failed: " + juce::String(e.what()));
+        ErrorDialog::show("Remove DC Offset",
+            "Could not remove the DC offset. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }

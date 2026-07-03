@@ -52,6 +52,10 @@ public:
     static constexpr int kPreferredWidth = 200;
     static constexpr int kButtonSize = 24;
 
+    /** Floor for transport button size when resized() must shrink the
+     *  buttons to guarantee the time readout its minimum width (UX 18). */
+    static constexpr int kMinButtonSize = 18;
+
     //==============================================================================
     // Time display formats
 
@@ -188,6 +192,14 @@ private:
 
     /** Recolors the loop icon (accent when ON, text when OFF). */
     void updateLoopButtonAppearance();
+
+    /**
+     * Measures, with the time label's actual font, the pixel width needed
+     * to show the longest realistic string for each TimeFormat without
+     * truncation (UX 18: the readout was being given "remaining width"
+     * and ellipsized to "00:0..." at the toolbar's default width).
+     */
+    int computeMinTimeLabelWidth() const;
 
     /** ChangeListener override (theme switches). */
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;

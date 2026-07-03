@@ -19,6 +19,7 @@
 #include "../Plugins/PluginChain.h"
 #include "../Audio/AudioEngine.h"
 #include "../UI/PluginChainWindow.h"
+#include "../Automation/AutomationManager.h"
 #include "../UI/PluginEditorWindow.h"
 #include "../UI/ErrorDialog.h"
 #include <functional>
@@ -45,11 +46,13 @@ public:
         juce::ApplicationCommandManager& commandManager,
         PluginChain* chain,
         AudioEngine* audioEngine,
+        AutomationManager* automation,
         juce::DocumentWindow* window,
         std::function<void(bool, bool, double)> applyCallback)
         : m_commandManager(commandManager),
           m_chain(chain),
           m_audioEngine(audioEngine),
+          m_automation(automation),
           m_window(window),
           m_applyCallback(applyCallback)
     {
@@ -93,13 +96,24 @@ public:
     void pluginChainWindowPluginRemoved(int index) override
     {
         if (m_chain == nullptr) return;
-        m_chain->removePlugin(index);
+        if (m_chain->removePlugin(index) && m_automation != nullptr)
+        {
+            // C5 FIX: keep automation lanes pointing at the plugins the user
+            // automated. Drop lanes for the removed plugin, then close the
+            // index gap for everything after it.
+            m_automation->removePluginLanes(index);
+            m_automation->shiftPluginIndices(index + 1, -1);
+        }
     }
 
     void pluginChainWindowPluginMoved(int fromIndex, int toIndex) override
     {
         if (m_chain == nullptr) return;
-        m_chain->movePlugin(fromIndex, toIndex);
+        if (m_chain->movePlugin(fromIndex, toIndex) && m_automation != nullptr)
+        {
+            // C5 FIX: remap lane indices with the same insertion semantics.
+            m_automation->movePluginLanes(fromIndex, toIndex);
+        }
     }
 
     void pluginChainWindowPluginBypassed(int index, bool bypassed) override
@@ -123,6 +137,7 @@ public:
     {
         m_chain = nullptr;
         m_audioEngine = nullptr;
+        m_automation = nullptr;
         if (m_window != nullptr)
         {
             m_window->setVisible(false);
@@ -138,6 +153,7 @@ private:
     juce::ApplicationCommandManager& m_commandManager;
     PluginChain* m_chain;
     AudioEngine* m_audioEngine;
+    AutomationManager* m_automation = nullptr;   // Document-owned; nulled on documentClosed()
     juce::DocumentWindow* m_window;
     std::function<void(bool, bool, double)> m_applyCallback;
 };

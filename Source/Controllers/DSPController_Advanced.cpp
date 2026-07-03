@@ -21,6 +21,7 @@
 */
 
 #include "DSPController.h"
+#include <limits>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -614,7 +615,10 @@ void DSPController::applyOfflinePluginToSelection(Document* doc,
         tailSamples = static_cast<int64_t>(tailLengthSeconds * sampleRate);
 
     PluginChain tempChain;
-    const int nodeIndex = tempChain.addPlugin(pluginDesc);
+    // Stack-local chain (never audio-thread-visible), but use the configured
+    // add anyway so state is applied pre-publish, matching the C4 pattern.
+    const int nodeIndex = tempChain.addPluginConfigured(pluginDesc, pluginState,
+                                                        /*bypassed*/ false);
     if (nodeIndex < 0)
     {
         juce::AlertWindow::showMessageBoxAsync(
@@ -624,9 +628,6 @@ void DSPController::applyOfflinePluginToSelection(Document* doc,
             "OK");
         return;
     }
-
-    if (auto* node = tempChain.getPlugin(nodeIndex); node && pluginState.getSize() > 0)
-        node->setState(pluginState);
 
     auto renderer = std::make_shared<PluginChainRenderer>();
     auto offlineChain = std::make_shared<PluginChainRenderer::OfflineChain>(
@@ -772,30 +773,67 @@ void DSPController::showResampleDialog(Document* doc, juce::Component* /*parent*
     {
         double currentRate = doc->getAudioEngine().getSampleRate();
 
-        // Create simple dialog with combo box for sample rate
+        // Standard sample rates (game-audio staples 8k-16k through 192k).
+        const juce::StringArray standardRates {
+            "8000", "11025", "16000", "22050", "32000", "44100",
+            "48000", "88200", "96000", "176400", "192000" };
+        const juce::String customLabel("Custom...");
+
+        // Create dialog with a combo box (standard rates + Custom) plus a
+        // free-entry field used when Custom is chosen (UX11).
         juce::AlertWindow dialog("Resample",
-            "Current sample rate: " + juce::String(currentRate, 0) + " Hz\n\nSelect target sample rate:",
+            "Current sample rate: " + juce::String(currentRate, 0) + " Hz\n\n"
+            "Select a target sample rate, or choose Custom... and type a rate "
+            "(1000 - 384000 Hz):",
             juce::AlertWindow::NoIcon);
 
-        dialog.addComboBox("rate", {"22050", "44100", "48000", "88200", "96000", "192000"}, "Sample Rate (Hz)");
-        dialog.addButton("OK", 1);
-        dialog.addButton("Cancel", 0);
+        juce::StringArray comboItems(standardRates);
+        comboItems.add(customLabel);
+        dialog.addComboBox("rate", comboItems, "Sample Rate (Hz)");
+        dialog.addTextEditor("custom", juce::String(static_cast<int>(currentRate)),
+                             "Custom rate (Hz)");
+        dialog.addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
+        dialog.addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 
-        // Pre-select current rate if it matches
+        // Pre-select the current rate when it is a standard rate, else the
+        // nearest standard rate (Custom stays available for anything exact).
         auto* combo = dialog.getComboBoxComponent("rate");
-        juce::String currentRateStr = juce::String(static_cast<int>(currentRate));
-        for (int i = 0; i < combo->getNumItems(); ++i)
+        const juce::String currentRateStr = juce::String(static_cast<int>(currentRate));
+        int matchIndex = standardRates.indexOf(currentRateStr);
+        if (matchIndex < 0)
         {
-            if (combo->getItemText(i) == currentRateStr)
+            double nearestDelta = std::numeric_limits<double>::max();
+            for (int i = 0; i < standardRates.size(); ++i)
             {
-                combo->setSelectedItemIndex(i, juce::dontSendNotification);
-                break;
+                const double delta = std::abs(standardRates[i].getDoubleValue() - currentRate);
+                if (delta < nearestDelta)
+                {
+                    nearestDelta = delta;
+                    matchIndex = i;
+                }
             }
         }
+        combo->setSelectedItemIndex(matchIndex, juce::dontSendNotification);
 
         if (dialog.runModalLoop() == 1)
         {
-            double newRate = dialog.getComboBoxComponent("rate")->getText().getDoubleValue();
+            // When Custom is selected, take the typed value; otherwise use the
+            // combo's standard rate.
+            double newRate = 0.0;
+            if (combo->getText() == customLabel)
+                newRate = dialog.getTextEditorContents("custom").trim().getDoubleValue();
+            else
+                newRate = combo->getText().getDoubleValue();
+
+            // Validate the target rate before doing any work (UX11).
+            if (newRate < 1000.0 || newRate > 384000.0)
+            {
+                ErrorDialog::show("Resample",
+                    "Sample rate must be between 1000 and 384000 Hz.\n"
+                    "No changes were made.");
+                return;
+            }
+
             if (newRate > 0 && std::abs(newRate - currentRate) > 0.01)
             {
                 auto& buffer = doc->getBufferManager().getBuffer();
@@ -818,7 +856,9 @@ void DSPController::showResampleDialog(Document* doc, juce::Component* /*parent*
     catch (const std::exception& e)
     {
         juce::Logger::writeToLog("DSPController::showResampleDialog - " + juce::String(e.what()));
-        ErrorDialog::show("Error", "Resample failed: " + juce::String(e.what()));
+        ErrorDialog::show("Resample",
+            "Could not resample the audio. No changes were made -- the original "
+            "audio is intact.\n\nDetails: " + juce::String(e.what()));
     }
 }
 
@@ -828,13 +868,64 @@ void DSPController::showResampleDialog(Document* doc, juce::Component* /*parent*
 
 namespace
 {
-    // Apply a TimePitchEngine recipe to the whole-buffer of a document
-    // and register the result as an undoable transaction. Shared by
-    // both showTimeStretchDialog and showPitchShiftDialog so the
-    // buffer-handling, error-reporting, and undo wiring are identical.
+    // Progress-dialog threshold for time-stretch/pitch-shift renders. Mirrors
+    // DSPController::kProgressDialogThreshold (private, so duplicated here); the
+    // SoundTouch render is markedly more expensive per sample than gain/normalize,
+    // so above this SOURCE length it runs behind a cancellable ProgressDialog (H4).
+    constexpr juce::int64 kTimePitchProgressThreshold = 500000;
+
+    // Register a finished time-pitch render as an undoable transaction. When
+    // selection-scoped, splice the (unequal-length) result back over the source
+    // range via ReplaceAction; else replace the whole file via TimePitchUndoAction.
+    // Runs on the message thread (called from the sync path or the progress-dialog
+    // completion callback).
+    void commitTimePitchResult(Document* doc,
+                               const juce::AudioBuffer<float>& processed,
+                               juce::int64 rangeStart,
+                               juce::int64 rangeLen,
+                               bool selectionScoped,
+                               double sampleRate,
+                               const juce::String& description)
+    {
+        auto& bufferManager = doc->getBufferManager();
+
+        doc->getUndoManager().beginNewTransaction(description);
+        if (selectionScoped)
+        {
+            doc->getUndoManager().perform(new ReplaceAction(
+                bufferManager,
+                doc->getAudioEngine(),
+                doc->getWaveformDisplay(),
+                rangeStart,
+                rangeLen,
+                processed));
+        }
+        else
+        {
+            doc->getUndoManager().perform(new TimePitchUndoAction(
+                bufferManager,
+                doc->getWaveformDisplay(),
+                doc->getAudioEngine(),
+                bufferManager.getBuffer(),   // "before" == current whole-file buffer
+                processed,
+                sampleRate,
+                description));
+        }
+        doc->setModified(true);
+    }
+
+    // Apply a TimePitchEngine recipe to a document. When a selection exists the
+    // render is selection-scoped (M6/UX4): only the selected range is processed and
+    // spliced back. The selection is captured (in seconds) at dialog-open time and
+    // RE-VALIDATED here against the current buffer -- it may have changed while the
+    // async dialog was open; the range is clamped and bails with a themed error if
+    // it collapsed. Shared by both the Time Stretch and Pitch Shift Apply callbacks.
     void applyTimePitchToDocument(Document* doc,
                                    const TimePitchEngine::Recipe& recipe,
-                                   const juce::String& description)
+                                   const juce::String& description,
+                                   bool hasSelection,
+                                   double selStartSeconds,
+                                   double selEndSeconds)
     {
         if (! doc || ! doc->getAudioEngine().isFileLoaded())
             return;
@@ -842,42 +933,116 @@ namespace
         auto& bufferManager = doc->getBufferManager();
         const auto& srcBuffer = bufferManager.getBuffer();
         const double sampleRate = doc->getAudioEngine().getSampleRate();
+        const juce::int64 totalSamples = bufferManager.getNumSamples();
 
-        try
+        // Resolve + re-validate the processing range against the CURRENT buffer.
+        juce::int64 rangeStart = 0;
+        juce::int64 rangeLen   = totalSamples;
+        bool selectionScoped   = false;
+
+        if (hasSelection)
         {
-            const auto processed =
-                TimePitchEngine::apply(srcBuffer, sampleRate, recipe);
-            if (processed.getNumSamples() <= 0)
+            // timeToSample returns int64_t, which GCC treats as a distinct
+            // type from juce::int64 on Linux -- cast so jlimit's template
+            // deduction sees one type on every platform.
+            rangeStart = juce::jlimit((juce::int64) 0, totalSamples,
+                                      (juce::int64) bufferManager.timeToSample(selStartSeconds));
+            const juce::int64 rangeEnd = juce::jlimit((juce::int64) 0, totalSamples,
+                                                      (juce::int64) bufferManager.timeToSample(selEndSeconds));
+            rangeLen = rangeEnd - rangeStart;
+
+            if (rangeLen <= 0)
             {
-                ErrorDialog::show("Error",
-                                   description + " produced an empty result.");
+                ErrorDialog::show(description,
+                                  "The selection is no longer valid. "
+                                  "Reselect a range and try again.");
                 return;
             }
-
-            doc->getUndoManager().beginNewTransaction(description);
-            doc->getUndoManager().perform(new TimePitchUndoAction(
-                bufferManager,
-                doc->getWaveformDisplay(),
-                doc->getAudioEngine(),
-                srcBuffer,
-                processed,
-                sampleRate,
-                description));
-
-            doc->setModified(true);
+            selectionScoped = true;
         }
-        catch (const std::exception& e)
+
+        if (rangeLen <= 0 || srcBuffer.getNumChannels() <= 0)
+            return;
+
+        // Extract the source range to process (the whole file when not scoped).
+        auto srcRange = std::make_shared<juce::AudioBuffer<float>>();
+        srcRange->setSize(srcBuffer.getNumChannels(), (int) rangeLen);
+        for (int ch = 0; ch < srcBuffer.getNumChannels(); ++ch)
+            srcRange->copyFrom(ch, 0, srcBuffer, ch, (int) rangeStart, (int) rangeLen);
+
+        // Below the threshold: process synchronously on the message thread.
+        if (rangeLen < kTimePitchProgressThreshold)
         {
-            juce::Logger::writeToLog(
-                "DSPController::applyTimePitchToDocument - " + juce::String(e.what()));
-            ErrorDialog::show("Error",
-                               description + " failed: " + juce::String(e.what()));
+            try
+            {
+                const auto processed =
+                    TimePitchEngine::apply(*srcRange, sampleRate, recipe);
+                if (processed.getNumSamples() <= 0)
+                {
+                    ErrorDialog::show("Error",
+                                       description + " produced an empty result.");
+                    return;
+                }
+                commitTimePitchResult(doc, processed, rangeStart, rangeLen,
+                                      selectionScoped, sampleRate, description);
+            }
+            catch (const std::exception& e)
+            {
+                juce::Logger::writeToLog(
+                    "DSPController::applyTimePitchToDocument - " + juce::String(e.what()));
+                ErrorDialog::show("Error",
+                                   description + " failed: " + juce::String(e.what()));
+            }
+            return;
         }
+
+        // Large render: offload to the ProgressDialog worker thread with a working
+        // cancel; splice/commit on the message thread in the completion callback.
+        // The ProgressDialog is NOT modal (launchAsync) and the native macOS
+        // menu bar stays live, so the document CAN be closed mid-render --
+        // re-check the lifeline before committing.
+        juce::Component::SafePointer<WaveformDisplay> docLifeline(&doc->getWaveformDisplay());
+        auto result = std::make_shared<juce::AudioBuffer<float>>();
+
+        ProgressDialog::runWithProgress(
+            description,
+            [srcRange, result, sampleRate, recipe]
+            (std::function<bool(float, const juce::String&)> progress) -> bool
+            {
+                try
+                {
+                    auto out = TimePitchEngine::apply(
+                        *srcRange, sampleRate, recipe,
+                        [&progress](float p) { return progress(p, "Processing..."); });
+                    if (out.getNumSamples() <= 0)
+                        return false;   // cancelled or empty
+                    *result = std::move(out);
+                    return true;
+                }
+                catch (const std::exception& e)
+                {
+                    juce::Logger::writeToLog(
+                        "DSPController::applyTimePitchToDocument - " + juce::String(e.what()));
+                    return false;
+                }
+            },
+            [doc, docLifeline, result, rangeStart, rangeLen, selectionScoped, sampleRate, description]
+            (bool success)
+            {
+                if (! success || result->getNumSamples() <= 0)
+                    return;   // cancelled / failed -- buffer left untouched
+                if (docLifeline.getComponent() == nullptr)
+                    return;   // document closed during the render (C6 class)
+                commitTimePitchResult(doc, *result, rangeStart, rangeLen,
+                                      selectionScoped, sampleRate, description);
+            });
     }
 
     // Validate the applied value, short-circuit identity, build the recipe, and
-    // apply it. Shared by both the Time Stretch and Pitch Shift Apply callbacks.
-    void applyTimePitchValue(Document* doc, TimePitchDialog::Mode mode, double value)
+    // apply it. Threads the selection range (captured at dialog-open) through to
+    // the selection-scoped Apply path.
+    void applyTimePitchValue(Document* doc, TimePitchDialog::Mode mode, double value,
+                             bool hasSelection, double selStartSeconds, double selEndSeconds)
     {
         if (std::abs(value) < 1.0e-6)
             return;  // identity
@@ -908,7 +1073,8 @@ namespace
             desc = juce::String::formatted("Pitch shift %+.2f semitones", value);
         }
 
-        applyTimePitchToDocument(doc, recipe, desc);
+        applyTimePitchToDocument(doc, recipe, desc,
+                                 hasSelection, selStartSeconds, selEndSeconds);
     }
 
     // Construct + launch the shared TimePitchDialog for either mode. Mirrors
@@ -923,16 +1089,29 @@ namespace
         const auto& buffer = doc->getBufferManager().getBuffer();
         const double sr = doc->getAudioEngine().getSampleRate();
 
+        // Capture the selection (in seconds) now; re-validated at apply time.
+        const bool   hasSel          = waveform.hasSelection();
+        const double selStartSeconds = waveform.getSelectionStart();
+        const double selEndSeconds   = waveform.getSelectionEnd();
+
         auto* dialog = new TimePitchDialog(mode, buffer, sr,
-                                           waveform.hasSelection(),
-                                           waveform.getSelectionStart(),
+                                           hasSel,
+                                           selStartSeconds,
+                                           selEndSeconds,
                                            waveform.getEditCursorPosition(),
                                            &doc->getAudioEngine(),
                                            &waveform);
 
-        dialog->onApply = [doc, mode](double value)
+        // C6: the dialog is async. If the document (and its waveform/engine) is
+        // closed while it is open, bail instead of writing through a dangling
+        // Document*. The waveform doubles as the SafePointer lifeline.
+        juce::Component::SafePointer<WaveformDisplay> lifeline(&waveform);
+        dialog->onApply =
+            [doc, mode, lifeline, hasSel, selStartSeconds, selEndSeconds](double value)
         {
-            applyTimePitchValue(doc, mode, value);
+            if (lifeline.getComponent() == nullptr)
+                return;
+            applyTimePitchValue(doc, mode, value, hasSel, selStartSeconds, selEndSeconds);
         };
         dialog->onCancel = []() {};
 
@@ -1018,8 +1197,14 @@ void DSPController::showHeadTailDialog(Document* doc, juce::Component* /*parent*
     auto* dialog = new HeadTailDialog(buffer, sr, &doc->getAudioEngine(),
                                       &doc->getWaveformDisplay());
 
-    dialog->onApply = [this, doc](const HeadTailRecipe& recipe)
+    // C6: same guard as showTimePitchDialog -- the dialog is async, so if the
+    // document (and its waveform/engine) is closed while it is open, bail instead
+    // of writing through a dangling Document*.
+    juce::Component::SafePointer<WaveformDisplay> lifeline(&doc->getWaveformDisplay());
+    dialog->onApply = [this, doc, lifeline](const HeadTailRecipe& recipe)
     {
+        if (lifeline.getComponent() == nullptr)
+            return;
         applyHeadTail(doc, recipe);
     };
 
@@ -1062,23 +1247,32 @@ void DSPController::showLoopingToolsDialog(Document* doc, juce::Component* /*par
     auto* dialog = new LoopingToolsDialog(buffer, sampleRate, selStart, selEnd, sourceFile);
     dialog->onCancel = []() {};
 
-    // Wire preview playback callbacks to AudioEngine
-    auto& engine = doc->getAudioEngine();
-    dialog->onPreviewRequested = [&engine](const juce::AudioBuffer<float>& previewBuffer, double sr)
+    // Wire preview playback callbacks to AudioEngine. The dialog is
+    // non-modal (launchAsync), so guard every engine touch with a
+    // SafePointer lifeline -- the document (and its engine) can be closed
+    // while the dialog is still open (C6 class).
+    auto* enginePtr = &doc->getAudioEngine();
+    juce::Component::SafePointer<WaveformDisplay> loopLifeline(&waveform);
+    dialog->onPreviewRequested =
+        [enginePtr, loopLifeline](const juce::AudioBuffer<float>& previewBuffer, double sr)
     {
+        if (loopLifeline.getComponent() == nullptr)
+            return;   // document closed; engine pointer is dangling
         int numCh = previewBuffer.getNumChannels();
-        engine.loadPreviewBuffer(previewBuffer, sr, numCh);
+        enginePtr->loadPreviewBuffer(previewBuffer, sr, numCh);
         double loopDuration = static_cast<double>(previewBuffer.getNumSamples()) / sr;
-        engine.setLoopPoints(0.0, loopDuration);
-        engine.setLooping(true);
-        engine.setPreviewMode(PreviewMode::OFFLINE_BUFFER);
-        engine.play();
+        enginePtr->setLoopPoints(0.0, loopDuration);
+        enginePtr->setLooping(true);
+        enginePtr->setPreviewMode(PreviewMode::OFFLINE_BUFFER);
+        enginePtr->play();
     };
 
-    dialog->onPreviewStopped = [&engine]()
+    dialog->onPreviewStopped = [enginePtr, loopLifeline]()
     {
-        engine.stop();
-        engine.setPreviewMode(PreviewMode::DISABLED);
+        if (loopLifeline.getComponent() == nullptr)
+            return;
+        enginePtr->stop();
+        enginePtr->setPreviewMode(PreviewMode::DISABLED);
     };
 
     juce::DialogWindow::LaunchOptions options;

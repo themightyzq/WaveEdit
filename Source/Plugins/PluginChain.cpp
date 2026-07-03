@@ -216,6 +216,35 @@ int PluginChain::addPlugin(const juce::PluginDescription& description)
     return insertPlugin(description, getNumPlugins());
 }
 
+int PluginChain::addPluginConfigured(const juce::PluginDescription& description,
+                                     const juce::MemoryBlock& initialState,
+                                     bool bypassed)
+{
+    // C4 FIX: configure the node fully BEFORE publishing it to the
+    // audio-thread-visible chain, so setState() never races processBlock().
+    auto node = createNode(description);
+    if (node == nullptr)
+        return -1;
+
+    node->setBypassed(bypassed);
+    if (initialState.getSize() > 0)
+        node->setState(initialState);   // Safe: not yet audio-visible
+
+    auto sharedNode = std::shared_ptr<PluginChainNode>(std::move(node));
+
+    auto newChain = copyCurrentChain();
+    const int index = static_cast<int>(newChain->size());
+    newChain->push_back(sharedNode);
+
+    publishChain(newChain);
+
+    DBG("PluginChain: Added " + description.name + " (pre-configured) at index "
+        + juce::String(index));
+
+    notifyChainChanged();
+    return index;
+}
+
 int PluginChain::insertPlugin(const juce::PluginDescription& description, int index)
 {
     // Create node first (this may involve plugin loading - done outside any locks)
@@ -483,28 +512,15 @@ bool PluginChain::loadFromXml(const juce::XmlElement& xml)
             continue;
         }
 
-        // Add plugin to chain
-        int index = addPlugin(*desc);
-        if (index < 0)
-            continue;
-
-        auto* node = getPlugin(index);
-        if (node == nullptr)
-            continue;
-
-        // Restore bypass state
-        node->setBypassed(pluginXml->getBoolAttribute("bypassed", false));
-
-        // Restore plugin state
+        // Decode saved state first, then add the plugin fully configured so
+        // its state is applied BEFORE the node is audio-thread visible (C4).
+        juce::MemoryBlock state;
         juce::String stateBase64 = pluginXml->getStringAttribute("state");
         if (stateBase64.isNotEmpty())
-        {
-            juce::MemoryBlock state;
-            if (state.fromBase64Encoding(stateBase64))
-            {
-                node->setState(state);
-            }
-        }
+            state.fromBase64Encoding(stateBase64);
+
+        addPluginConfigured(*desc, state,
+                            pluginXml->getBoolAttribute("bypassed", false));
     }
 
     DBG("PluginChain: Loaded " + juce::String(getNumPlugins()) + " plugins from XML");
@@ -583,28 +599,15 @@ bool PluginChain::loadFromJson(const juce::var& json)
             continue;
         }
 
-        // Add plugin to chain
-        int index = addPlugin(*desc);
-        if (index < 0)
-            continue;
-
-        auto* node = getPlugin(index);
-        if (node == nullptr)
-            continue;
-
-        // Restore bypass state
-        node->setBypassed(pluginObj->getProperty("bypassed"));
-
-        // Restore plugin state
+        // Decode saved state first, then add the plugin fully configured so
+        // its state is applied BEFORE the node is audio-thread visible (C4).
+        juce::MemoryBlock state;
         juce::String stateBase64 = pluginObj->getProperty("state").toString();
         if (stateBase64.isNotEmpty())
-        {
-            juce::MemoryBlock state;
-            if (state.fromBase64Encoding(stateBase64))
-            {
-                node->setState(state);
-            }
-        }
+            state.fromBase64Encoding(stateBase64);
+
+        addPluginConfigured(*desc, state,
+                            static_cast<bool>(pluginObj->getProperty("bypassed")));
     }
 
     DBG("PluginChain: Loaded " + juce::String(getNumPlugins()) + " plugins from JSON");

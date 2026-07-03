@@ -155,19 +155,18 @@ void RecordingController::handleRecordCommand(juce::Component* parent,
 
     if (currentDoc != nullptr)
     {
+        // Clear, descriptive three-button choice. The button labels carry
+        // the meaning (no "YES/NO/CANCEL" word puzzle in the body).
         const int choice = juce::AlertWindow::showYesNoCancelBox(
             juce::AlertWindow::QuestionIcon,
             "Recording Destination",
-            "A file is currently open. Where would you like to place the recording?\n\n"
-            "- YES: Insert at cursor position (punch-in)\n"
-            "- NO: Create new file with recording\n"
-            "- CANCEL: Don't record",
-            "Insert at Cursor",
-            "Create New File",
-            "Cancel");
+            "A file is already open. Where should the new recording go?",
+            "Insert at Cursor",   // button 1 -> returns 1
+            "New File",           // button 2 -> returns 2
+            "Cancel");            // button 3 -> returns 0
 
-        if (choice == 0) return;
-        appendToExisting = (choice == 1);
+        if (choice == 0) return;              // Cancel
+        appendToExisting = (choice == 1);     // Insert at Cursor; else New File
     }
 
     // RecordingDialog takes ownership of the listener.

@@ -171,16 +171,29 @@ private:
     juce::Label m_leftLevelLabel;
     juce::Label m_rightLevelLabel;
 
-    // Level meter components (visual bars)
+    // Level meter component: dBFS-scaled bar with a latching clip indicator.
+    // Chrome (background/border) is sourced from the active theme at paint
+    // time; the green/yellow/red bar is a VU domain visualisation (§6.11
+    // carve-out) sourced from named constants in the .cpp.
     class LevelMeter : public juce::Component
     {
     public:
         LevelMeter();
+
         void paint(juce::Graphics& g) override;
-        void setLevel(float level);
+
+        /** Feeds a new LINEAR peak (0..1+). Latches the clip flag at >= 0 dBFS. */
+        void setLevel(float linearPeak);
+
+        /** Clears the latched clip indicator (called on click and record start). */
+        void resetClip();
+
+        /** Click anywhere on the meter clears a latched clip. */
+        void mouseDown(const juce::MouseEvent& e) override;
 
     private:
-        float m_level = 0.0f;
+        float m_level = 0.0f;   // linear peak, clamped for drawing
+        bool  m_clipped = false;
     };
 
     LevelMeter m_leftLevelMeter;
@@ -191,6 +204,15 @@ private:
 
     // Latch so the buffer-full warning is shown at most once per session
     bool m_bufferFullHandled = false;
+
+    // True while at least one input device is available. When false the
+    // record button and all three config combos stay disabled.
+    bool m_hasInputDevice = true;
+
+    // Last successfully-applied combo selections, so a failed device/rate
+    // switch can be rolled back without firing another change.
+    int m_currentInputDeviceId = 0;
+    int m_currentSampleRateId = 0;
 
     //==============================================================================
     // Private Methods
@@ -234,6 +256,31 @@ private:
      * Updates the level meter displays.
      */
     void updateLevelMeters();
+
+    /**
+     * Applies a new AudioDeviceSetup to the shared device manager, cycling
+     * the monitoring callback across the reconfigure so the level feed is
+     * cleanly torn down and restarted. Returns true on success; on failure
+     * the error string is non-empty and the caller restores its combo.
+     *
+     * @param newSetup   Desired device setup
+     * @param error      Receives the device-manager error (empty on success)
+     * @return true if the setup applied cleanly
+     */
+    bool applyDeviceSetup(const juce::AudioDeviceManager::AudioDeviceSetup& newSetup,
+                          juce::String& error);
+
+    /** Handles a user change of the input-device combo. */
+    void handleInputDeviceChange();
+
+    /** Handles a user change of the sample-rate combo. */
+    void handleSampleRateChange();
+
+    /** Pushes the current channel-combo selection into the recording engine. */
+    void applyChannelSelection();
+
+    /** Shows a themed one-line error in the status label. */
+    void showStatusError(const juce::String& message);
 
     /**
      * Formats a time duration as MM:SS.mmm

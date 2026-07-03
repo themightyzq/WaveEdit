@@ -503,11 +503,28 @@ bool BatchJob::saveOutputFile(std::function<bool(float, const juce::String&)>& p
         }
     }
 
-    // Check for overwrite
+    // Check for overwrite. UX26: a collision with one of the batch's OWN source
+    // files is the destructive case (it clobbers an original), so it always
+    // requires the "Overwrite existing files" toggle and gets a distinct,
+    // actionable message -- not the generic already-exists error.
+    bool isOwnSource = false;
+    for (const auto& src : m_settings.inputFiles)
+    {
+        if (juce::File(src) == outputFile)
+        {
+            isOwnSource = true;
+            break;
+        }
+    }
+
     if (outputFile.existsAsFile() && !m_settings.overwriteExisting)
     {
         m_result.status = BatchJobStatus::FAILED;
-        m_result.errorMessage = "Output file already exists: " + outputFile.getFullPathName();
+        m_result.errorMessage = isOwnSource
+            ? ("Output would overwrite a source file in this batch: "
+               + outputFile.getFullPathName()
+               + ". Enable 'Overwrite existing files' to allow this.")
+            : ("Output file already exists: " + outputFile.getFullPathName());
         return false;
     }
 

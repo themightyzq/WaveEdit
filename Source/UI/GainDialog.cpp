@@ -483,14 +483,23 @@ void GainDialog::onBypassClicked()
     s_lastBypassState = newBypassState;
 
     // Update button visual state
+    // H5 FIX: bypass-active colour follows the active theme's warning token
+    // (was a fixed 0xffff8c00 orange). Read at click-time, matching
+    // PluginChainPanel.cpp's updateBypassButtonAppearance() pattern.
     if (newBypassState)
     {
+        const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+        const auto bypassTextColour = theme.warning.getPerceivedBrightness() > 0.5f
+                                           ? juce::Colours::black
+                                           : juce::Colours::white;
         m_bypassButton.setButtonText("Bypassed");
-        m_bypassButton.setColour(juce::TextButton::buttonColourId, waveedit::ui::colour(waveedit::ui::kButtonBypassActive));  // Orange for bypassed
+        m_bypassButton.setColour(juce::TextButton::buttonColourId, theme.warning);
+        m_bypassButton.setColour(juce::TextButton::textColourOffId, bypassTextColour);
     }
     else
     {
         m_bypassButton.setButtonText("Bypass");
         m_bypassButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        m_bypassButton.setColour(juce::TextButton::textColourOffId, getLookAndFeel().findColour(juce::TextButton::textColourOffId));
     }
 }

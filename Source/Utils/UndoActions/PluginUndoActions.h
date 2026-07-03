@@ -53,7 +53,8 @@ public:
 
         ParametricEQ eq;
         eq.prepare(m_sampleRate, audioToProcess.getNumSamples());
-        eq.applyEQ(audioToProcess, m_eqParams);
+        eq.setParameters(m_eqParams);   // Offline (message/worker thread) use
+        eq.applyEQ(audioToProcess);
 
         const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, audioToProcess);
         if (success)
