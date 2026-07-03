@@ -38,6 +38,7 @@ target_sources(WaveEdit
         Source/Controllers/DSPController_Advanced.cpp
         Source/Controllers/DSPController.h
         Source/Controllers/RegionController.cpp
+        Source/Controllers/RegionController_Export.cpp
         Source/Controllers/RegionController.h
         Source/Controllers/MarkerController.cpp
         Source/Controllers/MarkerController.h
@@ -874,6 +875,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Controllers/PluginController.cpp
         Source/Controllers/RecordingController.cpp
         Source/Controllers/RegionController.cpp
+        Source/Controllers/RegionController_Export.cpp
         Source/Utils/KeymapManager.cpp
         Source/Utils/RegionExporter.cpp
         Source/UI/SaveAsOptionsPanel.cpp
@@ -992,6 +994,8 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Integration/RegionListBatchRenameTests.cpp    # Week 4 ✅ (Batch Rename regions)
             Tests/Integration/SaveAsFormatsTests.cpp            # Phase 4 ✅ (Save As all formats)
             Tests/Integration/SaveAs8BitTests.cpp               # Phase 4 ✅ (8-bit Save Tests)
+            Tests/Integration/SaveSampleFormatTests.cpp         # H1: 32-float sample format
+
             Tests/Unit/BatchJobTests.cpp                        # Batch Processor tests
             Tests/ChannelSystemTests.cpp                        # Channel system tests (ITU coefficients, extraction, upmix)
             Tests/Unit/RegionManagerTests.cpp                   # Region/Auto Region tests
@@ -1026,6 +1030,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/PreviewSystemTests.cpp                   # shared preview helpers (region + fade gain)
             Tests/Unit/PluginChainPersistenceTests.cpp          # Plugin chain state persistence (XML/JSON + named presets)
             Tests/Unit/LargeOperationUndoTests.cpp              # Undo/redo correctness at large (multi-million-sample) buffer sizes
+            Tests/Unit/SettingsPersistenceTests.cpp             # UX finding 1: generic settings round-trip + old-format compat
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6

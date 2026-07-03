@@ -76,19 +76,29 @@ void PluginChainNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (m_instance == nullptr || !m_prepared)
         return;
 
-    // Handle pending state swap (lock-free)
-    if (m_stateSwapPending.exchange(false, std::memory_order_acq_rel))
+    // Handle pending state swap. C3 FIX: queueStateUpdate() writes
+    // m_pendingState under m_stateLock on the message thread, so the audio
+    // thread must take the SAME lock to swap -- but only via try-lock (never
+    // block here). On contention the flag stays set and the swap retries on
+    // the next block.
+    if (m_stateSwapPending.load(std::memory_order_acquire))
     {
-        // Swap pending state to active state
-        std::swap(m_pendingState, m_activeState);
-
-        // Apply state to plugin
-        if (m_activeState.getSize() > 0)
+        const juce::SpinLock::ScopedTryLockType lock(m_stateLock);
+        if (lock.isLocked())
         {
-            m_instance->setStateInformation(
-                m_activeState.getData(),
-                static_cast<int>(m_activeState.getSize())
-            );
+            m_stateSwapPending.store(false, std::memory_order_relaxed);
+
+            // Swap pending state to active state (pointer swap, no allocation)
+            std::swap(m_pendingState, m_activeState);
+
+            // Apply state to plugin
+            if (m_activeState.getSize() > 0)
+            {
+                m_instance->setStateInformation(
+                    m_activeState.getData(),
+                    static_cast<int>(m_activeState.getSize())
+                );
+            }
         }
     }
 

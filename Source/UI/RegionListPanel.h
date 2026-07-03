@@ -280,6 +280,10 @@ private:
     void jumpToSelectedRegion();
     void deleteSelectedRegion();
     void startEditingName(int rowNumber);
+    // Shows a per-region right-click context menu (Rename / Jump To / Delete).
+    void showRowContextMenu(int rowNumber);
+    // Starts inline rename of the selected row when exactly one is selected.
+    void startRenamingSelectedRow();
     void finishEditingName(bool applyChanges);
     juce::String formatTimeForDisplay(double timeInSeconds) const;
 

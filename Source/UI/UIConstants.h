@@ -78,7 +78,14 @@ constexpr int kFocusRingWidth               = 2;
 /** Preview button active state (dark red) */
 constexpr juce::uint32 kButtonPreviewActive = 0xffcc0000;
 
-/** Bypass button active state (orange) */
+/** Bypass button active state (orange).
+ *  DEPRECATED FOR CHROME (H5, CLAUDE.md 6.11): this is a fixed pre-ThemeManager
+ *  colour that does not adapt to Light/High Contrast themes. New/updated
+ *  bypass buttons must read waveedit::ThemeManager::getInstance().getCurrent()
+ *  .warning at click-time instead (see PluginChainPanel.cpp
+ *  updateBypassButtonAppearance(), GainDialog.cpp onBypassClicked()). Left in
+ *  place only because TimePitchDialog.cpp and HeadTailDialog.cpp still use it;
+ *  do not add new call sites. */
 constexpr juce::uint32 kButtonBypassActive  = 0xffff8c00;
 
 /** Selection background */

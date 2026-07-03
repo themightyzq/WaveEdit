@@ -17,6 +17,7 @@
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "RegionManager.h"
+#include <vector>
 
 /**
  * Utility class for exporting regions as separate audio files.
@@ -41,21 +42,41 @@ public:
         juce::File outputDirectory;      // Where to save files
         bool includeRegionName;          // Include region name in filename
         bool includeIndex;               // Include region index in filename
-        int bitDepth;                    // Bit depth (16, 24, 32)
+        int bitDepth;                    // Bit depth (16, 24, 32-float)
+        juce::String format;             // Output format: "wav" or "flac"
         juce::String customTemplate;     // Custom filename template (e.g., "{basename}_{region}_{index}")
         juce::String prefix;             // Prefix to add to filenames
         juce::String suffix;             // Suffix to add before extension
         bool usePaddedIndex;             // Use padded index (001 vs 1)
         bool suffixBeforeIndex;          // Place suffix before index (true) or after (false)
 
+        // When empty, ALL regions are exported. Otherwise only the listed
+        // 0-based region indices are exported (used for "selected regions
+        // only"). Indices are validated against the region count at export.
+        std::vector<int> regionIndicesToExport;
+
         ExportSettings()
             : includeRegionName(true),
               includeIndex(true),
               bitDepth(24),
+              format("wav"),
               usePaddedIndex(false),
               suffixBeforeIndex(false)
         {
         }
+    };
+
+    /**
+     * Result of a batch export run. Reports per-file success/failure by name so
+     * the caller can show a real summary instead of "check the console log".
+     */
+    struct ExportResult
+    {
+        int successCount = 0;             // Regions written successfully
+        int attempted = 0;               // Regions actually attempted
+        bool cancelled = false;          // True if the user cancelled mid-run
+        juce::StringArray failedNames;   // Region names that failed to export
+        juce::String coercionNote;       // Non-empty when a format capped the bit depth
     };
 
     /**
@@ -82,6 +103,23 @@ public:
                              const juce::File& sourceFile,
                              const ExportSettings& settings,
                              ProgressCallback progressCallback = nullptr);
+
+    /**
+     * Richer variant of exportRegions that reports which files failed and
+     * whether the run was cancelled. This is the preferred entry point for the
+     * batch-export UI. exportRegions() is a thin wrapper kept for callers that
+     * only need the success count.
+     *
+     * Thread Safety: safe to call from a background thread PROVIDED @p buffer
+     * and @p regionManager are copies the worker owns (see §6.9). This method
+     * never touches UI or a live Document.
+     */
+    static ExportResult exportRegionsEx(const juce::AudioBuffer<float>& buffer,
+                                        double sampleRate,
+                                        const RegionManager& regionManager,
+                                        const juce::File& sourceFile,
+                                        const ExportSettings& settings,
+                                        ProgressCallback progressCallback = nullptr);
 
     /**
      * Generates filename for a region based on naming template.
@@ -121,23 +159,37 @@ public:
                                     const Region& region,
                                     const juce::File& outputFile,
                                     int bitDepth,
-                                    juce::String& errorMessage);
+                                    juce::String& errorMessage,
+                                    const juce::String& format = "wav",
+                                    int* effectiveBitDepthOut = nullptr);
+
+    /**
+     * Returns the file extension (including the leading dot) for a format
+     * string ("wav"/"flac"). Shared by the exporter and the preview UI so the
+     * previewed name always matches the written file.
+     */
+    static juce::String extensionForFormat(const juce::String& format);
 
 private:
     /**
-     * Creates an audio format writer for WAV files.
+     * Creates an audio format writer for the requested format.
      *
      * @param outputFile Output file
+     * @param format "wav" or "flac"
      * @param sampleRate Sample rate
      * @param numChannels Number of channels
-     * @param bitDepth Bit depth (16, 24, 32)
+     * @param bitDepth Requested bit depth
+     * @param effectiveBitDepth Set to the bit depth actually used (may be
+     *        clamped for FLAC, which cannot exceed 24-bit)
      * @return Unique pointer to writer, or nullptr on failure
      */
-    static std::unique_ptr<juce::AudioFormatWriter> createWavWriter(
+    static std::unique_ptr<juce::AudioFormatWriter> createWriter(
         const juce::File& outputFile,
+        const juce::String& format,
         double sampleRate,
         int numChannels,
-        int bitDepth);
+        int bitDepth,
+        int& effectiveBitDepth);
 
     JUCE_DECLARE_NON_COPYABLE(RegionExporter)
 };

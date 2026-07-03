@@ -99,6 +99,8 @@ juce::PopupMenu MenuBuilder::getMenuForIndex(int menuIndex,
         // --- Selection ---
         menu.addSectionHeader("Selection");
         menu.addCommandItem(context.commandManager, CommandIDs::editSelectAll);
+        menu.addCommandItem(context.commandManager, CommandIDs::editMarkSelectionStart);
+        menu.addCommandItem(context.commandManager, CommandIDs::editMarkSelectionEnd);
     }
     else if (menuIndex == 2) // View menu
     {

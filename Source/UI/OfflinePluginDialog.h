@@ -104,6 +104,7 @@ public:
     // Component overrides
     void paint(juce::Graphics& g) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
     // ChangeListener override (for plugin scanner)
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
@@ -130,6 +131,7 @@ private:
     void createPluginEditor();
     void resizeToFitEditor();
     void onPreviewClicked();
+    void onBypassClicked();
     void onApplyClicked();
     void onCancelClicked();
     void disablePreview();
@@ -174,6 +176,7 @@ private:
     // UI Components - Buttons
     juce::ToggleButton m_loopCheckbox;
     juce::TextButton m_previewButton;
+    juce::TextButton m_bypassButton;   // A/B compare during preview (§6.8)
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
 

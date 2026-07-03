@@ -47,9 +47,7 @@ ParametricEQ::Parameters ParametricEQ::Parameters::createNeutral()
 ParametricEQ::ParametricEQ()
     : m_sampleRate(0.0),
       m_maxSamplesPerBlock(0),
-      m_lastNumChannels(0),
-      m_currentParams(Parameters::createNeutral()),
-      m_coefficientsNeedUpdate(true)
+      m_currentParams(Parameters::createNeutral())
 {
 }
 
@@ -58,79 +56,100 @@ ParametricEQ::ParametricEQ()
 
 void ParametricEQ::prepare(double sampleRate, int maxSamplesPerBlock)
 {
+    // Message thread only: allocates. Take the lock so a concurrent audio
+    // callback (device restart edge) never processes half-prepared filters.
+    const juce::ScopedLock sl(m_lock);
+
     m_sampleRate = sampleRate;
     m_maxSamplesPerBlock = maxSamplesPerBlock;
 
-    // H3 FIX: prepare for a stereo default here, but applyEQ() re-prepares the
-    // ProcessorDuplicators to the actual buffer channel count (up to 8) whenever
-    // it changes, so channels 2..7 are processed rather than passing through. The
-    // initial channel count is recorded as 0 so the FIRST applyEQ() always
-    // re-prepares to match the real buffer (previously hardcoded to 2, which left
-    // the duplicators stereo until a mismatch happened to occur).
+    // C2 FIX: prepare once for the app-wide channel ceiling so applyEQ() never
+    // has to (re)prepare -- ProcessorDuplicator processes however many channels
+    // the buffer actually has, up to the prepared count.
     juce::dsp::ProcessSpec spec;
     spec.sampleRate = sampleRate;
     spec.maximumBlockSize = static_cast<juce::uint32>(maxSamplesPerBlock);
-    spec.numChannels = 2;  // Stereo default; re-prepared per-buffer in applyEQ()
+    spec.numChannels = static_cast<juce::uint32>(MAX_CHANNELS);
 
     m_lowShelf.prepare(spec);
     m_midPeak.prepare(spec);
     m_highShelf.prepare(spec);
 
-    m_lastNumChannels = 0;  // Force applyEQ() to re-prepare to the real channel count
+    // Seed the shared states with real (flat) biquads so their coefficient
+    // arrays have their final size; adoptPendingCoefficients() can then copy
+    // element-wise without ever resizing on the audio thread.
+    if (auto flat = Coefficients::makePeakFilter(sampleRate, 1000.0, 0.707f, 1.0f))
+    {
+        *m_lowShelf.state  = *flat;
+        *m_midPeak.state   = *flat;
+        *m_highShelf.state = *flat;
+    }
+    m_hasCoefficients = false;   // Flat until setParameters() publishes real ones
+    m_pendingReady = false;
 
-    // Force coefficient update on next applyEQ call
-    m_coefficientsNeedUpdate = true;
+    // Re-stage coefficients for the (possibly new) sample rate.
+    // juce::CriticalSection is recursive, so re-taking m_lock inside
+    // buildPendingCoefficients() while prepare() holds it is safe.
+    if (m_haveParams)
+        buildPendingCoefficients(m_currentParams);
 }
 
-void ParametricEQ::applyEQ(juce::AudioBuffer<float>& buffer, const Parameters& params)
+void ParametricEQ::setParameters(const Parameters& params)
 {
+    // Message thread only (allocates).
+    jassert(m_sampleRate > 0.0);
+    if (m_sampleRate <= 0.0)
+        return;
 
+    if (m_haveParams &&
+        juce::exactlyEqual(params.low.frequency, m_currentParams.low.frequency) &&
+        juce::exactlyEqual(params.low.gain, m_currentParams.low.gain) &&
+        juce::exactlyEqual(params.low.q, m_currentParams.low.q) &&
+        juce::exactlyEqual(params.mid.frequency, m_currentParams.mid.frequency) &&
+        juce::exactlyEqual(params.mid.gain, m_currentParams.mid.gain) &&
+        juce::exactlyEqual(params.mid.q, m_currentParams.mid.q) &&
+        juce::exactlyEqual(params.high.frequency, m_currentParams.high.frequency) &&
+        juce::exactlyEqual(params.high.gain, m_currentParams.high.gain) &&
+        juce::exactlyEqual(params.high.q, m_currentParams.high.q))
+    {
+        return;   // No change
+    }
+
+    m_currentParams = params;
+    m_haveParams = true;
+
+    buildPendingCoefficients(params);
+}
+
+void ParametricEQ::applyEQ(juce::AudioBuffer<float>& buffer)
+{
     if (m_sampleRate <= 0.0)
     {
         jassertfalse;  // prepare() must be called first
         return;
     }
 
-    // Re-prepare filters ONLY if channel count has changed
-    // CRITICAL: Calling prepare() unconditionally resets filter state!
-    // ProcessorDuplicator needs to match the buffer channel count exactly
-    int numChannels = buffer.getNumChannels();
-    if (numChannels != m_lastNumChannels)
+    // Real-time thread: never block. If setParameters()/prepare() holds the
+    // lock, skip the EQ for this block (one dry block is inaudible; blocking
+    // or racing the coefficient write is not acceptable).
+    const juce::ScopedTryLock stl(m_lock);
+    if (! stl.isLocked())
+        return;
+
+    if (m_pendingReady)
     {
-        juce::dsp::ProcessSpec spec;
-        spec.sampleRate = m_sampleRate;
-        spec.maximumBlockSize = static_cast<juce::uint32>(buffer.getNumSamples());
-        spec.numChannels = static_cast<juce::uint32>(numChannels);
-
-        m_lowShelf.prepare(spec);
-        m_midPeak.prepare(spec);
-        m_highShelf.prepare(spec);
-
-        m_lastNumChannels = numChannels;
-        m_coefficientsNeedUpdate = true;  // Force coefficient update after prepare
+        adoptPendingCoefficients();
+        m_pendingReady = false;
+        m_hasCoefficients = true;
     }
 
-    // Check if parameters have changed
-    if (!juce::exactlyEqual(params.low.frequency, m_currentParams.low.frequency) ||
-        !juce::exactlyEqual(params.low.gain, m_currentParams.low.gain) ||
-        !juce::exactlyEqual(params.low.q, m_currentParams.low.q) ||
-        !juce::exactlyEqual(params.mid.frequency, m_currentParams.mid.frequency) ||
-        !juce::exactlyEqual(params.mid.gain, m_currentParams.mid.gain) ||
-        !juce::exactlyEqual(params.mid.q, m_currentParams.mid.q) ||
-        !juce::exactlyEqual(params.high.frequency, m_currentParams.high.frequency) ||
-        !juce::exactlyEqual(params.high.gain, m_currentParams.high.gain) ||
-        !juce::exactlyEqual(params.high.q, m_currentParams.high.q))
-    {
-        m_currentParams = params;
-        m_coefficientsNeedUpdate = true;
-    }
+    if (! m_hasCoefficients)
+        return;   // Neutral until first real parameters arrive
 
-    // Update filter coefficients if needed
-    if (m_coefficientsNeedUpdate)
-    {
-        updateCoefficients(params);
-        m_coefficientsNeedUpdate = false;
-    }
+    // Prepared for MAX_CHANNELS; anything beyond that would read past the
+    // duplicator's per-channel states, so pass it through untouched.
+    if (buffer.getNumChannels() > MAX_CHANNELS)
+        return;
 
     // Create DSP block from entire buffer
     juce::dsp::AudioBlock<float> block(buffer);
@@ -145,68 +164,65 @@ void ParametricEQ::applyEQ(juce::AudioBuffer<float>& buffer, const Parameters& p
 //==============================================================================
 // Private Methods
 
-void ParametricEQ::updateCoefficients(const Parameters& params)
+void ParametricEQ::buildPendingCoefficients(const Parameters& params)
 {
-    // Calculate Nyquist frequency (sample rate / 2)
-    // Use 0.49 * sampleRate as safety margin to avoid filter instability
-    float nyquistLimit = static_cast<float>(m_sampleRate * 0.49);
+    // Message thread: allocation happens HERE, never on the audio thread.
+    // Calculate Nyquist frequency with a 0.49 safety margin to avoid filter
+    // instability at the edge.
+    const float nyquistLimit = static_cast<float>(m_sampleRate * 0.49);
 
-    // Low shelf filter
+    auto low = Coefficients::makeLowShelf(
+        m_sampleRate,
+        juce::jlimit(20.0f, nyquistLimit, params.low.frequency),
+        params.low.q,
+        dbToLinearGain(params.low.gain));
+
+    auto mid = Coefficients::makePeakFilter(
+        m_sampleRate,
+        juce::jlimit(20.0f, nyquistLimit, params.mid.frequency),
+        params.mid.q,
+        dbToLinearGain(params.mid.gain));
+
+    auto high = Coefficients::makeHighShelf(
+        m_sampleRate,
+        juce::jlimit(20.0f, nyquistLimit, params.high.frequency),
+        params.high.q,
+        dbToLinearGain(params.high.gain));
+
+    if (low == nullptr || mid == nullptr || high == nullptr)
+        return;   // Degenerate parameters; keep last-good coefficients
+
+    // Publish under the lock. The Ptr assignments (and the release of any
+    // previously-pending, never-adopted set) happen on this thread only.
+    const juce::ScopedLock sl(m_lock);
+    m_pendingLow  = low;
+    m_pendingMid  = mid;
+    m_pendingHigh = high;
+    m_pendingReady = true;
+}
+
+void ParametricEQ::adoptPendingCoefficients()
+{
+    // Audio thread, m_lock held. Copy raw coefficient VALUES into the live
+    // shared states -- element-wise, no allocation, no refcount traffic.
+    auto adopt = [](const Coefficients::Ptr& src, Coefficients& dst)
     {
-        // Clamp frequency to valid range (20 Hz to Nyquist)
-        float clampedFreq = juce::jlimit(20.0f, nyquistLimit, params.low.frequency);
-        float gainFactor = dbToLinearGain(params.low.gain);
-
-        auto coeffs = Coefficients::makeLowShelf(
-            m_sampleRate,
-            clampedFreq,
-            params.low.q,
-            gainFactor
-        );
-
-        if (coeffs != nullptr)
+        if (src == nullptr)
+            return;
+        auto& from = src->coefficients;
+        auto& to   = dst.coefficients;
+        if (from.size() != to.size())
         {
-            *m_lowShelf.state = *coeffs;  // Copy coefficients
+            jassertfalse;   // Biquad sizes should always match (seeded in prepare)
+            return;
         }
-    }
+        for (int i = 0; i < from.size(); ++i)
+            to.setUnchecked(i, from[i]);
+    };
 
-    // Mid peaking filter
-    {
-        // Clamp frequency to valid range (20 Hz to Nyquist)
-        float clampedFreq = juce::jlimit(20.0f, nyquistLimit, params.mid.frequency);
-        float gainFactor = dbToLinearGain(params.mid.gain);
-
-        auto coeffs = Coefficients::makePeakFilter(
-            m_sampleRate,
-            clampedFreq,
-            params.mid.q,
-            gainFactor
-        );
-
-        if (coeffs != nullptr)
-        {
-            *m_midPeak.state = *coeffs;  // Copy coefficients
-        }
-    }
-
-    // High shelf filter
-    {
-        // Clamp frequency to valid range (20 Hz to Nyquist)
-        float clampedFreq = juce::jlimit(20.0f, nyquistLimit, params.high.frequency);
-        float gainFactor = dbToLinearGain(params.high.gain);
-
-        auto coeffs = Coefficients::makeHighShelf(
-            m_sampleRate,
-            clampedFreq,
-            params.high.q,
-            gainFactor
-        );
-
-        if (coeffs != nullptr)
-        {
-            *m_highShelf.state = *coeffs;  // Copy coefficients
-        }
-    }
+    adopt(m_pendingLow,  *m_lowShelf.state);
+    adopt(m_pendingMid,  *m_midPeak.state);
+    adopt(m_pendingHigh, *m_highShelf.state);
 }
 
 float ParametricEQ::dbToLinearGain(float gainDB)

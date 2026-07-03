@@ -31,10 +31,13 @@
  * - Gain: Boost/cut amount (dB, -20 to +20)
  * - Q: Bandwidth/resonance (0.1 to 10.0)
  *
- * Thread Safety:
- * - applyEQ() is real-time safe (no allocations)
- * - Must call prepare() before first use
- * - Sample rate must be set via prepare()
+ * Thread Safety (C2 fix):
+ * - setParameters() is message-thread only: it builds the IIR coefficients
+ *   (which allocates) and publishes them into a pending slot under a lock.
+ * - applyEQ() is real-time safe: it try-locks, copies pending coefficient
+ *   VALUES element-wise into the live filter state (no allocation), and
+ *   processes. On lock contention the block is skipped (inaudible).
+ * - Must call prepare() (message thread) before first use.
  */
 class ParametricEQ
 {
@@ -78,18 +81,28 @@ public:
     void prepare(double sampleRate, int maxSamplesPerBlock);
 
     /**
-     * Apply parametric EQ to an audio buffer (in-place processing).
+     * Publish new EQ parameters (message thread ONLY -- allocates).
      *
-     * Thread Safety:
-     * - This method is real-time safe (no heap allocations).
-     * - MUST be called from a single thread only (not thread-safe for concurrent access).
-     * - Coefficient updates are performed when parameters change.
-     * - Frequency values are automatically clamped to valid range (20 Hz to Nyquist).
+     * Builds the three biquad coefficient sets off the audio thread and
+     * stages them for the next applyEQ() call to adopt without allocating.
      *
-     * @param buffer Audio buffer to process (will be modified)
      * @param params EQ parameters to apply
      */
-    void applyEQ(juce::AudioBuffer<float>& buffer, const Parameters& params);
+    void setParameters(const Parameters& params);
+
+    /**
+     * Apply parametric EQ to an audio buffer (in-place processing).
+     *
+     * Real-time safe: no heap allocation, try-lock only (skips the block on
+     * contention with setParameters()). Buffers with more than MAX_CHANNELS
+     * channels are passed through untouched.
+     *
+     * @param buffer Audio buffer to process (will be modified)
+     */
+    void applyEQ(juce::AudioBuffer<float>& buffer);
+
+    /** Maximum channels supported (matches AudioEngine / ChannelLayout). */
+    static constexpr int MAX_CHANNELS = 8;
 
     /**
      * Get the current sample rate.
@@ -100,11 +113,16 @@ public:
 
 private:
     /**
-     * Update IIR filter coefficients based on current parameters.
+     * Build the three pending coefficient sets from parameters.
+     * Message thread only (allocates). Caller must NOT hold m_lock.
      *
      * @param params EQ parameters
      */
-    void updateCoefficients(const Parameters& params);
+    void buildPendingCoefficients(const Parameters& params);
+
+    /** Copy pending coefficient VALUES into the live filter states.
+        Audio thread; caller holds m_lock; performs no allocation. */
+    void adoptPendingCoefficients();
 
     /**
      * Convert dB gain to linear gain factor.
@@ -117,7 +135,6 @@ private:
     // DSP state
     double m_sampleRate;
     int m_maxSamplesPerBlock;
-    int m_lastNumChannels;  // Track channel count to avoid redundant prepare() calls
 
     // IIR filters for each band (stereo processing)
     using IIRFilter = juce::dsp::IIR::Filter<float>;
@@ -128,9 +145,19 @@ private:
     juce::dsp::ProcessorDuplicator<IIRFilter, Coefficients> m_midPeak;
     juce::dsp::ProcessorDuplicator<IIRFilter, Coefficients> m_highShelf;
 
-    // Cached parameters to avoid redundant coefficient updates
+    // Cross-thread coefficient hand-off (C2). The message thread builds
+    // pending coefficient objects in setParameters(); the audio thread adopts
+    // their VALUES under a try-lock in applyEQ(). The Ptrs themselves are only
+    // ever assigned/released on the message thread.
+    juce::CriticalSection m_lock;
+    Coefficients::Ptr m_pendingLow, m_pendingMid, m_pendingHigh;
+    bool m_pendingReady = false;
+    bool m_hasCoefficients = false;   // States initialised with real values yet?
+
+    // Cached parameters to short-circuit redundant setParameters() calls
+    // (message thread only).
     Parameters m_currentParams;
-    bool m_coefficientsNeedUpdate;
+    bool m_haveParams = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ParametricEQ)
 };

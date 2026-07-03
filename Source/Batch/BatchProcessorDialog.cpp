@@ -33,7 +33,7 @@ BatchProcessorDialog::BatchProcessorDialog()
     , m_outputLabel("outputLabel", "Output Settings")
     , m_outputDirLabel("outputDirLabel", "Output Directory:")
     , m_browseOutputButton("Browse...")
-    , m_sameAsSourceToggle("Same as source folder")
+    , m_sameAsSourceToggle("Same as source")  // UX 15: shortened so the label fits its allotted width
     , m_patternLabel("patternLabel", "Naming Pattern:")
     , m_patternHelpLabel("patternHelpLabel", "{filename}, {index}, {index:03}, {date}, {time}, {preset}")
     , m_patternHelpButton("?")
@@ -276,7 +276,14 @@ BatchProcessorDialog::BatchProcessorDialog()
     m_previewDeviceManager.addAudioCallback(&m_previewSourcePlayer);
 
     // Set initial size
-    setSize(800, 700);
+    // UX 15: the right column's Format/Bit Depth/Sample Rate row needs
+    // ~510px for its labels+combos (Sample Rate combo widened to fit its
+    // default-selected "Keep Original" item); at the old 800px width the
+    // right column (800 - 20 margin - 340 left column - 10 gap = 430px)
+    // was well short, clipping the combo to "...". Widened to give that
+    // row (and its siblings) enough room; keep in sync with the
+    // centreWithSize() call in showDialog().
+    setSize(900, 700);
 }
 
 BatchProcessorDialog::~BatchProcessorDialog()
@@ -315,7 +322,11 @@ void BatchProcessorDialog::resized()
     int btnWidth = 75;
     m_addFilesButton.setBounds(fileButtonRow.removeFromLeft(btnWidth));
     fileButtonRow.removeFromLeft(5);
-    m_addFolderButton.setBounds(fileButtonRow.removeFromLeft(btnWidth + 10));
+    // UX 15: "Add Folder..." is a longer label than "Add Files..." but was
+    // only given +10px over the base width, truncating to "Add Folde...".
+    // leftColumn has ~35px of slack at these widths (340 - 305 used); spend
+    // most of it here instead.
+    m_addFolderButton.setBounds(fileButtonRow.removeFromLeft(btnWidth + 40));
     fileButtonRow.removeFromLeft(5);
     m_removeFilesButton.setBounds(fileButtonRow.removeFromLeft(btnWidth - 10));
     fileButtonRow.removeFromLeft(5);
@@ -362,7 +373,9 @@ void BatchProcessorDialog::resized()
     // Output directory row with "Same as source" toggle
     auto outputDirRow = rightColumn.removeFromTop(25);
     m_outputDirLabel.setBounds(outputDirRow.removeFromLeft(110));
-    m_sameAsSourceToggle.setBounds(outputDirRow.removeFromRight(140));
+    // UX 15: widened alongside the shortened label text -- "Same as source
+    // folder" was truncating to "Same as source ..." in its old 140px slot.
+    m_sameAsSourceToggle.setBounds(outputDirRow.removeFromRight(150));
     outputDirRow.removeFromRight(5);
     m_browseOutputButton.setBounds(outputDirRow.removeFromRight(70));
     outputDirRow.removeFromRight(5);
@@ -393,7 +406,10 @@ void BatchProcessorDialog::resized()
     m_bitDepthCombo.setBounds(formatRow.removeFromLeft(80));
     formatRow.removeFromLeft(15);
     m_sampleRateLabel.setBounds(formatRow.removeFromLeft(80));
-    m_sampleRateCombo.setBounds(formatRow.removeFromLeft(100));
+    // UX 15: "Keep Original" (the default-selected item) needs more than the
+    // old 100px, which is also what this row was actually overflowing into
+    // when the dialog was still 800px wide -- widened alongside setSize().
+    m_sampleRateCombo.setBounds(formatRow.removeFromLeft(130));
 
     rightColumn.removeFromTop(8);
 
@@ -463,7 +479,7 @@ bool BatchProcessorDialog::showDialog()
 
     // Create the dialog window
     std::unique_ptr<juce::DialogWindow> dlg(options.create());
-    dlg->centreWithSize(800, 700);
+    dlg->centreWithSize(900, 700);  // UX 15: kept in sync with the constructor's setSize()
 
     #if JUCE_MODAL_LOOPS_PERMITTED
         int result = dlg->runModalLoop();
@@ -1281,6 +1297,9 @@ void BatchProcessorDialog::onStartClicked()
 
     auto settings = gatherSettings();
 
+    if (! confirmSourceOverwrites(settings))
+        return;
+
     m_engine->setSettings(settings);
 
     // Reset file statuses
@@ -1301,10 +1320,8 @@ void BatchProcessorDialog::onStartClicked()
     {
         setProcessingMode(false);
         juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Processing Failed",
-            "Failed to start batch processing. Check settings and try again."
-        );
+            juce::AlertWindow::WarningIcon, "Processing Failed",
+            "Failed to start batch processing. Check settings and try again.");
     }
 }
 

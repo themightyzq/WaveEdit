@@ -129,6 +129,34 @@ void AutomationManager::removePluginLanes(int pluginIndex)
     notifyListeners();
 }
 
+void AutomationManager::movePluginLanes(int fromIndex, int toIndex)
+{
+    if (fromIndex == toIndex)
+        return;
+
+    // Mirror PluginChain::movePlugin's insertion adjustment.
+    if (toIndex > fromIndex)
+        --toIndex;
+    if (fromIndex == toIndex)
+        return;
+
+    {
+        const juce::ScopedLock sl(m_lanesLock);
+        for (auto& lane : m_lanes)
+        {
+            if (lane.pluginIndex == fromIndex)
+                lane.pluginIndex = toIndex;
+            else if (fromIndex < toIndex
+                     && lane.pluginIndex > fromIndex && lane.pluginIndex <= toIndex)
+                --lane.pluginIndex;
+            else if (toIndex < fromIndex
+                     && lane.pluginIndex >= toIndex && lane.pluginIndex < fromIndex)
+                ++lane.pluginIndex;
+        }
+    }
+    notifyListeners();
+}
+
 void AutomationManager::shiftPluginIndices(int fromIndex, int delta)
 {
     {
@@ -183,7 +211,7 @@ void AutomationManager::applyAutomation(PluginChain& chain, double timeInSeconds
             continue;
 
         auto& params = plugin->getParameters();
-        if (lane.parameterIndex >= params.size())
+        if (lane.parameterIndex < 0 || lane.parameterIndex >= params.size())
             continue;
 
         float value = lane.curve.getValueAt(timeInSeconds);

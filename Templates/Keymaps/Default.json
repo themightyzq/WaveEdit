@@ -53,6 +53,13 @@
         "alt"
       ]
     },
+    "fileEditiXMLMetadata": {
+      "key": "X",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
     "fileBatchProcessor": {
       "key": "B",
       "modifiers": [
@@ -112,6 +119,14 @@
       "modifiers": [
         "cmd"
       ]
+    },
+    "editMarkSelectionStart": {
+      "key": "I",
+      "modifiers": []
+    },
+    "editMarkSelectionEnd": {
+      "key": "O",
+      "modifiers": []
     },
     "playbackPlay": {
       "key": "Space",
@@ -205,6 +220,13 @@
       "modifiers": [
         "cmd",
         "alt"
+      ]
+    },
+    "viewToggleRegions": {
+      "key": "H",
+      "modifiers": [
+        "cmd",
+        "shift"
       ]
     },
     "navigateLeft": {
@@ -694,6 +716,19 @@
       "key": "P",
       "modifiers": [
         "cmd"
+      ]
+    },
+    "pluginBypassAll": {
+      "key": "B",
+      "modifiers": [
+        "ctrl"
+      ]
+    },
+    "automationToggleRecordArm": {
+      "key": "A",
+      "modifiers": [
+        "ctrl",
+        "shift"
       ]
     },
     "pluginShowAutomationLanes": {

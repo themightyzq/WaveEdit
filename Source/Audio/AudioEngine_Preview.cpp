@@ -171,29 +171,21 @@ void AudioEngine::setGainPreview(float gainDB, bool enabled)
 
 void AudioEngine::setParametricEQPreview(const ParametricEQ::Parameters& params, bool enabled)
 {
-    // Thread-safe: Can be called from UI thread.
-    // C5 FIX: the pending struct is plain data (no vector), but the audio thread
-    // copies it under m_eqParamsLock, so write under the same lock to keep the
-    // publish atomic relative to that read. The lock is held only for the copy.
-    {
-        const juce::SpinLock::ScopedLockType sl(m_eqParamsLock);
-        m_pendingParametricEQParams = params;
-    }
-    m_parametricEQParamsChanged.set(true);
+    // Thread-safe: message thread only. C1/C2 FIX: the EQ builds its filter
+    // coefficients HERE (allocating on this thread) and stages them; the audio
+    // thread adopts the values under a try-lock without allocating.
+    if (m_parametricEQ)
+        m_parametricEQ->setParameters(params);
     m_parametricEQEnabled.set(enabled);
 }
 
 void AudioEngine::setDynamicEQPreview(const DynamicParametricEQ::Parameters& params, bool enabled)
 {
-    // Thread-safe: Can be called from UI thread.
-    // C5 FIX: m_pendingDynamicEQParams contains a std::vector payload; guard the
-    // write with m_eqParamsLock so the audio-thread copy never observes a torn
-    // vector mid-reallocation.
-    {
-        const juce::SpinLock::ScopedLockType sl(m_eqParamsLock);
-        m_pendingDynamicEQParams = params;
-    }
-    m_dynamicEQParamsChanged.set(true);
+    // Thread-safe: message thread only. C1 FIX: DynamicParametricEQ builds
+    // coefficients inside setParameters() under its own lock (which its
+    // applyEQ() try-locks), so the audio thread never allocates.
+    if (m_dynamicEQ)
+        m_dynamicEQ->setParameters(params);
     m_dynamicEQEnabled.set(enabled);
 }
 

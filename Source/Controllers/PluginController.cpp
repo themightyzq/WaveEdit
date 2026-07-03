@@ -77,6 +77,7 @@ void PluginController::showPluginChainPanel(Document* currentDoc,
         commandManager,
         &chain,
         &currentDoc->getAudioEngine(),
+        &currentDoc->getAutomationManager(),
         window,
         [&dspController, currentDocAccessor](bool stereo, bool tail, double len)
         {
