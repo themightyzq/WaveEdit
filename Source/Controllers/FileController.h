@@ -30,8 +30,7 @@ class FileController
 {
 public:
     FileController(DocumentManager& docManager,
-                   AudioFileManager& fileManager,
-                   juce::ApplicationCommandManager& cmdManager);
+                   AudioFileManager& fileManager);
 
     ~FileController();
 
@@ -161,7 +160,6 @@ private:
     //==========================================================================
     DocumentManager& m_documentManager;
     AudioFileManager& m_fileManager;
-    juce::ApplicationCommandManager& m_commandManager;
     std::unique_ptr<juce::FileChooser> m_fileChooser;
     juce::ThreadPool m_autoSaveThreadPool {1};
     std::function<void()> m_onUIRefreshNeeded;

@@ -13,11 +13,10 @@ MarkerManager::MarkerManager()
 {
 }
 
-void MarkerManager::ensureMessageThread(const juce::String& methodName) const
+void MarkerManager::ensureMessageThread(const juce::String& /*methodName*/) const
 {
     if (!juce::MessageManager::getInstance()->isThisTheMessageThread())
     {
-        DBG("WARNING: MarkerManager::" + methodName + " called from non-message thread!");
         jassertfalse;  // Debug-time assertion
     }
 }

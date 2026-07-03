@@ -23,6 +23,7 @@
 #include "RegionDisplay.h"
 #include "../Utils/AudioUnits.h"
 #include "../Utils/Settings.h"
+#include "ThemeManager.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
 RegionDisplay::RegionDisplay(RegionManager& regionManager)
@@ -410,7 +411,7 @@ void RegionDisplay::mouseDrag(const juce::MouseEvent& event)
     }
 }
 
-void RegionDisplay::mouseUp(const juce::MouseEvent& event)
+void RegionDisplay::mouseUp(const juce::MouseEvent& /*event*/)
 {
     // Finalize resize operation if we were resizing
     if (m_resizeMode != ResizeMode::None)
@@ -619,7 +620,7 @@ juce::MouseCursor RegionDisplay::getResizeCursorForEdge(EdgeProximity edge) cons
     }
 }
 
-void RegionDisplay::drawRegion(juce::Graphics& g, const Region& region, int regionIndex, juce::Rectangle<int> bounds)
+void RegionDisplay::drawRegion(juce::Graphics& g, const Region& region, int regionIndex, juce::Rectangle<int> /*bounds*/)
 {
     // Convert region sample positions to screen coordinates
     double startTime = sampleToTime(region.getStartSample());
@@ -658,11 +659,13 @@ void RegionDisplay::drawRegion(juce::Graphics& g, const Region& region, int regi
     g.setColour(barColor.darker(0.3f));
     g.drawRect(regionBounds, 1);
 
-    // Draw white border for selected region
+    // Draw border for selected region (opaque selection accent -- same
+    // token used for the selected-marker label and the waveform selection
+    // outline, so "this is the selected item" reads consistently)
     if (isSelected)
     {
-        g.setColour(juce::Colours::white);
-        g.drawRect(regionBounds, 3);  // 3px white border for selected regions
+        g.setColour(waveedit::ThemeManager::getInstance().getCurrent().selection.withAlpha(1.0f));
+        g.drawRect(regionBounds, 3);  // 3px border for selected regions
     }
 
     // Draw region name (if wide enough)

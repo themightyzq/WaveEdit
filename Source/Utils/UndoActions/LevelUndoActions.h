@@ -89,14 +89,10 @@ public:
         AudioProcessor::applyGainToRange(buffer, m_gainDB, m_startSample, m_numSamples);
 
         // Reload buffer in AudioEngine - preserve playback if active
-        bool reloadSuccess = m_audioEngine.reloadBufferPreservingPlayback(
+        m_audioEngine.reloadBufferPreservingPlayback(
             buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
 
-        DBG(juce::String::formatted(
-            "GainUndoAction::perform - After reload: success=%s, playing=%s, position=%.3f",
-            reloadSuccess ? "YES" : "NO",
-            m_audioEngine.isPlaying() ? "YES" : "NO",
-            m_audioEngine.getCurrentPosition()));
+        DBG("GainUndoAction::perform - Gain applied and buffer reloaded");
 
         // Update waveform display - preserve view and selection
         m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),

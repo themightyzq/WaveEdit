@@ -662,7 +662,7 @@ bool AudioFileManager::appendiXMLChunk(const juce::File& file, const juce::Strin
 
     // Verify file size on disk
     juce::int64 actualFileSize = file.getSize();
-    if (actualFileSize != cleanFile.getDataSize())
+    if (actualFileSize != static_cast<juce::int64>(cleanFile.getDataSize()))
     {
         juce::Logger::writeToLog("ERROR: File size mismatch! Expected " +
                                 juce::String((int)cleanFile.getDataSize()) +

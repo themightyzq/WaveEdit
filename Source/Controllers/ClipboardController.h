@@ -97,7 +97,4 @@ public:
     static bool conformChannels(const juce::AudioBuffer<float>& source,
                                 int targetChannels,
                                 juce::AudioBuffer<float>& out);
-
-private:
-    DocumentManager& m_documentManager;
 };

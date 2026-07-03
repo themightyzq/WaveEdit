@@ -159,7 +159,7 @@ void SpectrumAnalyzer::pushAudioData(const float* buffer, int numSamples)
 
     for (int i = 0; i < numSamples; ++i)
     {
-        m_fftData[m_fifoIndex] = buffer[i];
+        m_fftData[static_cast<size_t>(m_fifoIndex)] = buffer[i];
         m_fifoIndex++;
 
         if (m_fifoIndex == fftSize)
@@ -218,7 +218,7 @@ void SpectrumAnalyzer::timerCallback()
     bool needsRepaint = false;
     int fftSize = static_cast<int>(m_currentFFTSize);
 
-    for (int i = 0; i < fftSize / 2; ++i)
+    for (size_t i = 0; i < static_cast<size_t>(fftSize / 2); ++i)
     {
         if (m_peakHoldTime[i] > 0)
         {
@@ -249,13 +249,13 @@ void SpectrumAnalyzer::processFFT()
     }
 
     // Apply windowing function
-    m_window->multiplyWithWindowingTable(localFFTData.data(), fftSize);
+    m_window->multiplyWithWindowingTable(localFFTData.data(), static_cast<size_t>(fftSize));
 
     // Perform FFT
     m_fft->performFrequencyOnlyForwardTransform(localFFTData.data());
 
     // Convert to dB and update scope data with smoothing
-    for (int i = 0; i < fftSize / 2; ++i)
+    for (size_t i = 0; i < static_cast<size_t>(fftSize / 2); ++i)
     {
         // Calculate magnitude in dB with proper normalization
         // Normalize by FFT size and apply empirically-determined display scale
@@ -308,7 +308,7 @@ void SpectrumAnalyzer::resized()
     // Nothing to resize, spectrum is drawn dynamically
 }
 
-void SpectrumAnalyzer::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+void SpectrumAnalyzer::mouseWheelMove(const juce::MouseEvent& /*event*/, const juce::MouseWheelDetails& wheel)
 {
     // Zoom frequency range with mouse wheel
     float zoomFactor = 1.0f + (wheel.deltaY * 0.1f);
@@ -439,13 +439,15 @@ void SpectrumAnalyzer::drawFrequencyAxis(juce::Graphics& g, juce::Rectangle<floa
             g.drawLine(x, bounds.getY(), x, bounds.getY() + 5.0f, 1.0f);
 
             // Draw label
-            g.drawText(labels[i], x - 15.0f, bounds.getY() + 5.0f, 30.0f, 15.0f,
+            g.drawText(labels[i],
+                       juce::Rectangle<float>(x - 15.0f, bounds.getY() + 5.0f, 30.0f, 15.0f),
                        juce::Justification::centredTop, false);
         }
     }
 
     // Draw "Hz" label
-    g.drawText("Hz", bounds.getRight() - 25.0f, bounds.getY() + 5.0f, 25.0f, 15.0f,
+    g.drawText("Hz",
+               juce::Rectangle<float>(bounds.getRight() - 25.0f, bounds.getY() + 5.0f, 25.0f, 15.0f),
                juce::Justification::centredRight, false);
 }
 
@@ -473,13 +475,15 @@ void SpectrumAnalyzer::drawMagnitudeAxis(juce::Graphics& g, juce::Rectangle<floa
 
             // Draw label
             juce::String label = juce::String(static_cast<int>(dB));
-            g.drawText(label, bounds.getX(), y - 6.0f, bounds.getWidth() - 8.0f, 12.0f,
+            g.drawText(label,
+                       juce::Rectangle<float>(bounds.getX(), y - 6.0f, bounds.getWidth() - 8.0f, 12.0f),
                        juce::Justification::centredRight, false);
         }
     }
 
     // Draw "dB" label
-    g.drawText("dB", bounds.getX(), bounds.getY(), bounds.getWidth() - 8.0f, 15.0f,
+    g.drawText("dB",
+               juce::Rectangle<float>(bounds.getX(), bounds.getY(), bounds.getWidth() - 8.0f, 15.0f),
                juce::Justification::centredRight, false);
 }
 
@@ -493,9 +497,9 @@ void SpectrumAnalyzer::drawSpectrum(juce::Graphics& g, juce::Rectangle<float> bo
     juce::Path spectrumPath;
     bool pathStarted = false;
 
-    for (int i = 1; i < fftSize / 2; ++i)
+    for (size_t i = 1; i < static_cast<size_t>(fftSize / 2); ++i)
     {
-        float frequency = i * binWidth;
+        float frequency = static_cast<float>(i) * binWidth;
 
         if (frequency < m_minFrequency)
             continue;
@@ -540,9 +544,9 @@ void SpectrumAnalyzer::drawSpectrum(juce::Graphics& g, juce::Rectangle<float> bo
 
     // Draw peak hold
     g.setColour(juce::Colours::yellow.withAlpha(0.5f));
-    for (int i = 1; i < fftSize / 2; ++i)
+    for (size_t i = 1; i < static_cast<size_t>(fftSize / 2); ++i)
     {
-        float frequency = i * binWidth;
+        float frequency = static_cast<float>(i) * binWidth;
 
         if (frequency < m_minFrequency)
             continue;

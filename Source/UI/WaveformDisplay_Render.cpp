@@ -42,7 +42,7 @@ void WaveformDisplay::paint(juce::Graphics& g)
     if (m_isLoading)
     {
         // Loading in progress
-        g.setColour(juce::Colours::white);
+        g.setColour(waveedit::ThemeManager::getInstance().getCurrent().text);
         g.setFont(16.0f);
         g.drawText("Loading waveform...", bounds, juce::Justification::centred, true);
         return;
@@ -51,7 +51,7 @@ void WaveformDisplay::paint(juce::Graphics& g)
     if (!m_fileLoaded)
     {
         // No file loaded
-        g.setColour(juce::Colours::grey);
+        g.setColour(waveedit::ThemeManager::getInstance().getCurrent().textMuted);
         g.setFont(14.0f);
         g.drawText("No audio file loaded", bounds, juce::Justification::centred, true);
         return;
@@ -252,32 +252,35 @@ void WaveformDisplay::drawChannelWaveform(juce::Graphics& g, juce::Rectangle<int
         bool showingFocusMode = (m_focusedChannels != -1);  // In per-channel focus mode
 
         // Draw background based on state priority: Solo > Mute > Focused > Default
-        juce::Colour labelBgColor(0x00000000);  // Transparent by default
-        juce::Colour labelTextColor = juce::Colours::grey;
-
         const auto& laneTheme = waveedit::ThemeManager::getInstance().getCurrent();
+        juce::Colour labelBgColor(0x00000000);  // Transparent by default
+        juce::Colour labelTextColor = laneTheme.textMuted;
+
         if (isSolo)
         {
             // Solo — warning token (yellow / amber across themes)
             labelBgColor = laneTheme.warning.withAlpha(0.9f);
-            labelTextColor = juce::Colours::white;
+            // contrasting() picks black/white against the chip itself, so the
+            // label stays readable no matter how bright the warning token is
+            // in the active theme (Dark/Light/High Contrast).
+            labelTextColor = laneTheme.warning.contrasting();
         }
         else if (isMute)
         {
             // Mute — error token (red across themes)
             labelBgColor = laneTheme.error.withAlpha(0.9f);
-            labelTextColor = juce::Colours::white;
+            labelTextColor = laneTheme.error.contrasting();
         }
         else if (showingFocusMode && isChannelCurrentlyFocused)
         {
             // Focused channel — accent token (blue-ish across themes)
             labelBgColor = laneTheme.accent.withAlpha(0.9f);
-            labelTextColor = juce::Colours::white;
+            labelTextColor = laneTheme.accent.contrasting();
         }
         else if (showingFocusMode && !isChannelCurrentlyFocused)
         {
             // Dimmed label for unfocused channels
-            labelTextColor = juce::Colours::grey.withAlpha(0.5f);
+            labelTextColor = laneTheme.textMuted.withAlpha(0.5f);
         }
 
         // Draw label background if not transparent
@@ -398,6 +401,12 @@ void WaveformDisplay::drawSelection(juce::Graphics& g, juce::Rectangle<int> boun
     g.saveState();
     g.reduceClipRegion(bounds);
 
+    // Theme selection token: carries its own per-theme alpha for the
+    // translucent edge highlight, plus an opaque variant for the
+    // fully-solid accents (border lines, handles, duration label) below.
+    const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
+    const juce::Colour selectionOpaque = theme.selection.withAlpha(1.0f);
+
     // METHOD 1: Animated pulsing overlay for better visibility
     // Use animated alpha for subtle pulsing effect (Phase 1.2 requirement)
     g.setColour(juce::Colours::black.withAlpha(m_selectionAlpha)); // Black overlay with animated alpha
@@ -405,22 +414,22 @@ void WaveformDisplay::drawSelection(juce::Graphics& g, juce::Rectangle<int> boun
 
     // METHOD 2: Inverted/brightened area using blend mode
     // Draw a bright accent color on the edges for clear boundaries
-    g.setColour(juce::Colour(0x88FFFF00)); // Semi-transparent yellow highlight
+    g.setColour(theme.selection); // Theme selection highlight (per-theme alpha)
     g.fillRect(startX, bounds.getY(), 3, bounds.getHeight()); // Left edge highlight
     g.fillRect(endX - 3, bounds.getY(), 3, bounds.getHeight()); // Right edge highlight
 
     // METHOD 3: Strong border lines for clear delineation (2.5px as per Phase 1.2)
-    // Draw thick white borders with drop shadow effect
+    // Draw thick borders (theme selection accent) with drop shadow effect
     g.setColour(juce::Colours::black.withAlpha(0.5f));
     g.drawLine(startX - 1, bounds.getY(), startX - 1, bounds.getBottom(), 2.5f); // Shadow left
     g.drawLine(endX + 1, bounds.getY(), endX + 1, bounds.getBottom(), 2.5f); // Shadow right
 
-    g.setColour(juce::Colours::white);
+    g.setColour(selectionOpaque);
     g.drawLine(startX, bounds.getY(), startX, bounds.getBottom(), 2.5f); // Bright left edge
     g.drawLine(endX, bounds.getY(), endX, bounds.getBottom(), 2.5f); // Bright right edge
 
-    // METHOD 4: Yellow corner handles for visual anchoring (Phase 1.2)
-    g.setColour(juce::Colour(0xFFFFFF00)); // Bright yellow
+    // METHOD 4: Corner handles for visual anchoring (Phase 1.2)
+    g.setColour(selectionOpaque);
     g.fillRect(startX - 3, bounds.getY(), 6, 12); // Top left handle
     g.fillRect(startX - 3, bounds.getBottom() - 12, 6, 12); // Bottom left handle
     g.fillRect(endX - 3, bounds.getY(), 6, 12); // Top right handle
@@ -460,8 +469,8 @@ void WaveformDisplay::drawSelection(juce::Graphics& g, juce::Rectangle<int> boun
         g.fillRoundedRectangle(centerX - labelWidth / 2.0f, centerY - labelHeight / 2.0f,
                                static_cast<float>(labelWidth), static_cast<float>(labelHeight), 4.0f);
 
-        // Draw label text in bright yellow
-        g.setColour(juce::Colour(0xFFFFFF00));
+        // Draw label text in the theme's selection accent
+        g.setColour(selectionOpaque);
         g.setFont(13.0f);
         g.drawText(durationLabel, centerX - labelWidth / 2, centerY - labelHeight / 2,
                    labelWidth, labelHeight, juce::Justification::centred, true);

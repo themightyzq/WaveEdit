@@ -137,7 +137,6 @@ bool AudioProcessor::normalize(juce::AudioBuffer<float>& buffer, float targetDB)
     // Calculate required gain
     float targetLinear = dBToLinear(targetDB);
     float requiredGain = targetLinear / peak;
-    float requiredGainDB = linearToDB(requiredGain);
 
     // Apply gain to all channels
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -147,7 +146,7 @@ bool AudioProcessor::normalize(juce::AudioBuffer<float>& buffer, float targetDB)
 
     DBG(juce::String::formatted(
         "AudioProcessor::normalize - Peak: %.2f (%.2f dB), Applied: %.2f dB gain, Target: %.2f dB",
-        peak, linearToDB(peak), requiredGainDB, targetDB));
+        peak, linearToDB(peak), linearToDB(requiredGain), targetDB));
 
     return true;
 }
@@ -264,7 +263,7 @@ bool AudioProcessor::fadeIn(juce::AudioBuffer<float>& buffer, int numSamples, Fa
         }
     }
 
-    const char* curveNames[] = { "LINEAR", "EXPONENTIAL", "LOGARITHMIC", "S_CURVE" };
+    [[maybe_unused]] static constexpr const char* curveNames[] = { "LINEAR", "EXPONENTIAL", "LOGARITHMIC", "S_CURVE" };
     DBG(juce::String::formatted(
         "AudioProcessor::fadeIn - Applied %d sample %s fade to %d channels",
         fadeSamples, curveNames[static_cast<int>(curve)], buffer.getNumChannels()));
@@ -334,7 +333,7 @@ bool AudioProcessor::fadeOut(juce::AudioBuffer<float>& buffer, int numSamples, F
         }
     }
 
-    const char* curveNames[] = { "LINEAR", "EXPONENTIAL", "LOGARITHMIC", "S_CURVE" };
+    [[maybe_unused]] static constexpr const char* curveNames[] = { "LINEAR", "EXPONENTIAL", "LOGARITHMIC", "S_CURVE" };
     DBG(juce::String::formatted(
         "AudioProcessor::fadeOut - Applied %d sample %s fade to %d channels",
         fadeSamples, curveNames[static_cast<int>(curve)], buffer.getNumChannels()));

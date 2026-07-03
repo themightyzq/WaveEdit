@@ -102,9 +102,9 @@ public:
 
     int getSizeInUnits() override
     {
-        return sizeof(*this) +
-               m_oldRegions.size() * sizeof(Region) +
-               m_newRegions.size() * sizeof(Region);
+        return static_cast<int>(sizeof(*this) +
+               static_cast<size_t>(m_oldRegions.size()) * sizeof(Region) +
+               static_cast<size_t>(m_newRegions.size()) * sizeof(Region));
     }
 
 private:
@@ -161,7 +161,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + m_regions.size() * sizeof(Region); }
+    int getSizeInUnits() override { return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_regions.size()) * sizeof(Region)); }
 
 private:
     RegionManager& m_regionManager;

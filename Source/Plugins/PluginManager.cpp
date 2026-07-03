@@ -922,11 +922,10 @@ private:
                         scanComplete->signal();
                     },
                     [workerCrashed]
-                    (const juce::String& crashed)
+                    (const juce::String& /*crashed*/)
                     {
                         // Crash callback - worker process died while scanning this plugin
                         // The completion callback will be called after this by the coordinator
-                        DBG("ExtendedScannerThread: Worker crashed scanning: " + crashed);
                         workerCrashed->store(true, std::memory_order_release);
                         // Note: completion callback will signal scanComplete
                     }
@@ -1150,7 +1149,7 @@ private:
         }
     }
 
-    void finishScan(PluginScanState& scanState, bool success)
+    void finishScan(PluginScanState& scanState, bool /*success*/)
     {
         // Save caches (needs lock)
         m_owner.saveCache();

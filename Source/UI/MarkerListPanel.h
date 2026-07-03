@@ -211,7 +211,6 @@ private:
 
     private:
         MarkerListPanel& owner;
-        int rowNumber;
     };
 
     //==============================================================================

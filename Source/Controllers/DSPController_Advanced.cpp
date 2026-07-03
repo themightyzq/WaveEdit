@@ -253,9 +253,9 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
                     + channelLabel + extension;
                 const juce::File outFile = result->outputDirectory.getChildFile(filename);
 
-                juce::AudioBuffer<float> monoBuffer(1, bufferManager.getNumSamples());
+                juce::AudioBuffer<float> monoBuffer(1, static_cast<int>(bufferManager.getNumSamples()));
                 monoBuffer.copyFrom(0, 0, bufferManager.getBuffer(),
-                                    srcChannel, 0, bufferManager.getNumSamples());
+                                    srcChannel, 0, static_cast<int>(bufferManager.getNumSamples()));
 
                 auto outputStream = outFile.createOutputStream();
                 if (!outputStream) continue;

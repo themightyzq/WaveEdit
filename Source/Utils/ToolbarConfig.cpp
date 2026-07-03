@@ -100,6 +100,10 @@ ToolbarButtonConfig ToolbarButtonConfig::fromVar(const juce::var& json)
         // Default widths based on type
         switch (config.type)
         {
+            case ToolbarButtonType::COMMAND:
+            case ToolbarButtonType::PLUGIN:
+                config.width = 28;
+                break;
             case ToolbarButtonType::SEPARATOR:
                 config.width = 8;
                 break;
@@ -108,9 +112,6 @@ ToolbarButtonConfig ToolbarButtonConfig::fromVar(const juce::var& json)
                 break;
             case ToolbarButtonType::TRANSPORT:
                 config.width = 180;
-                break;
-            default:
-                config.width = 28;
                 break;
         }
     }

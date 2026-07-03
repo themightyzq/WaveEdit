@@ -49,6 +49,8 @@ WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
       m_lastPlaybackPosition(0.0),
       m_lastUserScrollTime(0.0),
       m_isScrollingProgrammatically(false),
+      m_previewPosition(0.0),
+      m_hasPreviewPosition(false),
       m_hasSelection(false),
       m_selectionStart(0.0),
       m_selectionEnd(0.0),
@@ -68,9 +70,7 @@ WaveformDisplay::WaveformDisplay(juce::AudioFormatManager& formatManager)
       m_zeroCrossingEnabled(false),
       m_audioBufferRef(nullptr),
       m_useDirectRendering(false),
-      m_regionManager(nullptr),
-      m_previewPosition(0.0),
-      m_hasPreviewPosition(false)
+      m_regionManager(nullptr)
 {
     // Set up thumbnail
     m_thumbnail.addChangeListener(this);
@@ -808,6 +808,7 @@ double WaveformDisplay::snapTimeToUnit(double time) const
         case AudioUnits::UnitType::Milliseconds:  mode = AudioUnits::SnapMode::Milliseconds; break;
         case AudioUnits::UnitType::Seconds:       mode = AudioUnits::SnapMode::Seconds; break;
         case AudioUnits::UnitType::Frames:        mode = AudioUnits::SnapMode::Frames; break;
+        case AudioUnits::UnitType::Custom:
         default:                                  mode = AudioUnits::SnapMode::Off; break;
     }
 

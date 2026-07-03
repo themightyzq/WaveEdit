@@ -47,7 +47,7 @@ void BatchProcessorDialog::onPreviewClicked()
         selectedRow = 0;
     }
 
-    juce::File audioFile(m_fileInfos[selectedRow].fullPath);
+    juce::File audioFile(m_fileInfos[static_cast<size_t>(selectedRow)].fullPath);
     if (!audioFile.existsAsFile())
     {
         juce::AlertWindow::showMessageBoxAsync(
@@ -183,6 +183,11 @@ void BatchProcessorDialog::startPreviewPlayback(const juce::File& audioFile)
                 break;
             }
 
+            case BatchDSPOperation::NONE:
+            case BatchDSPOperation::PARAMETRIC_EQ:
+            case BatchDSPOperation::GRAPHICAL_EQ:
+            case BatchDSPOperation::REVERSE:
+            case BatchDSPOperation::INVERT:
             default:
                 break;
         }

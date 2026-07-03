@@ -61,6 +61,7 @@ public:
 
     // KeyListener (for arrow keys in the search field)
     bool keyPressed(const juce::KeyPress& key, juce::Component* source) override;
+    using juce::Component::keyPressed;
 
     static constexpr int kWidth = 500;
     static constexpr int kSearchHeight = 40;

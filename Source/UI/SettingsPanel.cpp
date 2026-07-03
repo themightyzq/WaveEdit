@@ -494,7 +494,7 @@ juce::Component* SettingsPanel::createDisplaySettingsTab()
     };
 
     m_themeImportButton.setButtonText("Import...");
-    m_themeImportButton.onClick = [this, refreshThemeCombo]()
+    m_themeImportButton.onClick = [refreshThemeCombo]()
     {
         auto chooser = std::make_shared<juce::FileChooser>(
             "Import theme JSON", juce::File(), "*.json");
