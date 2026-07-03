@@ -45,6 +45,40 @@ struct AudioFileInfo
 };
 
 /**
+ * A single-point cue destined for (or read from) a WAV RIFF "cue " point with
+ * a matching "labl". Corresponds to a WaveEdit Marker. Name is ASCII/Latin-1
+ * (labl is not Unicode); callers transliterate before writing.
+ */
+struct WavCueMarker
+{
+    juce::String name;
+    juce::int64 position = 0;  // sample offset within the data chunk
+};
+
+/**
+ * A ranged cue destined for (or read from) a WAV "cue " point plus an "ltxt"
+ * of purpose 'rgn '. Corresponds to a WaveEdit Region.
+ */
+struct WavCueRegion
+{
+    juce::String name;
+    juce::int64 start = 0;   // sample offset of the region start
+    juce::int64 length = 0;  // region length in samples (ltxt dwSampleLength)
+};
+
+/**
+ * The marker/region payload embedded in (or extracted from) a WAV file's
+ * RIFF cue + LIST-adtl chunks.
+ */
+struct WavCueData
+{
+    juce::Array<WavCueMarker> markers;
+    juce::Array<WavCueRegion> regions;
+
+    bool isEmpty() const { return markers.isEmpty() && regions.isEmpty(); }
+};
+
+/**
  * Manages audio file I/O operations for WaveEdit.
  *
  * Handles:
@@ -180,6 +214,41 @@ public:
      * @return true if iXML chunk was found and read, false otherwise
      */
     bool readiXMLChunk(const juce::File& file, juce::String& outData);
+
+    //==============================================================================
+    // WAV cue / adtl chunk embedding (markers + regions)
+    //
+    // Implemented in AudioFileManager_Cues.cpp. Composes with appendiXMLChunk /
+    // the BWF bext chunk: the writer copies every existing chunk EXCEPT a prior
+    // "cue " / LIST-adtl (which it replaces), so bext, INFO and iXML survive.
+
+    /**
+     * Embeds the given markers and regions into an existing WAV file as RIFF
+     * "cue " + LIST-adtl chunks (Sound Forge compatible: one cue point per
+     * marker, one cue point + ltxt of purpose 'rgn ' per region, labl for every
+     * name). Any pre-existing cue/adtl chunks are REPLACED, never duplicated.
+     * Odd-sized chunks are word-aligned and the RIFF size is fixed up. Writes
+     * atomically via a sibling temp file.
+     *
+     * If @p data is empty and the file has no existing cue/adtl chunks this is a
+     * no-op (returns true without rewriting).
+     *
+     * @param wavFile The WAV file to embed into (must already exist).
+     * @param data    Markers and regions to embed (names should be ASCII).
+     * @return true on success, false on error (see getLastError()).
+     */
+    bool writeCueChunks(const juce::File& wavFile, const WavCueData& data);
+
+    /**
+     * Parses a WAV file's embedded cue + LIST-adtl chunks into markers and
+     * regions. A cue point with a matching nonzero-length 'rgn ' ltxt becomes a
+     * region; a cue point without one becomes a marker. Names come from labl.
+     *
+     * @param wavFile  The WAV file to read.
+     * @param outData  Filled with the parsed markers/regions (cleared first).
+     * @return true if any cue data was found, false otherwise / on error.
+     */
+    bool readCueChunks(const juce::File& wavFile, WavCueData& outData);
 
     /**
      * Saves an audio buffer to any supported format (WAV, FLAC, OGG, MP3).

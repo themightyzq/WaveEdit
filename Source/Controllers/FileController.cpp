@@ -22,6 +22,7 @@
 #include "../UI/WaveformDisplay.h"
 #include "../UI/RegionDisplay.h"
 #include "../UI/MarkerDisplay.h"
+#include "../UI/SidecarNotifications.h"
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
 
@@ -209,6 +210,18 @@ void FileController::loadFile(const juce::File& file, juce::Component* /*parent*
 
         // Crash recovery: offer to restore an unsaved auto-save.
         offerCrashRecovery(doc, file);
+
+        // If a stale sidecar shadows a file that carries its own embedded cues,
+        // ask the user which markers/regions to trust.
+        juce::Component::SafePointer<WaveformDisplay> sidecarLifeline(
+            &doc->getWaveformDisplay());
+        SidecarNotifications::promptOnStaleSidecar(*doc, nullptr, [doc, sidecarLifeline]()
+        {
+            if (sidecarLifeline.getComponent() == nullptr)
+                return;   // document closed before the prompt resolved
+            doc->getRegionDisplay().repaint();
+            doc->getMarkerDisplay().repaint();
+        });
     }
     else
     {

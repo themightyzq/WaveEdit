@@ -28,6 +28,7 @@
 #include "../Utils/UndoableEdits.h"
 #include "../Utils/UndoActions/RegionUndoActions.h"
 #include "../UI/StripSilenceDialog.h"
+#include "../UI/SidecarNotifications.h"
 #include "../UI/EditRegionBoundariesDialog.h"
 #include "../UI/ThemeManager.h"
 #include <algorithm>
@@ -853,6 +854,10 @@ void RegionController::setupRegionCallbacks(Document* doc)
         doc->getUndoManager().perform(undoAction);
 
         DBG("Renamed region from '" + oldName + "' to '" + newName + "'");
+
+        // A non-ASCII name makes the doc sidecar-required; warn once on that
+        // transition.
+        SidecarNotifications::warnIfSidecarNowRequired(*doc, &doc->getRegionDisplay());
     };
 
     // onRegionColorChanged: Update region color with undo support
@@ -888,6 +893,10 @@ void RegionController::setupRegionCallbacks(Document* doc)
         doc->getUndoManager().perform(undoAction);
 
         DBG("Changed region color");
+
+        // A custom color makes the doc sidecar-required; warn once on that
+        // transition (this is the canonical "Companion File Created" trigger).
+        SidecarNotifications::warnIfSidecarNowRequired(*doc, &doc->getRegionDisplay());
     };
 
     // onRegionDeleted: Remove region from manager with undo support
