@@ -62,6 +62,7 @@ TimePitchDialog::TimePitchDialog(Mode mode,
     const auto range = computePreviewExcerpt(audioBuffer.getNumSamples(), sampleRate,
                                              hasSelection, selectionStartSeconds,
                                              selectionEndSeconds, cursorSeconds);
+    m_excerptFileStartSeconds = (sampleRate > 0.0) ? (range.getStart() / sampleRate) : 0.0;
     const int excerptLen = (int) juce::jmax((juce::int64) 0, range.getLength());
     if (excerptLen > 0 && audioBuffer.getNumChannels() > 0)
     {
@@ -352,7 +353,8 @@ bool TimePitchDialog::reloadActiveBuffer()
 
     const auto& buf = m_bypassActive ? m_originalExcerpt : m_processedBuffer;
     return m_audioEngine->startBufferPreview(buf, m_sampleRate, buf.getNumChannels(),
-                                             m_loopToggle.getToggleState());
+                                             m_loopToggle.getToggleState(),
+                                             m_excerptFileStartSeconds);
 }
 
 void TimePitchDialog::startPreview()

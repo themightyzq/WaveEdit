@@ -390,7 +390,7 @@ void AudioEngine::startSelectionPreview(int64_t selectionStart, int64_t selectio
 }
 
 bool AudioEngine::startBufferPreview(const juce::AudioBuffer<float>& buffer, double sampleRate,
-                                     int numChannels, bool loop)
+                                     int numChannels, bool loop, double fileOffsetSeconds)
 {
     if (buffer.getNumSamples() <= 0 || numChannels <= 0 || sampleRate <= 0.0)
         return false;
@@ -400,7 +400,10 @@ bool AudioEngine::startBufferPreview(const juce::AudioBuffer<float>& buffer, dou
         return false;
 
     const double durationSec = buffer.getNumSamples() / sampleRate;
-    m_previewRegionStartSec.store(0.0); // offline buffer plays from 0
+    // Offline buffer plays from 0; map its playback position back onto the
+    // source timeline so the on-screen playhead lands at the selection, not
+    // the file start (getCurrentPosition() adds this for OFFLINE_BUFFER).
+    m_previewRegionStartSec.store(fileOffsetSeconds);
 
     clearLoopPoints();
     setLooping(loop);
