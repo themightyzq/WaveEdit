@@ -291,6 +291,12 @@ void RecordingEngine::audioDeviceIOCallbackWithContext(const float* const* input
                                                        int numSamples,
                                                        const juce::AudioIODeviceCallbackContext& /*context*/)
 {
+    // H-H1 FIX: set FTZ/DAZ for the whole callback, matching the playback engine.
+    // Input metering / RMS math over near-silent input can otherwise generate
+    // denormals that stall the record thread. First statement so it covers all
+    // paths below.
+    const juce::ScopedNoDenormals noDenormals;
+
     // Clear output buffers (recording doesn't need playback)
     for (int i = 0; i < numOutputChannels; ++i)
     {

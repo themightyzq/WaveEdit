@@ -137,6 +137,21 @@ StripSilenceDialog::StripSilenceDialog(RegionManager& regionManager,
     };
     addAndMakeVisible(m_previewButton);
 
+    // Bypass / Loop: present for §6.8 footer-layout consistency but
+    // permanently disabled -- Auto Region is an analysis tool that creates
+    // regions from the static buffer, it never plays audio back, so A/B
+    // bypass comparison and looped playback have no meaning here.
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.setEnabled(false);
+    m_bypassButton.setTooltip("Not applicable - Auto Region does not play back audio");
+    addAndMakeVisible(m_bypassButton);
+
+    m_loopToggle.setButtonText("Loop");
+    m_loopToggle.setToggleState(true, juce::dontSendNotification);
+    m_loopToggle.setEnabled(false);
+    m_loopToggle.setTooltip("Not applicable - Auto Region does not play back audio");
+    addAndMakeVisible(m_loopToggle);
+
     // Apply button
     m_applyButton.setButtonText("Apply");
     m_applyButton.onClick = [this]()
@@ -282,13 +297,18 @@ void StripSilenceDialog::resized()
     auto regionCountArea = area.removeFromTop(25);
     m_regionCountLabel.setBounds(regionCountArea);
 
-    // Buttons at bottom — right-aligned convention:
-    // Left: Preview | Right: Cancel, Apply (Apply rightmost, primary action)
+    // Buttons at bottom — §6.8 standardized layout:
+    // Left: Preview | Bypass | Loop (Bypass/Loop disabled, see header comment)
+    // Right: Cancel, Apply (Apply rightmost, primary action)
     area.removeFromTop(20); // Spacing
     auto buttonRow = area.removeFromTop(buttonHeight);
 
-    // Left side: Preview
+    // Left side: Preview, Bypass, Loop
     m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+    buttonRow.removeFromLeft(ui::kButtonGap);
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(ui::kButtonWidthNarrow));
+    buttonRow.removeFromLeft(ui::kButtonGap);
+    m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
 
     // Right side: Apply (rightmost) then Cancel
     m_applyButton.setBounds(buttonRow.removeFromRight(buttonWidth));

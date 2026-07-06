@@ -428,7 +428,11 @@ void ClipboardController::pasteAtCursor(Document* doc)
                     doc->getWaveformDisplay(),
                     startSample,
                     endSample - startSample,
-                    conformed
+                    conformed,
+                    &doc->getRegionManager(),
+                    &doc->getRegionDisplay(),
+                    &doc->getMarkerManager(),
+                    &doc->getMarkerDisplay()
                 );
 
                 // Perform the replace and add to undo manager
@@ -446,7 +450,11 @@ void ClipboardController::pasteAtCursor(Document* doc)
                     doc->getAudioEngine(),
                     doc->getWaveformDisplay(),
                     insertSample,
-                    conformed
+                    conformed,
+                    &doc->getRegionManager(),
+                    &doc->getRegionDisplay(),
+                    &doc->getMarkerManager(),
+                    &doc->getMarkerDisplay()
                 );
 
                 // Perform the insert and add to undo manager

@@ -109,6 +109,8 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     int m_startSample;
     int m_numSamples;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SilenceUndoAction)
 };
 
 //==============================================================================
@@ -151,8 +153,14 @@ public:
         // Get the updated buffer
         auto& buffer = m_bufferManager.getMutableBuffer();
 
-        // Reload buffer in AudioEngine - preserve playback if active
-        m_audioEngine.reloadBufferPreservingPlayback(
+        // Trim REMOVES samples, so the buffer length / timeline changes.
+        // Deterministically STOP playback and reset to 0 rather than preserving
+        // a seconds-position that now maps onto different content -- matching
+        // Delete/Insert/Replace (UndoableEditBase::updatePlaybackAndDisplay),
+        // CLAUDE.md Sec 6.5. reloadBufferPreservingPlayback() would resume on
+        // the wrong audio.
+        m_audioEngine.stop();
+        m_audioEngine.loadFromBuffer(
             buffer, m_bufferManager.getSampleRate(), buffer.getNumChannels());
 
         // Update waveform display - clear selection since file length changed
@@ -174,9 +182,11 @@ public:
         buffer.setSize(m_beforeBuffer.getNumChannels(), m_beforeBuffer.getNumSamples());
         buffer.makeCopyOf(m_beforeBuffer, true);
 
-        // Reload buffer in AudioEngine - preserve playback if active
-        m_audioEngine.reloadBufferPreservingPlayback(buffer, m_bufferManager.getSampleRate(),
-                                                    buffer.getNumChannels());
+        // Undo restores the original (longer) length -- again a length change,
+        // so STOP playback deterministically rather than preserving position.
+        m_audioEngine.stop();
+        m_audioEngine.loadFromBuffer(buffer, m_bufferManager.getSampleRate(),
+                                     buffer.getNumChannels());
 
         // Update waveform display - clear selection since file length changed
         m_waveformDisplay.reloadFromBuffer(buffer, m_audioEngine.getSampleRate(),
@@ -192,4 +202,6 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     int m_startSample;
     int m_numSamples;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrimUndoAction)
 };

@@ -163,9 +163,14 @@ public:
      * Creates file: audioFile.markers.json
      *
      * @param audioFile Source audio file
+     * @param sampleRateScale Ratio (targetSampleRate / sourceSampleRate) to
+     *        apply to every marker position before writing. Pass 1.0
+     *        (default) for a normal save at the buffer's current rate. A
+     *        Save-As that resamples must pass the actual ratio so markers
+     *        stay aligned with the resampled audio on reopen.
      * @return true if saved successfully
      */
-    bool saveToFile(const juce::File& audioFile) const;
+    bool saveToFile(const juce::File& audioFile, double sampleRateScale = 1.0) const;
 
     /**
      * Load markers from JSON sidecar file
@@ -173,7 +178,7 @@ public:
      * @param audioFile Source audio file
      * @return true if loaded successfully (false if file doesn't exist)
      */
-    bool loadFromFile(const juce::File& audioFile);
+    bool loadFromFile(const juce::File& audioFile, int64_t totalSamples = -1);
 
     /**
      * Get path to marker sidecar file
@@ -184,8 +189,16 @@ public:
     static juce::File getMarkerFilePath(const juce::File& audioFile);
 
 private:
-    // Helper: Ensure we're on message thread (debug/logging)
-    void ensureMessageThread(const juce::String& methodName) const;
+    /**
+     * Ensure we're on the message thread. Mirrors RegionManager's
+     * (structurally identical) ensureMessageThread: logs an ERROR and
+     * returns false on a wrong-thread call instead of only asserting, so a
+     * Release build (where jassert is compiled out) still refuses the
+     * mutation rather than silently racing the message thread. Callers must
+     * check the return value and bail out on false, exactly like
+     * RegionManager's callers do.
+     */
+    bool ensureMessageThread(const juce::String& methodName) const;
 
     // Data
     juce::Array<Marker> m_markers;              // Main marker storage (sorted by position)

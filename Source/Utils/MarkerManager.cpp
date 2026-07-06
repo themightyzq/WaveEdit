@@ -8,23 +8,32 @@
 
 #include "MarkerManager.h"
 #include "SidecarPolicy.h"
+#include <cmath>
 
 MarkerManager::MarkerManager()
     : m_selectedMarkerIndex(-1)
 {
 }
 
-void MarkerManager::ensureMessageThread(const juce::String& /*methodName*/) const
+bool MarkerManager::ensureMessageThread(const juce::String& methodName) const
 {
-    if (!juce::MessageManager::getInstance()->isThisTheMessageThread())
+    const bool onMessageThread = juce::MessageManager::getInstance()->isThisTheMessageThread();
+
+    if (!onMessageThread)
     {
-        jassertfalse;  // Debug-time assertion
+        juce::Logger::writeToLog(
+            "ERROR: MarkerManager::" + methodName +
+            " called from wrong thread! Must be called from message thread only.");
     }
+
+    jassert(onMessageThread);
+    return onMessageThread;
 }
 
 int MarkerManager::addMarker(const Marker& marker)
 {
-    ensureMessageThread("addMarker");
+    if (!ensureMessageThread("addMarker"))
+        return -1;
 
     int index;
     {
@@ -46,7 +55,8 @@ int MarkerManager::addMarker(const Marker& marker)
 
 void MarkerManager::removeMarker(int index)
 {
-    ensureMessageThread("removeMarker");
+    if (!ensureMessageThread("removeMarker"))
+        return;
 
     {
         juce::ScopedLock lock(m_lock);
@@ -68,7 +78,8 @@ void MarkerManager::removeMarker(int index)
 
 void MarkerManager::removeAllMarkers()
 {
-    ensureMessageThread("removeAllMarkers");
+    if (!ensureMessageThread("removeAllMarkers"))
+        return;
 
     {
         juce::ScopedLock lock(m_lock);
@@ -81,7 +92,9 @@ void MarkerManager::removeAllMarkers()
 
 void MarkerManager::insertMarkerAt(int index, const Marker& marker)
 {
-    ensureMessageThread("insertMarkerAt");
+    if (!ensureMessageThread("insertMarkerAt"))
+        return;
+
     juce::ScopedLock lock(m_lock);
 
     if (index < 0 || index > m_markers.size())
@@ -198,7 +211,7 @@ void MarkerManager::setSelectedMarkerIndex(int index)
         m_selectedMarkerIndex = -1;  // Clear selection on invalid index
 }
 
-bool MarkerManager::saveToFile(const juce::File& audioFile) const
+bool MarkerManager::saveToFile(const juce::File& audioFile, double sampleRateScale) const
 {
     juce::File markerFile = getMarkerFilePath(audioFile);
 
@@ -222,10 +235,24 @@ bool MarkerManager::saveToFile(const juce::File& audioFile) const
         root->setProperty("audioModTime", audioFile.getLastModificationTime().toMilliseconds());
     }
 
-    // Serialize markers
+    // Serialize markers. When this save is converting the sample rate (Save
+    // As at a different rate), rescale each position so it still lands on
+    // the same audio content once reopened against the resampled file --
+    // the in-memory markers stay at the buffer's current rate.
     juce::Array<juce::var> markerArray;
     for (const auto& marker : m_markers)
-        markerArray.add(marker.toJSON());
+    {
+        if (sampleRateScale == 1.0)
+        {
+            markerArray.add(marker.toJSON());
+        }
+        else
+        {
+            Marker scaled = marker;
+            scaled.setPosition(static_cast<int64_t>(std::llround(static_cast<double>(marker.getPosition()) * sampleRateScale)));
+            markerArray.add(scaled.toJSON());
+        }
+    }
 
     root->setProperty("markers", markerArray);
 
@@ -236,9 +263,10 @@ bool MarkerManager::saveToFile(const juce::File& audioFile) const
     return markerFile.replaceWithText(jsonString);
 }
 
-bool MarkerManager::loadFromFile(const juce::File& audioFile)
+bool MarkerManager::loadFromFile(const juce::File& audioFile, int64_t totalSamples)
 {
-    ensureMessageThread("loadFromFile");
+    if (!ensureMessageThread("loadFromFile"))
+        return false;
 
     juce::File markerFile = getMarkerFilePath(audioFile);
 
@@ -268,6 +296,14 @@ bool MarkerManager::loadFromFile(const juce::File& audioFile)
     for (const auto& markerVar : *markerArray)
     {
         Marker marker = Marker::fromJSON(markerVar);
+        // M2: clamp to the buffer (mirrors RegionManager). A sidecar written at
+        // one rate and reopened after a sample-rate conversion, or an
+        // externally-edited/corrupt file, can carry a position past the end.
+        if (totalSamples >= 0)
+        {
+            const int64_t pos = juce::jlimit<int64_t>(0, totalSamples, marker.getPosition());
+            marker.setPosition(pos);
+        }
         tempMarkers.add(marker);
     }
 

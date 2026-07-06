@@ -241,27 +241,41 @@ ParametricEQDialog::ParametricEQDialog(AudioEngine* audioEngine,
     addAndMakeVisible(m_midBand);
     addAndMakeVisible(m_highBand);
 
-    // Preview controls - only visible if audio engine available
-    if (m_audioEngine && m_bufferManager)
+    // Preview controls - §6.8 footer: always present at the correct
+    // position/width so the layout doesn't change shape depending on
+    // whether an engine was supplied (REVIEW-DESIGN.md High Impact finding
+    // 5, third bullet); disabled outright when there's no engine/buffer to
+    // preview against instead of vanishing from the footer entirely.
+    const bool hasPreviewEngine = (m_audioEngine != nullptr && m_bufferManager != nullptr);
+
+    m_previewButton.onClick = [this]() { onPreviewClicked(); };
+    m_previewButton.setEnabled(hasPreviewEngine);
+    addAndMakeVisible(m_previewButton);
+
+    // Loop toggle - restore persisted state
+    m_loopToggle.setToggleState(s_lastLoopState, juce::dontSendNotification);  // Restore persisted state
+    m_loopToggle.onStateChange = [this]() {
+        s_lastLoopState = m_loopToggle.getToggleState();  // Save state on change
+    };
+    m_loopToggle.setEnabled(hasPreviewEngine);
+    addAndMakeVisible(m_loopToggle);
+
+    // Bypass button (starts disabled, enabled only during preview)
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.onClick = [this]() { onBypassClicked(); };
+    m_bypassButton.setEnabled(false);  // Disabled until preview starts (or permanently, with no engine)
+    addAndMakeVisible(m_bypassButton);
+
+    if (hasPreviewEngine)
     {
-        m_previewButton.onClick = [this]() { onPreviewClicked(); };
-        addAndMakeVisible(m_previewButton);
-
-        // Loop toggle - restore persisted state
-        m_loopToggle.setToggleState(s_lastLoopState, juce::dontSendNotification);  // Restore persisted state
-        m_loopToggle.onStateChange = [this]() {
-            s_lastLoopState = m_loopToggle.getToggleState();  // Save state on change
-        };
-        addAndMakeVisible(m_loopToggle);
-
-        // Bypass button (starts disabled, enabled only during preview)
-        m_bypassButton.setButtonText("Bypass");
-        m_bypassButton.onClick = [this]() { onBypassClicked(); };
-        m_bypassButton.setEnabled(false);  // Disabled until preview starts
-        addAndMakeVisible(m_bypassButton);
-
         // Create EQ processor for preview
         m_parametricEQ = std::make_unique<ParametricEQ>();
+    }
+    else
+    {
+        m_previewButton.setTooltip("Not available - no audio loaded to preview against");
+        m_bypassButton.setTooltip("Not available - no audio loaded to preview against");
+        m_loopToggle.setTooltip("Not available - no audio loaded to preview against");
     }
 
     // Buttons
@@ -274,8 +288,13 @@ ParametricEQDialog::ParametricEQDialog(AudioEngine* audioEngine,
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
     addAndMakeVisible(m_cancelButton);
 
-    // Dialog size: 3 bands (120px each) + spacing + title + buttons
-    setSize(450, 490);
+    // Dialog size: 3 bands (120px each) + spacing + title + buttons.
+    // Widened from 450 to fit the full §6.8 footer (Preview+Bypass+Loop+Reset
+    // on the left, Cancel+Apply on the right = 610px of buttons/gaps at
+    // kDialogPadding=15 each side) now that group is always laid out instead
+    // of only when an engine is present -- 450 could only ever fit the
+    // 3-button no-engine footer (needs visual QA to confirm final proportions).
+    setSize(660, 490);
 
     // Keyboard-first: grab focus on the primary control after construction
     setWantsKeyboardFocus(true);
@@ -373,22 +392,19 @@ void ParametricEQDialog::resized()
     // Button row - standardized §6.8 layout.
     // Left group: Preview + Bypass + Loop + Reset | Right group: Cancel + Apply.
     // Reset lives in the left group (not centered) so the right side always stays
-    // Cancel/Apply per protocol; the left group is always present (Reset at minimum)
-    // even when no audio engine is available.
+    // Cancel/Apply per protocol. Preview/Bypass/Loop are always laid out (just
+    // disabled when there's no audio engine) so the footer shape never changes.
     auto buttonRow = area.removeFromTop(ui::kButtonHeight);
     const int buttonWidth   = ui::kButtonWidth;
     const int buttonSpacing = ui::kButtonGap;
 
-    // Left side: Preview, Bypass, Loop (only with an engine), then Reset
-    if (m_audioEngine && m_bufferManager)
-    {
-        m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
-        buttonRow.removeFromLeft(buttonSpacing);
-        m_bypassButton.setBounds(buttonRow.removeFromLeft(ui::kButtonWidthNarrow));
-        buttonRow.removeFromLeft(buttonSpacing);
-        m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
-        buttonRow.removeFromLeft(buttonSpacing);
-    }
+    // Left side: Preview, Bypass, Loop, then Reset
+    m_previewButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+    buttonRow.removeFromLeft(buttonSpacing);
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(ui::kButtonWidthNarrow));
+    buttonRow.removeFromLeft(buttonSpacing);
+    m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
+    buttonRow.removeFromLeft(buttonSpacing);
 
     m_resetButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
 

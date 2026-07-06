@@ -427,14 +427,11 @@ public:
     void setDCOffsetPreview(bool enabled);
 
     //==========================================================================
-    // Shared real-time preview control (used by every Process dialog)
-    //
-    // A dialog selects its effect via the setXPreview() methods above + sets
-    // setPreviewMode(REALTIME_DSP), then calls startSelectionPreview() to play
-    // the selection looped or one-shot. This centralises the selection-offset /
-    // loop-point / setLooping / position / play sequence that was previously
-    // copy-pasted -- and had drifted -- across every dialog. stopSelectionPreview()
-    // is the single standardised teardown.
+    // Shared real-time preview control (used by every Process dialog). A dialog
+    // selects its effect via setXPreview() + setPreviewMode(REALTIME_DSP), then
+    // startSelectionPreview() plays the selection (looped/one-shot); this
+    // centralises the offset/loop/position/play sequence once copy-pasted across
+    // dialogs. stopSelectionPreview() is the single standardised teardown.
 
     /** Validated, playable preview region (output of computePreviewRegion). */
     struct PreviewRegion
@@ -780,12 +777,13 @@ private:
         void setLooping(bool shouldLoop) override;
 
     private:
-        // H20/L1 FIX: the playback buffer is held behind a shared_ptr that is
-        // swapped atomically. The audio thread copies the shared_ptr under a
-        // brief lock (just a refcount bump, no deep copy) and works on its own
-        // snapshot; setBuffer() performs the expensive deep makeCopyOf OFF-lock,
-        // then swaps the pointer under the same brief lock. This keeps the audio
-        // thread from ever waiting on a multi-millisecond buffer copy (§6.4).
+        // H20/L1/M-H1 FIX: the playback buffer is held behind a shared_ptr that
+        // is swapped by the message thread. setBuffer()/clear() perform the
+        // expensive deep makeCopyOf and the old-buffer free OFF-lock, holding
+        // m_lock only for the pointer swap. The audio thread reads via a
+        // ScopedTryLock and dereferences the RAW pointer inside the locked scope
+        // -- no blocking (skips to silence on contention) and no shared_ptr
+        // refcount traffic on the audio thread (§6.4).
         using BufferPtr = std::shared_ptr<const juce::AudioBuffer<float>>;
         BufferPtr m_buffer;                      // guarded by m_lock (pointer swap only)
         std::atomic<juce::int64> m_bufferLength{0};  // mirrors m_buffer length for lock-free reads
@@ -839,14 +837,11 @@ private:
     std::atomic<bool> m_channelMute[MAX_CHANNELS];
 
     //==============================================================================
-    // Surround Monitoring Fold-Down (H7)
-    //
-    // When the loaded file has more channels than the device outputs, the audio
-    // callback renders ALL source channels into m_foldDownScratch and folds them
-    // to the device channels via a precomputed gain matrix (ITU-R BS.775, LFE
-    // excluded). The matrix is (re)built on the message/device-prepare thread and
-    // published to the audio thread via a double buffer + atomic index; the audio
-    // thread only reads it (no lock, no allocation). See CLAUDE.md §6.4.
+    // Surround Monitoring Fold-Down (H7). When the file has more channels than
+    // the device, the callback renders all source channels into m_foldDownScratch
+    // and folds to device channels via a precomputed ITU-R BS.775 matrix (LFE
+    // excluded), published message->audio via a double buffer + atomic index
+    // (audio thread reads only; no lock/alloc, CLAUDE.md §6.4).
     std::atomic<int>  m_deviceOutputChannels{2};   // device open count (2 this PR)
     FoldDownMatrix    m_foldDownMatrix[2];          // double-buffered
     std::atomic<int>  m_foldDownMatrixIndex{0};     // which buffer is published
@@ -1053,6 +1048,15 @@ private:
     // Preview plugin instance for OfflinePluginDialog real-time preview
     // NOT owned by AudioEngine - caller maintains ownership
     std::atomic<juce::AudioPluginInstance*> m_previewPluginInstance{nullptr};
+
+    // C-H1 FIX: guards the window in which the audio callback dereferences the
+    // preview plugin instance. setPreviewPluginInstance() takes this lock
+    // (blocking, message thread) around the store, so the caller can only
+    // destroy the instance after the audio thread has left the try-locked
+    // load+processBlock region. The callback uses ScopedTryLock and skips the
+    // preview plugin on contention (never blocks the audio thread). Same
+    // pattern as m_analyzerLock (C8). See §6.4.
+    juce::CriticalSection m_previewPluginLock;
 
     // Preview selection offset for accurate cursor positioning
     std::atomic<int64_t> m_previewSelectionStartSamples{0};

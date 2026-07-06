@@ -54,6 +54,7 @@ target_sources(WaveEdit
         Source/Controllers/PluginController.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioEngine_Preview.cpp
+        Source/Audio/AudioEngine_MemorySource.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
         Source/Audio/AudioBufferManager.h
@@ -437,7 +438,11 @@ if(APPLE)
                 COMMAND install_name_tool -id
                     "@rpath/libmp3lame.dylib"
                     "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libmp3lame.dylib"
-                COMMENT "Bundling LAME MP3 encoder library"
+                # Rewrite the executable's load command to the bundled @rpath
+                # copy (reads the exe's actual reference; robust to versioning).
+                COMMAND bash "${CMAKE_SOURCE_DIR}/cmake/relink_bundled_dylib.sh"
+                    "$<TARGET_FILE:WaveEdit>" libmp3lame "@rpath/libmp3lame.dylib"
+                COMMENT "Bundling LAME MP3 encoder library and relinking executable"
             )
             message(STATUS "LAME will be bundled in Release builds")
         else()
@@ -516,6 +521,65 @@ elseif(UNIX)
     )
 endif()
 
+# ----------------------------------------------------------------------------
+# Bundled-library rpath for the app executable. Set unconditionally: LAME,
+# SoundTouch, and any future bundled dylib all rely on it, so it must not
+# depend on whether one specific optional library was found (M8 -- it was
+# previously nested inside the LAME find-block, risking removal on edit).
+# Idempotent with the per-lib settings above (same values).
+# ----------------------------------------------------------------------------
+if(APPLE)
+    set_target_properties(WaveEdit PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "@executable_path/../Frameworks")
+elseif(UNIX)
+    set_target_properties(WaveEdit PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN")
+endif()
+
+# ----------------------------------------------------------------------------
+# Make LAME actually USED. JUCE's MP3AudioFormat is decode-only, so WaveEdit
+# ships its own LAME-backed encoder (Source/Audio/LameMP3AudioFormat.cpp).
+# The block above only bundles the dylib; here we find the header, add the
+# encoder source, and link+define WAVEEDIT_HAVE_LAME when lib AND header are
+# present. Without LAME the encoder TU compiles empty and MP3 export reports
+# unavailable at runtime (the build still succeeds). LGPL: dynamically linked.
+# ----------------------------------------------------------------------------
+find_path(LAME_INCLUDE_DIR
+    NAMES lame/lame.h
+    PATHS
+        /opt/homebrew/opt/lame/include   /opt/homebrew/include
+        /usr/local/opt/lame/include      /usr/local/include
+        /opt/local/include               /usr/include
+        "${CMAKE_SOURCE_DIR}/ThirdParty/lame/include"
+)
+# Unconditional so EVERY platform (incl. Windows/vcpkg) can link LAME, not just
+# the macOS/Linux bundling branches above -- otherwise the gate below is never
+# true on Windows and MP3 silently ships disabled.
+find_library(LAME_LIBRARY
+    NAMES mp3lame libmp3lame
+    PATHS
+        /opt/homebrew/opt/lame/lib   /opt/homebrew/lib
+        /usr/local/opt/lame/lib      /usr/local/lib
+        /opt/local/lib               /usr/lib
+        /usr/lib/x86_64-linux-gnu    /usr/lib/aarch64-linux-gnu
+        "${CMAKE_SOURCE_DIR}/ThirdParty/lame/lib"
+)
+target_sources(WaveEdit PRIVATE
+    Source/Audio/LameMP3AudioFormat.cpp
+    Source/Audio/LameMP3AudioFormat.h)
+if(LAME_LIBRARY AND LAME_INCLUDE_DIR)
+    target_include_directories(WaveEdit PRIVATE ${LAME_INCLUDE_DIR})
+    target_link_libraries(WaveEdit PRIVATE ${LAME_LIBRARY})
+    target_compile_definitions(WaveEdit PRIVATE WAVEEDIT_HAVE_LAME=1)
+    message(STATUS "LAME MP3 encoder: ENABLED (${LAME_LIBRARY})")
+    set(WAVEEDIT_MP3_ENABLED TRUE CACHE INTERNAL "")
+else()
+    message(WARNING "LAME MP3 encoder: DISABLED - lib/header not found; MP3 export unavailable at runtime")
+    set(WAVEEDIT_MP3_ENABLED FALSE CACHE INTERNAL "")
+endif()
+
 # ============================================================================
 # Bundle SoundTouch (LGPL-2.1) for time-stretch / pitch-shift DSP
 # ============================================================================
@@ -532,11 +596,17 @@ if(SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR)
                 "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks"
             COMMAND ${CMAKE_COMMAND} -E copy
                 "${SOUNDTOUCH_LIBRARY}"
-                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libSoundTouch.dylib"
+                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libSoundTouch.1.dylib"
             COMMAND install_name_tool -id
-                "@rpath/libSoundTouch.dylib"
-                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libSoundTouch.dylib"
-            COMMENT "Bundling SoundTouch library"
+                "@rpath/libSoundTouch.1.dylib"
+                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libSoundTouch.1.dylib"
+            # Relink the executable to the bundled copy. Reads the exe's
+            # actual load command at build time (robust to which symlink
+            # find_library resolved); the app bundle already carries an
+            # @executable_path/../Frameworks rpath that resolves @rpath.
+            COMMAND bash "${CMAKE_SOURCE_DIR}/cmake/relink_bundled_dylib.sh"
+                "$<TARGET_FILE:WaveEdit>" libSoundTouch "@rpath/libSoundTouch.1.dylib"
+            COMMENT "Bundling SoundTouch library and relinking executable"
         )
     elseif(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Release")
         # On Windows, SOUNDTOUCH_LIBRARY is the import library (.lib); the
@@ -668,6 +738,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Controllers/DSPController.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioEngine_Preview.cpp
+        Source/Audio/AudioEngine_MemorySource.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioBufferManager.cpp
         Source/Audio/AudioBufferManager.h
@@ -930,6 +1001,16 @@ if(WAVEEDIT_BUILD_TESTS)
     # Link SoundTouch (LGPL-2.1) — same library used by the WaveEdit binary.
     target_link_libraries(WaveEditCore PUBLIC ${SOUNDTOUCH_LIBRARY})
 
+    # LAME encoder for the core lib / test target (mirrors the app target).
+    target_sources(WaveEditCore PRIVATE
+        Source/Audio/LameMP3AudioFormat.cpp
+        Source/Audio/LameMP3AudioFormat.h)
+    if(LAME_LIBRARY AND LAME_INCLUDE_DIR)
+        target_include_directories(WaveEditCore PUBLIC ${LAME_INCLUDE_DIR})
+        target_link_libraries(WaveEditCore PUBLIC ${LAME_LIBRARY})
+        target_compile_definitions(WaveEditCore PUBLIC WAVEEDIT_HAVE_LAME=1)
+    endif()
+
     # Preprocessor definitions for WaveEditCore
     target_compile_definitions(WaveEditCore
         PUBLIC
@@ -1003,6 +1084,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/GoToPositionDialogTests.cpp              # Week 4 ✅ (Go To Position parsing)
             Tests/Integration/RegionListBatchRenameTests.cpp    # Week 4 ✅ (Batch Rename regions)
             Tests/Integration/SaveAsFormatsTests.cpp            # Phase 4 ✅ (Save As all formats)
+            Tests/Integration/MP3EncodeTests.cpp                # LAME MP3 encode round-trip
             Tests/Integration/SaveAs8BitTests.cpp               # Phase 4 ✅ (8-bit Save Tests)
             Tests/Integration/SaveSampleFormatTests.cpp         # H1: 32-float sample format
 
@@ -1043,6 +1125,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/LargeOperationUndoTests.cpp              # Undo/redo correctness at large (multi-million-sample) buffer sizes
             Tests/Unit/SettingsPersistenceTests.cpp             # UX finding 1: generic settings round-trip + old-format compat
             Tests/Unit/MonitorFoldDownTests.cpp                 # H7: surround monitoring fold-down matrix (ITU-R BS.775)
+            Tests/Unit/AutomationCurveRealtimeReadTests.cpp     # H-H2: lock-free automation curve audio-thread read
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6

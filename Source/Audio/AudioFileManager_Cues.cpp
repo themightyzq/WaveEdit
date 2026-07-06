@@ -23,6 +23,7 @@
 */
 
 #include "AudioFileManager.h"
+#include <limits>
 #include <map>
 #include <vector>
 
@@ -77,16 +78,51 @@ namespace
         juce::String name;
     };
 
+    /**
+     * RIFF "cue " / "ltxt" fields are 32-bit (DWORD). A position or region
+     * end beyond UINT32_MAX would silently truncate/wrap into a garbage
+     * sample when cast to a 32-bit field on write. Reject those entries here
+     * rather than embedding a corrupt cue point; the caller falls back to
+     * the (int64-capable) JSON sidecar for anything dropped this way.
+     */
+    bool fitsIn32BitCueField(juce::int64 position, juce::int64 length)
+    {
+        return position >= 0
+            && length >= 0
+            && position <= static_cast<juce::int64>(std::numeric_limits<juce::uint32>::max())
+            && (position + length) <= static_cast<juce::int64>(std::numeric_limits<juce::uint32>::max());
+    }
+
     juce::Array<CueEntry> buildEntries(const WavCueData& data)
     {
         juce::Array<CueEntry> entries;
         juce::uint32 nextId = 1;
 
         for (const auto& m : data.markers)
+        {
+            if (!fitsIn32BitCueField(m.position, 0))
+            {
+                juce::Logger::writeToLog(
+                    "AudioFileManager::buildEntries - marker '" + m.name
+                    + "' position exceeds the 32-bit WAV cue-chunk range; skipped "
+                      "(preserved in the JSON sidecar only)");
+                continue;
+            }
             entries.add({ nextId++, m.position, false, 0, m.name });
+        }
 
         for (const auto& r : data.regions)
+        {
+            if (!fitsIn32BitCueField(r.start, r.length))
+            {
+                juce::Logger::writeToLog(
+                    "AudioFileManager::buildEntries - region '" + r.name
+                    + "' exceeds the 32-bit WAV cue-chunk range; skipped "
+                      "(preserved in the JSON sidecar only)");
+                continue;
+            }
             entries.add({ nextId++, r.start, true, r.length, r.name });
+        }
 
         return entries;
     }
@@ -320,6 +356,10 @@ bool AudioFileManager::readCueChunks(const juce::File& file, WavCueData& outData
     std::vector<juce::uint32> cueOrder;
     std::map<juce::uint32, juce::String> labels;
     std::map<juce::uint32, juce::int64> regionLen;
+    // Fallback name source: a foreign WAV may store a region's name as
+    // inline text inside "ltxt" instead of a separate "labl" (WaveEdit's own
+    // writer always emits "labl", so this is only exercised on import).
+    std::map<juce::uint32, juce::String> ltxtInlineText;
 
     uint64_t offset = 12;
     const uint64_t fileSize = static_cast<uint64_t>(fileData.getSize());
@@ -347,12 +387,34 @@ bool AudioFileManager::readCueChunks(const juce::File& file, WavCueData& outData
             {
                 const juce::uint32 cid =
                     static_cast<juce::uint32>(juce::ByteOrder::littleEndianInt(body + p));
+                const juce::uint32 dwChunkStart =
+                    static_cast<juce::uint32>(juce::ByteOrder::littleEndianInt(body + p + 12));
                 const juce::uint32 sampleOffset =
                     static_cast<juce::uint32>(juce::ByteOrder::littleEndianInt(body + p + 20));
 
-                if (cuePos.find(cid) == cuePos.end())
-                    cueOrder.push_back(cid);
-                cuePos[cid] = static_cast<juce::int64>(sampleOffset);
+                // dwSampleOffset is only a direct, file-relative sample position
+                // when fccChunk names the single "data" chunk and dwChunkStart
+                // is 0 (per the WAV cue-chunk spec). WaveEdit's own writer
+                // always emits exactly that; a foreign file whose cue points at
+                // a different/offset chunk cannot be interpreted as an absolute
+                // sample without also resolving that chunk, which this reader
+                // does not do. Skip rather than silently misplacing the cue.
+                const bool isDirectDataOffset =
+                    memcmp(body + p + 8, "data", 4) == 0 && dwChunkStart == 0;
+
+                if (isDirectDataOffset)
+                {
+                    if (cuePos.find(cid) == cuePos.end())
+                        cueOrder.push_back(cid);
+                    cuePos[cid] = static_cast<juce::int64>(sampleOffset);
+                }
+                else
+                {
+                    juce::Logger::writeToLog(
+                        "AudioFileManager::readCueChunks - cue id " + juce::String(cid)
+                        + " does not reference the data chunk at offset 0; skipped "
+                          "(non-WaveEdit cue layout)");
+                }
 
                 p += 24;
             }
@@ -391,6 +453,18 @@ bool AudioFileManager::readCueChunks(const juce::File& file, WavCueData& outData
 
                     if (memcmp(purpose, "rgn ", 4) == 0 && sampleLen > 0)
                         regionLen[cid] = static_cast<juce::int64>(sampleLen);
+
+                    // ltxt's own fixed header is 20 bytes (dwName, dwSampleLength,
+                    // dwPurposeID, wCountry, wLanguage, wDialect, wCodePage);
+                    // anything past that is the inline label text some tools use
+                    // instead of a "labl" chunk.
+                    if (subSize > 20)
+                    {
+                        const juce::String inlineText =
+                            readAscii(sub + 20, static_cast<int>(subSize) - 20);
+                        if (inlineText.isNotEmpty())
+                            ltxtInlineText[cid] = inlineText;
+                    }
                 }
 
                 p += 8 + subSize;
@@ -408,7 +482,12 @@ bool AudioFileManager::readCueChunks(const juce::File& file, WavCueData& outData
     for (const juce::uint32 cid : cueOrder)
     {
         const juce::int64 pos = cuePos[cid];
-        const juce::String name = labels.count(cid) ? labels[cid] : juce::String();
+        // Prefer the "labl" chunk; fall back to ltxt's inline text (some
+        // foreign encoders store the name there instead) so an imported
+        // region/marker isn't unnecessarily unnamed.
+        const juce::String name = labels.count(cid)
+                                 ? labels[cid]
+                                 : (ltxtInlineText.count(cid) ? ltxtInlineText[cid] : juce::String());
 
         const auto rl = regionLen.find(cid);
         if (rl != regionLen.end())

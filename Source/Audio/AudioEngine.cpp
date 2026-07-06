@@ -22,186 +22,6 @@
 std::atomic<AudioEngine*> AudioEngine::s_previewingEngine{nullptr};
 
 //==============================================================================
-// MemoryAudioSource Implementation
-
-AudioEngine::MemoryAudioSource::MemoryAudioSource()
-    : m_buffer(std::make_shared<const juce::AudioBuffer<float>>()),
-      m_sampleRate(44100.0),
-      m_readPosition(0),
-      m_isLooping(false)
-{
-}
-
-AudioEngine::MemoryAudioSource::~MemoryAudioSource()
-{
-}
-
-void AudioEngine::MemoryAudioSource::setBuffer(const juce::AudioBuffer<float>& buffer, double sampleRate, bool preservePosition)
-{
-    // IMPORTANT: Must be called from message thread only
-    // This method allocates memory and should never be called from audio thread
-    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
-
-    // Capture current position BEFORE the deep copy.
-    juce::int64 savedPosition = preservePosition ? m_readPosition.load() : 0;
-
-    // H20 FIX: do the expensive deep copy OFF-lock. The audio thread keeps
-    // playing the previous buffer snapshot during this copy and never blocks.
-    auto newBuffer = std::make_shared<juce::AudioBuffer<float>>();
-    newBuffer->makeCopyOf(buffer);
-    const juce::int64 newLength = newBuffer->getNumSamples();
-
-    juce::int64 newPosition = preservePosition ? juce::jmin(savedPosition, newLength) : 0;
-
-    // Swap in the new buffer under a brief lock (pointer swap only). Use
-    // swap, not move-assign: assignment would release the OLD buffer inside
-    // the lock, and a multi-hundred-MB deallocation would stall any audio
-    // callback blocked on m_lock. After the swap, newBuffer holds the old
-    // buffer and frees it below, outside the locked scope. (M1)
-    BufferPtr incoming = std::move(newBuffer);
-    {
-        juce::ScopedLock sl(m_lock);
-        std::swap(m_buffer, incoming);
-        m_sampleRate = sampleRate;
-    }
-    // 'incoming' now owns the OLD buffer and releases it here, off-lock.
-
-    // Publish the new length and position for lock-free readers (L1).
-    m_bufferLength.store(newLength);
-    m_readPosition.store(newPosition);
-}
-
-void AudioEngine::MemoryAudioSource::clear()
-{
-    auto emptyBuffer = std::make_shared<juce::AudioBuffer<float>>();
-    BufferPtr previous;
-    {
-        juce::ScopedLock sl(m_lock);
-        previous = std::move(m_buffer);
-        m_buffer = std::move(emptyBuffer);
-    }
-    // 'previous' releases the old buffer here, outside the lock (M1).
-    m_bufferLength.store(0);
-    m_readPosition.store(0);
-}
-
-void AudioEngine::MemoryAudioSource::prepareToPlay(int /*samplesPerBlockExpected*/, double /*sampleRate*/)
-{
-    // Nothing special needed for preparation
-}
-
-void AudioEngine::MemoryAudioSource::releaseResources()
-{
-    // Nothing to release
-}
-
-void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
-{
-    // H20 FIX: copy the current buffer snapshot under a brief lock (refcount bump
-    // only), then release the lock and work on the snapshot. setBuffer()'s deep
-    // copy happens off-lock, so the audio thread never blocks on it. Holding our
-    // own shared_ptr keeps the buffer alive even if setBuffer() swaps mid-block.
-    BufferPtr bufferSnapshot;
-    {
-        juce::ScopedLock sl(m_lock);
-        bufferSnapshot = m_buffer;
-    }
-
-    bufferToFill.clearActiveBufferRegion();
-
-    const juce::AudioBuffer<float>& src = *bufferSnapshot;
-    if (src.getNumSamples() == 0)
-    {
-        return;
-    }
-
-    juce::int64 startSample = m_readPosition.load();
-    int numSamplesToRead = bufferToFill.numSamples;
-    int numSamplesAvailable = static_cast<int>(src.getNumSamples() - startSample);
-
-    if (numSamplesAvailable <= 0)
-    {
-        // Reached end of buffer
-        if (m_isLooping)
-        {
-            // Reset position and recalculate - avoid recursion
-            m_readPosition.store(0);
-            startSample = 0;
-            numSamplesAvailable = src.getNumSamples();
-        }
-        else
-        {
-            return;
-        }
-    }
-
-    int numSamples = juce::jmin(numSamplesToRead, numSamplesAvailable);
-
-    // Additional safety: Ensure we don't read past buffer end
-    if (startSample + numSamples > src.getNumSamples())
-    {
-        numSamples = static_cast<int>(src.getNumSamples() - startSample);
-        if (numSamples <= 0)
-            return;
-    }
-
-    // Copy audio data from buffer to output
-    // IMPORTANT: Handle mono-to-stereo conversion professionally
-    // Mono files should play centered (equal on both channels), not just left channel
-    int sourceChannels = src.getNumChannels();
-    int outputChannels = bufferToFill.buffer->getNumChannels();
-
-    if (sourceChannels == 1 && outputChannels == 2)
-    {
-        // Mono to stereo: duplicate mono channel to both L and R for center-panned playback
-        // This matches professional audio editor behavior (Sound Forge, Pro Tools, etc.)
-        bufferToFill.buffer->copyFrom(0, bufferToFill.startSample,
-                                      src, 0, static_cast<int>(startSample), numSamples);
-        bufferToFill.buffer->copyFrom(1, bufferToFill.startSample,
-                                      src, 0, static_cast<int>(startSample), numSamples);
-    }
-    else
-    {
-        // Standard channel mapping: match channels one-to-one up to minimum of source/output
-        for (int ch = 0; ch < juce::jmin(sourceChannels, outputChannels); ++ch)
-        {
-            bufferToFill.buffer->copyFrom(ch, bufferToFill.startSample,
-                                          src, ch, static_cast<int>(startSample), numSamples);
-        }
-    }
-
-    m_readPosition.store(startSample + numSamples);
-}
-
-void AudioEngine::MemoryAudioSource::setNextReadPosition(juce::int64 newPosition)
-{
-    // L1 FIX: read length from the atomic mirror instead of touching m_buffer
-    // without the lock. Consistent with the H20 atomic swap.
-    juce::int64 clampedPosition = juce::jlimit<juce::int64>(0, m_bufferLength.load(), newPosition);
-    m_readPosition.store(clampedPosition);
-}
-
-juce::int64 AudioEngine::MemoryAudioSource::getNextReadPosition() const
-{
-    return m_readPosition.load();
-}
-
-juce::int64 AudioEngine::MemoryAudioSource::getTotalLength() const
-{
-    return m_bufferLength.load();
-}
-
-bool AudioEngine::MemoryAudioSource::isLooping() const
-{
-    return m_isLooping;
-}
-
-void AudioEngine::MemoryAudioSource::setLooping(bool shouldLoop)
-{
-    m_isLooping = shouldLoop;
-}
-
-//==============================================================================
 // AudioEngine Implementation
 
 AudioEngine::AudioEngine()
@@ -952,6 +772,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                                                     int numSamples,
                                                     const juce::AudioIODeviceCallbackContext& /*context*/)
 {
+    // H-H1 FIX: set FTZ/DAZ for the entire render so the recursive IIR feedback
+    // state in the DC blocker and both EQ paths cannot slide into the denormal
+    // range on a decaying tail and stall the audio deadline. Must be the first
+    // statement so it covers every DSP path below. Restored on scope exit.
+    const juce::ScopedNoDenormals noDenormals;
+
     // Create an audio buffer for the output
     juce::AudioBuffer<float> buffer(const_cast<float**>(outputChannelData), numOutputChannels, numSamples);
 
@@ -1147,11 +973,24 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
         // 7. Apply preview plugin instance (for OfflinePluginDialog real-time preview)
         // This allows plugins like FabFilter Pro-Q 4 to receive audio and display
-        // their visualizations (spectrum, waveform, etc.) during preview
-        juce::AudioPluginInstance* previewPlugin = m_previewPluginInstance.load();
-        if (previewPlugin != nullptr)
+        // their visualizations (spectrum, waveform, etc.) during preview.
+        //
+        // C-H1 FIX: the instance is owned by OfflinePluginDialog and destroyed on
+        // its teardown. Try-lock the same lock the message-thread setter blocks on,
+        // so the instance cannot be destroyed while we hold it: the setter (which
+        // stores nullptr before the dialog frees the unique_ptr) blocks until this
+        // try-locked region is not entered, guaranteeing no processBlock() on freed
+        // memory. Skip on contention -- never block the audio thread. Contention
+        // only occurs during the one-shot preview teardown, so a single skipped
+        // block is inaudible.
         {
-            previewPlugin->processBlock(buffer, m_emptyMidiBuffer);
+            const juce::ScopedTryLock stl(m_previewPluginLock);
+            if (stl.isLocked())
+            {
+                juce::AudioPluginInstance* previewPlugin = m_previewPluginInstance.load();
+                if (previewPlugin != nullptr)
+                    previewPlugin->processBlock(buffer, m_emptyMidiBuffer);
+            }
         }
     }
 

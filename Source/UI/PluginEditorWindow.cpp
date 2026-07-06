@@ -15,6 +15,7 @@
 
 #include "PluginEditorWindow.h"
 
+#include "../Plugins/PluginChain.h"
 #include "../Plugins/PluginChainNode.h"
 #include "ThemeManager.h"
 
@@ -322,6 +323,21 @@ bool PluginEditorWindow::perform(const InvocationInfo& /*info*/)
 PluginEditorWindow* PluginEditorWindow::showForNode(PluginChainNode* node,
                                                      juce::ApplicationCommandManager* commandManager)
 {
+    // Install the chain's node-removal hook once, lazily, on first use. A node
+    // can only acquire an editor window via this method, so installing here
+    // guarantees the hook is live before any node a window depends on could be
+    // removed -- closing the window before its raw node pointer can dangle
+    // (delayed-deletion UAF). Message thread only; keeps PluginChain UI-agnostic.
+    static const bool hookInstalled = []
+    {
+        PluginChain::setNodeRemovalHook([](PluginChainNode* removedNode)
+        {
+            PluginEditorWindow::closeForNode(removedNode);
+        });
+        return true;
+    }();
+    juce::ignoreUnused(hookInstalled);
+
     if (node == nullptr)
     {
         return nullptr;
