@@ -440,7 +440,7 @@ if(APPLE)
                     "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libmp3lame.dylib"
                 # Rewrite the executable's load command to the bundled @rpath
                 # copy (reads the exe's actual reference; robust to versioning).
-                COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/relink_bundled_dylib.sh"
+                COMMAND bash "${CMAKE_SOURCE_DIR}/cmake/relink_bundled_dylib.sh"
                     "$<TARGET_FILE:WaveEdit>" libmp3lame "@rpath/libmp3lame.dylib"
                 COMMENT "Bundling LAME MP3 encoder library and relinking executable"
             )
@@ -604,7 +604,7 @@ if(SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR)
             # actual load command at build time (robust to which symlink
             # find_library resolved); the app bundle already carries an
             # @executable_path/../Frameworks rpath that resolves @rpath.
-            COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/relink_bundled_dylib.sh"
+            COMMAND bash "${CMAKE_SOURCE_DIR}/cmake/relink_bundled_dylib.sh"
                 "$<TARGET_FILE:WaveEdit>" libSoundTouch "@rpath/libSoundTouch.1.dylib"
             COMMENT "Bundling SoundTouch library and relinking executable"
         )
