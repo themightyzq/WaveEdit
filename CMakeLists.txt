@@ -708,6 +708,19 @@ else()
     )
 endif()
 
+# ============================================================================
+# Re-sign the app bundle -- MUST be the last bundle-modifying POST_BUILD step
+# ============================================================================
+# install_name_tool relinking AND the Keymaps/Toolbars resource copies above
+# invalidate the linker's ad-hoc code signature; macOS then SIGKILLs the app on
+# launch ("Killed: 9"). Re-sign ad-hoc here, after every other bundle edit.
+# (Release notarization, when cut, re-signs with the real cert afterwards.)
+if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_custom_command(TARGET WaveEdit POST_BUILD
+        COMMAND codesign --force --deep --sign - "$<TARGET_BUNDLE_DIR:WaveEdit>"
+        COMMENT "Re-signing app bundle (ad-hoc) after all bundle edits")
+endif()
+
 # Copy resources (for future phases - icons, fonts, etc.)
 # file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets
 #      DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
