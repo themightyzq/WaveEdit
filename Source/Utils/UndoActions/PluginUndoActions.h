@@ -6,7 +6,6 @@
     Copyright (C) 2025 ZQ SFX
 
     Plugin/EQ-domain undo actions per CLAUDE.md §8.1:
-      - ApplyParametricEQAction
       - ApplyDynamicParametricEQAction
       - ApplyPluginChainAction
 
@@ -18,77 +17,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "../UndoableEdits.h"
-#include "../../DSP/ParametricEQ.h"
 #include "../../DSP/DynamicParametricEQ.h"
-
-//==============================================================================
-/**
- * Undoable action for applying 3-band parametric EQ to audio selection.
- */
-class ApplyParametricEQAction : public UndoableEditBase
-{
-public:
-    ApplyParametricEQAction(AudioBufferManager& bufferManager,
-                           AudioEngine& audioEngine,
-                           WaveformDisplay& waveformDisplay,
-                           int64_t startSample,
-                           int64_t numSamples,
-                           const ParametricEQ::Parameters& eqParams)
-        : UndoableEditBase(bufferManager, audioEngine, waveformDisplay),
-          m_startSample(startSample),
-          m_numSamples(numSamples),
-          m_eqParams(eqParams)
-    {
-        jassert(m_bufferManager.hasAudioData());
-        jassert(startSample >= 0 && startSample < m_bufferManager.getNumSamples());
-        jassert(numSamples > 0 && (startSample + numSamples) <= m_bufferManager.getNumSamples());
-
-        m_originalAudio = m_bufferManager.getAudioRange(startSample, numSamples);
-        m_sampleRate = m_bufferManager.getSampleRate();
-    }
-
-    bool perform() override
-    {
-        auto audioToProcess = m_bufferManager.getAudioRange(m_startSample, m_numSamples);
-
-        ParametricEQ eq;
-        eq.prepare(m_sampleRate, audioToProcess.getNumSamples());
-        eq.setParameters(m_eqParams);   // Offline (message/worker thread) use
-        eq.applyEQ(audioToProcess);
-
-        const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, audioToProcess);
-        if (success)
-            // EQ processes the range in place -- length is always m_numSamples
-            // in and out, so preserving playback (§6.5) is safe here, unlike
-            // the length-changing actions (Delete/Insert/Replace).
-            updatePlaybackAndDisplayPreservingPlayback();
-        return success;
-    }
-
-    bool undo() override
-    {
-        const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, m_originalAudio);
-        if (success)
-            updatePlaybackAndDisplayPreservingPlayback();
-        return success;
-    }
-
-    int getSizeInUnits() override
-    {
-        const size_t size = static_cast<size_t>(m_originalAudio.getNumSamples()) *
-                            static_cast<size_t>(m_originalAudio.getNumChannels()) * sizeof(float);
-        return static_cast<int>(size);
-    }
-
-private:
-    int64_t m_startSample;
-    int64_t m_numSamples;
-    ParametricEQ::Parameters m_eqParams;
-    juce::AudioBuffer<float> m_originalAudio;
-    double m_sampleRate;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ApplyParametricEQAction)
-};
 
 //==============================================================================
 /**
@@ -127,8 +56,9 @@ public:
 
         const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, audioToProcess);
         if (success)
-            // Same reasoning as ApplyParametricEQAction above: in-place,
-            // length-preserving -- safe to preserve playback.
+            // EQ processes the range in place -- length is always m_numSamples
+            // in and out, so preserving playback (§6.5) is safe here, unlike
+            // the length-changing actions (Delete/Insert/Replace).
             updatePlaybackAndDisplayPreservingPlayback();
         return success;
     }

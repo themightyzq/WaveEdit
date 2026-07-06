@@ -65,7 +65,6 @@ public:
     void showNormalizeDialog(Document* doc, juce::Component* parent);
     void showFadeInDialog(Document* doc, juce::Component* parent);
     void showFadeOutDialog(Document* doc, juce::Component* parent);
-    void showParametricEQDialog(Document* doc, juce::Component* parent);
     void showGraphicalEQDialog(Document* doc, juce::Component* parent);
     void showChannelConverterDialog(Document* doc, juce::Component* parent);
     void showChannelExtractorDialog(Document* doc, juce::Component* parent);

@@ -44,13 +44,6 @@ length, snap mode, time format, and zoom.
 Color-coded region browser with name/start/end/duration columns,
 in-place search, and one-click Batch Rename. `Cmd+Shift+R` to open.
 
-### Parametric EQ
-![3-Band Parametric EQ](Docs/screenshots/03-parametric-eq.png)
-
-Low Shelf / Mid Peak / High Shelf with frequency, gain, and Q
-controls. The standardised footer (Preview · Bypass · Loop · Cancel ·
-Apply) is shared across every Process dialog. `Shift+E` to open.
-
 ### Spectrum Analyzer
 ![Spectrum Analyzer](Docs/screenshots/04-spectrum-analyzer.png)
 
@@ -119,7 +112,6 @@ No project files, no import wizards. Just open → edit → save.
 
 **DSP Operations**:
 - ✅ Gain adjustment (±1dB with `Shift+Up/Down`)
-- ✅ 3-band Parametric EQ (Low/Mid/High shelves)
 - ✅ 20-band Graphical EQ (Bell, Shelf, Cut, Notch, Bandpass filters with real-time curve)
 - ✅ Normalize (-0.1 dB default; Peak and RMS modes)
 - ✅ Fade in/out with 4 curve types (Linear, Exponential, Logarithmic, S-Curve) and visual preview
@@ -219,7 +211,7 @@ No project files, no import wizards. Just open → edit → save.
   tabs, plugin chain UI, region/marker list panels, automation
   lanes, command palette, settings panel, shortcut editor, keyboard
   cheat-sheet, toolbar, **and** every processing dialog (Gain,
-  Normalize, Fade In/Out, Parametric/Graphical EQ, Head & Tail,
+  Normalize, Fade In/Out, Graphical EQ, Head & Tail,
   Strip Silence, Looping Tools, Auto Region, Offline Plugin, etc.).
   All re-skin live without a restart.
 - ✅ **Custom themes** — Preferences → Display has Import/Export
@@ -444,7 +436,6 @@ editor.
 | Fade In | `Cmd+F` |
 | Fade Out | `Cmd+Shift+O` |
 | DC Offset Removal | `Cmd+Shift+D` |
-| Parametric EQ | `Shift+E` |
 | Graphical EQ | `Cmd+Alt+E` |
 | Reverse | `Ctrl+R` |
 | Invert Polarity | `Ctrl+I` |

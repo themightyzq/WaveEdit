@@ -51,9 +51,6 @@ AudioEngine::AudioEngine()
     m_bufferSource = std::make_unique<MemoryAudioSource>();
     m_previewBufferSource = std::make_unique<MemoryAudioSource>();
 
-    // Initialize parametric EQ processor
-    m_parametricEQ = std::make_unique<ParametricEQ>();
-
     // Initialize dynamic parametric EQ processor (20-band, multiple filter types)
     m_dynamicEQ = std::make_unique<DynamicParametricEQ>();
 
@@ -736,13 +733,6 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
         m_transportSource.prepareToPlay(device->getCurrentBufferSizeSamples(),
                                          device->getCurrentSampleRate());
 
-        // Prepare the ParametricEQ for real-time processing
-        if (m_parametricEQ)
-        {
-            m_parametricEQ->prepare(device->getCurrentSampleRate(),
-                                    device->getCurrentBufferSizeSamples());
-        }
-
         // Prepare the DynamicParametricEQ for real-time processing (20-band)
         if (m_dynamicEQ)
         {
@@ -773,8 +763,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                                                     const juce::AudioIODeviceCallbackContext& /*context*/)
 {
     // H-H1 FIX: set FTZ/DAZ for the entire render so the recursive IIR feedback
-    // state in the DC blocker and both EQ paths cannot slide into the denormal
-    // range on a decaying tail and stall the audio deadline. Must be the first
+    // state in the DC blocker and the dynamic EQ path cannot slide into the
+    // denormal range on a decaying tail and stall the audio deadline. Must be the first
     // statement so it covers every DSP path below. Restored on scope exit.
     const juce::ScopedNoDenormals noDenormals;
 
@@ -939,15 +929,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
 
         // 3. Apply normalize processor (for Normalize dialog)
         m_normalizeProcessor.process(buffer);
-
-        // 5. Apply parametric EQ if enabled. C1/C2 FIX: parameters and
-        // coefficients are pushed from the message thread via
-        // ParametricEQ::setParameters(); applyEQ() only try-locks, adopts the
-        // staged coefficient values without allocating, and processes.
-        if (m_parametricEQEnabled.get() && m_parametricEQ)
-        {
-            m_parametricEQ->applyEQ(buffer);
-        }
 
         // 5c. Apply dynamic parametric EQ if enabled (20-band, multiple filter
         // types). Same C1 contract: every mutator builds coefficients on the
