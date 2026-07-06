@@ -21,7 +21,6 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include "ChannelLayout.h"
-#include "../DSP/ParametricEQ.h"
 #include "../DSP/DynamicParametricEQ.h"
 #include "../Plugins/PluginChain.h"
 
@@ -471,22 +470,6 @@ public:
     /** Stop any preview, disable all preview effects, and restore normal
         playback. Idempotent. Message thread only. */
     void stopSelectionPreview();
-
-    /**
-     * Set parametric EQ parameters for real-time preview.
-     * Thread-safe: Can be called from message thread.
-     *
-     * @param params EQ parameters to apply
-     * @param enabled true to enable EQ processing, false to bypass
-     */
-    void setParametricEQPreview(const ParametricEQ::Parameters& params, bool enabled);
-
-    /**
-     * Get current parametric EQ enabled state.
-     *
-     * @return true if EQ is enabled, false otherwise
-     */
-    bool isParametricEQEnabled() const { return m_parametricEQEnabled.get(); }
 
     /**
      * Set dynamic parametric EQ parameters for real-time preview.
@@ -1025,10 +1008,6 @@ private:
     // the class's own lock; audio-thread applyEQ() try-locks, adopts values
     // without allocating, and processes). The engine only keeps the enable
     // flags and forwards parameters on the message thread.
-
-    // Parametric EQ processor for real-time preview (3-band fixed)
-    std::unique_ptr<ParametricEQ> m_parametricEQ;
-    juce::Atomic<bool> m_parametricEQEnabled{false};
 
     // Dynamic Parametric EQ processor for real-time preview (20-band, multiple filter types)
     std::unique_ptr<DynamicParametricEQ> m_dynamicEQ;

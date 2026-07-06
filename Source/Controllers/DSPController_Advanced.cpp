@@ -35,7 +35,6 @@
 #include "../Utils/UndoActions/ChannelUndoActions.h"
 #include "../DSP/TimePitchEngine.h"
 #include "../Utils/UndoableEdits.h"
-#include "../UI/ParametricEQDialog.h"
 #include "../UI/GraphicalEQEditor.h"
 #include "../UI/OfflinePluginDialog.h"
 #include "../UI/ProgressDialog.h"
@@ -53,41 +52,6 @@
 //==============================================================================
 // EQ dialogs
 //==============================================================================
-
-void DSPController::showParametricEQDialog(Document* doc, juce::Component* parent)
-{
-    if (!doc || !doc->getAudioEngine().isFileLoaded())
-        return;
-
-    // Pass the current selection so the preview plays/loops the selection (an
-    // empty selection -> the whole buffer, handled by the engine helper). This
-    // mirrors showGraphicalEQDialog; omitting it was the cause of Parametric EQ
-    // preview ignoring the selection.
-    auto& waveform = doc->getWaveformDisplay();
-    auto& engine = doc->getAudioEngine();
-    const bool hasSelection = waveform.hasSelection();
-    const double sampleRate = engine.getSampleRate();
-
-    const int64_t startSample = hasSelection
-        ? static_cast<int64_t>(waveform.getSelectionStart() * sampleRate)
-        : 0;
-    const int64_t endSample = hasSelection
-        ? static_cast<int64_t>(waveform.getSelectionEnd() * sampleRate)
-        : static_cast<int64_t>(engine.getTotalLength() * sampleRate);
-
-    ParametricEQDialog dialog(&engine, &doc->getBufferManager(), startSample, endSample);
-
-    juce::DialogWindow::LaunchOptions options;
-    options.content.setNonOwned(&dialog);
-    options.componentToCentreAround = parent;
-    options.dialogTitle = "Parametric EQ";
-    options.dialogBackgroundColour = waveedit::ThemeManager::getInstance().getCurrent().panel;
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = true;
-
-    options.runModal();
-}
 
 void DSPController::showGraphicalEQDialog(Document* doc, juce::Component* /*parent*/)
 {
@@ -1048,10 +1012,10 @@ namespace
 
         if (mode == TimePitchDialog::Mode::TimeStretch)
         {
-            if (value < -50.0 || value > 500.0)
+            if (value < -95.0 || value > 5000.0)
             {
                 ErrorDialog::show("Time Stretch",
-                                  "Tempo change out of range. Use -50 to +500.");
+                                  "Tempo change out of range. Use -95 to +5000.");
                 return;
             }
             recipe.tempoPercent = value;
@@ -1059,10 +1023,10 @@ namespace
         }
         else
         {
-            if (value < -24.0 || value > 24.0)
+            if (value < -60.0 || value > 60.0)
             {
                 ErrorDialog::show("Pitch Shift",
-                                  "Semitone count out of range. Use -24 to +24.");
+                                  "Semitone count out of range. Use -60 to +60.");
                 return;
             }
             recipe.pitchSemitones = value;

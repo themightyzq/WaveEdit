@@ -58,7 +58,6 @@
 #include "UI/NormalizeDialog.h"
 #include "UI/FadeDialog.h"
 // DCOffsetDialog removed - DC Offset now runs automatically without dialog
-#include "UI/ParametricEQDialog.h"
 #include "UI/GraphicalEQEditor.h"
 #include "UI/RecordingDialog.h"
 #include "UI/ErrorDialog.h"

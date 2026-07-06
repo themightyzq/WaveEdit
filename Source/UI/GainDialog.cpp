@@ -140,7 +140,7 @@ GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManag
     // Set initial focus to text input
     m_gainInput.setWantsKeyboardFocus(true);
 
-    setSize(450, 260);  // Width matches ParametricEQDialog standard for button layout
+    setSize(450, 260);  // 450px width matches the standard Process-dialog footer layout
 
     // Grab keyboard focus on the primary input once the dialog is shown
     juce::Component::SafePointer<GainDialog> safeThis(this);

@@ -32,11 +32,11 @@ namespace TimePitchEngine
     struct Recipe
     {
         /** Tempo change in percent. 0 = no change. -50 = half speed, +100 = 2x speed.
-            Range: -50 .. +500 (SoundTouch clamps internally). */
+            Range: -95 .. +5000 (SoundTouch handles wide factors; quality degrades at extremes). */
         double tempoPercent = 0.0;
 
         /** Pitch shift in semitones (with fractional support).
-            Range: -24 .. +24 typically. */
+            Range: -60 .. +60 (5 octaves). */
         double pitchSemitones = 0.0;
     };
 

@@ -610,13 +610,6 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                 result.setActive(doc && doc->getAudioEngine().isFileLoaded());
                 break;
 
-            case CommandIDs::processParametricEQ:
-                result.setInfo("Parametric EQ...", "3-band parametric EQ", "Process", 0);
-                if (keyPress.isValid())
-                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
-                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
-                break;
-
             case CommandIDs::processGraphicalEQ:
                 result.setInfo("Graphical EQ...", "Graphical 3-band parametric EQ editor", "Process", 0);
                 if (keyPress.isValid())

@@ -169,16 +169,6 @@ void AudioEngine::setGainPreview(float gainDB, bool enabled)
     m_gainProcessor.enabled.store(enabled);
 }
 
-void AudioEngine::setParametricEQPreview(const ParametricEQ::Parameters& params, bool enabled)
-{
-    // Thread-safe: message thread only. C1/C2 FIX: the EQ builds its filter
-    // coefficients HERE (allocating on this thread) and stages them; the audio
-    // thread adopts the values under a try-lock without allocating.
-    if (m_parametricEQ)
-        m_parametricEQ->setParameters(params);
-    m_parametricEQEnabled.set(enabled);
-}
-
 void AudioEngine::setDynamicEQPreview(const DynamicParametricEQ::Parameters& params, bool enabled)
 {
     // Thread-safe: message thread only. C1 FIX: DynamicParametricEQ builds
@@ -236,7 +226,6 @@ void AudioEngine::resetAllPreviewProcessors()
     m_dcOffsetProcessor.reset();
     // Note: GainProcessor, NormalizeProcessor and the (position-driven)
     // FadeProcessor are stateless and need no reset.
-    // Note: ParametricEQ reset is handled by setParametricEQBands when reconfigured
 }
 
 void AudioEngine::disableAllPreviewProcessors()
@@ -247,7 +236,7 @@ void AudioEngine::disableAllPreviewProcessors()
     m_normalizeProcessor.enabled.store(false);
     m_fadeProcessor.enabled.store(false);
     m_dcOffsetProcessor.enabled.store(false);
-    m_parametricEQEnabled.set(false);
+    m_dynamicEQEnabled.set(false);
 }
 
 void AudioEngine::setPreviewBypassed(bool bypassed)
@@ -271,7 +260,7 @@ AudioEngine::PreviewProcessorInfo AudioEngine::getPreviewProcessorInfo() const
     info.normalizeActive = m_normalizeProcessor.enabled.load();
     info.fadeActive = m_fadeProcessor.enabled.load();
     info.dcOffsetActive = m_dcOffsetProcessor.enabled.load();
-    info.eqActive = m_parametricEQEnabled.get();
+    info.eqActive = m_dynamicEQEnabled.get();
     return info;
 }
 
@@ -435,7 +424,6 @@ void AudioEngine::stopSelectionPreview()
     setNormalizePreview(0.0f, false);
     setFadePreview(true, 0, 0.0f, false);
     setDCOffsetPreview(false);
-    setParametricEQPreview(ParametricEQ::Parameters{}, false);
     setDynamicEQPreview(DynamicParametricEQ::Parameters{}, false);
 
     setPreviewBypassed(false);

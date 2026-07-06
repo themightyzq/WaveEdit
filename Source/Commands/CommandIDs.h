@@ -87,7 +87,7 @@ namespace CommandIDs
         processGain     = 0x5004,  // Menu: Process → Gain... (precise gain entry)
         processIncreaseGain = 0x5005,  // Shift+Up (increase by +1 dB)
         processDecreaseGain = 0x5006,  // Shift+Down (decrease by -1 dB)
-        processParametricEQ = 0x5007,  // Shift+E - 3-band Parametric EQ dialog
+        // 0x5007 retired: 3-band Parametric EQ removed (superseded by 20-band Graphical EQ)
         processGraphicalEQ = 0x5008,  // Cmd+Alt+E - Graphical Parametric EQ editor
         processChannelConverter = 0x5009,  // Cmd+Shift+U - Channel Converter dialog
         processReverse          = 0x500A,  // Ctrl+R - Reverse audio
