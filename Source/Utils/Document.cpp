@@ -25,6 +25,7 @@
 #include "../Automation/AutomationRecorder.h"
 #include "../Plugins/PluginChain.h"
 #include "SidecarPolicy.h"
+#include <cmath>
 
 Document::Document(const juce::File& file)
     : m_file(file),
@@ -285,7 +286,9 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
 
     // Resample if necessary
     juce::AudioBuffer<float> bufferToSave;
-    if (targetSampleRate > 0.0 && std::abs(targetSampleRate - sourceSampleRate) > 0.01)
+    const bool isRateConverting = targetSampleRate > 0.0
+                                && std::abs(targetSampleRate - sourceSampleRate) > 0.01;
+    if (isRateConverting)
     {
         DBG("Resampling from " + juce::String(sourceSampleRate, 0) +
                                  " Hz to " + juce::String(targetSampleRate, 0) + " Hz");
@@ -298,6 +301,15 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             bufferToSave.copyFrom(ch, 0, buffer, ch, 0, buffer.getNumSamples());
     }
+
+    // Cue/sidecar positions are still expressed in source-rate samples (the
+    // in-memory regions/markers are never touched by a save). When the save
+    // changes the sample rate, every position/length written below must be
+    // rescaled by the same ratio the audio itself was resampled by, or every
+    // marker/region silently drifts out of sync with the audio on reopen.
+    const double cueSampleRateScale = isRateConverting
+                                     ? (finalSampleRate / sourceSampleRate)
+                                     : 1.0;
 
     // Update BWF metadata with current timestamp if not set
     if (!m_bwfMetadata.hasMetadata())
@@ -351,7 +363,7 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         if (file.hasFileExtension(".wav"))
         {
             WavCueData cues;
-            buildCueDataForSave(cues);
+            buildCueDataForSave(cues, cueSampleRateScale);
             if (!fileManager.writeCueChunks(file, cues))
             {
                 juce::Logger::writeToLog("Document::saveFile - failed to embed cue chunks: "
@@ -365,11 +377,12 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
 
         // Save region data as sidecar JSON (opt-in: only written when the
         // regions carry data the WAV cannot represent, or a sidecar already
-        // exists -- see RegionManager::saveToFile).
-        m_regionManager.saveToFile(file);
+        // exists -- see RegionManager::saveToFile). Rescale for a
+        // rate-converting save, same reasoning as the cue embed above.
+        m_regionManager.saveToFile(file, cueSampleRateScale);
 
         // Save marker data as sidecar JSON
-        m_markerManager.saveToFile(file);
+        m_markerManager.saveToFile(file, cueSampleRateScale);
 
         // Save automation lanes as sidecar JSON (Phase 6)
         m_automationManager.saveToFile(file);
@@ -484,14 +497,24 @@ bool Document::takeSidecarRequirementTransition()
     return true;
 }
 
-void Document::buildCueDataForSave(WavCueData& out) const
+void Document::buildCueDataForSave(WavCueData& out, double sampleRateScale) const
 {
+    // Rescale a source-rate sample position/length to the rate the file is
+    // actually being written at. A no-op at 1.0 (the common, same-rate case).
+    const auto rescale = [sampleRateScale](juce::int64 sourceRateValue) -> juce::int64
+    {
+        if (sampleRateScale == 1.0)
+            return sourceRateValue;
+        return static_cast<juce::int64>(
+            std::llround(static_cast<double>(sourceRateValue) * sampleRateScale));
+    };
+
     const auto markers = m_markerManager.getAllMarkers();
     for (const auto& m : markers)
     {
         WavCueMarker cm;
         cm.name = SidecarPolicy::toAsciiLabel(m.getName());
-        cm.position = static_cast<juce::int64>(m.getPosition());
+        cm.position = rescale(static_cast<juce::int64>(m.getPosition()));
         out.markers.add(cm);
     }
 
@@ -501,8 +524,8 @@ void Document::buildCueDataForSave(WavCueData& out) const
         const auto& r = regions.getReference(i);
         WavCueRegion cr;
         cr.name = SidecarPolicy::toAsciiLabel(r.getName());
-        cr.start = static_cast<juce::int64>(r.getStartSample());
-        cr.length = static_cast<juce::int64>(r.getLengthInSamples());
+        cr.start = rescale(static_cast<juce::int64>(r.getStartSample()));
+        cr.length = rescale(static_cast<juce::int64>(r.getLengthInSamples()));
         out.regions.add(cr);
     }
 }

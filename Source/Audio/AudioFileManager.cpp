@@ -15,14 +15,24 @@
 
 #include "AudioFileManager.h"
 
+#if WAVEEDIT_HAVE_LAME
+#include "LameMP3AudioFormat.h"
+#endif
+
 //==============================================================================
 AudioFileManager::AudioFileManager()
 {
-    // Register basic audio formats (WAV, AIFF, FLAC, OGG)
+    // Register basic audio formats (WAV, AIFF, FLAC, OGG, and -- because this
+    // build sets JUCE_USE_MP3AUDIOFORMAT=1 -- juce::MP3AudioFormat for DECODING
+    // .mp3 files). Do NOT register juce::MP3AudioFormat again: registerBasicFormats
+    // already added it, and a second registration trips a duplicate-format assert
+    // and shadows our LAME encoder in the write-format lookup.
     m_formatManager.registerBasicFormats();
 
-    // MP3 is not included in registerBasicFormats(), so register it manually
-    m_formatManager.registerFormat(new juce::MP3AudioFormat(), true);
+    // NOTE: MP3 ENCODING is handled directly by waveedit::LameMP3AudioFormat in
+    // saveAudioFile() (JUCE's MP3 writer is a stub), so it is intentionally NOT
+    // registered here -- ordering in the manager would otherwise put JUCE's
+    // decode-only format ahead of it for ".mp3" writes.
 }
 
 AudioFileManager::~AudioFileManager()
@@ -821,9 +831,16 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
         return saveAsWav(file, buffer, sampleRate, bitDepth, metadata);
     }
 
-    // For other formats (FLAC, OGG, MP3), use JUCE's generic audio format writer
-    // Find appropriate format writer
+    // For other formats (FLAC, OGG, MP3), use the generic audio format writer.
+    // Find appropriate format writer.
     juce::AudioFormat* format = nullptr;
+
+#if WAVEEDIT_HAVE_LAME
+    // The LAME encoder is used directly for .mp3 (it is not registered in the
+    // format manager -- see the constructor). Declared here so it stays alive
+    // through the shared writer-creation/writing path below.
+    waveedit::LameMP3AudioFormat lameMP3Format;
+#endif
 
     if (extension == ".flac")
     {
@@ -849,18 +866,34 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
     }
     else if (extension == ".mp3")
     {
-        format = m_formatManager.findFormatForFileExtension("mp3");
-
-        if (format == nullptr)
+#if WAVEEDIT_HAVE_LAME
+        // MP3 is mono/stereo only.
+        if (buffer.getNumChannels() > 2)
         {
-            setError("MP3 encoder not available.\n\n"
-                    "JUCE requires LAME to be installed for MP3 encoding.\n"
-                    "Install LAME via:\n"
-                    "  macOS: brew install lame\n"
-                    "  Linux: apt-get install libmp3lame-dev\n"
-                    "  Windows: Download from lame.sourceforge.io");
+            setError("MP3 export supports mono or stereo only (this audio has "
+                     + juce::String(buffer.getNumChannels()) + " channels).");
             return false;
         }
+
+        // LAME's max rate is 48 kHz; reject unsupported rates with a clear list
+        // rather than writing a corrupt file. The caller should resample first.
+        if (! waveedit::LameMP3AudioFormat::isSampleRateSupported(sampleRate))
+        {
+            setError("MP3 export does not support " + juce::String(sampleRate, 0) + " Hz.\n\n"
+                     "Supported MP3 sample rates: "
+                     + waveedit::LameMP3AudioFormat::getSupportedSampleRatesString() + ".\n\n"
+                     "Resample the audio (choose a supported rate in Save As) before "
+                     "exporting to MP3.");
+            return false;
+        }
+
+        format = &lameMP3Format;
+#else
+        setError("MP3 encoding is not available in this build.\n\n"
+                 "This copy of WaveEdit was compiled without the LAME MP3 encoder. "
+                 "Save to WAV, FLAC, or OGG instead.");
+        return false;
+#endif
     }
     else
     {

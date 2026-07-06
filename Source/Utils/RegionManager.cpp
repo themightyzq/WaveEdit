@@ -16,6 +16,7 @@
 #include "RegionManager.h"
 #include "SidecarPolicy.h"
 #include <juce_core/juce_core.h>
+#include <cmath>
 
 RegionManager::RegionManager()
     : m_primarySelectionIndex(-1)
@@ -541,7 +542,7 @@ juce::File RegionManager::getRegionFilePath(const juce::File& audioFile)
     return audioFile.withFileExtension(audioFile.getFileExtension() + ".regions.json");
 }
 
-bool RegionManager::saveToFile(const juce::File& audioFile) const
+bool RegionManager::saveToFile(const juce::File& audioFile, double sampleRateScale) const
 {
     juce::File regionFile = getRegionFilePath(audioFile);
 
@@ -569,11 +570,25 @@ bool RegionManager::saveToFile(const juce::File& audioFile) const
         root->setProperty("audioModTime", audioFile.getLastModificationTime().toMilliseconds());
     }
 
-    // Serialize regions array
+    // Serialize regions array. When this save is converting the sample rate
+    // (Save As at a different rate), rescale every position so it still
+    // lands on the same audio content once reopened against the resampled
+    // file -- the in-memory regions themselves stay at the buffer's current
+    // rate (only the on-disk copy changes).
     juce::Array<juce::var> regionsArray;
     for (const auto& region : m_regions)
     {
-        regionsArray.add(region.toJSON());
+        if (sampleRateScale == 1.0)
+        {
+            regionsArray.add(region.toJSON());
+        }
+        else
+        {
+            Region scaled = region;
+            scaled.setStartSample(static_cast<int64_t>(std::llround(static_cast<double>(region.getStartSample()) * sampleRateScale)));
+            scaled.setEndSample(static_cast<int64_t>(std::llround(static_cast<double>(region.getEndSample()) * sampleRateScale)));
+            regionsArray.add(scaled.toJSON());
+        }
     }
     root->setProperty("regions", regionsArray);
 

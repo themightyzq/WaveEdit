@@ -27,6 +27,7 @@
 
 // Forward declarations
 class Document;
+class MarkerManager;
 
 /**
  * MarkerController handles all marker manipulation operations.
@@ -93,6 +94,19 @@ public:
     {
         m_onMarkerListRefreshNeeded = callback;
     }
+
+    /**
+     * Picks the smallest "M<n>" name not already used by a marker in
+     * @p markerManager (e.g. "M1", "M2", ...).
+     *
+     * Ports RegionController::generateUniqueRegionName's H14 fix to markers:
+     * the previous scheme (getNumMarkers()+1) reused numbers after a delete
+     * and produced duplicate marker names (e.g. add M1/M2/M3, delete M2, add
+     * a new marker -> getNumMarkers()==2 -> "M3", colliding with the
+     * existing M3). Static + MarkerManager-based so it is unit-testable
+     * without a Document.
+     */
+    static juce::String generateUniqueMarkerName(const MarkerManager& markerManager);
 
 private:
     //==========================================================================

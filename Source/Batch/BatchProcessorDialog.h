@@ -258,6 +258,7 @@ private:
     // =========================================================================
     juce::Label m_filesLabel;
     juce::ListBox m_fileListBox;
+    juce::Label m_emptyFilesLabel;  // Overlay hint shown when no files are queued
     juce::TextButton m_addFilesButton;
     juce::TextButton m_addFolderButton;
     juce::TextButton m_removeFilesButton;

@@ -199,7 +199,7 @@ void AutomationManager::applyAutomation(PluginChain& chain, double timeInSeconds
 
     for (auto& lane : m_lanes)
     {
-        if (!lane.enabled || !lane.curve.hasPoints())
+        if (!lane.enabled)
             continue;
 
         auto* node = chain.getPlugin(lane.pluginIndex);
@@ -214,7 +214,13 @@ void AutomationManager::applyAutomation(PluginChain& chain, double timeInSeconds
         if (lane.parameterIndex < 0 || lane.parameterIndex >= params.size())
             continue;
 
-        float value = lane.curve.getValueAt(timeInSeconds);
+        // H-H2: lock-free, no-refcount read. Skips (leaves the parameter at its
+        // previous value) when the curve is empty or the message thread is
+        // mid-publish -- folds the old hasPoints() empty-check in, dropping a
+        // second blocking lock off the audio path.
+        float value = 0.0f;
+        if (! lane.curve.getValueAtRealtime(timeInSeconds, value))
+            continue;
         params[lane.parameterIndex]->setValue(value);
     }
 }

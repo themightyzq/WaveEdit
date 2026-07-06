@@ -89,6 +89,8 @@ private:
     RegionDisplay& m_regionDisplay;
     juce::File m_audioFile;
     Region m_region;  // Carries the stable ID used to locate it on undo
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AddRegionUndoAction)
 };
 
 //==============================================================================
@@ -147,6 +149,8 @@ private:
     RegionDisplay& m_regionDisplay;
     juce::File m_audioFile;
     juce::Array<Region> m_regions;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PasteRegionsUndoAction)
 };
 
 //==============================================================================
@@ -223,6 +227,8 @@ private:
     juce::File m_audioFile;
     int m_regionIndex;
     Region m_deletedRegion;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeleteRegionUndoAction)
 };
 
 //==============================================================================
@@ -301,6 +307,8 @@ private:
     int64_t m_regionId = -1;
     juce::String m_oldName;
     juce::String m_newName;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RenameRegionUndoAction)
 };
 
 //==============================================================================
@@ -378,6 +386,8 @@ private:
     int64_t m_regionId = -1;
     juce::Colour m_oldColor;
     juce::Colour m_newColor;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChangeRegionColorUndoAction)
 };
 
 //==============================================================================

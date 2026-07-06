@@ -277,8 +277,16 @@ AudioEngine::PreviewProcessorInfo AudioEngine::getPreviewProcessorInfo() const
 
 void AudioEngine::setPreviewPluginInstance(juce::AudioPluginInstance* instance)
 {
-    // Thread-safe: Can be called from UI thread
-    // The atomic pointer ensures safe exchange between threads
+    // C-H1 FIX: take m_previewPluginLock (blocking, message thread) around the
+    // store. The audio callback try-locks the same lock around its
+    // load+processBlock, so this setter cannot complete while the callback is
+    // mid-dereference. After this returns, the audio thread is guaranteed not to
+    // be inside the guarded region and will observe the new pointer next block --
+    // so a caller that stores nullptr here may then safely destroy the instance
+    // (OfflinePluginDialog::disablePreview does exactly this before freeing its
+    // unique_ptr). A plain atomic store is NOT a barrier and would race the
+    // in-flight callback.
+    const juce::ScopedLock sl(m_previewPluginLock);
     m_previewPluginInstance.store(instance);
 }
 

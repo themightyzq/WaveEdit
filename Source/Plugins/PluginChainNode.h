@@ -24,16 +24,10 @@
  *
  * Thread Safety:
  * - m_bypassed is atomic for lock-free access from audio thread
- * - State swapping uses atomic flag for lock-free parameter updates
- * - Plugin instance operations must be done from message thread
- *
- * Lock-Free State Updates:
- * The state swap mechanism allows parameter changes from UI without
- * blocking the audio thread:
- * 1. Message thread writes new state to m_pendingState
- * 2. Message thread sets m_stateSwapPending to true
- * 3. Audio thread detects flag in processBlock()
- * 4. Audio thread swaps states and applies to plugin
+ * - Plugin instance operations (including state) must be done from the message
+ *   thread. State is NEVER applied on the audio thread: setStateInformation()
+ *   on a third-party plugin can allocate/parse/lock. Restore state before a
+ *   node is audio-visible (PluginChain::addPluginConfigured, C4/L-H1).
  */
 class PluginChainNode
 {
@@ -105,14 +99,7 @@ public:
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
 
     //==============================================================================
-    // State Management (Lock-Free)
-
-    /**
-     * Queue a state update to be applied on audio thread.
-     * Call from message thread - the state will be applied
-     * at the next processBlock() call.
-     */
-    void queueStateUpdate(const juce::MemoryBlock& state);
+    // State Management (Message Thread Only)
 
     /**
      * Get current plugin state.
@@ -142,12 +129,6 @@ private:
 
     // Atomic bypass flag for lock-free audio thread access
     std::atomic<bool> m_bypassed{false};
-
-    // Lock-free state swap mechanism
-    std::atomic<bool> m_stateSwapPending{false};
-    juce::MemoryBlock m_pendingState;    // Written by message thread
-    juce::MemoryBlock m_activeState;     // Read by audio thread
-    juce::SpinLock m_stateLock;          // Protects m_pendingState writes
 
     // Playback state
     double m_sampleRate = 44100.0;

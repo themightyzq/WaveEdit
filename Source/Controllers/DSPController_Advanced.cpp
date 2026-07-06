@@ -898,7 +898,9 @@ namespace
                 doc->getWaveformDisplay(),
                 rangeStart,
                 rangeLen,
-                processed));
+                processed,
+                &doc->getRegionManager(),
+                &doc->getRegionDisplay()));
         }
         else
         {
