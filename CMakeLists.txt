@@ -522,6 +522,23 @@ elseif(UNIX)
 endif()
 
 # ----------------------------------------------------------------------------
+# Bundled-library rpath for the app executable. Set unconditionally: LAME,
+# SoundTouch, and any future bundled dylib all rely on it, so it must not
+# depend on whether one specific optional library was found (M8 -- it was
+# previously nested inside the LAME find-block, risking removal on edit).
+# Idempotent with the per-lib settings above (same values).
+# ----------------------------------------------------------------------------
+if(APPLE)
+    set_target_properties(WaveEdit PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "@executable_path/../Frameworks")
+elseif(UNIX)
+    set_target_properties(WaveEdit PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN")
+endif()
+
+# ----------------------------------------------------------------------------
 # Make LAME actually USED. JUCE's MP3AudioFormat is decode-only, so WaveEdit
 # ships its own LAME-backed encoder (Source/Audio/LameMP3AudioFormat.cpp).
 # The block above only bundles the dylib; here we find the header, add the
@@ -537,6 +554,18 @@ find_path(LAME_INCLUDE_DIR
         /opt/local/include               /usr/include
         "${CMAKE_SOURCE_DIR}/ThirdParty/lame/include"
 )
+# Unconditional so EVERY platform (incl. Windows/vcpkg) can link LAME, not just
+# the macOS/Linux bundling branches above -- otherwise the gate below is never
+# true on Windows and MP3 silently ships disabled.
+find_library(LAME_LIBRARY
+    NAMES mp3lame libmp3lame
+    PATHS
+        /opt/homebrew/opt/lame/lib   /opt/homebrew/lib
+        /usr/local/opt/lame/lib      /usr/local/lib
+        /opt/local/lib               /usr/lib
+        /usr/lib/x86_64-linux-gnu    /usr/lib/aarch64-linux-gnu
+        "${CMAKE_SOURCE_DIR}/ThirdParty/lame/lib"
+)
 target_sources(WaveEdit PRIVATE
     Source/Audio/LameMP3AudioFormat.cpp
     Source/Audio/LameMP3AudioFormat.h)
@@ -545,8 +574,10 @@ if(LAME_LIBRARY AND LAME_INCLUDE_DIR)
     target_link_libraries(WaveEdit PRIVATE ${LAME_LIBRARY})
     target_compile_definitions(WaveEdit PRIVATE WAVEEDIT_HAVE_LAME=1)
     message(STATUS "LAME MP3 encoder: ENABLED (${LAME_LIBRARY})")
+    set(WAVEEDIT_MP3_ENABLED TRUE CACHE INTERNAL "")
 else()
     message(WARNING "LAME MP3 encoder: DISABLED - lib/header not found; MP3 export unavailable at runtime")
+    set(WAVEEDIT_MP3_ENABLED FALSE CACHE INTERNAL "")
 endif()
 
 # ============================================================================

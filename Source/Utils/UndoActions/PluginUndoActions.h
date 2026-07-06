@@ -204,6 +204,22 @@ public:
 
     void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
 
+    /**
+     * Post-apply refresh for the production call sites that replace the buffer
+     * THEMSELVES before registering the action (they call markAsAlreadyPerformed()
+     * so perform() is a no-op). Those sites must still update the engine + display,
+     * and -- critically -- must honour the SAME length classification perform()
+     * uses: a tail-extending render (reverb/delay with include-tail) grows the
+     * range and shifts everything after it, so playback must STOP, not resume on
+     * shifted content. Delegates to the shared updatePlaybackForLengthChange() so
+     * the rule lives in exactly one place (H1). Must run AFTER the external
+     * replaceRange() so m_bufferManager holds the processed buffer.
+     */
+    void refreshAfterExternalReplace()
+    {
+        updatePlaybackForLengthChange(m_numSamples, m_processedAudio.getNumSamples());
+    }
+
     bool perform() override
     {
         if (m_alreadyPerformed)

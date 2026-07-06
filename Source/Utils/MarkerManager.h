@@ -178,7 +178,7 @@ public:
      * @param audioFile Source audio file
      * @return true if loaded successfully (false if file doesn't exist)
      */
-    bool loadFromFile(const juce::File& audioFile);
+    bool loadFromFile(const juce::File& audioFile, int64_t totalSamples = -1);
 
     /**
      * Get path to marker sidecar file

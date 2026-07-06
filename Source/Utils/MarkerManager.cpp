@@ -263,7 +263,7 @@ bool MarkerManager::saveToFile(const juce::File& audioFile, double sampleRateSca
     return markerFile.replaceWithText(jsonString);
 }
 
-bool MarkerManager::loadFromFile(const juce::File& audioFile)
+bool MarkerManager::loadFromFile(const juce::File& audioFile, int64_t totalSamples)
 {
     if (!ensureMessageThread("loadFromFile"))
         return false;
@@ -296,6 +296,14 @@ bool MarkerManager::loadFromFile(const juce::File& audioFile)
     for (const auto& markerVar : *markerArray)
     {
         Marker marker = Marker::fromJSON(markerVar);
+        // M2: clamp to the buffer (mirrors RegionManager). A sidecar written at
+        // one rate and reopened after a sample-rate conversion, or an
+        // externally-edited/corrupt file, can carry a position past the end.
+        if (totalSamples >= 0)
+        {
+            const int64_t pos = juce::jlimit<int64_t>(0, totalSamples, marker.getPosition());
+            marker.setPosition(pos);
+        }
         tempMarkers.add(marker);
     }
 

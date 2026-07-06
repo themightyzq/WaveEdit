@@ -232,8 +232,12 @@ public:
         auto& buffer = m_bufferManager.getMutableBuffer();
         buffer.setSize(m_afterBuffer.getNumChannels(), m_afterBuffer.getNumSamples());
         buffer.makeCopyOf(m_afterBuffer, true);
-        m_audioEngine.reloadBufferPreservingPlayback(buffer, m_sampleRate,
-                                                      buffer.getNumChannels());
+        // Head & Tail can prepend/trim silence, changing the buffer length and
+        // shifting the timeline. STOP playback deterministically (reset to 0)
+        // rather than preserving a position that now maps onto different
+        // content -- matching Delete/Insert/Replace, CLAUDE.md Sec 6.5.
+        m_audioEngine.stop();
+        m_audioEngine.loadFromBuffer(buffer, m_sampleRate, buffer.getNumChannels());
         m_waveformDisplay.reloadFromBuffer(buffer, m_sampleRate, false, false);
         return true;
     }
@@ -243,8 +247,8 @@ public:
         auto& buffer = m_bufferManager.getMutableBuffer();
         buffer.setSize(m_beforeBuffer.getNumChannels(), m_beforeBuffer.getNumSamples());
         buffer.makeCopyOf(m_beforeBuffer, true);
-        m_audioEngine.reloadBufferPreservingPlayback(buffer, m_sampleRate,
-                                                      buffer.getNumChannels());
+        m_audioEngine.stop();
+        m_audioEngine.loadFromBuffer(buffer, m_sampleRate, buffer.getNumChannels());
         m_waveformDisplay.reloadFromBuffer(buffer, m_sampleRate, false, false);
         return true;
     }
@@ -293,8 +297,13 @@ public:
         auto& buffer = m_bufferManager.getMutableBuffer();
         buffer.setSize(m_afterBuffer.getNumChannels(), m_afterBuffer.getNumSamples());
         buffer.makeCopyOf(m_afterBuffer, true);
-        m_audioEngine.reloadBufferPreservingPlayback(buffer, m_sampleRate,
-                                                      buffer.getNumChannels());
+        // Time-stretch / pitch-shift rescales duration -> the sample count and
+        // timeline change, so STOP playback deterministically (reset to 0)
+        // instead of preserving a position that now maps onto different content
+        // -- matching Delete/Insert/Replace, CLAUDE.md Sec 6.5. (ResampleUndoAction
+        // is the intentional exception: it preserves real-time duration 1:1.)
+        m_audioEngine.stop();
+        m_audioEngine.loadFromBuffer(buffer, m_sampleRate, buffer.getNumChannels());
         m_waveformDisplay.reloadFromBuffer(buffer, m_sampleRate, false, false);
         DBG("TimePitchUndoAction::perform - " + m_description);
         return true;
@@ -305,8 +314,8 @@ public:
         auto& buffer = m_bufferManager.getMutableBuffer();
         buffer.setSize(m_beforeBuffer.getNumChannels(), m_beforeBuffer.getNumSamples());
         buffer.makeCopyOf(m_beforeBuffer, true);
-        m_audioEngine.reloadBufferPreservingPlayback(buffer, m_sampleRate,
-                                                      buffer.getNumChannels());
+        m_audioEngine.stop();
+        m_audioEngine.loadFromBuffer(buffer, m_sampleRate, buffer.getNumChannels());
         m_waveformDisplay.reloadFromBuffer(buffer, m_sampleRate, false, false);
         return true;
     }
