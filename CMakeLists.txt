@@ -66,8 +66,6 @@ target_sources(WaveEdit
         Source/Audio/AudioProcessor.h
         Source/Audio/RecordingEngine.cpp
         Source/Audio/RecordingEngine.h
-        Source/DSP/ParametricEQ.cpp
-        Source/DSP/ParametricEQ.h
         Source/DSP/DynamicParametricEQ.cpp
         Source/DSP/DynamicParametricEQ.h
         Source/DSP/EQPresetManager.cpp
@@ -139,8 +137,6 @@ target_sources(WaveEdit
         Source/UI/FadeCurvePreview.h
         Source/UI/RecordingDialog.cpp
         Source/UI/RecordingDialog.h
-        Source/UI/ParametricEQDialog.cpp
-        Source/UI/ParametricEQDialog.h
         Source/UI/GraphicalEQEditor.cpp
         Source/UI/GraphicalEQEditor_Presets.cpp
         Source/UI/GraphicalEQEditor.h
@@ -761,8 +757,6 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Audio/AudioFileManager.h
         Source/Audio/AudioProcessor.cpp
         Source/Audio/AudioProcessor.h
-        Source/DSP/ParametricEQ.cpp
-        Source/DSP/ParametricEQ.h
         Source/DSP/DynamicParametricEQ.cpp
         Source/DSP/DynamicParametricEQ.h
         Source/DSP/EQPresetManager.cpp
@@ -834,8 +828,6 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/FadeCurvePreview.h
         Source/UI/RecordingDialog.cpp
         Source/UI/RecordingDialog.h
-        Source/UI/ParametricEQDialog.cpp
-        Source/UI/ParametricEQDialog.h
         Source/UI/GraphicalEQEditor.cpp
         Source/UI/GraphicalEQEditor_Presets.cpp
         Source/UI/GraphicalEQEditor.h

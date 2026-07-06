@@ -443,7 +443,6 @@ ToolbarLayout ToolbarManager::createDSPFocusedLayout()
     layout.buttons.push_back(ToolbarButtonConfig::separator("sep2"));
 
     // EQ
-    layout.buttons.push_back(ToolbarButtonConfig::command("parametricEQ", "processParametricEQ"));
     layout.buttons.push_back(ToolbarButtonConfig::command("graphicalEQ", "processGraphicalEQ"));
     layout.buttons.push_back(ToolbarButtonConfig::separator("sep3"));
 

@@ -66,7 +66,6 @@ static juce::CommandID getCommandIDForName(const juce::String& commandName)
         commandMap["processGain"] = CommandIDs::processGain;
         commandMap["processIncreaseGain"] = CommandIDs::processIncreaseGain;
         commandMap["processDecreaseGain"] = CommandIDs::processDecreaseGain;
-        commandMap["processParametricEQ"] = CommandIDs::processParametricEQ;
         commandMap["processGraphicalEQ"] = CommandIDs::processGraphicalEQ;
 
         // Navigation operations
@@ -420,7 +419,6 @@ std::unique_ptr<juce::Drawable> ToolbarButton::createIconForCommand(const juce::
             path.lineTo(14.0f, 8.0f);
             break;
 
-        case CommandIDs::processParametricEQ:
         case CommandIDs::processGraphicalEQ:
             // EQ sliders
             path.addRectangle(3.0f, 4.0f, 2.0f, 10.0f);

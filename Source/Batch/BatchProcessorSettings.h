@@ -52,6 +52,12 @@ enum class BatchDSPOperation
     DC_OFFSET,
     FADE_IN,
     FADE_OUT,
+    // DEPRECATED: the 3-band Parametric EQ was removed from WaveEdit (superseded
+    // by the 20-band Graphical EQ). This enumerator is RETAINED (not renumbered)
+    // so older batch presets that persisted its integer value still deserialize
+    // to a known operation. BatchJob skips it with a visible notice instead of
+    // silently doing nothing -- see BatchJob::processDSPChain(). Not offered in
+    // the operation picker. Use GRAPHICAL_EQ for new EQ batch steps.
     PARAMETRIC_EQ,
     GRAPHICAL_EQ,
     REVERSE,

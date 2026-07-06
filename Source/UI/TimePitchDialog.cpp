@@ -76,9 +76,9 @@ TimePitchDialog::TimePitchDialog(Mode mode,
 
     m_helpLabel.setText(isStretch
         ? "Stretch or compress the file's tempo without changing pitch. "
-          "Range: -50% (half speed) to +500% (6x speed)."
+          "Range: -95% (very slow) to +5000% (very fast)."
         : "Shift the file's pitch without changing length. Use whole semitones "
-          "(e.g. 12 = 1 octave up) or fractions for cents. Range: -24 to +24.",
+          "(e.g. 12 = 1 octave up) or fractions for cents. Range: -60 to +60 (5 octaves).",
         juce::dontSendNotification);
     m_helpLabel.setJustificationType(juce::Justification::topLeft);
     m_helpLabel.setColour(juce::Label::textColourId,
@@ -101,12 +101,12 @@ TimePitchDialog::TimePitchDialog(Mode mode,
     m_paramSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     if (isStretch)
     {
-        m_paramSlider.setRange(-50.0, 500.0, 0.1);
+        m_paramSlider.setRange(-95.0, 5000.0, 0.1);
         m_paramSlider.setTextValueSuffix(" %");
     }
     else
     {
-        m_paramSlider.setRange(-24.0, 24.0, 0.01);
+        m_paramSlider.setRange(-60.0, 60.0, 0.01);
         m_paramSlider.setTextValueSuffix(" st");
     }
     m_paramSlider.setValue(0.0, juce::dontSendNotification);
@@ -506,7 +506,7 @@ void TimePitchDialog::commitTargetDuration()
 
     // tempoPercent so that processDuration * 100 / (100 + tempo) == target.
     double tempoPercent = (m_processDurationSeconds / target - 1.0) * 100.0;
-    tempoPercent = juce::jlimit(-50.0, 500.0, tempoPercent);
+    tempoPercent = juce::jlimit(-95.0, 5000.0, tempoPercent);
 
     // Notify so onValueChange -> updateSummary() refreshes the readout/editor.
     m_paramSlider.setValue(tempoPercent, juce::sendNotificationSync);

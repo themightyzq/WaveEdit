@@ -679,7 +679,6 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::processGain] = "processGain";
         commandNameMap[CommandIDs::processIncreaseGain] = "processIncreaseGain";
         commandNameMap[CommandIDs::processDecreaseGain] = "processDecreaseGain";
-        commandNameMap[CommandIDs::processParametricEQ] = "processParametricEQ";
         commandNameMap[CommandIDs::processGraphicalEQ] = "processGraphicalEQ";
         commandNameMap[CommandIDs::processReverse] = "processReverse";
         commandNameMap[CommandIDs::processInvert] = "processInvert";
@@ -833,7 +832,7 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
             CommandIDs::processFadeIn, CommandIDs::processFadeOut,
             CommandIDs::processNormalize, CommandIDs::processDCOffset,
             CommandIDs::processGain, CommandIDs::processIncreaseGain,
-            CommandIDs::processDecreaseGain, CommandIDs::processParametricEQ,
+            CommandIDs::processDecreaseGain,
             CommandIDs::processGraphicalEQ, CommandIDs::processReverse,
             CommandIDs::processInvert, CommandIDs::processResample,
             CommandIDs::processTimeStretch, CommandIDs::processPitchShift,
