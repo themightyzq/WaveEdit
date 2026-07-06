@@ -396,9 +396,19 @@ LoopingToolsDialog::LoopingToolsDialog(const juce::AudioBuffer<float>& buffer,
     m_previewPlaybackButton.onClick = [this]() { togglePreviewPlayback(); };
     addAndMakeVisible(m_previewPlaybackButton);
 
-    m_previewButton.setButtonText("Preview");
-    m_previewButton.onClick = [this]() { updatePreview(); };
-    addAndMakeVisible(m_previewButton);
+    // Bypass / Loop: §6.8 footer slots kept present and correctly
+    // sized/ordered, but disabled -- see header comment for why real A/B
+    // bypass and loop-toggle wiring is out of scope for this pass.
+    m_bypassButton.setButtonText("Bypass");
+    m_bypassButton.setEnabled(false);
+    m_bypassButton.setTooltip("Not yet available - requires Controller-side wiring");
+    addAndMakeVisible(m_bypassButton);
+
+    m_loopToggle.setButtonText("Loop");
+    m_loopToggle.setToggleState(true, juce::dontSendNotification);
+    m_loopToggle.setEnabled(false);
+    m_loopToggle.setTooltip("Preview always loops the selection (not yet user-toggleable)");
+    addAndMakeVisible(m_loopToggle);
 
     m_exportButton.setButtonText("Export");
     m_exportButton.onClick = [this]() { exportLoops(); };
@@ -479,7 +489,7 @@ void LoopingToolsDialog::paint(juce::Graphics& g)
                juce::Justification::centred, true);
 
     // Section header backgrounds
-    const int kMargin    = 16;
+    const int kMargin    = ui::kDialogPadding;  // was a local literal (16); now shares the app constant
     const int kHeaderH   = 36;
     const int kRowH      = 32;
     const int kGap       = 8;
@@ -544,7 +554,7 @@ void LoopingToolsDialog::paint(juce::Graphics& g)
 
 void LoopingToolsDialog::resized()
 {
-    const int kMargin  = 16;
+    const int kMargin  = ui::kDialogPadding;  // was a local literal (16); now shares the app constant
     const int kLabelW  = 180;
     const int kSliderW = 260;
     const int kValueW  = 72;
@@ -700,9 +710,9 @@ void LoopingToolsDialog::resized()
     m_diagnosticsLabel.setBounds(area.removeFromTop(60));
 
     //--------------------------------------------------------------------------
-    // Button row — right-aligned convention:
-    // Left: Preview (playback) + Preview (waveform) | Right: Cancel, Export
-    // (Export rightmost, primary action)
+    // Button row — §6.8 standardized layout:
+    // Left: Preview | Bypass | Loop (Bypass/Loop disabled, see header comment)
+    // Right: Cancel, Export (Export rightmost, primary action)
 
     area.removeFromTop(kGap);
     auto buttonRow = area.removeFromTop(ui::kButtonHeight);
@@ -710,10 +720,12 @@ void LoopingToolsDialog::resized()
     const int kBtnW   = ui::kButtonWidth;
     const int kBtnGap = ui::kButtonGap;
 
-    // Left side: real-time preview playback, then waveform preview
+    // Left side: Preview, Bypass, Loop
     m_previewPlaybackButton.setBounds(buttonRow.removeFromLeft(kBtnW));
     buttonRow.removeFromLeft(kBtnGap);
-    m_previewButton.setBounds(buttonRow.removeFromLeft(kBtnW));
+    m_bypassButton.setBounds(buttonRow.removeFromLeft(ui::kButtonWidthNarrow));
+    buttonRow.removeFromLeft(kBtnGap);
+    m_loopToggle.setBounds(buttonRow.removeFromLeft(60));
 
     // Right side: Export (rightmost) then Cancel
     m_exportButton.setBounds(buttonRow.removeFromRight(kBtnW));

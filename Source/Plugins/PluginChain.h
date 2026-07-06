@@ -21,6 +21,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <vector>
 #include <mutex>
+#include <functional>
 
 /**
  * Manages an ordered chain of effect plugins for processing audio.
@@ -187,6 +188,20 @@ public:
      */
     bool loadFromJson(const juce::var& json);
 
+    //==============================================================================
+    // Node lifetime notification (UI decoupling)
+    //
+    // A node can outlive its removal from the audio-visible chain: COW keeps old
+    // chain generations (and thus the node) alive for a short window before
+    // delayed deletion frees it. Any UI holding a RAW PluginChainNode* -- notably
+    // an open PluginEditorWindow -- must therefore be torn down when its node
+    // leaves the chain, or it dangles once the node is finally freed. The chain
+    // stays UI-agnostic: it invokes this opaque hook (installed by the UI layer)
+    // when a node is removed via removePlugin() / clear() / destruction. The hook
+    // runs on the message thread. Installed once, lazily, by PluginEditorWindow.
+    using NodeRemovalHook = std::function<void(PluginChainNode*)>;
+    static void setNodeRemovalHook(NodeRemovalHook hook);
+
 private:
     //==============================================================================
     // Copy-on-Write Node List with Atomic Swap
@@ -244,6 +259,14 @@ private:
 
     /** Notify listeners that chain changed */
     void notifyChainChanged();
+
+    /** Access the process-wide node-removal hook (function-local static; immune
+        to cross-TU static-init-order issues). */
+    static NodeRemovalHook& nodeRemovalHook();
+
+    /** Invoke the node-removal hook (if installed) for a node leaving the chain.
+        Message thread only. Safe no-op when node is null or no hook installed. */
+    static void notifyNodeRemoved(PluginChainNode* node);
 
     // Enables juce::WeakReference<PluginChain>. notifyChainChanged() posts an
     // async callback that calls sendChangeMessage(); if the chain (and its

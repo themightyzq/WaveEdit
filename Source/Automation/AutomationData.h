@@ -13,9 +13,10 @@
     Core data structures for plugin parameter automation.
     AutomationPoint, AutomationCurve, AutomationLane.
 
-    Thread safety: AutomationCurve uses copy-on-write with a SpinLock
-    to protect the shared_ptr swap. The SpinLock is held for only
-    nanoseconds (pointer copy), making it real-time safe.
+    Thread safety: AutomationCurve uses copy-on-write with a SpinLock to
+    protect the pointer swap. The audio thread reads via getValueAtRealtime()
+    (try-lock, no blocking, no shared_ptr refcount, no allocation); the message
+    thread publishes and does UI reads under the blocking lock. (H-H2)
 
   ==============================================================================
 */
@@ -62,10 +63,13 @@ struct AutomationPoint
  * Write operations (add/remove/edit points) happen on the message thread.
  * Read operations (getValueAt) happen on the audio thread.
  *
- * Thread safety: copy-on-write with SpinLock. The SpinLock is only held
- * for the duration of a shared_ptr copy (nanoseconds), so it is real-time
- * safe. Message thread builds a new sorted vector, takes the lock to swap
- * the pointer, then releases.
+ * Thread safety: copy-on-write with a SpinLock. Writers (message thread) build
+ * a new sorted vector and publish() it by swapping the pointer under the lock.
+ * The audio thread reads via getValueAtRealtime(), which TRY-locks and reads the
+ * published list through a raw pointer -- never blocking, never touching a
+ * shared_ptr refcount, never allocating. Message-thread/UI readers (getValueAt,
+ * hasPoints, getPoints...) still take the blocking lock, which is fine off the
+ * audio thread. See getValueAtRealtime() for the full real-time argument (H-H2).
  */
 class AutomationCurve
 {
@@ -104,12 +108,48 @@ public:
     AutomationCurve& operator=(const AutomationCurve&) = delete;
 
     //==========================================================================
-    // Audio thread (SpinLock-protected reads — nanosecond hold time)
+    // Audio thread (real-time read — try-lock, no allocation, no refcount)
 
-    /** Get interpolated value at a given time. */
+    /**
+     * Audio-thread read: interpolated value at a time, without blocking and
+     * without any shared_ptr refcount traffic.
+     *
+     * H-H2 FIX: the previous getValueAt() took a *blocking* SpinLock and copied
+     * the shared_ptr (an atomic refcount bump/decrement, the decrement of which
+     * could even run a destructor) on the audio thread. This variant instead
+     * takes a ScopedTryLockType and reads the published list through a raw
+     * pointer inside the locked scope -- no refcount, no allocation, and it
+     * NEVER blocks. The only writer (publish(), message thread) swaps the
+     * pointer under the same lock, so holding it across this bounded, alloc-free
+     * binary-search read is safe and the message thread merely spins for the few
+     * microseconds of the read on the rare collision.
+     *
+     * @returns false (leaving 'out' untouched) when the curve is empty OR when
+     *          the message thread is mid-publish (try-lock contention). The
+     *          caller then leaves the parameter at its previous value for this
+     *          block -- a single skipped update is inaudible.
+     */
+    bool getValueAtRealtime(double timeInSeconds, float& out) const noexcept
+    {
+        const juce::SpinLock::ScopedTryLockType lock(m_ptrLock);
+        if (! lock.isLocked())
+            return false;   // message thread swapping the list; skip this block
+
+        const PointList* points = m_points.get();   // raw deref, no refcount
+        if (points == nullptr || points->empty())
+            return false;
+
+        out = evaluate(*points, timeInSeconds);
+        return true;
+    }
+
+    //==========================================================================
+    // Message thread reads (UI drawing — blocking lock acceptable off-audio)
+
+    /** Get interpolated value at a given time. Message thread only (UI). */
     float getValueAt(double timeInSeconds) const
     {
-        // Copy shared_ptr under SpinLock (nanoseconds)
+        // Copy shared_ptr under SpinLock (message thread; blocking is fine here)
         std::shared_ptr<const PointList> points;
         {
             const juce::SpinLock::ScopedLockType lock(m_ptrLock);
@@ -119,27 +159,10 @@ public:
         if (points->empty())
             return 0.5f;
 
-        if (timeInSeconds <= points->front().timeInSeconds)
-            return points->front().value;
-
-        if (timeInSeconds >= points->back().timeInSeconds)
-            return points->back().value;
-
-        // Binary search for surrounding points
-        auto it = std::lower_bound(points->begin(), points->end(),
-            timeInSeconds,
-            [](const AutomationPoint& pt, double t) { return pt.timeInSeconds < t; });
-
-        if (it == points->begin())
-            return it->value;
-
-        const auto& b = *it;
-        const auto& a = *(it - 1);
-
-        return interpolate(a, b, timeInSeconds);
+        return evaluate(*points, timeInSeconds);
     }
 
-    /** Check if this curve has any points. */
+    /** Check if this curve has any points. Message thread only (UI). */
     bool hasPoints() const
     {
         const juce::SpinLock::ScopedLockType lock(m_ptrLock);
@@ -327,6 +350,31 @@ private:
         auto constList = std::shared_ptr<const PointList>(std::move(newList));
         const juce::SpinLock::ScopedLockType lock(m_ptrLock);
         m_points = constList;
+    }
+
+    /** Interpolated value over a NON-EMPTY point list. Pure, allocation-free;
+        shared by the audio-thread and message-thread readers so the selection +
+        interpolation logic lives in exactly one place. */
+    static float evaluate(const PointList& points, double timeInSeconds) noexcept
+    {
+        if (timeInSeconds <= points.front().timeInSeconds)
+            return points.front().value;
+
+        if (timeInSeconds >= points.back().timeInSeconds)
+            return points.back().value;
+
+        // Binary search for surrounding points
+        auto it = std::lower_bound(points.begin(), points.end(),
+            timeInSeconds,
+            [](const AutomationPoint& pt, double t) { return pt.timeInSeconds < t; });
+
+        if (it == points.begin())
+            return it->value;
+
+        const auto& b = *it;
+        const auto& a = *(it - 1);
+
+        return interpolate(a, b, timeInSeconds);
     }
 
     static float interpolate(const AutomationPoint& a,

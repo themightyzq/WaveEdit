@@ -10,6 +10,10 @@
 #include "ThemeManager.h"
 #include "UIConstants.h"
 
+#if WAVEEDIT_HAVE_LAME
+#include "Audio/LameMP3AudioFormat.h"
+#endif
+
 #include <functional>
 
 // Static method to show dialog
@@ -85,8 +89,10 @@ SaveAsOptionsPanel::SaveAsOptionsPanel(double sourceSampleRate, int sourceChanne
     m_formatDropdown.addItem("WAV (Uncompressed)", 1);
     m_formatDropdown.addItem("FLAC (Lossless)", 2);
     m_formatDropdown.addItem("OGG Vorbis (Lossy)", 3);
-    // MP3 encoding not supported by JUCE (decoding only)
-    // m_formatDropdown.addItem("MP3 (Lossy)", 4);
+#if WAVEEDIT_HAVE_LAME
+    // MP3 encoding via bundled LAME (juce::MP3AudioFormat is decode-only).
+    m_formatDropdown.addItem("MP3 (Lossy)", 4);
+#endif
 
     // Set default based on current format
     juce::String ext = currentFile.getFileExtension().toLowerCase();
@@ -284,43 +290,34 @@ SaveAsOptionsPanel::SaveSettings SaveAsOptionsPanel::getSettings() const
 
 bool SaveAsOptionsPanel::isMP3EncoderAvailable()
 {
-    // Check if LAME encoder is available by actually testing writer creation
-    juce::AudioFormatManager manager;
-    manager.registerBasicFormats();
+#if WAVEEDIT_HAVE_LAME
+    // LAME is compiled and linked. Verify the real encoder can build a writer --
+    // this guards against a broken dylib being swapped in (LGPL dynamic linking).
+    waveedit::LameMP3AudioFormat mp3Format;
 
-    // IMPORTANT: registerBasicFormats() doesn't include MP3!
-    // We need to manually register MP3AudioFormat
-    manager.registerFormat(new juce::MP3AudioFormat(), true);
-
-    // Now check if MP3 format is registered
-    auto* mp3Format = manager.findFormatForFileExtension(".mp3");
-    if (mp3Format == nullptr)
-    {
-        DBG("MP3 format not found in AudioFormatManager after manual registration");
-        return false;
-    }
-
-    // Actually test if we can create a writer (verifies LAME is functional)
-    // Use a MemoryOutputStream to avoid file system I/O during detection.
-    // Must be heap-allocated: the writer assumes ownership of the stream on
-    // success (the old code passed a stack stream to the ownership-taking
-    // API, which was a latent invalid-delete).
+    // Heap-allocated: on success the writer takes ownership of the stream.
     std::unique_ptr<juce::OutputStream> dummyStream = std::make_unique<juce::MemoryOutputStream>();
-    auto writer = mp3Format->createWriterFor(dummyStream,
-                                             juce::AudioFormatWriterOptions()
-                                                 .withSampleRate(44100.0)
-                                                 .withNumChannels(2)
-                                                 .withBitsPerSample(16)
-                                                 .withQualityOptionIndex(5));
+    auto writer = mp3Format.createWriterFor(dummyStream,
+                                            juce::AudioFormatWriterOptions()
+                                                .withSampleRate(44100.0)
+                                                .withNumChannels(2)
+                                                .withBitsPerSample(16)
+                                                .withQualityOptionIndex(9));
 
     if (writer == nullptr)
     {
-        DBG("MP3 format found but writer creation failed (LAME not available)");
+        DBG("LAME MP3 encoder linked but writer creation failed");
         return false;
     }
 
-    DBG("MP3 encoder available and functional: " + mp3Format->getFormatName());
+    DBG("LAME MP3 encoder available and functional");
     return true;
+#else
+    // Built without LAME: MP3 export is unavailable (the format option is also
+    // hidden in the dropdown, so this is a defensive fallback only).
+    DBG("MP3 encoder not compiled in (WAVEEDIT_HAVE_LAME undefined)");
+    return false;
+#endif
 }
 
 void SaveAsOptionsPanel::resized()
@@ -582,14 +579,16 @@ void SaveAsOptionsPanel::onSaveClicked()
         return;
     }
 
-    // Check for MP3 without LAME
+    // Defensive fallback: the MP3 option is only offered when LAME is compiled
+    // in (see the dropdown), so this should not normally trigger. It catches a
+    // build without LAME or a broken/swapped dynamic library at runtime.
     int formatId = m_formatDropdown.getSelectedId();
     if (formatId == 4 && !isMP3EncoderAvailable())
     {
         juce::AlertWindow::showMessageBox(
             juce::AlertWindow::WarningIcon,
             "MP3 Encoder Not Available",
-            "MP3 encoding requires the LAME encoder.\n\nInstall with: brew install lame\n\nThen restart WaveEdit.",
+            "The MP3 encoder could not be initialized. Save to WAV, FLAC, or OGG instead.",
             "OK");
         return;
     }

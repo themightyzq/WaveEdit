@@ -65,16 +65,23 @@ BatchProcessorDialog::BatchProcessorDialog()
     // =========================================================================
     // File Selection Section
     // =========================================================================
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_filesLabel.setFont(juce::Font(14.0f, juce::Font::bold));
-    #pragma GCC diagnostic pop
+    m_filesLabel.setFont(ui::boldValueFont());
     addAndMakeVisible(m_filesLabel);
 
     m_fileListBox.setModel(m_fileListModel.get());
     m_fileListBox.setMultipleSelectionEnabled(true);
     m_fileListBox.setRowHeight(20);
     addAndMakeVisible(m_fileListBox);
+
+    // Empty-state hint overlay (REVIEW-DESIGN.md Critical 1); toggled in updateFileList().
+    m_emptyFilesLabel.setText("Drag audio files here, or click \"Add Files...\" to begin",
+                               juce::dontSendNotification);
+    m_emptyFilesLabel.setJustificationType(juce::Justification::centred);
+    m_emptyFilesLabel.setFont(ui::bodyFont());
+    m_emptyFilesLabel.setColour(juce::Label::textColourId,
+                                 waveedit::ThemeManager::getInstance().getCurrent().textMuted);
+    m_emptyFilesLabel.setInterceptsMouseClicks(false, false);
+    addChildComponent(m_emptyFilesLabel);
 
     m_addFilesButton.onClick = [this]() { onAddFilesClicked(); };
     addAndMakeVisible(m_addFilesButton);
@@ -133,10 +140,7 @@ BatchProcessorDialog::BatchProcessorDialog()
     // =========================================================================
     // Output Settings Section
     // =========================================================================
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_outputLabel.setFont(juce::Font(14.0f, juce::Font::bold));
-    #pragma GCC diagnostic pop
+    m_outputLabel.setFont(ui::boldValueFont());
     addAndMakeVisible(m_outputLabel);
 
     addAndMakeVisible(m_outputDirLabel);
@@ -158,10 +162,7 @@ BatchProcessorDialog::BatchProcessorDialog()
     addAndMakeVisible(m_patternEditor);
 
     // Pattern help label - larger font (12pt)
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_patternHelpLabel.setFont(juce::Font(12.0f));
-    #pragma GCC diagnostic pop
+    m_patternHelpLabel.setFont(ui::smallFont());
     m_patternHelpLabel.setColour(juce::Label::textColourId,
                                   waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     addAndMakeVisible(m_patternHelpLabel);
@@ -174,19 +175,13 @@ BatchProcessorDialog::BatchProcessorDialog()
     addAndMakeVisible(m_overwriteToggle);
 
     // Output Preview section
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_previewLabel.setFont(juce::Font(12.0f, juce::Font::bold));
-    #pragma GCC diagnostic pop
+    m_previewLabel.setFont(ui::smallBoldFont());
     addAndMakeVisible(m_previewLabel);
 
     m_outputPreviewEditor.setMultiLine(true);
     m_outputPreviewEditor.setReadOnly(true);
     m_outputPreviewEditor.setScrollbarsShown(true);
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_outputPreviewEditor.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
-    #pragma GCC diagnostic pop
+    m_outputPreviewEditor.setFont(ui::monospaceFont());  // bold; matches BatchExportDialog's preview list
     m_outputPreviewEditor.setColour(juce::TextEditor::backgroundColourId,
                                      waveedit::ThemeManager::getInstance().getCurrent().background);
     addAndMakeVisible(m_outputPreviewEditor);
@@ -246,10 +241,7 @@ BatchProcessorDialog::BatchProcessorDialog()
     m_logEditor.setMultiLine(true);
     m_logEditor.setReadOnly(true);
     m_logEditor.setScrollbarsShown(true);
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_logEditor.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
-    #pragma GCC diagnostic pop
+    m_logEditor.setFont(ui::monospaceFont());
     addAndMakeVisible(m_logEditor);
 
     // =========================================================================
@@ -274,6 +266,9 @@ BatchProcessorDialog::BatchProcessorDialog()
     // =========================================================================
     m_previewDeviceManager.initialiseWithDefaultDevices(0, 2);
     m_previewDeviceManager.addAudioCallback(&m_previewSourcePlayer);
+
+    // REVIEW-DESIGN.md Critical 1: primes the output-preview text + empty-list overlay.
+    updateFileList();
 
     // Set initial size
     // UX 15: the right column's Format/Bit Depth/Sample Rate row needs
@@ -337,6 +332,7 @@ void BatchProcessorDialog::resized()
 
     leftColumn.removeFromTop(5);
     m_fileListBox.setBounds(leftColumn);
+    m_emptyFilesLabel.setBounds(leftColumn.reduced(10));
 
     area.removeFromLeft(10);
 
@@ -735,6 +731,11 @@ void BatchProcessorDialog::updateFileList()
 
     m_fileListBox.updateContent();
     m_fileCountLabel.setText(getTotalFileSummary(), juce::dontSendNotification);
+
+    // Empty-state overlay (REVIEW-DESIGN.md Critical 1).
+    m_emptyFilesLabel.setVisible(m_fileInfos.empty());
+    if (m_fileInfos.empty())
+        m_emptyFilesLabel.toFront(false);
 
     // Update output preview
     updateOutputPreview();

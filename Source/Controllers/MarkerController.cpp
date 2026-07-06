@@ -23,6 +23,7 @@
 #include "MarkerController.h"
 #include "../Utils/Document.h"
 #include "../Utils/Marker.h"
+#include "../Utils/MarkerManager.h"
 #include "../Utils/UndoActions/MarkerUndoActions.h"
 #include "../Utils/UndoActions/RegionUndoActions.h"
 #include "../UI/SidecarNotifications.h"
@@ -30,6 +31,27 @@
 
 MarkerController::MarkerController()
 {
+}
+
+juce::String MarkerController::generateUniqueMarkerName(const MarkerManager& markerManager)
+{
+    // Mirrors RegionController::generateUniqueRegionName (H14): pick the
+    // smallest "M<n>" not already used as a marker name, so deleting a
+    // marker never yields a duplicate name on the next add.
+    std::set<juce::String> existing;
+    for (int i = 0; i < markerManager.getNumMarkers(); ++i)
+        if (const Marker* m = markerManager.getMarker(i))
+            existing.insert(m->getName());
+
+    int candidate = 1;
+    juce::String name = juce::String("M") + juce::String(candidate);
+    while (existing.find(name) != existing.end())
+    {
+        ++candidate;
+        name = juce::String("M") + juce::String(candidate);
+    }
+
+    return name;
 }
 
 void MarkerController::addMarkerAtCursor(Document* doc, double lastClickTimeInSeconds, bool hasLastClickPosition)
@@ -65,9 +87,11 @@ void MarkerController::addMarkerAtCursor(Document* doc, double lastClickTimeInSe
     // Convert time to samples for marker storage
     int64_t cursorSample = doc->getBufferManager().timeToSample(cursorTime);
 
-    // Generate default marker name (M1, M2, etc.)
-    int markerCount = doc->getMarkerManager().getNumMarkers() + 1;
-    juce::String markerName = juce::String("M") + juce::String(markerCount);
+    // Generate default marker name (M1, M2, etc.), guaranteed unique against
+    // markers currently in the document (H14, ported from RegionController --
+    // getNumMarkers()+1 reused numbers after a delete and produced
+    // duplicate marker names).
+    juce::String markerName = generateUniqueMarkerName(doc->getMarkerManager());
 
     // Create marker with default color (yellow)
     Marker marker(markerName, cursorSample, juce::Colours::yellow);
@@ -407,11 +431,24 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
                 if (newName.isNotEmpty())
                 {
                     auto* markerToRename = doc->getMarkerManager().getMarker(markerIndex);
-                    if (markerToRename)
+                    if (markerToRename && markerToRename->getName() != newName)
                     {
-                        markerToRename->setName(newName);
-                        doc->getMarkerManager().saveToFile(doc->getFile());
-                        doc->getMarkerDisplay().repaint();
+                        // Route through the same undoable action the
+                        // MarkerListPanel rename path uses (H13): this
+                        // double-click rename previously called setName()
+                        // directly, so it never appeared in the undo
+                        // history -- inconsistent with region rename, which
+                        // has always been undoable.
+                        const auto oldName = markerToRename->getName();
+                        doc->getUndoManager().beginNewTransaction("Rename marker");
+                        doc->getUndoManager().perform(new RenameMarkerUndoAction(
+                            doc->getMarkerManager(),
+                            &doc->getMarkerDisplay(),
+                            doc->getFile(),
+                            markerIndex,
+                            oldName,
+                            newName));
+                        doc->setModified(true);
                         DBG("Marker renamed to: " + newName);
                     }
                 }

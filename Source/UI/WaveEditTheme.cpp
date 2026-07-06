@@ -46,7 +46,11 @@ Theme dark()
     t.focus     = juce::Colour(0xff00aaff);
     t.warning   = juce::Colour(0xffddaa00);
     t.success   = juce::Colour(0xff66cc77);
-    t.error     = juce::Colour(0xffd64545);
+    // Lightened from 0xffd64545 (WCAG AA text-contrast fix, REVIEW-DESIGN.md
+    // Critical finding 2 / old H1): same hue, raised lightness only.
+    // vs panel 0xff252525: 3.50:1 -> 4.62:1. vs background 0xff1e1e1e:
+    // 3.81:1 -> 5.03:1. Both now clear the 4.5:1 AA-text threshold.
+    t.error     = juce::Colour(0xffde6969);
 
     return t;
 }
@@ -80,8 +84,14 @@ Theme light()
     // Status — same hue as Dark, adjusted for contrast.
     t.selection = juce::Colour(0x66ffaa00);
     t.focus     = juce::Colour(0xff0080cc);
-    t.warning   = juce::Colour(0xffb88000);
-    t.success   = juce::Colour(0xff2a8a3a);
+    // Darkened from 0xffb88000 (WCAG AA text-contrast fix, REVIEW-DESIGN.md
+    // Critical finding 2): same hue, lowered lightness only. vs panel
+    // 0xffffffff: 3.43:1 -> 5.07:1. vs background 0xfff4f4f4: 3.12:1 ->
+    // 4.61:1. Both now clear the 4.5:1 AA-text threshold.
+    t.warning   = juce::Colour(0xff936600);
+    // Darkened from 0xff2a8a3a (same fix). vs panel 0xffffffff: 4.38:1 ->
+    // 5.10:1. vs background 0xfff4f4f4: 3.98:1 -> 4.64:1.
+    t.success   = juce::Colour(0xff267e35);
     t.error     = juce::Colour(0xffb83030);
 
     return t;

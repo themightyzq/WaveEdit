@@ -439,10 +439,7 @@ DSPChainPanel::DSPChainPanel()
     : m_titleLabel("titleLabel", "DSP Processing Chain")
     , m_addButton("+ Add Operation")
 {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    m_titleLabel.setFont(juce::Font(14.0f, juce::Font::bold));
-    #pragma GCC diagnostic pop
+    m_titleLabel.setFont(waveedit::ui::boldValueFont());
     addAndMakeVisible(m_titleLabel);
 
     m_addButton.onClick = [this]() { addOperation(); };
@@ -460,6 +457,20 @@ void DSPChainPanel::paint(juce::Graphics& g)
     g.fillAll(theme.panel);
     g.setColour(theme.border);
     g.drawRect(getLocalBounds(), 1);
+
+    // Empty-state guidance (Critical finding 1, REVIEW-DESIGN.md): this panel
+    // used to render as a blank rectangle with no operations queued. Reuses
+    // m_viewport's already-laid-out bounds (set in resized(), which JUCE runs
+    // before the first paint()) so no separate content-area bookkeeping is
+    // needed here.
+    if (m_operations.isEmpty())
+    {
+        g.setColour(theme.textMuted);
+        g.setFont(waveedit::ui::bodyFont());
+        g.drawFittedText("No DSP operations yet - click \"+ Add Operation\" to build a processing chain",
+                          m_viewport.getBounds().reduced(10),
+                          juce::Justification::centred, 3);
+    }
 }
 
 void DSPChainPanel::resized()

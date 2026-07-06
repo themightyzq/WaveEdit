@@ -111,6 +111,8 @@ private:
     int64_t m_oldEnd;
     int64_t m_newStart;
     int64_t m_newEnd;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ResizeRegionUndoAction)
 };
 
 //==============================================================================
@@ -340,6 +342,8 @@ private:
     juce::Array<int> m_originalIndices;  // Original indices of regions being merged
     juce::Array<Region> m_originalRegions;  // Original regions before merge
     int64_t m_mergedRegionId = -1;  // Stable ID of the merged region
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MultiMergeRegionsUndoAction)
 };
 
 //==============================================================================

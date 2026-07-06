@@ -113,6 +113,8 @@ private:
     juce::File m_audioFile;
     juce::Array<Region> m_oldRegions;  // Regions before Auto Region
     juce::Array<Region> m_newRegions;  // Regions created by Auto Region
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RetrospectiveStripSilenceUndoAction)
 };
 
 //==============================================================================
@@ -168,4 +170,6 @@ private:
     RegionDisplay& m_regionDisplay;
     juce::File m_audioFile;
     juce::Array<Region> m_regions;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MarkersToRegionsUndoAction)
 };

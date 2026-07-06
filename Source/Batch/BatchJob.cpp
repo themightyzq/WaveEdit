@@ -10,6 +10,7 @@
 
 #include "BatchJob.h"
 #include "../Audio/AudioProcessor.h"
+#include "../Audio/LameMP3AudioFormat.h"
 #include "../DSP/DynamicParametricEQ.h"
 #include "../DSP/EQPresetManager.h"
 #include "../Plugins/PluginChain.h"
@@ -551,10 +552,24 @@ bool BatchJob::saveOutputFile(std::function<bool(float, const juce::String&)>& p
     {
         format = std::make_unique<juce::OggVorbisAudioFormat>();
     }
+    else if (ext == ".mp3")
+    {
+       #if WAVEEDIT_HAVE_LAME
+        format = std::make_unique<waveedit::LameMP3AudioFormat>();
+       #else
+        m_result.status = BatchJobStatus::FAILED;
+        m_result.errorMessage = "MP3 encoding is not available in this build.";
+        return false;
+       #endif
+    }
     else
     {
-        // Default to WAV
-        format = std::make_unique<juce::WavAudioFormat>();
+        // M4: fail loudly rather than silently writing WAV bytes into a file
+        // with a foreign extension (a hand-edited/legacy preset could ask for
+        // an unsupported format).
+        m_result.status = BatchJobStatus::FAILED;
+        m_result.errorMessage = "Unsupported output format: " + ext;
+        return false;
     }
 
     std::unique_ptr<juce::OutputStream> outputStream(outputFile.createOutputStream());

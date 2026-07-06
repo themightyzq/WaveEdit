@@ -76,50 +76,21 @@ void PluginChainNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (m_instance == nullptr || !m_prepared)
         return;
 
-    // Handle pending state swap. C3 FIX: queueStateUpdate() writes
-    // m_pendingState under m_stateLock on the message thread, so the audio
-    // thread must take the SAME lock to swap -- but only via try-lock (never
-    // block here). On contention the flag stays set and the swap retries on
-    // the next block.
-    if (m_stateSwapPending.load(std::memory_order_acquire))
-    {
-        const juce::SpinLock::ScopedTryLockType lock(m_stateLock);
-        if (lock.isLocked())
-        {
-            m_stateSwapPending.store(false, std::memory_order_relaxed);
-
-            // Swap pending state to active state (pointer swap, no allocation)
-            std::swap(m_pendingState, m_activeState);
-
-            // Apply state to plugin
-            if (m_activeState.getSize() > 0)
-            {
-                m_instance->setStateInformation(
-                    m_activeState.getData(),
-                    static_cast<int>(m_activeState.getSize())
-                );
-            }
-        }
-    }
-
     // Skip processing if bypassed
     if (m_bypassed.load(std::memory_order_acquire))
         return;
 
-    // Process audio through plugin
+    // Process audio through plugin. NOTE (L-H1): there is deliberately no
+    // audio-thread state application here. setStateInformation() on a
+    // third-party plugin can allocate, parse XML and lock -- illegal on the
+    // audio thread -- so state is applied only on the message thread via
+    // setState()/addPluginConfigured() (C4). The old queueStateUpdate() swap
+    // path (which called setStateInformation from here) was dead code and has
+    // been removed.
     m_instance->processBlock(buffer, midi);
 }
 
 //==============================================================================
-void PluginChainNode::queueStateUpdate(const juce::MemoryBlock& state)
-{
-    // Protect write to pending state
-    const juce::SpinLock::ScopedLockType lock(m_stateLock);
-
-    m_pendingState = state;
-    m_stateSwapPending.store(true, std::memory_order_release);
-}
-
 juce::MemoryBlock PluginChainNode::getState() const
 {
     juce::MemoryBlock state;
