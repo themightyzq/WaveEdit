@@ -428,7 +428,7 @@ void Document::loadRegionsAndMarkers(const juce::File& file)
     // A sidecar is present -- it is the richer store, so it wins by default.
     const int64_t totalSamples = m_bufferManager.getBuffer().getNumSamples();
     m_regionManager.loadFromFile(file, totalSamples);
-    m_markerManager.loadFromFile(file);
+    m_markerManager.loadFromFile(file, totalSamples);
 
     // If the audio changed outside WaveEdit since the sidecar was written AND
     // the file actually carries its own cues, flag a conflict. The sidecar is
@@ -524,8 +524,14 @@ void Document::buildCueDataForSave(WavCueData& out, double sampleRateScale) cons
         const auto& r = regions.getReference(i);
         WavCueRegion cr;
         cr.name = SidecarPolicy::toAsciiLabel(r.getName());
-        cr.start = rescale(static_cast<juce::int64>(r.getStartSample()));
-        cr.length = rescale(static_cast<juce::int64>(r.getLengthInSamples()));
+        // M1: rescale start and END independently, then derive length, so the
+        // embedded (start,length) end matches the rescaled true end exactly
+        // (rescaling start and length separately can drift by 1 sample) and
+        // stays consistent with the sidecar path, which stores (start,end).
+        const juce::int64 scaledStart = rescale(static_cast<juce::int64>(r.getStartSample()));
+        const juce::int64 scaledEnd   = rescale(static_cast<juce::int64>(r.getEndSample()));
+        cr.start = scaledStart;
+        cr.length = scaledEnd - scaledStart;
         out.regions.add(cr);
     }
 }

@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install dependencies
-        run: brew install sound-touch
+        run: brew install sound-touch lame
 
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2
@@ -38,6 +38,19 @@ jobs:
 
       - name: Configure CMake
         run: cmake -B build -G "Xcode" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Verify MP3 encoder enabled
+        shell: bash
+        run: |
+          # MP3 must be compiled into every shipped binary; fail loudly rather
+          # than silently shipping without it (WAVEEDIT_MP3_ENABLED is set by
+          # CMakeLists when LAME lib+header are found).
+          if grep -q "WAVEEDIT_MP3_ENABLED:INTERNAL=TRUE" build/CMakeCache.txt; then
+            echo "MP3 encoder verified enabled."
+          else
+            echo "::error::LAME not found -- MP3 export would ship DISABLED."
+            exit 1
+          fi
 
       - name: Build
         run: cmake --build build --config Release --parallel 2
@@ -85,7 +98,7 @@ jobs:
         run: |
           # vcpkg is preinstalled on windows-latest at C:/vcpkg.
           # Install SoundTouch (LGPL-2.1) — required for time-stretch / pitch-shift.
-          vcpkg install soundtouch:x64-windows
+          vcpkg install soundtouch:x64-windows mp3lame:x64-windows
 
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2
@@ -111,6 +124,19 @@ jobs:
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      - name: Verify MP3 encoder enabled
+        shell: bash
+        run: |
+          # MP3 must be compiled into every shipped binary; fail loudly rather
+          # than silently shipping without it (WAVEEDIT_MP3_ENABLED is set by
+          # CMakeLists when LAME lib+header are found).
+          if grep -q "WAVEEDIT_MP3_ENABLED:INTERNAL=TRUE" build/CMakeCache.txt; then
+            echo "MP3 encoder verified enabled."
+          else
+            echo "::error::LAME not found -- MP3 export would ship DISABLED."
+            exit 1
+          fi
 
       - name: Build
         run: cmake --build build --config Release --parallel 2
@@ -174,7 +200,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libglu1-mesa-dev \
             mesa-common-dev \
-            libsoundtouch-dev
+            libsoundtouch-dev \
+            libmp3lame-dev
 
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2
@@ -183,6 +210,19 @@ jobs:
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Verify MP3 encoder enabled
+        shell: bash
+        run: |
+          # MP3 must be compiled into every shipped binary; fail loudly rather
+          # than silently shipping without it (WAVEEDIT_MP3_ENABLED is set by
+          # CMakeLists when LAME lib+header are found).
+          if grep -q "WAVEEDIT_MP3_ENABLED:INTERNAL=TRUE" build/CMakeCache.txt; then
+            echo "MP3 encoder verified enabled."
+          else
+            echo "::error::LAME not found -- MP3 export would ship DISABLED."
+            exit 1
+          fi
 
       - name: Build
         run: cmake --build build --config Release --parallel 2

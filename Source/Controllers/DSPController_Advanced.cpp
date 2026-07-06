@@ -466,15 +466,12 @@ void DSPController::applyPluginChainToSelectionInternal(Document* doc,
             doc->getUndoManager().perform(undoAction);
             doc->setModified(true);
 
-            doc->getWaveformDisplay().reloadFromBuffer(
-                doc->getBufferManager().getBuffer(),
-                doc->getBufferManager().getSampleRate(),
-                true, true);
-
-            doc->getAudioEngine().reloadBufferPreservingPlayback(
-                doc->getBufferManager().getBuffer(),
-                doc->getBufferManager().getSampleRate(),
-                doc->getBufferManager().getBuffer().getNumChannels());
+            // H1: refresh via the action's own length classification. A
+            // tail-extending render (include-tail) grows the range and shifts
+            // subsequent content, so this STOPS playback (reset to 0) instead of
+            // unconditionally preserving a position that would resume on the
+            // shifted timeline. Handles both the waveform + engine reload.
+            undoAction->refreshAfterExternalReplace();
         }
         catch (const std::exception& e)
         {
@@ -677,15 +674,10 @@ void DSPController::applyOfflinePluginToSelection(Document* doc,
             doc->getUndoManager().perform(undoAction);
             doc->setModified(true);
 
-            doc->getWaveformDisplay().reloadFromBuffer(
-                doc->getBufferManager().getBuffer(),
-                doc->getBufferManager().getSampleRate(),
-                true, true);
-
-            doc->getAudioEngine().reloadBufferPreservingPlayback(
-                doc->getBufferManager().getBuffer(),
-                doc->getBufferManager().getSampleRate(),
-                doc->getBufferManager().getBuffer().getNumChannels());
+            // H1: same length-aware refresh as the plugin-chain path. An offline
+            // plugin rendered with include-tail extends the range, so this stops
+            // playback rather than resuming on shifted content.
+            undoAction->refreshAfterExternalReplace();
         }
         catch (const std::exception& e)
         {
@@ -900,7 +892,9 @@ namespace
                 rangeLen,
                 processed,
                 &doc->getRegionManager(),
-                &doc->getRegionDisplay()));
+                &doc->getRegionDisplay(),
+                &doc->getMarkerManager(),
+                &doc->getMarkerDisplay()));
         }
         else
         {

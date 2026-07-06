@@ -21,8 +21,11 @@
 #include "../Audio/AudioEngine.h"
 #include "../UI/WaveformDisplay.h"
 #include "../UI/RegionDisplay.h"
+#include "../UI/MarkerDisplay.h"
 #include "RegionManager.h"
 #include "Region.h"
+#include "MarkerManager.h"
+#include "Marker.h"
 
 // UndoableEditBase + the generic Delete/Insert/Replace primitives live here.
 // Domain-specific actions live alongside their domain in Source/Utils/UndoActions/.
@@ -143,6 +146,29 @@ protected:
         }
 
         updateWaveformAndRegionDisplay();
+    }
+
+    /**
+     * Refresh a MarkerDisplay after a length-changing edit shifted marker
+     * positions. Mirrors the RegionDisplay refresh in
+     * updateWaveformAndRegionDisplay() (total duration + visible range +
+     * repaint): the display reads positions from its MarkerManager at paint
+     * time, so a repaint after mutating the manager is enough to redraw the
+     * moved markers. No-op when no display was supplied (e.g. unit tests pass
+     * a MarkerManager but no MarkerDisplay). Used by InsertAction/ReplaceAction,
+     * the only actions that shift markers (H3).
+     */
+    void refreshMarkerDisplay(MarkerDisplay* markerDisplay)
+    {
+        if (markerDisplay == nullptr)
+            return;
+
+        const double newDuration =
+            static_cast<double>(m_bufferManager.getNumSamples()) / m_bufferManager.getSampleRate();
+        markerDisplay->setTotalDuration(newDuration);
+        markerDisplay->setVisibleRange(m_waveformDisplay.getVisibleRangeStart(),
+                                       m_waveformDisplay.getVisibleRangeEnd());
+        markerDisplay->repaint();
     }
 
     AudioBufferManager& m_bufferManager;
@@ -370,11 +396,15 @@ public:
                  int64_t insertPosition,
                  const juce::AudioBuffer<float>& audioToInsert,
                  RegionManager* regionManager = nullptr,
-                 RegionDisplay* regionDisplay = nullptr)
+                 RegionDisplay* regionDisplay = nullptr,
+                 MarkerManager* markerManager = nullptr,
+                 MarkerDisplay* markerDisplay = nullptr)
         : UndoableEditBase(bufferManager, audioEngine, waveformDisplay, regionManager, regionDisplay),
           m_insertPosition(insertPosition),
           m_numSamples(audioToInsert.getNumSamples()),
-          m_audioToInsert(audioToInsert.getNumChannels(), audioToInsert.getNumSamples())
+          m_audioToInsert(audioToInsert.getNumChannels(), audioToInsert.getNumSamples()),
+          m_markerManager(markerManager),
+          m_markerDisplay(markerDisplay)
     {
         // Validate buffer state
         jassert(m_bufferManager.hasAudioData());
@@ -398,6 +428,17 @@ public:
             {
                 if (const auto* region = m_regionManager->getRegion(i))
                     m_savedRegions.add(*region);
+            }
+        }
+
+        // Save all marker positions BEFORE the insert (for undo), mirroring the
+        // region snapshot above. Markers are points, not ranges (H3).
+        if (m_markerManager)
+        {
+            for (int i = 0; i < m_markerManager->getNumMarkers(); ++i)
+            {
+                if (const auto* marker = m_markerManager->getMarker(i))
+                    m_savedMarkers.add(*marker);
             }
         }
     }
@@ -442,7 +483,25 @@ public:
                 }
             }
 
+            // Marker shift (points, not ranges): a marker AT or AFTER the insert
+            // point moves forward by the inserted length so it keeps pointing at
+            // the same audio; a marker strictly before it is unaffected. Mirrors
+            // the region rule (regionStart >= insertPosition shifts) for the
+            // zero-width case. (H3)
+            if (m_markerManager && m_markerManager->getNumMarkers() > 0)
+            {
+                for (int i = 0; i < m_markerManager->getNumMarkers(); ++i)
+                {
+                    if (Marker* marker = m_markerManager->getMarker(i))
+                    {
+                        if (marker->getPosition() >= m_insertPosition)
+                            marker->setPosition(marker->getPosition() + m_numSamples);
+                    }
+                }
+            }
+
             updatePlaybackAndDisplay();
+            refreshMarkerDisplay(m_markerDisplay);
         }
 
         return success;
@@ -463,7 +522,16 @@ public:
                     m_regionManager->addRegion(region);
             }
 
+            // Restore all saved marker positions (undoes the shift above).
+            if (m_markerManager && !m_savedMarkers.isEmpty())
+            {
+                m_markerManager->removeAllMarkers();
+                for (const auto& marker : m_savedMarkers)
+                    m_markerManager->addMarker(marker);
+            }
+
             updatePlaybackAndDisplay();
+            refreshMarkerDisplay(m_markerDisplay);
         }
 
         return success;
@@ -482,6 +550,9 @@ private:
     juce::AudioBuffer<float> m_audioToInsert;
     double m_sampleRate;
     juce::Array<Region> m_savedRegions;  // Saved region positions for undo
+    MarkerManager* m_markerManager;      // Optional - may be nullptr if no markers
+    MarkerDisplay* m_markerDisplay;      // Optional - may be nullptr if no marker display
+    juce::Array<Marker> m_savedMarkers;  // Saved marker positions for undo
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InsertAction)
 };
@@ -501,11 +572,15 @@ public:
                   int64_t numSamplesToReplace,
                   const juce::AudioBuffer<float>& newAudio,
                   RegionManager* regionManager = nullptr,
-                  RegionDisplay* regionDisplay = nullptr)
+                  RegionDisplay* regionDisplay = nullptr,
+                  MarkerManager* markerManager = nullptr,
+                  MarkerDisplay* markerDisplay = nullptr)
         : UndoableEditBase(bufferManager, audioEngine, waveformDisplay, regionManager, regionDisplay),
           m_startSample(startSample),
           m_numSamplesToReplace(numSamplesToReplace),
-          m_newAudio(newAudio.getNumChannels(), newAudio.getNumSamples())
+          m_newAudio(newAudio.getNumChannels(), newAudio.getNumSamples()),
+          m_markerManager(markerManager),
+          m_markerDisplay(markerDisplay)
     {
         // Validate buffer state
         jassert(m_bufferManager.hasAudioData());
@@ -535,6 +610,17 @@ public:
                     m_savedRegions.add(*region);
             }
         }
+
+        // Save all marker positions BEFORE the replace (for undo), mirroring the
+        // region snapshot above (H3).
+        if (m_markerManager)
+        {
+            for (int i = 0; i < m_markerManager->getNumMarkers(); ++i)
+            {
+                if (const auto* marker = m_markerManager->getMarker(i))
+                    m_savedMarkers.add(*marker);
+            }
+        }
     }
 
     bool perform() override
@@ -545,7 +631,9 @@ public:
         if (success)
         {
             shiftRegionsForReplace(m_numSamplesToReplace, m_newAudio.getNumSamples());
+            shiftMarkersForReplace(m_numSamplesToReplace, m_newAudio.getNumSamples());
             updatePlaybackAndDisplay();
+            refreshMarkerDisplay(m_markerDisplay);
         }
 
         return success;
@@ -566,7 +654,16 @@ public:
                     m_regionManager->addRegion(region);
             }
 
+            // Restore all saved marker positions (undoes the shift/removal above).
+            if (m_markerManager && !m_savedMarkers.isEmpty())
+            {
+                m_markerManager->removeAllMarkers();
+                for (const auto& marker : m_savedMarkers)
+                    m_markerManager->addMarker(marker);
+            }
+
             updatePlaybackAndDisplay();
+            refreshMarkerDisplay(m_markerDisplay);
         }
 
         return success;
@@ -632,12 +729,56 @@ private:
         }
     }
 
+    /**
+     * Marker equivalent of shiftRegionsForReplace(), treating each marker as a
+     * zero-width point (H3):
+     * - Marker at or before the replaced range start: unaffected.
+     * - Marker at or after the replaced range end: shift by the length delta
+     *   (newLength - oldLength; negative when the replacement is shorter).
+     * - Marker strictly INSIDE the replaced range: the audio it pointed to was
+     *   overwritten, so -- matching the region "overlapping -> remove"
+     *   convention -- remove it rather than guess a new position.
+     */
+    void shiftMarkersForReplace(int64_t oldLength, int64_t newLength)
+    {
+        if (!m_markerManager || m_markerManager->getNumMarkers() == 0)
+            return;
+
+        const int64_t delta = newLength - oldLength;
+        const int64_t replaceEnd = m_startSample + oldLength;
+
+        for (int i = m_markerManager->getNumMarkers() - 1; i >= 0; --i)
+        {
+            Marker* marker = m_markerManager->getMarker(i);
+            if (!marker) continue;
+
+            const int64_t pos = marker->getPosition();
+
+            if (pos <= m_startSample)
+            {
+                continue;
+            }
+            else if (pos >= replaceEnd)
+            {
+                if (delta != 0)
+                    marker->setPosition(pos + delta);
+            }
+            else
+            {
+                m_markerManager->removeMarker(i);
+            }
+        }
+    }
+
     int64_t m_startSample;
     int64_t m_numSamplesToReplace;
     juce::AudioBuffer<float> m_originalAudio;
     juce::AudioBuffer<float> m_newAudio;
     double m_sampleRate;
     juce::Array<Region> m_savedRegions;  // Saved region positions for undo
+    MarkerManager* m_markerManager;      // Optional - may be nullptr if no markers
+    MarkerDisplay* m_markerDisplay;      // Optional - may be nullptr if no marker display
+    juce::Array<Marker> m_savedMarkers;  // Saved marker positions for undo
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReplaceAction)
 };

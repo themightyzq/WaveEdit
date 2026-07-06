@@ -430,7 +430,9 @@ void ClipboardController::pasteAtCursor(Document* doc)
                     endSample - startSample,
                     conformed,
                     &doc->getRegionManager(),
-                    &doc->getRegionDisplay()
+                    &doc->getRegionDisplay(),
+                    &doc->getMarkerManager(),
+                    &doc->getMarkerDisplay()
                 );
 
                 // Perform the replace and add to undo manager
@@ -450,7 +452,9 @@ void ClipboardController::pasteAtCursor(Document* doc)
                     insertSample,
                     conformed,
                     &doc->getRegionManager(),
-                    &doc->getRegionDisplay()
+                    &doc->getRegionDisplay(),
+                    &doc->getMarkerManager(),
+                    &doc->getMarkerDisplay()
                 );
 
                 // Perform the insert and add to undo manager
