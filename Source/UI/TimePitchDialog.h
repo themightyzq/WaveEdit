@@ -159,6 +159,7 @@ private:
     // (see DSPController), so projections use the selection duration.
     bool   m_hasSelection          = false;
     double m_selectionStartSeconds = 0.0;
+    double m_excerptFileStartSeconds = 0.0;  // file-time the preview excerpt starts at
     double m_selectionEndSeconds   = 0.0;
     double m_processDurationSeconds = 0.0;  // Selection duration, else whole file
 

@@ -464,8 +464,11 @@ public:
         changing effects such as Head & Tail). Sets OFFLINE_BUFFER mode, loads the
         buffer, configures looping, and starts playback. Returns false if the
         buffer is empty. Message thread only. */
+    /** @param fileOffsetSeconds  File-time position the excerpt starts at, so
+        the on-screen playhead maps back onto the source timeline (e.g. the
+        selection start). 0 = the excerpt represents the whole file. */
     bool startBufferPreview(const juce::AudioBuffer<float>& buffer, double sampleRate,
-                            int numChannels, bool loop);
+                            int numChannels, bool loop, double fileOffsetSeconds = 0.0);
 
     /** Stop any preview, disable all preview effects, and restore normal
         playback. Idempotent. Message thread only. */
