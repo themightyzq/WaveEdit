@@ -127,7 +127,7 @@ NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
     addAndMakeVisible(m_cancelButton);
 
-    setSize(450, 380);  // Width matches ParametricEQDialog standard for button layout
+    setSize(450, 380);  // 450px width matches the standard Process-dialog footer layout
 }
 
 NormalizeDialog::~NormalizeDialog()

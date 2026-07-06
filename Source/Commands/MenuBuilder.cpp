@@ -212,7 +212,6 @@ juce::PopupMenu MenuBuilder::getMenuForIndex(int menuIndex,
 
         // --- Equalization ---
         menu.addSectionHeader("Equalization");
-        menu.addCommandItem(context.commandManager, CommandIDs::processParametricEQ);
         menu.addCommandItem(context.commandManager, CommandIDs::processGraphicalEQ);
 
         // --- Repair ---

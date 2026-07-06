@@ -125,7 +125,6 @@ void CommandHandler::getAllCommands(juce::Array<juce::CommandID>& commands)
         CommandIDs::processIncreaseGain,
         CommandIDs::processDecreaseGain,
         CommandIDs::processNormalize,
-        CommandIDs::processParametricEQ,
         CommandIDs::processGraphicalEQ,
         CommandIDs::processFadeIn,
         CommandIDs::processFadeOut,
@@ -723,11 +722,6 @@ bool CommandHandler::performCommand(MainComponent& mc,
         case CommandIDs::processDecreaseGain:
             if (!doc) return false;
             mc.applyGainAdjustment(-1.0f);
-            return true;
-
-        case CommandIDs::processParametricEQ:
-            if (!doc) return false;
-            mc.m_dspController.showParametricEQDialog(doc, &mc);
             return true;
 
         case CommandIDs::processGraphicalEQ:

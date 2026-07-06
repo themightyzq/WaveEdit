@@ -239,6 +239,15 @@ bool BatchJob::applyDSPChain(std::function<bool(float, const juce::String&)>& pr
                 break;
 
             case BatchDSPOperation::PARAMETRIC_EQ:
+                // DEPRECATED op: the 3-band Parametric EQ was removed from
+                // WaveEdit (superseded by the 20-band Graphical EQ). Old batch
+                // presets can still carry this operation, so skip it with a
+                // visible notice rather than silently doing nothing. See the
+                // BatchDSPOperation enum comment in BatchProcessorSettings.h.
+                if (!progress(currentProgress, "Parametric EQ was removed - skipping"))
+                    return false;
+                break;
+
             case BatchDSPOperation::GRAPHICAL_EQ:
                 if (!progress(currentProgress, "Applying EQ..."))
                     return false;

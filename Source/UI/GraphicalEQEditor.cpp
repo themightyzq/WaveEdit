@@ -178,7 +178,7 @@ GraphicalEQEditor::~GraphicalEQEditor()
     stopTimer();
 
     // Ensure preview is disabled and unregister from AudioEngine when dialog closes
-    // CRITICAL: Must stop playback and disable preview mode - same pattern as GainDialog/ParametricEQDialog
+    // CRITICAL: Must stop playback and disable preview mode - same pattern as GainDialog
     if (m_audioEngine)
     {
         // Unregister from receiving audio data for spectrum visualization
@@ -1178,7 +1178,7 @@ void GraphicalEQEditor::togglePreview()
         return;
     }
 
-    // FIX: Match the toggle pattern from GainDialog/ParametricEQDialog
+    // FIX: Match the toggle pattern from GainDialog
     // Check if we're currently previewing AND playing - if so, stop
     if (m_previewActive && m_audioEngine->isPlaying())
     {
