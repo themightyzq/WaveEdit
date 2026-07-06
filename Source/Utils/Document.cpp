@@ -162,6 +162,22 @@ bool Document::loadFile(const juce::File& file)
         juce::Logger::writeToLog("Warning: Failed to load waveform display for: " + file.getFullPathName());
     }
 
+    // Sharp per-pixel rendering on load for reasonably-sized files (SFX/VO --
+    // the common case). Without this, a freshly-loaded file shows the coarse
+    // 512-sample AudioThumbnail until the first edit ("chunky" waveform). Huge
+    // files stay on the memory-light async thumbnail (the cached-buffer copy
+    // direct rendering needs would double their footprint).
+    {
+        const auto& loadedBuffer = m_bufferManager.getBuffer();
+        constexpr int64_t kDirectRenderMaxSamples = 20000000; // ~7 min mono @48k
+        if (loadedBuffer.getNumSamples() > 0
+            && static_cast<int64_t>(loadedBuffer.getNumSamples()) <= kDirectRenderMaxSamples)
+        {
+            m_waveformDisplay.reloadFromBuffer(loadedBuffer, m_audioEngine.getSampleRate(),
+                                               false, false);
+        }
+    }
+
     m_waveformDisplay.clearSelection();
 
     // Initialize region display (Phase 3 Tier 2)
