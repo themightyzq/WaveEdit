@@ -109,6 +109,8 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     int m_startSample;
     int m_numSamples;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SilenceUndoAction)
 };
 
 //==============================================================================
@@ -192,4 +194,6 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     int m_startSample;
     int m_numSamples;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrimUndoAction)
 };

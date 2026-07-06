@@ -139,6 +139,8 @@ private:
     float m_gainDB;
     bool m_isSelection;
     bool m_alreadyPerformed = false;  // For progress dialog integration
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GainUndoAction)
 };
 
 //==============================================================================
@@ -241,6 +243,8 @@ private:
     int m_numSamples;
     bool m_isSelection;
     float m_targetDB;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NormalizeUndoAction)
 };
 
 //==============================================================================
@@ -351,4 +355,6 @@ private:
     int m_startSample;
     int m_numSamples;
     bool m_alreadyPerformed = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DCOffsetRemovalUndoAction)
 };

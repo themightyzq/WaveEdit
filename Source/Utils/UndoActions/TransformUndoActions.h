@@ -77,6 +77,8 @@ private:
     int m_startSample;
     int m_numSamples;
     bool m_isSelection;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverseUndoAction)
 };
 
 //==============================================================================
@@ -128,6 +130,8 @@ private:
     int m_startSample;
     int m_numSamples;
     bool m_isSelection;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InvertUndoAction)
 };
 
 //==============================================================================
@@ -196,6 +200,8 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     double m_oldSampleRate;
     double m_newSampleRate;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ResampleUndoAction)
 };
 
 //==============================================================================
@@ -252,6 +258,8 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     juce::AudioBuffer<float> m_afterBuffer;
     double m_sampleRate;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HeadTailUndoAction)
 };
 
 //==============================================================================
@@ -313,4 +321,6 @@ private:
     juce::AudioBuffer<float> m_afterBuffer;
     double m_sampleRate;
     juce::String m_description;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimePitchUndoAction)
 };

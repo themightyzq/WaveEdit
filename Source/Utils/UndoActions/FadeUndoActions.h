@@ -101,6 +101,8 @@ private:
     int m_numSamples;
     FadeCurveType m_curveType;
     bool m_alreadyPerformed = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FadeInUndoAction)
 };
 
 //==============================================================================
@@ -182,4 +184,6 @@ private:
     int m_numSamples;
     FadeCurveType m_curveType;
     bool m_alreadyPerformed = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FadeOutUndoAction)
 };

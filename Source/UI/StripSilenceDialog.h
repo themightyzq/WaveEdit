@@ -104,6 +104,13 @@ private:
     // Buttons
 
     juce::TextButton m_previewButton;
+    // Bypass/Loop are permanently disabled (not merely "no engine yet"):
+    // Auto Region never plays audio back -- Preview recomputes region
+    // boundaries and draws them over the static waveform below. Kept
+    // present, in the exact §6.8 position/width, purely so the footer
+    // layout matches every other Process dialog (see CLAUDE.md §6.8).
+    juce::TextButton m_bypassButton;
+    juce::ToggleButton m_loopToggle;
     juce::TextButton m_applyButton;
     juce::TextButton m_cancelButton;
 

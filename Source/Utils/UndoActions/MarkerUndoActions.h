@@ -77,6 +77,8 @@ private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
     Marker m_marker;  // Carries the stable ID used to locate it on undo
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AddMarkerUndoAction)
 };
 
 //==============================================================================
@@ -141,6 +143,8 @@ private:
     MarkerDisplay* m_markerDisplay;
     int m_markerIndex;
     Marker m_deletedMarker;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeleteMarkerUndoAction)
 };
 
 //==============================================================================
@@ -196,6 +200,8 @@ private:
     MarkerDisplay* m_markerDisplay;
     juce::File m_audioFile;
     juce::Array<Marker> m_markers;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RegionsToMarkersUndoAction)
 };
 
 //==============================================================================
@@ -260,6 +266,8 @@ private:
     int64_t m_markerId = -1;
     juce::String m_oldName;
     juce::String m_newName;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RenameMarkerUndoAction)
 };
 
 //==============================================================================
@@ -320,6 +328,8 @@ private:
     int64_t m_markerId = -1;
     juce::Colour m_oldColor;
     juce::Colour m_newColor;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChangeMarkerColorUndoAction)
 };
 
 //==============================================================================
@@ -381,6 +391,8 @@ private:
     int64_t m_markerId;
     int64_t m_oldPosition;
     int64_t m_newPosition;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MoveMarkerUndoAction)
 };
 
 //==============================================================================
@@ -435,4 +447,6 @@ private:
     MarkerDisplay* m_markerDisplay;
     juce::File m_audioFile;
     juce::Array<Marker> m_markers;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ImportMarkersUndoAction)
 };

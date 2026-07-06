@@ -56,14 +56,18 @@ public:
     bool perform() override
     {
         m_bufferManager.setBuffer(m_convertedBuffer, m_sampleRate);
-        updatePlaybackAndDisplay();
+        // Channel conversion changes channel count/layout, not sample count
+        // (mono<->stereo/downmix all preserve numSamples), so it is safe --
+        // and, per CLAUDE.md §6.5, required -- to preserve playback here
+        // rather than unconditionally stopping it.
+        updatePlaybackAndDisplayPreservingPlayback();
         return true;
     }
 
     bool undo() override
     {
         m_bufferManager.setBuffer(m_originalBuffer, m_sampleRate);
-        updatePlaybackAndDisplay();
+        updatePlaybackAndDisplayPreservingPlayback();
         return true;
     }
 
@@ -172,6 +176,8 @@ private:
     AudioEngine& m_audioEngine;
     juce::AudioBuffer<float> m_originalMonoBuffer;
     bool m_alreadyPerformed = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ConvertToStereoAction)
 };
 
 //==============================================================================
@@ -266,6 +272,8 @@ private:
     int m_startSample;
     int m_numSamples;
     int m_channelMask;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SilenceChannelsUndoAction)
 };
 
 //==============================================================================
@@ -358,4 +366,6 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     juce::AudioBuffer<float> m_newAudio;
     int m_channelMask;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReplaceChannelsAction)
 };

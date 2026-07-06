@@ -310,9 +310,14 @@ public:
      * Example: example.wav -> example.wav.regions.json
      *
      * @param audioFile The audio file (not the .regions.json file)
+     * @param sampleRateScale Ratio (targetSampleRate / sourceSampleRate) to
+     *        apply to every start/end sample before writing. Pass 1.0
+     *        (default) for a normal save at the buffer's current rate. A
+     *        Save-As that resamples must pass the actual ratio so positions
+     *        stay aligned with the resampled audio on reopen.
      * @return true if successful, false on error
      */
-    bool saveToFile(const juce::File& audioFile) const;
+    bool saveToFile(const juce::File& audioFile, double sampleRateScale = 1.0) const;
 
     /**
      * Loads regions from a JSON sidecar file.

@@ -346,8 +346,18 @@ private:
     /** Replace in-memory markers/regions from parsed WAV cue data. */
     void importEmbeddedCues(const WavCueData& cues);
 
-    /** Collect current markers/regions (ASCII-labelled) for cue embedding. */
-    void buildCueDataForSave(WavCueData& out) const;
+    /**
+     * Collect current markers/regions (ASCII-labelled) for cue embedding.
+     *
+     * @param sampleRateScale Ratio (targetSampleRate / sourceSampleRate) to
+     *        apply to every position/length before embedding. Pass 1.0 for a
+     *        same-rate save. A Save-As that resamples the buffer must pass
+     *        the actual ratio -- the in-memory markers/regions are still
+     *        expressed in source-rate samples, but the cues are written
+     *        against the just-resampled file, so they need to be rescaled
+     *        or every marker/region drifts on reopen.
+     */
+    void buildCueDataForSave(WavCueData& out, double sampleRateScale = 1.0) const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Document)
 };

@@ -43,6 +43,13 @@
         "alt"
       ]
     },
+    "fileBatchProcessor": {
+      "key": "B",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
     "fileExit": {
       "key": "Q",
       "modifiers": [

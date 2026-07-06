@@ -270,7 +270,7 @@ follow the developer steps below.
 **Prerequisites**:
 - CMake 3.15+
 - C++17 compiler
-- JUCE 7.x (included as submodule)
+- JUCE 8.x (included as submodule; used under JUCE's AGPLv3 free-tier licence, see NOTICE)
 - **LAME library** (for MP3 encoding support)
 
 **Quick build** (recommended):
@@ -603,7 +603,7 @@ rm -rf /Applications/WaveEdit.app
 
 ### Tech Stack
 
-- **Framework**: [JUCE 7.x](https://juce.com/)
+- **Framework**: [JUCE 8.x](https://juce.com/) (AGPLv3 free tier)
 - **Language**: C++17
 - **Build System**: CMake
 - **Audio I/O**: JUCE audio engine (CoreAudio/WASAPI/ALSA)

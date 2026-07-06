@@ -185,8 +185,22 @@ private:
     //==========================================================================
     // Buttons
 
-    juce::TextButton m_previewPlaybackButton;  // Real-time preview playback toggle
-    juce::TextButton m_previewButton;           // Generate waveform preview
+    // §6.8 footer: single Preview toggle (recomputes the loop buffer via
+    // updatePreview() AND starts/stops real-time playback -- the redundant
+    // second "generate waveform only" button REVIEW-DESIGN.md flagged was
+    // removed since togglePreviewPlayback() already calls updatePreview()).
+    juce::TextButton m_previewPlaybackButton;
+    // Bypass/Loop are present for §6.8 layout consistency but disabled: real
+    // A/B-bypass and forced continuous looping both require the dialog to
+    // control AudioEngine playback state directly (the way HeadTailDialog's
+    // AudioEngine* constructor param does). This dialog only gets
+    // onPreviewRequested/onPreviewStopped callbacks from DSPController, which
+    // already hardcodes setLooping(true) at the call site
+    // (DSPController_Advanced.cpp, out of this pass's file ownership) --
+    // wiring real Bypass/Loop needs a constructor-signature change coordinated
+    // with that controller. Tracked as deferred, see task report.
+    juce::TextButton m_bypassButton;
+    juce::ToggleButton m_loopToggle;
     juce::TextButton m_exportButton;
     juce::TextButton m_cancelButton;
 

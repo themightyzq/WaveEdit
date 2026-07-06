@@ -22,7 +22,7 @@ namespace
     // UI Constants (matching GoToPositionDialog)
     constexpr int DIALOG_WIDTH = 400;
     constexpr int DIALOG_HEIGHT = 360;
-    constexpr int PADDING = 20;
+    constexpr int PADDING = waveedit::ui::kDialogPadding;
     constexpr int LABEL_HEIGHT = 24;
     constexpr int BUTTON_HEIGHT = 32;
     constexpr int BUTTON_WIDTH = 100;
@@ -62,20 +62,20 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
 
     // Title label
     m_titleLabel.setText("Edit Region Boundaries: " + m_regionName, juce::dontSendNotification);
-    m_titleLabel.setFont(waveedit::ui::legacyFont(20.0f, juce::Font::bold));
+    m_titleLabel.setFont(waveedit::ui::dialogTitleFont());
     m_titleLabel.setColour(juce::Label::textColourId, textFn());
     m_titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_titleLabel);
 
     // Instruction label
     m_instructionLabel.setText("Enter new start and end positions:", juce::dontSendNotification);
-    m_instructionLabel.setFont(waveedit::ui::legacyFont(14.0f));
+    m_instructionLabel.setFont(waveedit::ui::bodyFont());
     m_instructionLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_instructionLabel);
 
     // Format label ("Format:")
     m_formatLabel.setText("Format:", juce::dontSendNotification);
-    m_formatLabel.setFont(waveedit::ui::legacyFont(14.0f));
+    m_formatLabel.setFont(waveedit::ui::bodyFont());
     m_formatLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_formatLabel);
 
@@ -94,14 +94,14 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
 
     // Example label
     m_exampleLabel.setText(getFormatExample(), juce::dontSendNotification);
-    m_exampleLabel.setFont(waveedit::ui::legacyFont(12.0f));
+    m_exampleLabel.setFont(waveedit::ui::smallFont());
     m_exampleLabel.setColour(juce::Label::textColourId,
         waveedit::ThemeManager::getInstance().getCurrent().textMuted);
     addAndMakeVisible(m_exampleLabel);
 
     // Start position label
     m_startLabel.setText("Start:", juce::dontSendNotification);
-    m_startLabel.setFont(waveedit::ui::legacyFont(14.0f));
+    m_startLabel.setFont(waveedit::ui::bodyFont());
     m_startLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_startLabel);
 
@@ -111,7 +111,7 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
     m_startEditor.setScrollbarsShown(false);
     m_startEditor.setCaretVisible(true);
     m_startEditor.setPopupMenuEnabled(true);
-    m_startEditor.setFont(waveedit::ui::legacyFont(16.0f));
+    m_startEditor.setFont(waveedit::ui::bodyFont());
     m_startEditor.setColour(juce::TextEditor::backgroundColourId,
         waveedit::ThemeManager::getInstance().getCurrent().panelAlternate);
     m_startEditor.setColour(juce::TextEditor::textColourId, textFn());
@@ -123,7 +123,7 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
 
     // End position label
     m_endLabel.setText("End:", juce::dontSendNotification);
-    m_endLabel.setFont(waveedit::ui::legacyFont(14.0f));
+    m_endLabel.setFont(waveedit::ui::bodyFont());
     m_endLabel.setColour(juce::Label::textColourId, textFn());
     addAndMakeVisible(m_endLabel);
 
@@ -133,7 +133,7 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
     m_endEditor.setScrollbarsShown(false);
     m_endEditor.setCaretVisible(true);
     m_endEditor.setPopupMenuEnabled(true);
-    m_endEditor.setFont(waveedit::ui::legacyFont(16.0f));
+    m_endEditor.setFont(waveedit::ui::bodyFont());
     m_endEditor.setColour(juce::TextEditor::backgroundColourId,
         waveedit::ThemeManager::getInstance().getCurrent().panelAlternate);
     m_endEditor.setColour(juce::TextEditor::textColourId, textFn());
@@ -145,7 +145,7 @@ EditRegionBoundariesDialog::EditRegionBoundariesDialog(const Region& region,
 
     // Validation label (error/success messages)
     m_validationLabel.setText("", juce::dontSendNotification);
-    m_validationLabel.setFont(waveedit::ui::legacyFont(12.0f, juce::Font::bold));
+    m_validationLabel.setFont(waveedit::ui::smallFont());
     m_validationLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_validationLabel);
 
@@ -222,11 +222,13 @@ void EditRegionBoundariesDialog::resized()
     m_validationLabel.setBounds(bounds.removeFromTop(LABEL_HEIGHT));
     bounds.removeFromTop(SPACING * 2);
 
-    // Buttons (right-aligned)
+    // Buttons (right-aligned) - §6.8: Cancel left of primary action (OK rightmost),
+    // matching GoToPositionDialog.cpp (fixes the inversion flagged in
+    // REVIEW-DESIGN.md High Impact finding 5).
     auto buttonRow = bounds.removeFromTop(BUTTON_HEIGHT);
-    m_cancelButton.setBounds(buttonRow.removeFromRight(BUTTON_WIDTH));
-    buttonRow.removeFromRight(SPACING);
     m_okButton.setBounds(buttonRow.removeFromRight(BUTTON_WIDTH));
+    buttonRow.removeFromRight(SPACING);
+    m_cancelButton.setBounds(buttonRow.removeFromRight(BUTTON_WIDTH));
 }
 
 //==============================================================================

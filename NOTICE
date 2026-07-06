@@ -9,10 +9,11 @@ This software is a professional audio editor built with JUCE framework.
 ================================================================================
 
 JUCE Framework
-Version: 7.x
-Copyright: © 2022 Raw Material Software Limited
-License: GPL v3 / Commercial (we use GPL v3)
+Version: 8.0.10
+Copyright: © 2017-2025 Raw Material Software Limited
+License: AGPLv3 / Commercial (we use AGPLv3 free tier)
 Homepage: https://juce.com/
+Note: JUCE is used under the AGPLv3 free license. Its licence text is shipped as LICENSE-JUCE.md; source is available at https://github.com/juce-framework/JUCE
 
 ================================================================================
 
@@ -26,18 +27,17 @@ bundled binary.
 
 --------------------------------------------------------------------------------
 LAME MP3 Encoder
-- Used for: MP3 export
+- Status: bundled but not currently used (MP3 encoding not yet wired)
 - License: LGPL-2.1-or-later
 - Copyright: © 1998-2017 The LAME Project
 - Homepage: https://lame.sourceforge.io/
-- How we ship it: dynamically linked. The macOS Release build bundles
-  libmp3lame.dylib inside `WaveEdit.app/Contents/Frameworks/`; the
-  Windows Release build bundles lame_enc.dll next to `WaveEdit.exe`;
-  the Linux Release build bundles libmp3lame.so next to the executable.
-- LGPL note: the LAME library is dynamically linked and bundled
-  unmodified. Users who want to substitute a different LAME build can
-  replace the bundled library file in place. LAME source can be
-  obtained from the upstream URL above.
+- How we ship it: the Release builds bundle the LAME library alongside
+  the executable (libmp3lame.dylib in Contents/Frameworks/ on macOS,
+  lame_enc.dll next to WaveEdit.exe on Windows, libmp3lame.so next to
+  the executable on Linux). Currently the library is not dynamically
+  linked or loaded at runtime. MP3 decoding is supported via JUCE's
+  built-in decoder; MP3 encoding integration is planned.
+- LGPL note: LAME source can be obtained from the upstream URL above.
 
 --------------------------------------------------------------------------------
 libFLAC (via JUCE's `juce_audio_formats` module)
@@ -78,6 +78,13 @@ Steinberg VST3 SDK (via JUCE's `juce_audio_processors` plugin host)
   Steinberg VST3 license. WaveEdit uses the GPL v3 option.
 - Copyright: © Steinberg Media Technologies GmbH
 - Homepage: https://www.steinberg.net/developers/
+- Trademark: VST is a trademark of Steinberg Media Technologies GmbH.
+
+Apple AudioUnit SDK (via JUCE's `juce_audio_processors` plugin host)
+- Used for: AudioUnit plugin hosting (macOS only)
+- License: Apache-2.0
+- Copyright: © Apple Inc.
+- Homepage: https://developer.apple.com/audio/
 
 --------------------------------------------------------------------------------
 

@@ -58,7 +58,10 @@ public:
 
         const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, audioToProcess);
         if (success)
-            updatePlaybackAndDisplay();
+            // EQ processes the range in place -- length is always m_numSamples
+            // in and out, so preserving playback (§6.5) is safe here, unlike
+            // the length-changing actions (Delete/Insert/Replace).
+            updatePlaybackAndDisplayPreservingPlayback();
         return success;
     }
 
@@ -66,7 +69,7 @@ public:
     {
         const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, m_originalAudio);
         if (success)
-            updatePlaybackAndDisplay();
+            updatePlaybackAndDisplayPreservingPlayback();
         return success;
     }
 
@@ -124,7 +127,9 @@ public:
 
         const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, audioToProcess);
         if (success)
-            updatePlaybackAndDisplay();
+            // Same reasoning as ApplyParametricEQAction above: in-place,
+            // length-preserving -- safe to preserve playback.
+            updatePlaybackAndDisplayPreservingPlayback();
         return success;
     }
 
@@ -132,7 +137,7 @@ public:
     {
         const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, m_originalAudio);
         if (success)
-            updatePlaybackAndDisplay();
+            updatePlaybackAndDisplayPreservingPlayback();
         return success;
     }
 
@@ -209,7 +214,7 @@ public:
 
         const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, m_processedAudio);
         if (success)
-            updatePlaybackAndDisplay();
+            updatePlaybackForLengthChange(m_numSamples, m_processedAudio.getNumSamples());
         return success;
     }
 
@@ -220,7 +225,7 @@ public:
         const int64_t samplesToReplace = m_processedAudio.getNumSamples();
         const bool success = m_bufferManager.replaceRange(m_startSample, samplesToReplace, m_originalAudio);
         if (success)
-            updatePlaybackAndDisplay();
+            updatePlaybackForLengthChange(samplesToReplace, m_originalAudio.getNumSamples());
         return success;
     }
 
@@ -233,12 +238,34 @@ public:
         return static_cast<int>(originalSize + processedSize);
     }
 
-    juce::String getName() const
-    {
-        return "Apply Plugin Chain: " + m_chainDescription;
-    }
+    // NOTE: a getName() used to live here, but juce::UndoableAction has no
+    // virtual getName() to override (only perform()/undo()/getSizeInUnits()/
+    // createCoalescedAction() -- see juce_UndoableAction.h) and it had zero
+    // callers (confirmed by grep): the UndoManager transaction name is set
+    // separately via beginNewTransaction() at the call site in
+    // DSPController_Advanced.cpp. It was dead, misleading code (a future
+    // reader could believe renaming this action renames the transaction,
+    // which it never did) -- removed rather than left as a maintenance trap.
+    // m_chainDescription is kept (still passed by the existing call site)
+    // for a future real use, e.g. surfacing the chain description in the UI.
 
 private:
+    /**
+     * A plugin chain render is only length-preserving when no effect tail
+     * was included -- otherwise it grows the affected range (reverb/delay
+     * tail), which shifts everything after it, the same content-position
+     * hazard Delete/Insert/Replace have. Preserve playback (§6.5) only in
+     * the genuinely safe case; otherwise fall back to the deterministic
+     * stop-on-length-change behavior those actions use.
+     */
+    void updatePlaybackForLengthChange(int64_t oldLength, int64_t newLength)
+    {
+        if (oldLength == newLength)
+            updatePlaybackAndDisplayPreservingPlayback();
+        else
+            updatePlaybackAndDisplay();
+    }
+
     int64_t m_startSample;
     int64_t m_numSamples;
     juce::AudioBuffer<float> m_originalAudio;

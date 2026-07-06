@@ -285,6 +285,11 @@ bool PluginChain::removePlugin(int index)
     auto& node = (*m_messageThreadChain)[static_cast<size_t>(index)];
     juce::String name = node ? node->getName() : "Unknown";
 
+    // Close any UI (e.g. an open PluginEditorWindow) that holds a raw pointer to
+    // this node BEFORE it leaves the chain, so it can never dangle once delayed
+    // deletion frees the node. The node object is still alive here.
+    notifyNodeRemoved(node.get());
+
     // IMPORTANT: Do NOT call releaseResources() here!
     // The audio thread may still be iterating the chain and calling processBlock()
     // on this node. We use COW (Copy-on-Write) to safely remove it:
@@ -360,6 +365,12 @@ void PluginChain::clear()
     // 3. Old nodes are cleaned up via delayed deletion (kMinPendingGenerations)
     //
     // The nodes' destructors will handle cleanup when the old chain is finally deleted.
+
+    // Close any UI holding raw pointers to these nodes before they leave the
+    // chain (covers preset reload via loadFromXml/loadFromJson and document
+    // teardown via ~PluginChain, both of which route through clear()).
+    for (auto& node : *m_messageThreadChain)
+        notifyNodeRemoved(node.get());
 
     // Create empty chain
     auto newChain = std::make_shared<NodeList>();
@@ -612,6 +623,29 @@ bool PluginChain::loadFromJson(const juce::var& json)
 
     DBG("PluginChain: Loaded " + juce::String(getNumPlugins()) + " plugins from JSON");
     return true;
+}
+
+//==============================================================================
+PluginChain::NodeRemovalHook& PluginChain::nodeRemovalHook()
+{
+    // Function-local static: constructed on first use, so there is no cross-TU
+    // static-init-order dependency with the UI code that installs the hook.
+    static NodeRemovalHook hook;
+    return hook;
+}
+
+void PluginChain::setNodeRemovalHook(NodeRemovalHook hook)
+{
+    nodeRemovalHook() = std::move(hook);
+}
+
+void PluginChain::notifyNodeRemoved(PluginChainNode* node)
+{
+    if (node == nullptr)
+        return;
+
+    if (auto& hook = nodeRemovalHook())
+        hook(node);
 }
 
 //==============================================================================

@@ -276,6 +276,15 @@ inline juce::Font smallFont()
 }
 
 /**
+ * @brief Create a bold small text font (section labels/captions that need
+ *        emphasis at the "small" step of the type scale).
+ */
+inline juce::Font smallBoldFont()
+{
+    return legacyFont(kFontSmall, juce::Font::bold);
+}
+
+/**
  * @brief Create a monospace font for time displays
  */
 inline juce::Font monospaceFont()
