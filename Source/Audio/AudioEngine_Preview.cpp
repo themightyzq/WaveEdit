@@ -402,7 +402,11 @@ bool AudioEngine::startBufferPreview(const juce::AudioBuffer<float>& buffer, dou
     const double durationSec = buffer.getNumSamples() / sampleRate;
     // Offline buffer plays from 0; map its playback position back onto the
     // source timeline so the on-screen playhead lands at the selection, not
-    // the file start (getCurrentPosition() adds this for OFFLINE_BUFFER).
+    // the file start. getCurrentPosition() adds getPreviewSelectionOffsetSeconds()
+    // for OFFLINE_BUFFER (drives the playhead), and the fade processor subtracts
+    // m_previewRegionStartSec -- keep BOTH at the same file offset so the playhead
+    // maps to the selection while the fade stays aligned to the excerpt.
+    setPreviewSelectionOffset(static_cast<int64_t>(std::llround(fileOffsetSeconds * sampleRate)));
     m_previewRegionStartSec.store(fileOffsetSeconds);
 
     clearLoopPoints();

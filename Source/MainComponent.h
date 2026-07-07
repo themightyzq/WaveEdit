@@ -187,7 +187,15 @@ public:
         // Put Preferences under the application (WaveEdit) menu where Mac users
         // expect it, rather than in the File menu (see MenuBuilder).
         juce::PopupMenu extraAppleMenuItems;
-        extraAppleMenuItems.addCommandItem(&m_commandManager, CommandIDs::filePreferences, "Preferences...");
+        // Direct-action item, NOT a command item: setApplicationCommandManagerToWatch
+        // only refreshes the MenuBarModel's own menus, not the extraAppleMenuItems
+        // passed to setMacMainMenu. As a command item its enabled-state was never
+        // synced, so "Settings..." stayed permanently greyed (and macOS swallowed
+        // Cmd+, into the disabled item). A lambda item is always enabled and routes
+        // straight to the command handler.
+        extraAppleMenuItems.addItem("Preferences...", [this] {
+            m_commandManager.invokeDirectly(CommandIDs::filePreferences, true);
+        });
         juce::MenuBarModel::setMacMainMenu(this, &extraAppleMenuItems);
         #endif
 
