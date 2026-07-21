@@ -1091,6 +1091,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Integration/FileIOTests.cpp                   # Week 3 ✅ (File I/O Integration)
             Tests/Unit/UndoRedoTests.cpp                        # Week 3 ✅ (Undo/Redo Data Integrity)
             Tests/Integration/MultiDocumentTests.cpp            # Week 4 ✅ (Multi-file architecture)
+            Tests/Integration/AsyncApplyLifetimeTests.cpp       # C1 UAF lifeline regression guard
             Tests/Integration/InterFileClipboardTests.cpp       # Week 4 ✅ (Inter-file clipboard)
             Tests/Integration/PlaybackEditingIntegrationTests.cpp # Week 4 ✅ (Playback + Editing)
             Tests/Unit/Phase35FeaturesTests.cpp                 # Week 4 ✅ (Phase 3.5: Time Format, Auto-Save)
