@@ -11,6 +11,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Add JUCE as a subdirectory
 add_subdirectory(JUCE)
 
+# Formats WaveEdit can open, registered with the OS below. m4a decoding is
+# CoreAudio-only (open-only, no encoder), so it is advertised on macOS only.
+set(WAVEEDIT_DOCUMENT_EXTENSIONS wav flac ogg mp3 aif aiff)
+if(APPLE)
+    list(APPEND WAVEEDIT_DOCUMENT_EXTENSIONS m4a)
+endif()
+
 # If you want to use JUCE's bundled modules
 juce_add_gui_app(WaveEdit
     COMPANY_NAME "WaveEdit"
@@ -20,7 +27,7 @@ juce_add_gui_app(WaveEdit
     # Register the audio formats WaveEdit can open so the OS offers it for
     # "Open With" / double-click and passes the file path to the app
     # (macOS CFBundleDocumentTypes, Windows file associations).
-    DOCUMENT_EXTENSIONS wav flac ogg mp3
+    DOCUMENT_EXTENSIONS ${WAVEEDIT_DOCUMENT_EXTENSIONS}
 
     # Icon files (optional, can add later)
     # ICON_BIG ...
@@ -277,6 +284,7 @@ target_sources(WaveEdit
         Source/Batch/BatchProcessorEngine.h
         Source/Batch/BatchPresetManager.cpp
         Source/Batch/BatchPresetManager.h
+        Source/Batch/BatchInputFilter.h
         Source/Batch/BatchProcessorDialog.cpp
         Source/Batch/BatchProcessorDialog_Components.cpp
         Source/Batch/BatchProcessorDialog_Preview.cpp
@@ -971,6 +979,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/MarkerListPanel.cpp
         Source/UI/ProgressDialog.cpp
         Source/UI/ShortcutEditorPanel.cpp
+        Source/Batch/BatchInputFilter.h
         Source/Batch/BatchProcessorDialog.cpp
         Source/Batch/BatchProcessorDialog_Components.cpp
         Source/Batch/BatchProcessorDialog_Preview.cpp
@@ -1090,6 +1099,8 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Integration/RegionListBatchRenameTests.cpp    # Week 4 ✅ (Batch Rename regions)
             Tests/Integration/SaveAsFormatsTests.cpp            # Phase 4 ✅ (Save As all formats)
             Tests/Integration/MP3EncodeTests.cpp                # LAME MP3 encode round-trip
+            Tests/Integration/M4AOpenTests.cpp                  # M4A open gates + CoreAudio decode (mac)
+            Tests/Integration/AIFFRoundTripTests.cpp            # AIFF open gates + lossless round-trip
             Tests/Integration/SaveAs8BitTests.cpp               # Phase 4 ✅ (8-bit Save Tests)
             Tests/Integration/SaveSampleFormatTests.cpp         # H1: 32-float sample format
 

@@ -561,6 +561,18 @@ bool BatchJob::saveOutputFile(std::function<bool(float, const juce::String&)>& p
     {
         format = std::make_unique<juce::OggVorbisAudioFormat>();
     }
+    else if (ext == ".aif" || ext == ".aiff")
+    {
+        format = std::make_unique<juce::AiffAudioFormat>();
+        if (bitsPerSample > 24)
+        {
+            // JUCE's AIFF writer supports 8/16/24-bit only (no 32-bit float);
+            // also covers hand-edited presets asking for 32.
+            juce::Logger::writeToLog("BatchJob - AIFF does not support "
+                                     + juce::String(bitsPerSample) + "-bit; writing 24-bit PCM");
+            bitsPerSample = 24;
+        }
+    }
     else if (ext == ".mp3")
     {
        #if WAVEEDIT_HAVE_LAME

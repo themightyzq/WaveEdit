@@ -120,11 +120,34 @@ public:
     bool isValidAudioFile(const juce::File& file);
 
     /**
-     * Gets a list of supported file extensions.
+     * Wildcard filter of formats WaveEdit can OPEN (decode).
+     * Platform-dependent: includes *.m4a on macOS (CoreAudio decode, read-only).
+     * Single source of truth for the Open dialog, drag-and-drop, and batch input.
      *
-     * @return String containing supported extensions (e.g., "*.wav")
+     * @return Semicolon-separated wildcard list
+     *         (e.g. "*.wav;*.flac;*.mp3;*.ogg;*.aif;*.aiff")
      */
-    juce::String getSupportedExtensions() const;
+    static juce::String getSupportedExtensions();
+
+    /**
+     * Checks whether a file's extension is one WaveEdit can open.
+     * Case-insensitive; matches the same list as getSupportedExtensions().
+     *
+     * @param file The file to check (need not exist)
+     * @return true if the extension is an openable audio format
+     */
+    static bool isSupportedAudioFile(const juce::File& file);
+
+    /**
+     * Checks whether WaveEdit can ENCODE (write) the given format.
+     * Accepts ".wav" or "wav" spellings. Mirrors saveAudioFile():
+     * wav/flac/ogg/aif/aiff always; mp3 only when built with LAME; m4a never
+     * (decode-only).
+     *
+     * @param extension File extension, with or without leading dot
+     * @return true if saveAudioFile() can write this format
+     */
+    static bool canWriteFormat(const juce::String& extension);
 
     //==============================================================================
     // File Loading

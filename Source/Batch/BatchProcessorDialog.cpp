@@ -9,6 +9,7 @@
 */
 
 #include "BatchProcessorDialog.h"
+#include "BatchInputFilter.h"
 #include "../UI/UIConstants.h"
 #include "../UI/ThemeManager.h"
 
@@ -190,6 +191,7 @@ BatchProcessorDialog::BatchProcessorDialog()
     m_formatCombo.addItem("WAV", 1);
     m_formatCombo.addItem("FLAC", 2);
     m_formatCombo.addItem("OGG", 3);
+    m_formatCombo.addItem("AIFF", 4);
     m_formatCombo.setSelectedId(1);
     addAndMakeVisible(m_formatCombo);
 
@@ -601,13 +603,7 @@ bool BatchProcessorDialog::isInterestedInFileDrag(const juce::StringArray& files
     for (const auto& file : files)
     {
         juce::File f(file);
-        juce::String ext = f.getFileExtension().toLowerCase();
-        if (ext == ".wav" || ext == ".aif" || ext == ".aiff" ||
-            ext == ".flac" || ext == ".mp3" || ext == ".ogg")
-        {
-            return true;
-        }
-        if (f.isDirectory())
+        if (isBatchInputFile(f) || f.isDirectory())
             return true;
     }
     return false;
@@ -623,7 +619,7 @@ void BatchProcessorDialog::filesDropped(const juce::StringArray& files, int /*x*
         {
             auto audioFiles = f.findChildFiles(
                 juce::File::findFiles, true,
-                "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg"
+                batchInputWildcard()
             );
 
             for (const auto& audioFile : audioFiles)
@@ -633,9 +629,7 @@ void BatchProcessorDialog::filesDropped(const juce::StringArray& files, int /*x*
         }
         else
         {
-            juce::String ext = f.getFileExtension().toLowerCase();
-            if (ext == ".wav" || ext == ".aif" || ext == ".aiff" ||
-                ext == ".flac" || ext == ".mp3" || ext == ".ogg")
+            if (isBatchInputFile(f))
             {
                 addFileWithInfo(f);
             }
@@ -654,7 +648,7 @@ void BatchProcessorDialog::onAddFilesClicked()
     m_fileChooser = std::make_unique<juce::FileChooser>(
         "Select Audio Files",
         juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-        "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg"
+        batchInputWildcard()
     );
 
     auto flags = juce::FileBrowserComponent::openMode |
@@ -689,7 +683,7 @@ void BatchProcessorDialog::onAddFolderClicked()
         {
             auto audioFiles = result.findChildFiles(
                 juce::File::findFiles, true,
-                "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg"
+                batchInputWildcard()
             );
 
             for (const auto& file : audioFiles)
@@ -937,6 +931,7 @@ void BatchProcessorDialog::updateOutputPreview()
         case 1: ext = ".wav"; break;
         case 2: ext = ".flac"; break;
         case 3: ext = ".ogg"; break;
+        case 4: ext = ".aiff"; break;
         default: ext = ".wav"; break;
     }
 
@@ -1263,6 +1258,8 @@ void BatchProcessorDialog::loadPreset(const juce::String& name)
         m_formatCombo.setSelectedId(2);
     else if (fmt == "ogg")
         m_formatCombo.setSelectedId(3);
+    else if (fmt == "aiff")
+        m_formatCombo.setSelectedId(4);
     else
         m_formatCombo.setSelectedId(1);
 
@@ -1463,6 +1460,7 @@ BatchProcessorSettings BatchProcessorDialog::gatherSettings()
         case 1: settings.outputFormat.format = "wav"; break;
         case 2: settings.outputFormat.format = "flac"; break;
         case 3: settings.outputFormat.format = "ogg"; break;
+        case 4: settings.outputFormat.format = "aiff"; break;
         default: settings.outputFormat.format = "wav"; break;
     }
 

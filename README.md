@@ -81,8 +81,11 @@ open ./build/WaveEdit_artefacts/Release/WaveEdit.app
 ### Basic Usage
 
 1. **Open**: Drag & drop a file, press `Cmd+O`, or double-click a
-   WAV/FLAC/OGG/MP3 in your file manager ("Open With → WaveEdit", or set
-   WaveEdit as the default handler). Files open as tabs in one window.
+   WAV/AIFF/FLAC/OGG/MP3 in your file manager ("Open With → WaveEdit", or set
+   WaveEdit as the default handler). On macOS, M4A/AAC files open too
+   (read-only -- saving re-encodes to WAV/AIFF/FLAC/OGG/MP3 via Save As).
+   Files open as tabs in one window. WAV saves automatically grow past 4 GB
+   (RF64).
 2. **Select**: Click and drag on waveform
 3. **Edit**: `Delete`, `Cmd+X` (cut), `Cmd+C` (copy), `Cmd+V` (paste)
 4. **Play**: Press `Space`

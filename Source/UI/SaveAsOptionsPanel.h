@@ -28,8 +28,8 @@ public:
     struct SaveSettings
     {
         juce::File targetFile;        // Target file path
-        juce::String format;          // "wav", "flac", "ogg", "mp3"
-        int bitDepth;                 // 16, 24, or 32 (WAV only)
+        juce::String format;          // "wav", "flac", "ogg", "mp3", "aiff"
+        int bitDepth;                 // 8, 16, 24, or 32 (WAV/AIFF; AIFF caps at 24)
         int quality;                  // 0-10 (FLAC/OGG/MP3)
         double targetSampleRate;      // Target sample rate (0 = preserve source)
         bool includeBWFMetadata;      // Include BWF chunk (WAV only)

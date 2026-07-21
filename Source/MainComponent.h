@@ -145,7 +145,10 @@ public:
         // Listen to document manager events
         m_documentManager.addListener(this);
 
-        // Setup tab component
+        // Setup tab component. Tab-close "Save" on a read-only source format
+        // (e.g. m4a) routes to the Save As flow.
+        m_tabComponent.onSaveAsRequested =
+            [this](Document* doc) { m_fileController.saveFileAs(doc, this); };
         addAndMakeVisible(m_tabComponent);
 
         // Setup no-file label
@@ -1435,13 +1438,8 @@ public:
     bool isInterestedInFileDrag(const juce::StringArray& files) override
     {
         for (const auto& filename : files)
-        {
-            juce::File file(filename);
-            if (file.hasFileExtension(".wav"))
-            {
+            if (FileController::isDroppableAudioFile(juce::File(filename)))
                 return true;
-            }
-        }
         return false;
     }
 

@@ -135,9 +135,43 @@ bool AudioFileManager::isValidAudioFile(const juce::File& file)
     return true;
 }
 
-juce::String AudioFileManager::getSupportedExtensions() const
+// Semicolon list of extensions WaveEdit can open. m4a is macOS-only: decoded
+// by CoreAudio (AAC and ALAC) and decode-only -- there is no AAC encoder, so
+// Save on an m4a document redirects to Save As (see FileController::saveFile).
+// Raw .aac (ADTS) and .aifc (compressed AIFF-C, unreadable by JUCE) are
+// intentionally excluded.
+static const char* const OPENABLE_EXTENSIONS =
+#if JUCE_MAC
+    "wav;flac;mp3;ogg;aif;aiff;m4a";
+#else
+    "wav;flac;mp3;ogg;aif;aiff";
+#endif
+
+juce::String AudioFileManager::getSupportedExtensions()
 {
-    return "*.wav;*.flac;*.ogg";
+    auto extensions = juce::StringArray::fromTokens(OPENABLE_EXTENSIONS, ";", {});
+    return "*." + extensions.joinIntoString(";*.");
+}
+
+bool AudioFileManager::isSupportedAudioFile(const juce::File& file)
+{
+    // hasFileExtension accepts a semicolon-separated list, case-insensitively.
+    return file.hasFileExtension(OPENABLE_EXTENSIONS);
+}
+
+bool AudioFileManager::canWriteFormat(const juce::String& extension)
+{
+    auto ext = extension.trimCharactersAtStart(".").toLowerCase();
+
+    if (ext == "wav" || ext == "flac" || ext == "ogg" || ext == "aif" || ext == "aiff")
+        return true;
+
+#if WAVEEDIT_HAVE_LAME
+    if (ext == "mp3")
+        return true;
+#endif
+
+    return false;
 }
 
 //==============================================================================
@@ -864,6 +898,31 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
             return false;
         }
     }
+    else if (extension == ".aif" || extension == ".aiff")
+    {
+        // AIFF has 32-bit chunk sizes and no RF64-style upgrade: refuse
+        // writes that would overflow the container rather than corrupt it.
+        // Bytes per sample follows the depth actually written (32 -> 24, see
+        // the writeBitDepth clamp below).
+        const int bytesPerSample = (bitDepth == 8) ? 1 : (bitDepth == 16 ? 2 : 3);
+        const juce::int64 approxBytes = (juce::int64) buffer.getNumSamples()
+                                      * buffer.getNumChannels() * bytesPerSample + 4096;
+        if (approxBytes >= 0xFFFFFFF0LL)
+        {
+            setError("This audio is too large for the AIFF format (4 GB limit).\n\n"
+                     "Save as WAV instead (WAV files grow past 4 GB automatically).");
+            return false;
+        }
+
+        format = m_formatManager.findFormatForFileExtension("aiff");
+        if (format == nullptr)
+        {
+            setError("AIFF encoder not available.\n\n"
+                    "JUCE's built-in AIFF encoder should be available, but was not found.\n"
+                    "Please check your JUCE installation.");
+            return false;
+        }
+    }
     else if (extension == ".mp3")
     {
 #if WAVEEDIT_HAVE_LAME
@@ -895,9 +954,17 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
         return false;
 #endif
     }
+    else if (extension == ".m4a")
+    {
+        // Defense-in-depth: FileController::saveFile redirects m4a documents
+        // to Save As before reaching here.
+        setError("M4A/AAC files are read-only in WaveEdit (no AAC encoder).\n\n"
+                 "Use Save As to save a copy as WAV, FLAC, OGG, or MP3.");
+        return false;
+    }
     else
     {
-        setError("Unsupported audio format: " + extension + "\nSupported formats: .wav, .flac, .ogg, .mp3");
+        setError("Unsupported audio format: " + extension + "\nSupported formats: .wav, .aiff, .flac, .ogg, .mp3");
         return false;
     }
 
@@ -945,12 +1012,24 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
                                 juce::String(64 + quality * 25) + " kbps)");
     }
 
+    // Compressed formats encode from 24-bit regardless of the caller's bit
+    // depth. AIFF is PCM and honours it -- but JUCE's AIFF writer supports
+    // 8/16/24-bit only, so a 32-bit(-float) request is written as 24-bit.
+    int writeBitDepth = 24;
+    if (extension == ".aif" || extension == ".aiff")
+    {
+        writeBitDepth = (bitDepth == 8 || bitDepth == 16 || bitDepth == 24) ? bitDepth : 24;
+        if (bitDepth != writeBitDepth)
+            juce::Logger::writeToLog("AudioFileManager::saveAudioFile - AIFF does not support "
+                                     + juce::String(bitDepth) + "-bit; writing 24-bit PCM");
+    }
+
     // JUCE 8 API: takes the unique_ptr by reference and only assumes
     // ownership of the stream when writer creation succeeds
     auto writerOptions = juce::AudioFormatWriterOptions()
         .withSampleRate(sampleRate)
         .withNumChannels(buffer.getNumChannels())
-        .withBitsPerSample(24) // Use 24-bit for best quality with compressed formats
+        .withBitsPerSample(writeBitDepth)
         .withQualityOptionIndex(quality); // No metadata support for FLAC/OGG via JUCE writer
 
     writer = format->createWriterFor(outputStream, writerOptions);

@@ -212,6 +212,14 @@ public:
     // ScrollBar::Listener implementation
     void scrollBarMoved(juce::ScrollBar* scrollBar, double newRangeStart) override;
 
+    /**
+     * Fired when closing a tab whose document cannot be saved in place
+     * (read-only source format, e.g. m4a) and the user chose "Save".
+     * The host should run the Save As flow for the document; the tab stays
+     * open while the (async) chooser is up.
+     */
+    std::function<void(Document*)> onSaveAsRequested;
+
 private:
     DocumentManager& m_documentManager;
     juce::OwnedArray<TabButton> m_tabs;

@@ -107,6 +107,7 @@ ChannelExtractorDialog::ChannelExtractorDialog(int currentChannels, const juce::
     m_formatCombo.addItem("WAV", static_cast<int>(ExportFormat::WAV));
     m_formatCombo.addItem("FLAC", static_cast<int>(ExportFormat::FLAC));
     m_formatCombo.addItem("OGG", static_cast<int>(ExportFormat::OGG));
+    m_formatCombo.addItem("AIFF", static_cast<int>(ExportFormat::AIFF));
     m_formatCombo.setSelectedId(static_cast<int>(ExportFormat::WAV));
     m_formatCombo.onChange = [this]() { updateFilenamePreview(); };
     addAndMakeVisible(m_formatCombo);
@@ -248,6 +249,7 @@ void ChannelExtractorDialog::updateFilenamePreview()
     {
         case ExportFormat::FLAC: extension = ".flac"; break;
         case ExportFormat::OGG:  extension = ".ogg";  break;
+        case ExportFormat::AIFF: extension = ".aiff"; break;
         case ExportFormat::WAV:
         default:                 extension = ".wav";  break;
     }
