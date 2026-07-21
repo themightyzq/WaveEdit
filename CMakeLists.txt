@@ -73,6 +73,8 @@ target_sources(WaveEdit
         Source/Audio/AudioProcessor.h
         Source/Audio/RecordingEngine.cpp
         Source/Audio/RecordingEngine.h
+        Source/DSP/AudioGenerator.cpp
+        Source/DSP/AudioGenerator.h
         Source/DSP/DynamicParametricEQ.cpp
         Source/DSP/DynamicParametricEQ.h
         Source/DSP/EQPresetManager.cpp
@@ -128,6 +130,10 @@ target_sources(WaveEdit
         Source/UI/ToolbarCustomizationDialog.h
         Source/UI/Meters.cpp
         Source/UI/Meters.h
+        Source/UI/GenerateDialog.cpp
+        Source/UI/GenerateDialog.h
+        Source/UI/InsertSilenceDialog.cpp
+        Source/UI/InsertSilenceDialog.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
         Source/UI/ChannelConverterDialog.cpp
@@ -765,6 +771,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Audio/AudioFileManager.h
         Source/Audio/AudioProcessor.cpp
         Source/Audio/AudioProcessor.h
+        Source/DSP/AudioGenerator.cpp
+        Source/DSP/AudioGenerator.h
         Source/DSP/DynamicParametricEQ.cpp
         Source/DSP/DynamicParametricEQ.h
         Source/DSP/EQPresetManager.cpp
@@ -820,6 +828,10 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/UI/ToolbarCustomizationDialog.h
         Source/UI/Meters.cpp
         Source/UI/Meters.h
+        Source/UI/GenerateDialog.cpp
+        Source/UI/GenerateDialog.h
+        Source/UI/InsertSilenceDialog.cpp
+        Source/UI/InsertSilenceDialog.h
         Source/UI/GainDialog.cpp
         Source/UI/GainDialog.h
         Source/UI/ChannelConverterDialog.cpp
@@ -1092,6 +1104,8 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/UndoRedoTests.cpp                        # Week 3 ✅ (Undo/Redo Data Integrity)
             Tests/Integration/MultiDocumentTests.cpp            # Week 4 ✅ (Multi-file architecture)
             Tests/Integration/AsyncApplyLifetimeTests.cpp       # C1 UAF lifeline regression guard
+            Tests/Unit/AudioGeneratorTests.cpp                  # Generate: tone/noise DSP
+            Tests/Integration/GeneratePlacementTests.cpp        # Generate: insert/replace placement + undo
             Tests/Integration/InterFileClipboardTests.cpp       # Week 4 ✅ (Inter-file clipboard)
             Tests/Integration/PlaybackEditingIntegrationTests.cpp # Week 4 ✅ (Playback + Editing)
             Tests/Unit/Phase35FeaturesTests.cpp                 # Week 4 ✅ (Phase 3.5: Time Format, Auto-Save)
