@@ -457,20 +457,31 @@ void DSPController::applyPluginChainToSelectionInternal(Document* doc,
 
     if (numSamples > kProgressDialogThreshold)
     {
-        // Async path with progress dialog
+        // Async path with progress dialog. The dialog is NOT modal
+        // (launchAsync), so the tab can be closed mid-render. Copy the source
+        // range up front and re-check a lifeline before committing, so the
+        // worker never touches the (possibly-freed) live Document -- same
+        // pattern as the TimePitch path below (C1).
         auto processedBuffer = std::make_shared<juce::AudioBuffer<float>>();
+
+        auto sourceSnapshot = std::make_shared<juce::AudioBuffer<float>>();
+        sourceSnapshot->setSize(buffer.getNumChannels(), (int) numSamples);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            sourceSnapshot->copyFrom(ch, 0, buffer, ch, (int) startSample, (int) numSamples);
+
+        juce::Component::SafePointer<WaveformDisplay> docLifeline(&doc->getWaveformDisplay());
 
         ProgressDialog::runWithProgress(
             transactionName,
-            [doc, renderer, offlineChain, processedBuffer, startSample, numSamples,
+            [sourceSnapshot, renderer, offlineChain, processedBuffer, numSamples,
              sampleRate, outputChannels, tailSamples]
             (std::function<bool(float, const juce::String&)> progress) -> bool
             {
                 auto result = renderer->renderWithOfflineChain(
-                    doc->getBufferManager().getBuffer(),
+                    *sourceSnapshot,
                     *offlineChain,
                     sampleRate,
-                    startSample,
+                    0,
                     numSamples,
                     progress,
                     outputChannels,
@@ -488,9 +499,9 @@ void DSPController::applyPluginChainToSelectionInternal(Document* doc,
                 }
                 return true;
             },
-            [processedBuffer, applyProcessed](bool success)
+            [processedBuffer, applyProcessed, docLifeline](bool success)
             {
-                if (success)
+                if (success && docLifeline.getComponent() != nullptr)
                     applyProcessed(*processedBuffer);
             });
     }
@@ -661,19 +672,29 @@ void DSPController::applyOfflinePluginToSelection(Document* doc,
 
     if (numSamples > kProgressDialogThreshold)
     {
+        // Non-modal progress dialog: copy the source range and re-check a
+        // lifeline so a mid-render tab close cannot free the Document out from
+        // under the worker or the completion callback (C1).
         auto processedBuffer = std::make_shared<juce::AudioBuffer<float>>();
+
+        auto sourceSnapshot = std::make_shared<juce::AudioBuffer<float>>();
+        sourceSnapshot->setSize(buffer.getNumChannels(), (int) numSamples);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            sourceSnapshot->copyFrom(ch, 0, buffer, ch, (int) startSample, (int) numSamples);
+
+        juce::Component::SafePointer<WaveformDisplay> docLifeline(&doc->getWaveformDisplay());
 
         ProgressDialog::runWithProgress(
             transactionName,
-            [doc, renderer, offlineChain, processedBuffer, startSample, numSamples,
+            [sourceSnapshot, renderer, offlineChain, processedBuffer, numSamples,
              sampleRate, outputChannels, tailSamples]
             (std::function<bool(float, const juce::String&)> progress) -> bool
             {
                 auto result = renderer->renderWithOfflineChain(
-                    doc->getBufferManager().getBuffer(),
+                    *sourceSnapshot,
                     *offlineChain,
                     sampleRate,
-                    startSample,
+                    0,
                     numSamples,
                     progress,
                     outputChannels,
@@ -691,9 +712,9 @@ void DSPController::applyOfflinePluginToSelection(Document* doc,
                 }
                 return true;
             },
-            [processedBuffer, applyProcessed](bool success)
+            [processedBuffer, applyProcessed, docLifeline](bool success)
             {
-                if (success)
+                if (success && docLifeline.getComponent() != nullptr)
                     applyProcessed(*processedBuffer);
             });
     }
