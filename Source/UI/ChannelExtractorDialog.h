@@ -50,7 +50,8 @@ public:
     {
         WAV = 1,
         FLAC = 2,
-        OGG = 3
+        OGG = 3,
+        AIFF = 4
     };
 
     /**

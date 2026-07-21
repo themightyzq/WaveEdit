@@ -80,12 +80,13 @@ void FileController::openFile(juce::Component* /*parent*/)
         return;
     }
 
-    // Create file chooser - supports multiple file selection
-    // Support WAV, FLAC, MP3, and OGG formats
+    // Create file chooser - supports multiple file selection.
+    // The format filter comes from AudioFileManager (single source of truth
+    // for openable formats; includes *.m4a on macOS).
     m_fileChooser = std::make_unique<juce::FileChooser>(
         "Open Audio File(s)",
         Settings::getInstance().getLastFileDirectory(),
-        "*.wav;*.flac;*.mp3;*.ogg",
+        AudioFileManager::getSupportedExtensions(),
         true);
 
     auto folderChooserFlags = juce::FileBrowserComponent::openMode |
@@ -252,6 +253,15 @@ void FileController::saveFile(Document* doc, std::function<void()> onSaved)
         return;
     }
 
+    // Read-only source format (e.g. m4a -- decode-only): redirect to Save As,
+    // mirroring the untitled-document redirect above.
+    if (!AudioFileManager::canWriteFormat(currentFile.getFileExtension()))
+    {
+        if (m_saveAsParent != nullptr)
+            saveFileAs(doc, m_saveAsParent);
+        return;
+    }
+
     if (!currentFile.hasWriteAccess())
     {
         juce::String message = "No write permission for this file.";
@@ -387,9 +397,11 @@ bool FileController::saveAllModifiedDocuments()
         m_documentManager.setCurrentDocumentIndex(i);
 
         auto currentFile = doc->getAudioEngine().getCurrentFile();
-        if (currentFile.existsAsFile())
+        if (currentFile.existsAsFile()
+            && AudioFileManager::canWriteFormat(currentFile.getFileExtension()))
         {
-            // Titled document: save in place.
+            // Titled document in a writable format: save in place. Read-only
+            // formats (m4a) fall through to the Save As prompt below.
             bool success = doc->saveFile(currentFile, doc->getBufferManager().getBitDepth());
             if (!success)
             {
@@ -403,10 +415,11 @@ bool FileController::saveAllModifiedDocuments()
             continue;
         }
 
-        // Untitled document (e.g. a fresh recording): previously skipped here,
-        // silently discarding the take on quit (UX finding 2). Prompt the user
-        // per document instead. Uses the same synchronous modal pattern as
-        // closeFile()'s per-document close prompt.
+        // Untitled documents (e.g. a fresh recording) and titled documents in
+        // read-only formats (e.g. m4a) land here: neither can be saved in
+        // place, and silently skipping would discard the edits on quit (UX
+        // finding 2). Prompt the user per document instead. Uses the same
+        // synchronous modal pattern as closeFile()'s per-document close prompt.
         int choice = juce::AlertWindow::showYesNoCancelBox(
             juce::AlertWindow::WarningIcon,
             "Save Changes",
@@ -525,11 +538,7 @@ void FileController::handleFileDrop(const juce::StringArray& files, juce::Compon
 //==============================================================================
 bool FileController::isDroppableAudioFile(const juce::File& file)
 {
-    // Keep in sync with the Open dialog's filter ("*.wav;*.flac;*.mp3;*.ogg").
-    return file.hasFileExtension("wav")
-        || file.hasFileExtension("flac")
-        || file.hasFileExtension("mp3")
-        || file.hasFileExtension("ogg");
+    return AudioFileManager::isSupportedAudioFile(file);
 }
 
 //==============================================================================

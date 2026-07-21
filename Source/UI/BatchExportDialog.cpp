@@ -102,6 +102,7 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
 
     m_formatDropdown.addItem("WAV (Uncompressed)", 1);
     m_formatDropdown.addItem("FLAC (Lossless)", 2);
+    m_formatDropdown.addItem("AIFF (Uncompressed)", 3);
     m_formatDropdown.setSelectedId(1, juce::dontSendNotification);  // Default: WAV
     m_formatDropdown.onChange = [this]() { onFormatChanged(); };
     addAndMakeVisible(m_formatDropdown);
@@ -119,7 +120,7 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
     addAndMakeVisible(m_bitDepthDropdown);
 
     // FLAC bit-depth constraint note (shown only for FLAC).
-    m_formatNoteLabel.setText("FLAC supports up to 24-bit.", juce::dontSendNotification);
+    m_formatNoteLabel.setText("FLAC and AIFF support up to 24-bit.", juce::dontSendNotification);
     m_formatNoteLabel.setFont(ui::smallFont());
     m_formatNoteLabel.setColour(juce::Label::textColourId,
                                 waveedit::ThemeManager::getInstance().getCurrent().textMuted);
@@ -428,7 +429,12 @@ BatchExportDialog::ExportSettings BatchExportDialog::buildSettings() const
     s.usePaddedIndex    = m_paddedIndexToggle.getToggleState();
     s.suffixBeforeIndex = m_suffixBeforeIndexToggle.getToggleState();
 
-    s.format   = (m_formatDropdown.getSelectedId() == 2) ? "flac" : "wav";
+    switch (m_formatDropdown.getSelectedId())
+    {
+        case 2:  s.format = "flac"; break;
+        case 3:  s.format = "aiff"; break;
+        default: s.format = "wav";  break;
+    }
 
     switch (m_bitDepthDropdown.getSelectedId())
     {
@@ -484,15 +490,17 @@ void BatchExportDialog::updatePreviewList()
 
 void BatchExportDialog::onFormatChanged()
 {
-    const bool isFlac = (m_formatDropdown.getSelectedId() == 2);
+    const int formatId = m_formatDropdown.getSelectedId();
+    const bool capped24 = (formatId == 2 || formatId == 3);  // FLAC, AIFF
 
-    // FLAC cannot store 32-bit float. Disable that item and drop back to 24-bit
-    // if it was selected, rather than silently coercing later (M4 principle).
-    m_bitDepthDropdown.setItemEnabled(3, ! isFlac);
-    if (isFlac && m_bitDepthDropdown.getSelectedId() == 3)
+    // FLAC and AIFF cannot store 32-bit float. Disable that item and drop back
+    // to 24-bit if it was selected, rather than silently coercing later (M4
+    // principle).
+    m_bitDepthDropdown.setItemEnabled(3, ! capped24);
+    if (capped24 && m_bitDepthDropdown.getSelectedId() == 3)
         m_bitDepthDropdown.setSelectedId(2, juce::dontSendNotification);
 
-    m_formatNoteLabel.setVisible(isFlac);
+    m_formatNoteLabel.setVisible(capped24);
 
     updatePreviewList();
 }

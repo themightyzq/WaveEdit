@@ -181,6 +181,13 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
             audioFormat = std::make_unique<juce::OggVorbisAudioFormat>();
             break;
 
+        case ChannelExtractorDialog::ExportFormat::AIFF:
+            extension = ".aiff";
+            audioFormat = std::make_unique<juce::AiffAudioFormat>();
+            // JUCE AIFF supports 8/16/24-bit only (no 32-bit float)
+            if (bitDepth > 24) bitDepth = 24;
+            break;
+
         case ChannelExtractorDialog::ExportFormat::WAV:
         default:
             extension = ".wav";

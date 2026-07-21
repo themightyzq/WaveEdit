@@ -23,6 +23,7 @@
 #include "TabComponent.h"
 #include "ThemeManager.h"
 #include "UIConstants.h"
+#include "../Audio/AudioFileManager.h"
 
 namespace
 {
@@ -388,6 +389,19 @@ void TabComponent::tabCloseClicked(TabButton* tab)
         {
             // Save the document
             Document* saveDoc = m_documentManager.getDocument(tab->getIndex());
+
+            // Read-only source format (e.g. m4a -- decode-only): an in-place
+            // save would fail, so route to the host's Save As flow instead.
+            // The chooser is async; the tab stays open until the user saves
+            // and closes it again.
+            if (saveDoc && saveDoc->getFile().existsAsFile()
+                && !AudioFileManager::canWriteFormat(saveDoc->getFile().getFileExtension()))
+            {
+                if (onSaveAsRequested)
+                    onSaveAsRequested(saveDoc);
+                return;
+            }
+
             if (saveDoc && saveDoc->getFile().existsAsFile())
             {
                 if (saveDoc->saveFile(saveDoc->getFile()))

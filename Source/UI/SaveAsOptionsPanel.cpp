@@ -93,6 +93,7 @@ SaveAsOptionsPanel::SaveAsOptionsPanel(double sourceSampleRate, int sourceChanne
     // MP3 encoding via bundled LAME (juce::MP3AudioFormat is decode-only).
     m_formatDropdown.addItem("MP3 (Lossy)", 4);
 #endif
+    m_formatDropdown.addItem("AIFF (Uncompressed)", 5);
 
     // Set default based on current format
     juce::String ext = currentFile.getFileExtension().toLowerCase();
@@ -104,7 +105,11 @@ SaveAsOptionsPanel::SaveAsOptionsPanel(double sourceSampleRate, int sourceChanne
         m_formatDropdown.setSelectedId(3, juce::dontSendNotification);
     else if (ext == ".mp3")
         m_formatDropdown.setSelectedId(4, juce::dontSendNotification);
+    else if (ext == ".aif" || ext == ".aiff")
+        m_formatDropdown.setSelectedId(5, juce::dontSendNotification);
     else
+        // Read-only source formats (e.g. m4a) intentionally land here:
+        // Save As defaults to WAV.
         m_formatDropdown.setSelectedId(1, juce::dontSendNotification);
 
     m_formatDropdown.onChange = [this]() { updateUIForFormat(); updatePreview(); };
@@ -238,6 +243,7 @@ SaveAsOptionsPanel::SaveSettings SaveAsOptionsPanel::getSettings() const
         case 2: settings.format = "flac"; break;
         case 3: settings.format = "ogg"; break;
         case 4: settings.format = "mp3"; break;
+        case 5: settings.format = "aiff"; break;
         default: settings.format = "wav"; break;
     }
 
@@ -438,13 +444,21 @@ void SaveAsOptionsPanel::updateUIForFormat()
 {
     int formatId = m_formatDropdown.getSelectedId();
     bool isWAV = (formatId == 1);
-    bool isCompressed = (formatId >= 2);  // FLAC, OGG
+    bool isAIFF = (formatId == 5);
+    bool isCompressed = (formatId >= 2 && formatId <= 4);  // FLAC, OGG, MP3
 
-    // Show/hide WAV-specific options
-    m_bitDepthLabel.setVisible(isWAV);
-    m_bitDepthDropdown.setVisible(isWAV);
+    // Bit depth applies to the PCM formats (WAV and AIFF); BWF/iXML metadata
+    // chunks are RIFF/WAV-only.
+    m_bitDepthLabel.setVisible(isWAV || isAIFF);
+    m_bitDepthDropdown.setVisible(isWAV || isAIFF);
     m_includeBWFCheckbox.setVisible(isWAV);
     m_includeiXMLCheckbox.setVisible(isWAV);
+
+    // JUCE's AIFF writer supports 8/16/24-bit only -- disable 32-bit Float
+    // and move an existing 32-bit selection down to 24-bit.
+    m_bitDepthDropdown.setItemEnabled(4, !isAIFF);
+    if (isAIFF && m_bitDepthDropdown.getSelectedId() == 4)
+        m_bitDepthDropdown.setSelectedId(3, juce::dontSendNotification);
 
     // Show/hide quality slider for compressed formats
     m_qualityLabel.setVisible(isCompressed);
@@ -461,6 +475,13 @@ void SaveAsOptionsPanel::updateUIForFormat()
                                "and will not be written. Compressed formats are "
                                "encoded from 24-bit audio; the bit-depth choice "
                                "does not apply.",
+                               juce::dontSendNotification);
+        m_warningLabel.setVisible(true);
+    }
+    else if (isAIFF)
+    {
+        m_warningLabel.setText("Note: BWF/iXML metadata is not stored in this format "
+                               "and will not be written.",
                                juce::dontSendNotification);
         m_warningLabel.setVisible(true);
     }
@@ -496,6 +517,10 @@ void SaveAsOptionsPanel::updatePreview()
     else if (settings.format == "mp3")
     {
         preview += "MP3 (Quality " + juce::String(settings.quality) + "/10)";
+    }
+    else if (settings.format == "aiff")
+    {
+        preview += juce::String(settings.bitDepth) + "-bit AIFF";
     }
 
     // Sample rate
@@ -685,7 +710,7 @@ juce::String SaveAsOptionsPanel::estimateFileSize(const juce::String& format, in
     double durationMinutes = 1.0;  // Estimate for 1 minute
     double sizeBytes = 0.0;
 
-    if (format == "wav")
+    if (format == "wav" || format == "aiff")
     {
         // PCM: sample_rate * bit_depth/8 * channels * duration_seconds
         sizeBytes = sampleRate * (bitDepth / 8.0) * channels * (durationMinutes * 60.0);

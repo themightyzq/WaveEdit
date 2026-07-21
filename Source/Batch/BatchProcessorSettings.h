@@ -95,7 +95,7 @@ struct BatchDSPSettings
  */
 struct BatchOutputFormat
 {
-    juce::String format = "wav";           ///< wav, flac, mp3, ogg
+    juce::String format = "wav";           ///< wav, flac, mp3, ogg, aiff
     int sampleRate = 0;                    ///< 0 = keep original
     int bitDepth = 0;                      ///< 0 = keep original
     int mp3Bitrate = 320;                  ///< For MP3 only

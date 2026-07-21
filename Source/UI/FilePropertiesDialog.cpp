@@ -613,6 +613,12 @@ juce::String FilePropertiesDialog::determineCodec(const juce::File& file, int bi
     {
         return "Ogg Vorbis (Lossy)";
     }
+    else if (extension == ".m4a")
+    {
+        // Container may hold AAC (lossy) or ALAC (lossless); the extension
+        // alone cannot distinguish them.
+        return "M4A (AAC/ALAC)";
+    }
     else
     {
         return "Unknown Format";

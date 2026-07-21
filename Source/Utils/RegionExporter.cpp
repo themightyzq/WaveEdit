@@ -299,6 +299,8 @@ juce::String RegionExporter::extensionForFormat(const juce::String& format)
 {
     if (format.equalsIgnoreCase("flac"))
         return ".flac";
+    if (format.equalsIgnoreCase("aiff"))
+        return ".aiff";
     return ".wav";
 }
 
@@ -435,6 +437,23 @@ std::unique_ptr<juce::AudioFormatWriter> RegionExporter::createWriter(
             .withQualityOptionIndex(0);
 
         return flacFormat.createWriterFor(outputStream, options);
+    }
+
+    if (format.equalsIgnoreCase("aiff"))
+    {
+        // JUCE's AIFF writer supports 8/16/24-bit only (no 32-bit float).
+        // Clamp and report the effective depth so the caller can tell the
+        // user (M4) rather than coercing silently.
+        int bd = (bitDepth == 8 || bitDepth == 16 || bitDepth == 24) ? bitDepth : 24;
+        effectiveBitDepth = bd;
+
+        juce::AiffAudioFormat aiffFormat;
+        auto options = juce::AudioFormatWriterOptions()
+            .withSampleRate(sampleRate)
+            .withNumChannels(numChannels)
+            .withBitsPerSample(bd);
+
+        return aiffFormat.createWriterFor(outputStream, options);
     }
 
     // WAV (default).
