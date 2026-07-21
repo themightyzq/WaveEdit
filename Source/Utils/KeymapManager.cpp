@@ -692,6 +692,11 @@ juce::String KeymapManager::getCommandName(juce::CommandID commandID)
         commandNameMap[CommandIDs::toolsHeadTail] = "toolsHeadTail";
         commandNameMap[CommandIDs::toolsLoopingTools] = "toolsLoopingTools";
 
+        // Generate operations
+        commandNameMap[CommandIDs::generateInsertSilence] = "generateInsertSilence";
+        commandNameMap[CommandIDs::generateTone] = "generateTone";
+        commandNameMap[CommandIDs::generateNoise] = "generateNoise";
+
         // Navigation operations
         commandNameMap[CommandIDs::navigateLeft] = "navigateLeft";
         commandNameMap[CommandIDs::navigateRight] = "navigateRight";
@@ -896,7 +901,11 @@ juce::CommandID KeymapManager::getCommandID(const juce::String& commandName)
 
             // Tools operations (0xF100-0xF1FF)
             CommandIDs::toolsChannelConverter, CommandIDs::toolsChannelExtractor,
-            CommandIDs::toolsHeadTail, CommandIDs::toolsLoopingTools
+            CommandIDs::toolsHeadTail, CommandIDs::toolsLoopingTools,
+
+            // Generate operations (0xF200-0xF2FF)
+            CommandIDs::generateInsertSilence, CommandIDs::generateTone,
+            CommandIDs::generateNoise
         };
 
         for (const auto& id : allCommandIDs)

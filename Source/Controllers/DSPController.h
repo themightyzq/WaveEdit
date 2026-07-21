@@ -24,6 +24,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <functional>
 #include "../Utils/Document.h"
 #include "../DSP/HeadTailRecipe.h"
 
@@ -75,6 +76,19 @@ public:
 
     // Looping Tools
     void showLoopingToolsDialog(Document* doc, juce::Component* parent);
+
+    // Generate menu (insert silence / tone / noise)
+    void showInsertSilenceDialog(Document* doc, juce::Component* parent);
+    void showGenerateToneDialog(Document* doc, juce::Component* parent);
+    void showGenerateNoiseDialog(Document* doc, juce::Component* parent);
+
+    // Shared Generate placement (also the testable seam): build a buffer sized
+    // to the selection (replace) or to durationSeconds (insert at cursor), fill
+    // it via `fill`, and commit it as an undoable ReplaceAction / InsertAction.
+    // `fill` receives the sized buffer and the sample rate.
+    void generateAndPlace(Document* doc, double durationSeconds,
+                          const juce::String& transactionName,
+                          const std::function<void(juce::AudioBuffer<float>&, double)>& fill);
 
     // Plugin operations
     void showOfflinePluginDialog(Document* doc, juce::Component* parent);

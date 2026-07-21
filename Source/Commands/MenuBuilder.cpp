@@ -24,7 +24,7 @@ MenuBuilder::MenuBuilder()
 
 juce::StringArray MenuBuilder::getMenuBarNames()
 {
-    return { "File", "Edit", "View", "Region", "Marker", "Process", "Plugins", "Tools", "Playback", "Help" };
+    return { "File", "Edit", "View", "Region", "Marker", "Process", "Plugins", "Tools", "Playback", "Generate", "Help" };
 }
 
 juce::PopupMenu MenuBuilder::getMenuForIndex(int menuIndex,
@@ -287,7 +287,14 @@ juce::PopupMenu MenuBuilder::getMenuForIndex(int menuIndex,
         menu.addCommandItem(context.commandManager, CommandIDs::playbackLoop);
         menu.addCommandItem(context.commandManager, CommandIDs::playbackLoopRegion);
     }
-    else if (menuIndex == 9) // Help menu
+    else if (menuIndex == 9) // Generate menu
+    {
+        menu.addSectionHeader("Generate");
+        menu.addCommandItem(context.commandManager, CommandIDs::generateInsertSilence);
+        menu.addCommandItem(context.commandManager, CommandIDs::generateTone);
+        menu.addCommandItem(context.commandManager, CommandIDs::generateNoise);
+    }
+    else if (menuIndex == 10) // Help menu
     {
         menu.addCommandItem(context.commandManager, CommandIDs::helpCommandPalette);
         menu.addCommandItem(context.commandManager, CommandIDs::helpShortcuts);

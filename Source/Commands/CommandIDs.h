@@ -203,6 +203,11 @@ namespace CommandIDs
         toolsChannelConverter = 0xF100,  // Cmd+Shift+U - Channel Converter dialog (moved from Process menu)
         toolsChannelExtractor = 0xF101,  // Cmd+Shift+X - Channel Extractor dialog (export channels to files)
         toolsHeadTail         = 0xF102,  // Head & Tail processing (trim, pad, fade)
-        toolsLoopingTools     = 0xF103   // Cmd+L - Looping Tools
+        toolsLoopingTools     = 0xF103,  // Cmd+L - Looping Tools
+
+        // Generate Operations (0xF200 - 0xF2FF)
+        generateInsertSilence = 0xF200,  // Cmd+Shift+M - Insert silence at cursor / over selection
+        generateTone          = 0xF201,  // Cmd+Shift+T - Generate tone (sine/square/saw/triangle)
+        generateNoise         = 0xF202   // Cmd+Shift+N - Generate noise (white/pink)
     };
 }

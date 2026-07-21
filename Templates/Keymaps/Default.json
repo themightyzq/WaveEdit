@@ -731,6 +731,27 @@
         "cmd",
         "alt"
       ]
+    },
+    "generateInsertSilence": {
+      "key": "M",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "generateTone": {
+      "key": "T",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "generateNoise": {
+      "key": "N",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
     }
   }
 }

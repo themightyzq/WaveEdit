@@ -35,6 +35,9 @@
 #include "../Utils/UndoActions/ChannelUndoActions.h"
 #include "../DSP/TimePitchEngine.h"
 #include "../Utils/UndoableEdits.h"
+#include "../DSP/AudioGenerator.h"
+#include "../UI/GenerateDialog.h"
+#include "../UI/InsertSilenceDialog.h"
 #include "../UI/GraphicalEQEditor.h"
 #include "../UI/OfflinePluginDialog.h"
 #include "../UI/ProgressDialog.h"
@@ -1271,4 +1274,162 @@ void DSPController::showLoopingToolsDialog(Document* doc, juce::Component* /*par
     options.useNativeTitleBar            = true;
     options.resizable                    = false;
     options.launchAsync();
+}
+
+//==============================================================================
+// Generate menu: Insert Silence / Generate Tone / Generate Noise.
+//
+// Placement is selection-aware (mirrors ClipboardController::pasteAtCursor):
+// with a selection, the generated content overwrites it (ReplaceAction, same
+// length); otherwise it is inserted at the edit cursor / playhead, growing the
+// file and shifting regions + markers (InsertAction).
+//==============================================================================
+void DSPController::generateAndPlace(Document* doc, double durationSeconds,
+                                     const juce::String& transactionName,
+                                     const std::function<void(juce::AudioBuffer<float>&, double)>& fill)
+{
+    if (!doc || !doc->getAudioEngine().isFileLoaded())
+        return;
+
+    try
+    {
+        auto& bufferManager = doc->getBufferManager();
+        auto& waveform = doc->getWaveformDisplay();
+        const int numChannels = bufferManager.getBuffer().getNumChannels();
+        const double sampleRate = doc->getAudioEngine().getSampleRate();
+        if (numChannels <= 0 || sampleRate <= 0.0)
+            return;
+
+        const bool replaceSelection = waveform.hasSelection();
+        int64_t startSample = 0;
+        int64_t numSamples = 0;
+
+        if (replaceSelection)
+        {
+            startSample = bufferManager.timeToSample(waveform.getSelectionStart());
+            const int64_t endSample = bufferManager.timeToSample(waveform.getSelectionEnd());
+            numSamples = endSample - startSample;
+        }
+        else
+        {
+            const double cursorPos = waveform.hasEditCursor()
+                                         ? waveform.getEditCursorPosition()
+                                         : waveform.getPlaybackPosition();
+            startSample = juce::jlimit((int64_t) 0, bufferManager.getNumSamples(),
+                                       bufferManager.timeToSample(cursorPos));
+            numSamples = (int64_t) std::llround(durationSeconds * sampleRate);
+        }
+
+        // Defensive bound (the dialogs also validate): reject non-positive
+        // lengths and anything that would overflow the int-sample AudioBuffer.
+        if (numSamples <= 0 || numSamples > (int64_t) std::numeric_limits<int>::max())
+            return;
+
+        juce::AudioBuffer<float> generated(numChannels, (int) numSamples);
+        generated.clear();
+        if (fill)
+            fill(generated, sampleRate);
+
+        doc->getUndoManager().beginNewTransaction(transactionName);
+
+        if (replaceSelection)
+        {
+            doc->getUndoManager().perform(new ReplaceAction(
+                bufferManager, doc->getAudioEngine(), waveform,
+                startSample, numSamples, generated,
+                &doc->getRegionManager(), &doc->getRegionDisplay(),
+                &doc->getMarkerManager(), &doc->getMarkerDisplay()));
+        }
+        else
+        {
+            doc->getUndoManager().perform(new InsertAction(
+                bufferManager, doc->getAudioEngine(), waveform,
+                startSample, generated,
+                &doc->getRegionManager(), &doc->getRegionDisplay(),
+                &doc->getMarkerManager(), &doc->getMarkerDisplay()));
+        }
+
+        doc->setModified(true);
+    }
+    catch (const std::exception& e)
+    {
+        juce::Logger::writeToLog("DSPController::generateAndPlace - " + juce::String(e.what()));
+        ErrorDialog::show("Generate",
+                          "Could not generate audio. No changes were made.\n\nDetails: "
+                          + juce::String(e.what()));
+    }
+}
+
+void DSPController::showInsertSilenceDialog(Document* doc, juce::Component* parent)
+{
+    if (!doc || !doc->getAudioEngine().isFileLoaded())
+        return;
+
+    const bool hasSelection = doc->getWaveformDisplay().hasSelection();
+
+    InsertSilenceDialog::showDialog(parent, 1.0, hasSelection,
+        [this, doc](double durationSeconds)
+        {
+            // Silence = a zero-filled buffer (the fill leaves it cleared).
+            generateAndPlace(doc, durationSeconds, "Insert Silence",
+                             [](juce::AudioBuffer<float>&, double) {});
+        });
+}
+
+void DSPController::showGenerateToneDialog(Document* doc, juce::Component* parent)
+{
+    if (!doc || !doc->getAudioEngine().isFileLoaded())
+        return;
+
+    auto& waveform = doc->getWaveformDisplay();
+    const bool hasSelection = waveform.hasSelection();
+    const double selectionSeconds = hasSelection
+        ? (waveform.getSelectionEnd() - waveform.getSelectionStart()) : 0.0;
+    const double sampleRate = doc->getAudioEngine().getSampleRate();
+    const int numChannels = doc->getBufferManager().getBuffer().getNumChannels();
+
+    GenerateDialog::showDialog(parent, GenerateDialog::Mode::Tone,
+        &doc->getAudioEngine(),
+        juce::Component::SafePointer<WaveformDisplay>(&waveform),
+        hasSelection, selectionSeconds, sampleRate, numChannels,
+        [this, doc](const GenerateDialog::Result& r)
+        {
+            const float amp = AudioProcessor::dBToLinear(r.amplitudeDb);
+            generateAndPlace(doc, r.durationSeconds, "Generate Tone",
+                [r, amp](juce::AudioBuffer<float>& buf, double sr)
+                {
+                    AudioGenerator gen;
+                    gen.prepare(sr);
+                    gen.generateTone(buf, r.waveform, r.frequencyHz, amp);
+                });
+        });
+}
+
+void DSPController::showGenerateNoiseDialog(Document* doc, juce::Component* parent)
+{
+    if (!doc || !doc->getAudioEngine().isFileLoaded())
+        return;
+
+    auto& waveform = doc->getWaveformDisplay();
+    const bool hasSelection = waveform.hasSelection();
+    const double selectionSeconds = hasSelection
+        ? (waveform.getSelectionEnd() - waveform.getSelectionStart()) : 0.0;
+    const double sampleRate = doc->getAudioEngine().getSampleRate();
+    const int numChannels = doc->getBufferManager().getBuffer().getNumChannels();
+
+    GenerateDialog::showDialog(parent, GenerateDialog::Mode::Noise,
+        &doc->getAudioEngine(),
+        juce::Component::SafePointer<WaveformDisplay>(&waveform),
+        hasSelection, selectionSeconds, sampleRate, numChannels,
+        [this, doc](const GenerateDialog::Result& r)
+        {
+            const float amp = AudioProcessor::dBToLinear(r.amplitudeDb);
+            generateAndPlace(doc, r.durationSeconds, "Generate Noise",
+                [r, amp](juce::AudioBuffer<float>& buf, double sr)
+                {
+                    AudioGenerator gen;
+                    gen.prepare(sr);
+                    gen.generateNoise(buf, r.noiseType, amp);
+                });
+        });
 }

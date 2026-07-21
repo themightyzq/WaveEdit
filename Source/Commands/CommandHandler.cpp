@@ -139,6 +139,10 @@ void CommandHandler::getAllCommands(juce::Array<juce::CommandID>& commands)
         CommandIDs::toolsChannelExtractor,
         CommandIDs::toolsHeadTail,
         CommandIDs::toolsLoopingTools,
+        // Generate commands
+        CommandIDs::generateInsertSilence,
+        CommandIDs::generateTone,
+        CommandIDs::generateNoise,
         // Region commands (Phase 3 Tier 2)
         CommandIDs::regionAdd,
         CommandIDs::regionDelete,
@@ -747,6 +751,21 @@ bool CommandHandler::performCommand(MainComponent& mc,
         case CommandIDs::toolsLoopingTools:
             if (!doc) return false;
             mc.m_dspController.showLoopingToolsDialog(doc, &mc);
+            return true;
+
+        case CommandIDs::generateInsertSilence:
+            if (!doc) return false;
+            mc.m_dspController.showInsertSilenceDialog(doc, &mc);
+            return true;
+
+        case CommandIDs::generateTone:
+            if (!doc) return false;
+            mc.m_dspController.showGenerateToneDialog(doc, &mc);
+            return true;
+
+        case CommandIDs::generateNoise:
+            if (!doc) return false;
+            mc.m_dspController.showGenerateNoiseDialog(doc, &mc);
             return true;
 
         case CommandIDs::processNormalize:

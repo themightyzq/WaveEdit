@@ -455,6 +455,13 @@ editor.
 | Head & Tail Editor | `Ctrl+H` |
 | Looping Tools | `Cmd+L` |
 
+### Generate
+| Action | Shortcut |
+|--------|----------|
+| Insert Silence | `Cmd+Shift+M` |
+| Generate Tone | `Cmd+Shift+T` |
+| Generate Noise | `Cmd+Shift+N` |
+
 ### Plugins
 | Action | Shortcut |
 |--------|----------|

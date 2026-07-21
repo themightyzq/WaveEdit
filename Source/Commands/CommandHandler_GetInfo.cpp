@@ -647,6 +647,27 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
                                  && doc->getWaveformDisplay().hasSelection());
                 break;
 
+            case CommandIDs::generateInsertSilence:
+                result.setInfo("Insert Silence...", "Insert silence at the cursor or over the selection", "Generate", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::generateTone:
+                result.setInfo("Generate Tone...", "Generate a sine/square/saw/triangle tone", "Generate", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
+            case CommandIDs::generateNoise:
+                result.setInfo("Generate Noise...", "Generate white or pink noise", "Generate", 0);
+                if (keyPress.isValid())
+                    result.addDefaultKeypress(keyPress.getKeyCode(), keyPress.getModifiers());
+                result.setActive(doc && doc->getAudioEngine().isFileLoaded());
+                break;
+
             case CommandIDs::processNormalize:
                 result.setInfo("Normalize...", "Normalize audio to peak level", "Process", 0);
                 if (keyPress.isValid())
