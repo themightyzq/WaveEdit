@@ -20,9 +20,12 @@ endif()
 
 # If you want to use JUCE's bundled modules
 juce_add_gui_app(WaveEdit
-    COMPANY_NAME "WaveEdit"
+    COMPANY_NAME "ZQ SFX"
+    COMPANY_WEBSITE "https://www.zq-sfx.com"
+    COMPANY_EMAIL "connect@zq-sfx.com"
+    COMPANY_COPYRIGHT "Copyright (c) 2026 ZQ SFX"
     PRODUCT_NAME "WaveEdit"
-    BUNDLE_ID "com.waveedit.app"
+    BUNDLE_ID "com.zqsfx.waveedit"
 
     # Register the audio formats WaveEdit can open so the OS offers it for
     # "Open With" / double-click and passes the file path to the app
@@ -398,7 +401,7 @@ if(APPLE)
     )
     # macOS 10.13+ required
     set_target_properties(WaveEdit PROPERTIES
-        MACOSX_BUNDLE_GUI_IDENTIFIER "com.waveedit.app"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.zqsfx.waveedit"
         MACOSX_BUNDLE_BUNDLE_NAME "WaveEdit"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
