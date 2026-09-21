@@ -565,8 +565,8 @@ one and leaves the old folder in place as a backup; you can
 plugin list look right.
 
 **UI preferences (window size, dB scale, refresh rate)**:
-- macOS: `~/Library/Preferences/com.waveedit.app.plist` (managed by
-  the system; use `defaults read com.waveedit.app` to inspect).
+- macOS: `~/Library/Preferences/com.zqsfx.waveedit.plist` (managed by
+  the system; use `defaults read com.zqsfx.waveedit` to inspect).
 - Windows / Linux: stored alongside `settings.json` above.
 
 **Application log** — useful when reporting bugs:
@@ -589,7 +589,7 @@ Attach the most recent one when reporting a crash.
 rm -rf "~/Library/Application Support/WaveEdit"
 rm -rf ~/Library/Logs/WaveEdit
 rm -rf ~/Library/WaveEdit         # legacy path; only if you used a pre-2026-04-29 build
-defaults delete com.waveedit.app
+defaults delete com.zqsfx.waveedit
 # Optional: remove the app bundle itself
 rm -rf /Applications/WaveEdit.app
 ```
