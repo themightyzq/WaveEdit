@@ -1,361 +1,107 @@
-# WaveEdit by ZQ SFX
+# WaveEdit
+
+WaveEdit is a standalone audio file editor for macOS, Windows, and Linux, in the style of
+Sound Forge. It edits one file at a time: there is no project format, no timeline of clips,
+and no multi-track mixing. Editing is sample-accurate and keyboard-first, with every action
+bound to a shortcut. It opens WAV, AIFF, FLAC, MP3, OGG, and M4A. Built with JUCE.
+
+## Install
+
+Download a build from the Releases page:
+https://github.com/themightyzq/WaveEdit/releases
+
+The latest tagged release is v0.1.0 (2026-04-29), with archives for each platform:
+`WaveEdit-macOS-universal.zip`, `WaveEdit-Windows-x64.zip`, `WaveEdit-Linux-x64.tar.gz`.
+The source in this repository has moved on since then and is currently at 0.9.0. If you want
+the current version rather than v0.1.0, build from source (below).
+
+Despite its filename, the v0.1.0 macOS zip is an Apple Silicon (arm64) build only and will
+not run on an Intel Mac. Building from source produces a build for the Mac you build on;
+a universal build needs LAME and SoundTouch compiled for both architectures, which Homebrew
+does not provide.
+
+The binaries are unsigned on every platform:
+
+- macOS: right-click `WaveEdit.app`, choose Open, then Open again. macOS remembers the
+  choice after that. (Or run `xattr -dr com.apple.quarantine /Applications/WaveEdit.app`
+  from a terminal.)
+- Windows: SmartScreen will say "Windows protected your PC". Click "More info", then
+  "Run anyway".
+- Linux: `chmod +x WaveEdit` and run it.
+
+Each build bundles the LAME MP3 encoder, SoundTouch, libFLAC, and Ogg Vorbis, so no extra
+libraries are needed.
+
+WaveEdit keeps its settings, keymaps, plugin scan cache, batch presets, and autosave files
+in one folder, so removing that folder plus the app is a complete uninstall:
+
+- macOS: `~/Library/Application Support/WaveEdit/`
+- Windows: `%APPDATA%\WaveEdit\`
+- Linux: `~/.config/WaveEdit/`
+
+## Use
+
+1. Open a file: drag and drop it onto the window, press `Cmd+O`, or double-click a
+   WAV/AIFF/FLAC/OGG/MP3 file with WaveEdit set as the handler ("Open With -> WaveEdit").
+   On macOS, M4A/AAC files open too, read only; saving one re-encodes to WAV, AIFF, FLAC,
+   OGG, or MP3. Each open file is its own tab in one window.
+2. Select audio by clicking and dragging on the waveform.
+3. Edit with `Delete`, `Cmd+X`/`Cmd+C`/`Cmd+V` for cut/copy/paste, and `Cmd+Z`/`Cmd+Shift+Z`
+   for undo/redo (100 levels per file).
+4. Play with `Space`, stop with `Escape`.
+5. Save with `Cmd+S`. There are no project files: WaveEdit edits the file itself, and
+   nothing is written to disk until you save.
+
+What it does, beyond basic cut and paste:
+
+- 20-band graphical EQ (bell, shelf, cut, notch, and bandpass filters, with a real-time
+  curve)
+- Normalize (peak or RMS), gain adjustment, DC offset removal
+- Fade in and fade out, with linear, exponential, logarithmic, and S-curve shapes
+- Reverse, invert polarity, resample, time-stretch and pitch-shift (via SoundTouch, tempo
+  and pitch independent)
+- Regions and markers, saved as embedded WAV cue and LIST-adtl chunks so they read back in
+  Reaper, Wwise, and iZotope RX, plus a region list panel, batch rename, and batch export
+  (each region to its own WAV file)
+- BWF and iXML metadata editing, with UCS category suggestions
+- A batch processor: apply a DSP chain (gain, normalize, fades, EQ presets, a plugin chain)
+  to many files at once, with output format and naming control
+- Hosts VST3 and AU effect plugins in a chain, with parameter automation recording and a
+  lane editor
+- Crash recovery: autosave runs every minute on a modified file, and is offered back the
+  next time you open it
+- Three built-in themes: Dark, Light, and High Contrast
+- Sound Forge and Pro Tools keymap templates, and every shortcut can be remapped
+
+Keyboard shortcuts you will use constantly (Windows and Linux use `Ctrl` where macOS uses
+`Cmd`):
+
+| Action | Shortcut |
+|--------|----------|
+| Open | `Cmd+O` |
+| Save | `Cmd+S` |
+| Play / Stop | `Space` / `Escape` |
+| Cut / Copy / Paste | `Cmd+X` / `Cmd+C` / `Cmd+V` |
+| Undo / Redo | `Cmd+Z` / `Cmd+Shift+Z` |
+| Select All | `Cmd+A` |
+| Zoom to Selection | `Cmd+E` |
+| Add Region | `R` |
+| Add Marker | `M` |
+| Normalize | `Cmd+G` |
+
+The rest of the shortcuts (there are several dozen more, covering navigation, zoom,
+processing, regions, markers, and plugins) are listed inside the app: press `Cmd+/` to open
+the shortcut reference, or `Cmd+,` and go to the Keyboard Shortcuts tab to remap any of them.
+
+![WaveEdit main window](Docs/screenshots/01-main-window.png)
+
+## Keyboard shortcuts
+
+Every shortcut is remappable. The defaults come from `Templates/Keymaps/Default.json`,
+which is the source of truth; the tables below are checked against it in CI. On Windows and
+Linux, read `Cmd` as `Ctrl`. Inside the app, `Cmd+/` opens the shortcut reference and
+`Cmd+,` then the Keyboard Shortcuts tab opens the editor.
 
-> A fast, sample-accurate, cross-platform audio editor inspired by Sound Forge Pro
-
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Built with JUCE](https://img.shields.io/badge/Built%20with-JUCE-00d4aa)](https://juce.com/)
-[![Build Status](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml/badge.svg)](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml)
-
-**Developer**: ZQ SFX
-**Copyright**: © 2025-2026 ZQ SFX
-**License**: GPL v3
-
----
-
-## Overview
-
-**WaveEdit** is a professional audio editor designed for speed, precision, and keyboard-driven workflow. Built with JUCE and inspired by Sound Forge Pro, WaveEdit focuses on getting your audio editing done fast without friction.
-
-### Why WaveEdit?
-
-- **Instant startup**: Sub-1 second cold start, no splash screens, no project files
-- **Sample-accurate editing**: Professional-grade precision
-- **Keyboard-first**: Every action has a shortcut (Sound Forge layout by default)
-- **Fully customizable**: Remap any keyboard shortcut
-- **Cross-platform**: Native builds for Windows, macOS, and Linux
-- **Free and open source**: GPL v3 license
-
-**Perfect for**: Audio engineers, podcasters, sound designers, game developers
-
----
-
-## Screenshots
-
-### Main window
-![Main window with selection](Docs/screenshots/01-main-window.png)
-
-Waveform, transport controls, selection markers with duration readout,
-and the status bar showing sample rate, channel count, bit depth,
-length, snap mode, time format, and zoom.
-
-### Region List
-![Region List panel](Docs/screenshots/02-region-list.png)
-
-Color-coded region browser with name/start/end/duration columns,
-in-place search, and one-click Batch Rename. `Cmd+Shift+R` to open.
-
-### Spectrum Analyzer
-![Spectrum Analyzer](Docs/screenshots/04-spectrum-analyzer.png)
-
-Real-time FFT with logarithmic frequency axis (20 Hz – 20 kHz), peak
-hold (yellow), and a colour gradient from low to high magnitude.
-`Cmd+Alt+S` toggles it on while playback runs.
-
-### Batch Processor
-![Batch Processor](Docs/screenshots/05-batch-processor.png)
-
-Apply a DSP chain (gain, normalise, fades, EQ presets, plugin chain)
-to many files at once with output naming patterns, format/bit-depth/
-sample-rate conversion, and savable presets. `Cmd+B` to open.
-
----
-
-## Quick Start
-
-### Launch the App
-
-**Already built?**
-```bash
-# macOS
-open ./build/WaveEdit_artefacts/Release/WaveEdit.app
-
-# OR use the script
-./build-and-run.command run-only
-```
-
-**Not built yet?**
-```bash
-./build-and-run.command
-```
-
-### Basic Usage
-
-1. **Open**: Drag & drop a file, press `Cmd+O`, or double-click a
-   WAV/AIFF/FLAC/OGG/MP3 in your file manager ("Open With → WaveEdit", or set
-   WaveEdit as the default handler). On macOS, M4A/AAC files open too
-   (read-only -- saving re-encodes to WAV/AIFF/FLAC/OGG/MP3 via Save As).
-   Files open as tabs in one window. WAV saves automatically grow past 4 GB
-   (RF64).
-2. **Select**: Click and drag on waveform
-3. **Edit**: `Delete`, `Cmd+X` (cut), `Cmd+C` (copy), `Cmd+V` (paste)
-4. **Play**: Press `Space`
-5. **Save**: Press `Cmd+S`
-
-No project files, no import wizards. Just open → edit → save.
-
----
-
-## Features
-
-### What Works Now
-
-**Core Editing**:
-- ✅ Multi-file support with tab-based UI
-- ✅ Cut, copy, paste, delete
-- ✅ Per-channel editing (double-click to focus individual channels)
-- ✅ Undo/redo (100 levels per file)
-- ✅ Drag & drop multiple files
-- ✅ Save/Save As with error handling
-
-**Playback**:
-- ✅ Play, pause, stop, loop
-- ✅ Selection-bounded playback
-- ✅ Real-time level meters (peak, RMS, clipping detection)
-- ✅ Real-time spectrum analyzer (FFT-based frequency visualization)
-
-**DSP Operations**:
-- ✅ Gain adjustment (±1dB with `Shift+Up/Down`)
-- ✅ 20-band Graphical EQ (Bell, Shelf, Cut, Notch, Bandpass filters with real-time curve)
-- ✅ Normalize (-0.1 dB default; Peak and RMS modes)
-- ✅ Fade in/out with 4 curve types (Linear, Exponential, Logarithmic, S-Curve) and visual preview
-- ✅ DC offset removal
-- ✅ Silence selection
-- ✅ Trim (delete outside selection)
-- ✅ Reverse and Invert (polarity flip)
-- ✅ Resample (sample-rate conversion)
-- ✅ Time Stretch and Pitch Shift (SoundTouch; independent tempo/pitch)
-
-**Regions** 🆕:
-- ✅ Create, rename, delete, navigate
-- ✅ Region list panel with search/filter
-- ✅ Batch rename (pattern/find-replace/prefix-suffix)
-- ✅ Batch export (each region as separate WAV)
-- ✅ Merge/split/copy/paste regions
-- ✅ Edit boundaries with snap to zero crossings
-
-**Metadata** 🆕:
-- ✅ BWF (Broadcast Wave Format) support
-- ✅ iXML metadata with UCS v8.2.1 categories (753 mappings)
-- ✅ SoundMiner Extended fields (FXName, Description, Keywords, Designer)
-- ✅ File Properties dialog (`Alt+Enter`) with UCS suggestions
-- ✅ Persistent metadata embedded in WAV files
-
-**Navigation**:
-- ✅ Sample-accurate selection at any zoom
-- ✅ Snap modes: Off, Samples, Ms, Seconds, Frames, Zero
-- ✅ Keyboard navigation honors snap mode
-- ✅ Go to position (6 time formats supported)
-
-**Keyboard Shortcuts**:
-- ✅ Sound Forge Pro compatibility (default)
-- ✅ Fully customizable with GUI editor
-- ✅ 3 built-in templates (Default, Sound Forge, Pro Tools)
-- ✅ Import/export custom templates
-
-**Quality**:
-- ✅ Extensively tested: 372 test groups / ~207,000 assertions, 100% pass
-  rate. The automated test suite is maintained in the project's development
-  repository (not bundled in this download).
-- ✅ Sub-1 second startup, 60fps rendering
-- ✅ <10ms waveform updates, <10ms playback latency
-
-> **Status**: Production-quality for core editing workflows.
-
-**Spectrum Analyzer** 🆕:
-- ✅ Real-time FFT visualization during playback
-- ✅ Configurable FFT size (512, 1024, 2048, 4096, 8192 samples)
-- ✅ Multiple windowing functions (Hann, Hamming, Blackman, Rectangular)
-- ✅ Logarithmic frequency scale (20Hz-20kHz) with peak hold
-- ✅ Color gradient visualization (blue → green → yellow → red for magnitude)
-- ✅ Toggle with `Cmd+Alt+S` or View → Spectrum Analyzer
-- ✅ Configure FFT size and window function from View menu submenus
-
-**Batch Processor** 🆕:
-- ✅ Process multiple audio files with identical DSP settings (`Cmd+B`)
-- ✅ DSP chain: Gain, Normalize, DC Offset, Fade In/Out, EQ presets
-- ✅ Plugin chain support (apply VST3/AU effect chains)
-- ✅ Save/load chain presets via the Plugin Chain window's
-  "Presets..." button — saved presets bundle automation lanes too
-- ✅ Output settings: directory, naming patterns, sample rate/bit depth conversion
-- ✅ Error handling: stop on error, continue, or skip and log
-- ✅ Save/load batch presets for recurring workflows
-
-**Plugin Parameter Automation** 🆕:
-- ✅ Record plugin knob movements during playback (Plugins → Arm Automation Recording)
-- ✅ Visual lane editor (`Cmd+Alt+L` or Plugins → Show Automation Lanes)
-- ✅ Click empty space to add an automation point; drag to move; right-click to
-  delete or change the curve type (Linear, Step, S-Curve, Exponential)
-- ✅ Cmd-click to multi-select; Cmd+A all; drag empty space for
-  rectangle select (Shift+drag adds); Cmd+C/Cmd+V copy/paste
-  (cross-lane supported); Delete removes selection; Esc clears;
-  drag any selected point to move the whole selection
-- ✅ Every point edit is undoable (`Cmd+Z` / `Cmd+Shift+Z`); a whole drag
-  is one undo step
-- ✅ Per-lane Enabled / Record toggles, live playhead during playback
-- ✅ Automation persists in a `<file>.<ext>.automation.json` sidecar
-- ℹ️ Right-click on individual knobs in third-party plugin UIs is not yet
-  supported — use the editor window's "Automation" toolbar button to arm
-  parameters instead
-
-**Crash recovery** 🆕:
-- ✅ Auto-save runs every minute on modified documents
-  (configurable in Preferences → Auto-Save)
-- ✅ When you reopen a file with unsaved changes from a previous
-  session (crash, force-quit, closed without saving), WaveEdit
-  offers to **Recover**, **Discard**, or **Keep & Continue**
-- ✅ Saving a file evicts its auto-saves (superseded)
-
-**Theme system** 🆕:
-- ✅ Three built-in themes ship out of the box: **Dark** (default),
-  **Light**, and **High Contrast** (accessibility-tuned, pure-black
-  surfaces with neon-cyan accents). Switch from Preferences →
-  Display; the choice persists across launches.
-- ✅ Theme is wired through every visible surface: waveform area,
-  tabs, plugin chain UI, region/marker list panels, automation
-  lanes, command palette, settings panel, shortcut editor, keyboard
-  cheat-sheet, toolbar, **and** every processing dialog (Gain,
-  Normalize, Fade In/Out, Graphical EQ, Head & Tail,
-  Strip Silence, Looping Tools, Auto Region, Offline Plugin, etc.).
-  All re-skin live without a restart.
-- ✅ **Custom themes** — Preferences → Display has Import/Export
-  buttons next to the picker. Themes round-trip to a single JSON
-  file (`id`, `name`, plus an 8-digit ARGB hex per token), so you
-  can drop in a hand-tuned palette without rebuilding the app.
-
-### What's Next
-
-Planned features:
-- Additional DSP operations (reverb, compressor, noise reduction)
-- More export formats
-- Plugin preset management improvements
-
----
-
-## Installation
-
-### Pre-built binaries
-
-Tagged Releases are published automatically by GitHub Actions when a
-`v*` tag is pushed. Grab the latest from the
-[Releases page](https://github.com/themightyzq/WaveEdit/releases) —
-download the archive for your platform, extract, and run.
-
-The binaries are **unsigned**. WaveEdit is a personal-scale project and
-does not currently ship signed binaries; to launch on macOS or Windows
-you'll have to bypass the OS's first-run warning once:
-
-- **macOS**: right-click `WaveEdit.app` → **Open** → **Open**. macOS
-  remembers the choice; subsequent launches behave normally. (Or:
-  `xattr -dr com.apple.quarantine /Applications/WaveEdit.app` from a
-  terminal.)
-- **Windows**: SmartScreen will say "Windows protected your PC". Click
-  **More info** → **Run anyway**.
-- **Linux**: `chmod +x WaveEdit` and run.
-
-All builds bundle the LAME MP3 encoder, libFLAC, and Ogg Vorbis. No
-extra install steps are required.
-
-If you'd rather build from source (or you want to grab the
-work-in-progress build between releases, available as a 30-day
-artifact under [Actions](https://github.com/themightyzq/WaveEdit/actions/workflows/build.yml)),
-follow the developer steps below.
-
-### Build from Source (For Developers)
-
-**Prerequisites**:
-- CMake 3.15+
-- C++17 compiler
-- JUCE 8.x (included as submodule; used under JUCE's AGPLv3 free-tier licence, see NOTICE)
-- **LAME library** (for MP3 encoding support)
-
-**Quick build** (recommended):
-```bash
-git clone https://github.com/themightyzq/WaveEdit.git
-cd WaveEdit
-./build-and-run.command
-```
-
-**Additional options**:
-```bash
-./build-and-run.command              # Build and launch
-./build-and-run.command run-only     # Launch without building
-./build-and-run.command clean        # Clean build
-./build-and-run.command debug        # Debug build
-./build-and-run.command help         # Show all options
-```
-
-**Manual build** (if you prefer CMake commands directly):
-```bash
-git clone https://github.com/themightyzq/WaveEdit.git
-cd WaveEdit
-git submodule update --init --recursive
-
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --config Release
-
-# Launch
-open ./WaveEdit_artefacts/Release/WaveEdit.app  # macOS
-./WaveEdit_artefacts/Release/WaveEdit           # Linux
-.\WaveEdit_artefacts\Release\WaveEdit.exe       # Windows
-```
-
-**Developer dependencies**:
-
-macOS:
-```bash
-# Xcode command line tools
-xcode-select --install
-
-# LAME MP3 encoder (required for MP3 support)
-brew install lame
-
-# SoundTouch (required for Time Stretch and Pitch Shift)
-brew install sound-touch
-```
-
-Linux (Ubuntu/Debian):
-```bash
-# Build tools and audio dependencies
-sudo apt-get install build-essential cmake libasound2-dev \
-    libjack-jackd2-dev libfreetype6-dev libx11-dev libxrandr-dev \
-    libxinerama-dev libxcursor-dev libgl1-mesa-dev
-
-# LAME MP3 encoder (required for MP3 support)
-sudo apt-get install libmp3lame-dev
-
-# SoundTouch (required for Time Stretch and Pitch Shift)
-sudo apt-get install libsoundtouch-dev
-```
-
-Windows:
-- Visual Studio 2017+ (open generated `.sln` file)
-- LAME MP3 encoder: Download from https://lame.sourceforge.io/
-- SoundTouch: Download from https://www.surina.net/soundtouch/
-
-**Note for developers**: LAME is only required for building from source. Release builds automatically bundle LAME, so end users don't need to install it separately.
-
----
-
-## Testing
-
-WaveEdit ships with an extensive automated test suite (372 test groups /
-~207,000 assertions across unit, integration, and end-to-end tests). The
-suite is maintained in the project's development repository and is not
-included in this build-from-source distribution. The application builds and
-runs without it.
-
----
-
-## Keyboard Shortcuts
-
-All shortcuts are customizable. The default layout (`Default.json`) is
-the source of truth; the table below is generated from it. On
-Windows/Linux, replace `Cmd` with `Ctrl`.
-
-To see, search, or remap shortcuts inside the app: `Cmd+/` opens the
-shortcut reference and `Cmd+,` → Keyboard Shortcuts tab opens the
-editor.
 
 ### File
 | Action | Shortcut |
@@ -491,7 +237,7 @@ editor.
 | Convert Regions to Markers | `Ctrl+Shift+G` |
 | Nudge Region Start | `Cmd+Alt+Left/Right` |
 | Nudge Region End | `Shift+Alt+Left/Right` |
-| Edit Boundaries | Right-click → Edit Boundaries |
+| Edit Boundaries | Right-click , then Edit Boundaries |
 
 ### Markers
 | Action | Shortcut |
@@ -518,7 +264,7 @@ editor.
 | Previous Tab | `Ctrl+Shift+Tab` |
 | Close Tab | `Cmd+W` |
 | Close All Tabs | `Cmd+Shift+W` |
-| Select Tab 1-9 | `Cmd+1` … `Cmd+9` |
+| Select Tab 1-9 | `Cmd+1` to `Cmd+9` |
 
 ### Toolbar
 | Action | Shortcut |
@@ -532,166 +278,58 @@ editor.
 | Keyboard Shortcuts | `Cmd+/` |
 | Command Palette | `Cmd+Shift+A` |
 
-> **Note**: `Cmd` key on macOS = `Ctrl` key on Windows/Linux.
 
----
 
-## Configuration
 
-All user state — `settings.json`, plugin scan caches, keymaps,
-toolbars, batch presets, autosave files — lives under a single
-parent directory:
+## Build from source
 
-- macOS: `~/Library/Application Support/WaveEdit/`
-- Windows: `%APPDATA%\WaveEdit\`
-- Linux: `~/.config/WaveEdit/`
+Requirements: CMake 3.15 or newer, a C++17 compiler (Xcode command-line tools on macOS,
+Visual Studio 2017 or newer on Windows), the LAME library, and SoundTouch.
 
-**Top-level files**: `settings.json` (recent files, audio device,
-auto-save), `plugins.xml`, `plugin_blacklist.txt`,
-`custom_plugin_paths.txt`, `plugin_incremental_cache.xml`,
-`scan_log.txt`.
+JUCE is included as a submodule, so fetch it along with the clone:
 
-**Subfolders**: `autosave/` (in-progress auto-saves),
-`Keymaps/` (built-in + user keyboard templates),
-`Toolbars/` (toolbar layouts),
-`Presets/Batch/` (batch processor presets).
-
-**Migration note (macOS)**: builds before 2026-04-29 wrote
-`settings.json` and the plugin scan cache to `~/Library/WaveEdit/`
-instead of the canonical Application Support path. On first launch
-the new build copies anything from the legacy location into the new
-one and leaves the old folder in place as a backup; you can
-`rm -rf ~/Library/WaveEdit` once you've confirmed your recents and
-plugin list look right.
-
-**UI preferences (window size, dB scale, refresh rate)**:
-- macOS: `~/Library/Preferences/com.zqsfx.waveedit.plist` (managed by
-  the system; use `defaults read com.zqsfx.waveedit` to inspect).
-- Windows / Linux: stored alongside `settings.json` above.
-
-**Application log** — useful when reporting bugs:
-- macOS: `~/Library/Logs/WaveEdit/WaveEdit.log`
-- Windows: `%APPDATA%\WaveEdit\WaveEdit.log`
-- Linux: `~/.config/WaveEdit/WaveEdit.log`
-
-The log records startup, audio-device init, errors, and unsaved-changes
-events. Attach it when filing an issue.
-
-**Crash reports**: if WaveEdit hits a fatal signal, a single
-timestamped report (time, version, OS, stack backtrace) is written
-next to the session log under a `crashes/` subfolder
-(e.g. `~/Library/Logs/WaveEdit/crashes/crash-YYYY-MM-DD_HH-MM-SS.txt`).
-Attach the most recent one when reporting a crash.
-
-**To uninstall completely (macOS)**:
-```bash
-# Quit WaveEdit first, then:
-rm -rf "~/Library/Application Support/WaveEdit"
-rm -rf ~/Library/Logs/WaveEdit
-rm -rf ~/Library/WaveEdit         # legacy path; only if you used a pre-2026-04-29 build
-defaults delete com.zqsfx.waveedit
-# Optional: remove the app bundle itself
-rm -rf /Applications/WaveEdit.app
+```
+git clone https://github.com/themightyzq/WaveEdit.git
+cd WaveEdit
+git submodule update --init --recursive
 ```
 
-> Customizing keyboard shortcuts? Open Preferences (`Cmd+,`) →
-> Keyboard Shortcuts tab. There is no `keybindings.json` — keymap
-> templates live as named JSON files inside `Keymaps/`.
+Then build:
 
----
+```
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . --config Release
+```
 
-## Development
+The app is written to `build/WaveEdit_artefacts/Release/`. On macOS, `./build-and-run.command`
+runs the same steps and launches it; pass `clean` or `debug` for a clean or debug build.
 
-### Tech Stack
+Platform dependencies:
 
-- **Framework**: [JUCE 8.x](https://juce.com/) (AGPLv3 free tier)
-- **Language**: C++17
-- **Build System**: CMake
-- **Audio I/O**: JUCE audio engine (CoreAudio/WASAPI/ALSA)
+macOS:
+```
+xcode-select --install
+brew install lame
+brew install sound-touch
+```
 
-### Contributing
+Linux (Ubuntu/Debian):
+```
+sudo apt-get install build-essential cmake libasound2-dev libjack-jackd2-dev \
+    libfreetype6-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+    libgl1-mesa-dev libmp3lame-dev libsoundtouch-dev
+```
 
-1. Open an issue before major work
-2. Follow coding standards below
-3. Write tests for new features
-4. Update documentation
+Windows:
+- Visual Studio 2017 or newer (open the generated `.sln`)
+- LAME: download from https://lame.sourceforge.io/
+- SoundTouch: download from https://www.surina.net/soundtouch/
 
-**Coding standards**:
-- C++17 or later
-- 4-space indentation, Allman braces
-- PascalCase classes, camelCase methods
-- Document all public methods
+LAME and SoundTouch are only needed to build from source. Release binaries bundle both.
 
-**Pull request process**:
-1. Fork the repository
-2. Create feature branch (`feature/your-feature`)
-3. Follow [Conventional Commits](https://www.conventionalcommits.org/)
-4. Push to your fork
-5. Open pull request with clear description
+## Licence
 
-### Performance Targets
+GPL-3.0-or-later. Built with JUCE. See `LICENSE`.
 
-- Startup: <1 second
-- File load (10min WAV): <2 seconds
-- Rendering: 60fps
-- Playback latency: <10ms
-- Save: <500ms
-
----
-
-## FAQ
-
-**Q: Why JUCE instead of Electron/Tauri?**
-A: JUCE is purpose-built for audio with sample-accurate timing and low-latency I/O that web frameworks can't match.
-
-**Q: Will you add multi-track editing?**
-A: No. WaveEdit is a stereo/mono editor, not a DAW. Use Reaper or Ardour for multi-track.
-
-**Q: Can I use WaveEdit commercially?**
-A: Yes! GPL v3 allows commercial use.
-
-**Q: How do I customize keyboard shortcuts?**
-A: Open Preferences (`Cmd+,`) → Keyboard Shortcuts tab.
-
-**Q: Does WaveEdit support destructive editing?**
-A: Non-destructive with undo/redo. Original file only overwritten when you save.
-
----
-
-## License
-
-GNU General Public License v3.0
-
-- ✅ Use for any purpose (personal, commercial)
-- ✅ Modify and distribute
-- ✅ Must distribute source code with binaries
-- ✅ Derivative works must also be GPL v3
-
-See [LICENSE](LICENSE) for full details.
-
----
-
-## Credits
-
-**Developed by**: ZQ SFX
-
-**Built with**:
-- [JUCE](https://juce.com/) - Cross-platform C++ framework
-- Inspired by [Sound Forge Pro](https://www.magix.com/us/music-editing/sound-forge/)
-
-**Thanks to**:
-- JUCE community
-- Sound Forge Pro for setting the standard
-- All contributors and testers
-
----
-
-## Contact
-
-- **Issues**: [GitHub Issues](https://github.com/themightyzq/WaveEdit/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/themightyzq/WaveEdit/discussions)
-
----
-
-**Version**: 0.1.0
-**Last Updated**: 2026-05-05
+ZQ SFX, https://www.zq-sfx.com, connect@zq-sfx.com.

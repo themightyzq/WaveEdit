@@ -49,7 +49,7 @@ static void waveeditCrashHandler(void* /*platformData*/) noexcept
     body << "WaveEdit crash report\n";
     body << "=====================\n";
     body << "Time:        " << juce::Time::getCurrentTime().toString(true, true, true) << "\n";
-    body << "Version:     0.1.0\n";
+    body << "Version:     0.9.0\n";
     body << "OS:          " << juce::SystemStats::getOperatingSystemName() << "\n";
     body << "CPU:         " << juce::SystemStats::getCpuVendor() << " ("
          << juce::SystemStats::getNumCpus() << " cores)\n";
@@ -77,7 +77,7 @@ public:
 
     const juce::String getApplicationVersion() override
     {
-        return "0.1.0";
+        return "0.9.0";
     }
 
     bool moreThanOneInstanceAllowed() override
@@ -344,7 +344,7 @@ static bool handleCommandLineFlags(const juce::String& commandLine, int& exitCod
     }
     if (trimmed.startsWithIgnoreCase("--version") || trimmed.startsWithIgnoreCase("-v"))
     {
-        std::printf("WaveEdit 0.1.0\n");
+        std::printf("WaveEdit 0.9.0\n");
         exitCode = 0;
         return true;
     }
