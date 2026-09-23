@@ -218,6 +218,8 @@ target_sources(WaveEdit
         Source/Utils/SidecarPolicy.h
         Source/Utils/RegionExporter.cpp
         Source/Utils/RegionExporter.h
+        Source/Utils/NamingTokens.cpp
+        Source/Utils/NamingTokens.h
         Source/Utils/Marker.cpp
         Source/Utils/Marker.h
         Source/Utils/MarkerManager.cpp
@@ -310,6 +312,7 @@ target_sources(WaveEdit
         Source/Batch/BatchProcessorDialog.cpp
         Source/Batch/BatchProcessorDialog_Components.cpp
         Source/Batch/BatchProcessorDialog_Preview.cpp
+        Source/Batch/BatchProcessorDialog_Help.cpp
         Source/Batch/BatchProcessorDialog.h
 )
 
@@ -1002,6 +1005,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Controllers/RegionController_Export.cpp
         Source/Utils/KeymapManager.cpp
         Source/Utils/RegionExporter.cpp
+        Source/Utils/NamingTokens.cpp
+        Source/Utils/NamingTokens.h
         Source/UI/SaveAsOptionsPanel.cpp
         Source/UI/BatchExportDialog.cpp
         Source/UI/CommandPalette.cpp
@@ -1013,6 +1018,7 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Batch/BatchProcessorDialog.cpp
         Source/Batch/BatchProcessorDialog_Components.cpp
         Source/Batch/BatchProcessorDialog_Preview.cpp
+        Source/Batch/BatchProcessorDialog_Help.cpp
     )
 
     # Link WaveEditCore to JUCE modules
@@ -1161,6 +1167,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/KeymapCommandResolutionTests.cpp         # H27 command/keymap resolution
             Tests/Unit/RegionUndoIdentityTests.cpp              # H8-H11/H14, C3 region undo by id
             Tests/Unit/RegionExporterPass2Tests.cpp             # C17/H15/H16 export
+            Tests/Unit/NamingTokensTests.cpp                    # Finding #24: shared naming-token substitution helper
             Tests/Unit/RegionMarkerJsonValidationTests.cpp      # H22 JSON validation
             Tests/Unit/MarkerJumpUnitsTests.cpp                 # C2 marker jump units
             Tests/Integration/ClipboardChannelMismatchTests.cpp # C12/H5 channel conform, H2 loop selection

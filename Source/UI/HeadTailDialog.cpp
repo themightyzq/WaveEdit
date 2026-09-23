@@ -220,6 +220,10 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     , m_audioEngine(audioEngine)
     , m_documentLifeline(documentLifeline)
 {
+    // Accessible name: preserved even when the native title bar hides the
+    // in-content header text drawn in paint().
+    setTitle("Head & Tail Processing");
+
     // Own a copy of the source audio. Used for A/B preview AND for the overlay /
     // waveform display, so nothing in this async dialog reads the live document
     // buffer (which could be reallocated or freed while the dialog is open).
@@ -445,7 +449,9 @@ HeadTailDialog::HeadTailDialog(const juce::AudioBuffer<float>& audioBuffer,
     updateDetectionControlsEnabled();
     updateSummary();
 
-    setSize(700, 680);
+    setSize(700, 644);  // Height reduced 36px (kHeaderH) reclaimed from the
+                         // native-title-bar header (useNativeTitleBar is always
+                         // true for this dialog)
 
     // Keyboard-first: grab focus on the primary control after construction
     setWantsKeyboardFocus(true);
@@ -631,11 +637,16 @@ void HeadTailDialog::paint(juce::Graphics& g)
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     g.fillAll(theme.panel);
 
-    // Title
-    g.setColour(theme.text);
-    g.setFont(ui::sectionHeaderFont());
-    g.drawText("Head & Tail Processing", getLocalBounds().removeFromTop(kHeaderH),
-               juce::Justification::centred, true);
+    // Title: redundant when the native OS title bar already shows "Head & Tail
+    // Processing", so skip drawing it (section1HeaderY()/section2HeaderY() shift
+    // the rest of the layout up to reclaim its space -- see headerSpace()).
+    if (!m_usingNativeTitleBar)
+    {
+        g.setColour(theme.text);
+        g.setFont(ui::sectionHeaderFont());
+        g.drawText("Head & Tail Processing", getLocalBounds().removeFromTop(kHeaderH),
+                   juce::Justification::centred, true);
+    }
 
     // Section header bands — positions derived from the shared layout constants
     // (section1HeaderY/section2HeaderY) so paint() and resized() cannot drift.
@@ -662,8 +673,11 @@ void HeadTailDialog::resized()
     // Layout constants are shared with paint() via the static members in the
     // header (kMargin/kLabelW/.../kBandH) so the two methods cannot drift.
 
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        m_usingNativeTitleBar = topLevel->isUsingNativeTitleBar();
+
     auto area = getLocalBounds().reduced(kMargin);
-    area.removeFromTop(kHeaderH);   // Title space
+    area.removeFromTop(headerSpace());   // Title space (reclaimed when native title bar shows it)
 
     //--------------------------------------------------------------------------
     // Section 1 header + detection enable row

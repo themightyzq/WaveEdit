@@ -316,7 +316,12 @@ void ToolbarCustomizationDialog::resized()
     auto bounds = getLocalBounds().reduced(kPadding);
 
     // Title and instructions at top
-    m_titleLabel.setBounds(bounds.removeFromTop(24));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(24));
     bounds.removeFromTop(kSpacing / 2);
     m_instructionsLabel.setBounds(bounds.removeFromTop(18));
     bounds.removeFromTop(kSpacing);

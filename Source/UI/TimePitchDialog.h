@@ -208,5 +208,9 @@ private:
     /** Format a time in seconds as ASCII mm:ss.mmm for the scope line. */
     static juce::String formatTime(double seconds);
 
+    // True when hosted in a DialogWindow using the native OS title bar, in which
+    // case the in-content header (drawn in paint()) is redundant and hidden.
+    bool m_usingNativeTitleBar = false;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimePitchDialog)
 };

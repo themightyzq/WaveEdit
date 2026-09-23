@@ -99,7 +99,12 @@ void InsertSilenceDialog::resized()
 {
     auto bounds = getLocalBounds().reduced(PADDING);
 
-    m_titleLabel.setBounds(bounds.removeFromTop(ROW));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(ROW));
     bounds.removeFromTop(SPACING);
 
     m_durationLabel.setBounds(bounds.removeFromTop(ROW));

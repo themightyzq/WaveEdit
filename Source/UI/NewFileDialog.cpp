@@ -147,7 +147,12 @@ void NewFileDialog::resized()
     auto bounds = getLocalBounds().reduced(ui::kDialogPadding);
 
     // Title
-    m_titleLabel.setBounds(bounds.removeFromTop(30));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(30));
     bounds.removeFromTop(15);
 
     const int rowHeight = 28;

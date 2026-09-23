@@ -115,7 +115,9 @@ FadeDialog::FadeDialog(FadeDirection direction,
     m_cancelButton.onClick = [this]() { onCancelClicked(); };
     addAndMakeVisible(m_cancelButton);
 
-    setSize(520, 270);  // Increased width to accommodate curve preview
+    setSize(520, 240);  // Increased width to accommodate curve preview;
+                         // height reduced by 30px reclaimed from the native-title-bar
+                         // dialog header (useNativeTitleBar is true at both launch sites)
 }
 
 FadeDialog::~FadeDialog()
@@ -137,8 +139,14 @@ void FadeDialog::resized()
 {
     auto bounds = getLocalBounds().reduced(waveedit::ui::kDialogPadding);
 
-    // Title
-    m_titleLabel.setBounds(bounds.removeFromTop(30));
+    // Title: the native OS title bar already shows "Fade In"/"Fade Out", so when
+    // it's present, skip the in-content duplicate label and reclaim its space.
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(30));
     bounds.removeFromTop(waveedit::ui::kSectionGap); // Spacing
 
     // Instruction

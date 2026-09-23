@@ -243,12 +243,22 @@ private:
     static constexpr int kSliderW   = 280;
     static constexpr int kValueW    = 80;
     static constexpr int kRowH      = 32;
-    static constexpr int kHeaderH   = 36;   // Title space
+    static constexpr int kHeaderH   = 36;   // Title space (only consumed when the dialog
+                                             // draws its own title -- see m_usingNativeTitleBar)
     static constexpr int kGap       = 8;
     static constexpr int kBandH     = 20;   // Section header band height
 
+    // True when hosted in a DialogWindow using the native OS title bar, in which
+    // case the in-content "Head & Tail Processing" header (drawn in paint()) is
+    // redundant: it is hidden and its kHeaderH space is reclaimed by shifting
+    // section1HeaderY()/section2HeaderY() (and therefore the whole layout) up.
+    bool m_usingNativeTitleBar = false;
+
+    /** Header space actually reserved at the top of the dialog this frame. */
+    int headerSpace() const { return m_usingNativeTitleBar ? 0 : kHeaderH; }
+
     /** Absolute Y of the Section 1 ("Intelligent Trim") header band. */
-    int section1HeaderY() const { return kMargin + kHeaderH; }
+    int section1HeaderY() const { return kMargin + headerSpace(); }
 
     /** Y of the Section 2 ("Time-Based Edits") header band. */
     int section2HeaderY() const

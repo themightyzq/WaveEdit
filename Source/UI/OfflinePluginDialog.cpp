@@ -272,7 +272,12 @@ void OfflinePluginDialog::resized()
     auto bounds = getLocalBounds().reduced(kPadding);
 
     // Title row at top
-    m_titleLabel.setBounds(bounds.removeFromTop(30));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(30));
     bounds.removeFromTop(kSpacing);
 
     // Button row at bottom

@@ -39,6 +39,11 @@ struct BatchNamingTokens
     static constexpr const char* INDEX = "{index}";           ///< File index (1, 2, 3...)
     static constexpr const char* INDEX_PADDED = "{index:03}"; ///< Zero-padded index (001, 002...)
     static constexpr const char* PRESET = "{preset}";         ///< Batch preset name
+
+    // {samplerate}/{bitdepth}/{channels} are also available, added via
+    // NamingTokens::addAudioFormatTokens, see NamingTokens.h. They are not
+    // listed as members here since applyNamingPattern() consumes them via the
+    // shared NamingTokens helper rather than these string constants.
 };
 
 /**
@@ -192,10 +197,20 @@ public:
 
     /**
      * @brief Apply naming pattern to generate output filename
+     *
+     * @param inputFile Source file (for {filename}/{ext})
+     * @param index File index for {index}/{index:03}
+     * @param presetName Preset name for {preset}
+     * @param sampleRate Sample rate in Hz for {samplerate}, or 0 if unknown
+     * @param bitDepth Bit depth in bits for {bitdepth}, or 0 if unknown
+     * @param numChannels Channel count for {channels}, or 0 if unknown
      */
     juce::String applyNamingPattern(const juce::File& inputFile,
                                      int index,
-                                     const juce::String& presetName = "") const;
+                                     const juce::String& presetName = "",
+                                     int sampleRate = 0,
+                                     int bitDepth = 0,
+                                     int numChannels = 0) const;
 
     /**
      * @brief Validate settings and return any error messages

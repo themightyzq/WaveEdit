@@ -41,6 +41,10 @@ iXMLEditorDialog::iXMLEditorDialog(iXMLMetadata& metadata,
       m_filename(filename),
       m_onApply(onApply)
 {
+    // Accessible name: preserved even when the native title bar hides the
+    // in-content header text drawn in paint().
+    setTitle("SoundMiner / iXML Metadata Editor");
+
     // Setup labels
     auto setupLabel = [this](juce::Label& label, const juce::String& text)
     {
@@ -161,20 +165,28 @@ void iXMLEditorDialog::paint(juce::Graphics& g)
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     g.fillAll(theme.background);
 
-    // Draw section header at top (above viewport)
-    g.setColour(theme.text);
-    g.setFont(ui::sectionHeaderFont());
-    g.drawText("SoundMiner / iXML Metadata Editor",
-               SPACING, SPACING, DIALOG_WIDTH - 2 * SPACING, 25,
-               juce::Justification::centred, false);
+    // Section header: redundant when the native OS title bar already shows
+    // "Edit SoundMiner / iXML Metadata", so skip drawing it in that case.
+    if (!m_usingNativeTitleBar)
+    {
+        g.setColour(theme.text);
+        g.setFont(ui::sectionHeaderFont());
+        g.drawText("SoundMiner / iXML Metadata Editor",
+                   SPACING, SPACING, DIALOG_WIDTH - 2 * SPACING, 25,
+                   juce::Justification::centred, false);
+    }
 }
 
 void iXMLEditorDialog::resized()
 {
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        m_usingNativeTitleBar = topLevel->isUsingNativeTitleBar();
+
     auto bounds = getLocalBounds().reduced(SPACING);
 
-    // Skip title header
-    bounds.removeFromTop(35);
+    // Skip title header (reclaimed when native title bar shows the dialog's title)
+    if (!m_usingNativeTitleBar)
+        bounds.removeFromTop(35);
 
     // Reserve space for buttons at bottom (outside viewport)
     auto buttonArea = bounds.removeFromBottom(BUTTON_HEIGHT + SPACING);

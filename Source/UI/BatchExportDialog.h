@@ -25,7 +25,8 @@
  *
  * Features:
  * - Directory selection for output files
- * - File naming template: {filename}_{regionName}_{index}.wav
+ * - File naming template: {basename}_{region}_{index}.wav (also supports
+ *   {N}, {samplerate}, {bitdepth}, {channels})
  * - Option to include/exclude region names in filenames
  * - Preview list showing resulting filenames
  * - Progress bar during export
@@ -57,7 +58,8 @@ public:
         juce::File outputDirectory;      // Where to save files
         bool includeRegionName;          // Include region name in filename
         bool includeIndex;               // Include region index in filename
-        juce::String customTemplate;     // Custom filename template (e.g., "{basename}_{region}_{index}")
+        juce::String customTemplate;     // Custom filename template (e.g., "{basename}_{region}_{index}");
+                                          // also supports {N}, {samplerate}, {bitdepth}, {channels}
         juce::String prefix;             // Prefix to add to filenames
         juce::String suffix;             // Suffix to add before extension
         bool usePaddedIndex;             // Use padded index (001 vs 1)
@@ -199,6 +201,8 @@ private:
 
     // Data
     juce::File m_sourceFile;
+    double m_sourceSampleRate = 0.0;  // 0 when AudioFileManager could not read m_sourceFile's header
+    int m_sourceNumChannels = 0;      // 0 when AudioFileManager could not read m_sourceFile's header
     const RegionManager& m_regionManager;
     std::optional<ExportSettings> m_result;
     juce::File m_outputDirectory;

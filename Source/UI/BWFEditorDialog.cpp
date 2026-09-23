@@ -24,7 +24,9 @@ namespace ui = waveedit::ui;
 namespace
 {
     constexpr int DIALOG_WIDTH = 600;
-    constexpr int DIALOG_HEIGHT = 620;
+    constexpr int DIALOG_HEIGHT = 580;  // Reduced 40px (ROW_HEIGHT + SPACING) reclaimed from the
+                                         // native-title-bar header (useNativeTitleBar is always
+                                         // true for this dialog, see showDialog())
     constexpr int ROW_HEIGHT = 30;
     constexpr int MULTILINE_HEIGHT = 80;
     constexpr int LABEL_WIDTH = 150;
@@ -37,6 +39,10 @@ namespace
 BWFEditorDialog::BWFEditorDialog(BWFMetadata& metadata, std::function<void()> onApply)
     : m_metadata(metadata), m_onApply(onApply)
 {
+    // Accessible name: preserved even when the native title bar hides the
+    // in-content header text drawn in paint().
+    setTitle("Edit BWF (Broadcast Wave Format) Metadata");
+
     // Setup labels
     auto setupLabel = [this](juce::Label& label, const juce::String& text)
     {
@@ -147,24 +153,32 @@ void BWFEditorDialog::paint(juce::Graphics& g)
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     g.fillAll(theme.background);
 
-    // Draw section header
-    g.setColour(theme.text);
-    g.setFont(ui::bodyFont());
-    g.drawText("Edit BWF (Broadcast Wave Format) Metadata", SPACING, SPACING,
-               DIALOG_WIDTH - 2 * SPACING, 20, juce::Justification::centred, false);
+    // Section header: redundant when the native OS title bar already shows
+    // "Edit BWF Metadata", so skip drawing it (and its separator) in that case.
+    if (!m_usingNativeTitleBar)
+    {
+        g.setColour(theme.text);
+        g.setFont(ui::bodyFont());
+        g.drawText("Edit BWF (Broadcast Wave Format) Metadata", SPACING, SPACING,
+                   DIALOG_WIDTH - 2 * SPACING, 20, juce::Justification::centred, false);
 
-    // Draw separator line
-    g.setColour(theme.border);
-    g.drawLine(SPACING, ROW_HEIGHT + SPACING,
-               DIALOG_WIDTH - SPACING, ROW_HEIGHT + SPACING, 1.0f);
+        // Draw separator line
+        g.setColour(theme.border);
+        g.drawLine(SPACING, ROW_HEIGHT + SPACING,
+                   DIALOG_WIDTH - SPACING, ROW_HEIGHT + SPACING, 1.0f);
+    }
 }
 
 void BWFEditorDialog::resized()
 {
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        m_usingNativeTitleBar = topLevel->isUsingNativeTitleBar();
+
     auto bounds = getLocalBounds().reduced(SPACING);
 
-    // Skip header
-    bounds.removeFromTop(ROW_HEIGHT + SPACING);
+    // Skip header (reclaim its space when the native title bar makes it redundant)
+    if (!m_usingNativeTitleBar)
+        bounds.removeFromTop(ROW_HEIGHT + SPACING);
 
     // Layout helper
     auto layoutRow = [&](juce::Label& label, juce::Component& editor, juce::Label* hint = nullptr, int height = ROW_HEIGHT)

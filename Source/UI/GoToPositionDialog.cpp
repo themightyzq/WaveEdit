@@ -158,7 +158,12 @@ void GoToPositionDialog::resized()
     auto bounds = getLocalBounds().reduced(PADDING);
 
     // Title
-    m_titleLabel.setBounds(bounds.removeFromTop(LABEL_HEIGHT + SPACING));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(LABEL_HEIGHT + SPACING));
     bounds.removeFromTop(SPACING);
 
     // Instruction
