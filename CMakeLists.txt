@@ -1,7 +1,18 @@
 cmake_minimum_required(VERSION 3.15)
 
 # Project definition
-project(WaveEdit VERSION 0.1.0 LANGUAGES C CXX)
+# macOS architectures. The workspace rule (JUCE/CLAUDE.md section 5) wants universal
+# binaries, but WaveEdit links LAME and SoundTouch from Homebrew, and Homebrew ships those
+# as thin dylibs for the host architecture only. Forcing "arm64;x86_64" here makes the
+# x86_64 slice fail to link (`ld: symbol(s) not found for architecture x86_64:
+# _lame_set_quality`, verified 2026-09-22), which would break build-from-source for
+# everyone. So the default stays the host architecture. To produce a universal build,
+# supply fat (or static, per-arch) builds of libmp3lame and libSoundTouch and configure
+# with -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64". Tracked as a backlog item.
+project(WaveEdit VERSION 0.9.0 LANGUAGES C CXX)
+
+# Enable CTest for test registration
+enable_testing()
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -102,6 +113,8 @@ target_sources(WaveEdit
         Source/Utils/BWFMetadata.h
         Source/Utils/iXMLMetadata.cpp
         Source/Utils/iXMLMetadata.h
+        Source/Utils/BroadcastChunkPreserver.cpp
+        Source/Utils/BroadcastChunkPreserver.h
         Source/Utils/AudioClipboard.cpp
         Source/Utils/AudioClipboard.h
         Source/Utils/AutomationClipboard.h
@@ -800,6 +813,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/BWFMetadata.h
         Source/Utils/iXMLMetadata.cpp
         Source/Utils/iXMLMetadata.h
+        Source/Utils/BroadcastChunkPreserver.cpp
+        Source/Utils/BroadcastChunkPreserver.h
         Source/Utils/AudioClipboard.cpp
         Source/Utils/AudioClipboard.h
         Source/Utils/AutomationClipboard.h
@@ -1186,9 +1201,13 @@ if(WAVEEDIT_BUILD_TESTS)
             ${CMAKE_CURRENT_SOURCE_DIR}/Tests/TestUtils
     )
 
+        # Register with CTest
+        add_test(NAME WaveEditTests COMMAND WaveEditTests)
+
         message(STATUS "WaveEdit automated tests configured successfully")
         message(STATUS "Build tests with: cmake --build . --target WaveEditTests")
         message(STATUS "Run tests with: ./WaveEdit_artefacts/Debug/WaveEditTests (or Release)")
+        message(STATUS "CTest: ctest --test-dir build-review -V")
     else()
         message(STATUS "Tests/ directory not found - skipping test build")
         message(STATUS "Tests are excluded from repository per .gitignore")

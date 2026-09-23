@@ -1477,10 +1477,10 @@ public:
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::InfoIcon,
             "About WaveEdit",
-            "WaveEdit v0.1.0-alpha\n\n"
+            "WaveEdit v0.9.0\n\n"
             "Professional Audio Editor\n"
             "Built with JUCE\n\n"
-            "Copyright (C) 2025 WaveEdit\n"
+            "Copyright (C) 2025 ZQ SFX\n"
             "Licensed under GPL v3",
             "OK");
     }

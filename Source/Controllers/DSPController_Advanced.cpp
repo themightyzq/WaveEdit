@@ -33,6 +33,7 @@
 #include "../Utils/UndoActions/AudioUndoActions.h"
 #include "../Utils/UndoActions/PluginUndoActions.h"
 #include "../Utils/UndoActions/ChannelUndoActions.h"
+#include "../Utils/BroadcastChunkPreserver.h"
 #include "../DSP/TimePitchEngine.h"
 #include "../Utils/UndoableEdits.h"
 #include "../DSP/AudioGenerator.h"
@@ -242,7 +243,23 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
                 if (!writer) continue;
 
                 if (writer->writeFromAudioSampleBuffer(monoBuffer, 0, monoBuffer.getNumSamples()))
+                {
+                    // Flush and close the writer before reopening the file to append
+                    // broadcast metadata chunks -- the writer must release its file
+                    // handle first so the append below sees a complete, closed file.
+                    writer.reset();
+
+                    if (result->exportFormat == ChannelExtractorDialog::ExportFormat::WAV)
+                    {
+                        juce::String metadataMessage;
+                        if (!BroadcastChunkPreserver::preserve(sourceFile, outFile, metadataMessage))
+                            juce::Logger::writeToLog("DSPController::showChannelExtractorDialog - "
+                                                     "broadcast metadata not fully preserved for "
+                                                     + outFile.getFileName() + ": " + metadataMessage);
+                    }
+
                     ++successCount;
+                }
             }
 
             juce::AlertWindow::showMessageBoxAsync(
@@ -285,6 +302,20 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
             if (writer->writeFromAudioSampleBuffer(combinedBuffer, 0,
                                                    combinedBuffer.getNumSamples()))
             {
+                // Flush and close the writer before reopening the file to append
+                // broadcast metadata chunks -- the writer must release its file
+                // handle first so the append below sees a complete, closed file.
+                writer.reset();
+
+                if (result->exportFormat == ChannelExtractorDialog::ExportFormat::WAV)
+                {
+                    juce::String metadataMessage;
+                    if (!BroadcastChunkPreserver::preserve(sourceFile, outFile, metadataMessage))
+                        juce::Logger::writeToLog("DSPController::showChannelExtractorDialog - "
+                                                 "broadcast metadata not fully preserved for "
+                                                 + outFile.getFileName() + ": " + metadataMessage);
+                }
+
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::AlertWindow::InfoIcon,
                     "Export Complete",
