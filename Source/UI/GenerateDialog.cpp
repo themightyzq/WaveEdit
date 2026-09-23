@@ -195,7 +195,12 @@ void GenerateDialog::resized()
     auto bounds = getLocalBounds().reduced(PADDING);
     const bool isTone = (m_mode == Mode::Tone);
 
-    m_titleLabel.setBounds(bounds.removeFromTop(ROW));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(ROW));
     bounds.removeFromTop(SPACING);
 
     auto typeRow = bounds.removeFromTop(ROW);

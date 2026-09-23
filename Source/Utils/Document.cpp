@@ -247,7 +247,7 @@ bool Document::loadFile(const juce::File& file)
     // Clear undo history for new file
     m_undoManager.clearUndoHistory();
 
-    DBG("Document loaded: " + file.getFullPathName());
+    juce::Logger::writeToLog("Document::loadFile - Loaded: " + file.getFullPathName());
     return true;
 }
 
@@ -403,7 +403,7 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         // Save automation lanes as sidecar JSON (Phase 6)
         m_automationManager.saveToFile(file);
 
-        DBG("Document saved: " + file.getFullPathName());
+        juce::Logger::writeToLog("Document::saveFile - Saved: " + file.getFullPathName());
         return true;
     }
     else

@@ -14,8 +14,10 @@
 */
 
 #include "RegionExporter.h"
+#include "NamingTokens.h"
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <set>
 
 namespace
@@ -176,7 +178,8 @@ RegionExporter::ExportResult RegionExporter::exportRegionsEx(
         // Generate filename using full settings (supports templates + format
         // extension), then escape Windows-reserved stems (H16) and dedupe
         // collisions (H15).
-        juce::String filename = generateFilename(sourceFile, *region, idx, settings);
+        juce::String filename = generateFilename(sourceFile, *region, idx, settings,
+                                                 sampleRate, buffer.getNumChannels());
         filename = escapeReservedFilename(filename);
         filename = makeUniqueFilename(filename, usedFilenames);
 
@@ -219,7 +222,9 @@ RegionExporter::ExportResult RegionExporter::exportRegionsEx(
 juce::String RegionExporter::generateFilename(const juce::File& sourceFile,
                                                const Region& region,
                                                int regionIndex,
-                                               const ExportSettings& settings)
+                                               const ExportSettings& settings,
+                                               double sourceSampleRate,
+                                               int numChannels)
 {
     // Base filename (without extension)
     juce::String baseName = sourceFile.getFileNameWithoutExtension();
@@ -241,11 +246,15 @@ juce::String RegionExporter::generateFilename(const juce::File& sourceFile,
     if (customTemplate.isNotEmpty())
     {
         // Use template system with placeholder replacement
-        filename = customTemplate;
-        filename = filename.replace("{basename}", baseName);
-        filename = filename.replace("{region}", regionName);
-        filename = filename.replace("{index}", indexStr);
-        filename = filename.replace("{N}", paddedIndexStr);
+        std::vector<waveedit::NamingTokens::Token> tokens = {
+            { "{basename}", baseName },
+            { "{region}", regionName },
+            { "{index}", indexStr },
+            { "{N}", paddedIndexStr },
+        };
+        waveedit::NamingTokens::addAudioFormatTokens(tokens,
+            static_cast<int>(std::lround(sourceSampleRate)), settings.bitDepth, numChannels);
+        filename = waveedit::NamingTokens::substitute(customTemplate, tokens);
     }
     else
     {

@@ -12,6 +12,7 @@
 #include "BatchInputFilter.h"
 #include "../UI/UIConstants.h"
 #include "../UI/ThemeManager.h"
+#include <cmath>
 
 namespace waveedit
 {
@@ -36,7 +37,7 @@ BatchProcessorDialog::BatchProcessorDialog()
     , m_browseOutputButton("Browse...")
     , m_sameAsSourceToggle("Same as source")  // UX 15: shortened so the label fits its allotted width
     , m_patternLabel("patternLabel", "Naming Pattern:")
-    , m_patternHelpLabel("patternHelpLabel", "{filename}, {index}, {index:03}, {date}, {time}, {preset}")
+    , m_patternHelpLabel("patternHelpLabel", "{filename}, {index}, {index:03}, {date}, {time}, {preset}, {samplerate}, {bitdepth}, {channels}")
     , m_patternHelpButton("?")
     , m_overwriteToggle("Overwrite existing files")
     , m_formatLabel("formatLabel", "Format:")
@@ -860,42 +861,7 @@ void BatchProcessorDialog::onSameAsSourceToggled()
     updateOutputPreview();
 }
 
-void BatchProcessorDialog::onPatternHelpClicked()
-{
-    juce::String helpText =
-        "Output Naming Pattern Tokens:\n"
-        "\n"
-        "{filename}    - Original filename (without extension)\n"
-        "                Example: \"drums.wav\" -> \"drums\"\n"
-        "\n"
-        "{index}       - File index (1, 2, 3, ...)\n"
-        "                Example: First file -> \"1\"\n"
-        "\n"
-        "{index:03}    - Zero-padded index (001, 002, 003, ...)\n"
-        "                Change 03 to any width: 02 = 01, 04 = 0001\n"
-        "\n"
-        "{date}        - Current date (YYYY-MM-DD)\n"
-        "                Example: \"2026-01-12\"\n"
-        "\n"
-        "{time}        - Current time (HH-MM-SS)\n"
-        "                Example: \"14-30-45\"\n"
-        "\n"
-        "{preset}      - Name of the selected preset\n"
-        "                Example: \"Broadcast Ready\"\n"
-        "\n"
-        "Examples:\n"
-        "  \"{filename}_processed\"     -> drums_processed.wav\n"
-        "  \"{filename}_{index:03}\"    -> drums_001.wav\n"
-        "  \"batch_{date}_{index:03}\"  -> batch_2026-01-12_001.wav\n"
-        "  \"{preset}_{filename}\"      -> Broadcast Ready_drums.wav";
-
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "Naming Pattern Help",
-        helpText,
-        "OK"
-    );
-}
+// onPatternHelpClicked() moved to BatchProcessorDialog_Help.cpp (Sec 7.5 file-size cap).
 
 void BatchProcessorDialog::updateOutputPattern()
 {
@@ -946,9 +912,13 @@ void BatchProcessorDialog::updateOutputPreview()
         const auto& info = m_fileInfos[static_cast<size_t>(i)];
         juce::File inputFile(info.fullPath);
 
-        // Apply naming pattern
+        // Apply naming pattern (sample rate combo id 1 = "Keep Original").
+        int effSampleRate = (m_sampleRateCombo.getSelectedId() == 1)
+            ? static_cast<int>(std::lround(info.sampleRate)) : m_sampleRateCombo.getSelectedId();
+        int effBitDepth = m_bitDepthCombo.getSelectedId();
+        int effChannels = info.numChannels;
         juce::String outputName = tempSettings.applyNamingPattern(
-            inputFile, i + 1, m_presetCombo.getText());
+            inputFile, i + 1, m_presetCombo.getText(), effSampleRate, effBitDepth, effChannels);
 
         // Determine output directory
         juce::String outputPath;

@@ -188,8 +188,14 @@ void EditRegionBoundariesDialog::resized()
 {
     auto bounds = getLocalBounds().reduced(PADDING);
 
-    // Title
-    m_titleLabel.setBounds(bounds.removeFromTop(LABEL_HEIGHT + SPACING));
+    // Title: the native OS title bar already shows "Edit Region Boundaries", so
+    // when it's present, skip the in-content duplicate label and reclaim its space.
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(LABEL_HEIGHT + SPACING));
     bounds.removeFromTop(SPACING);
 
     // Instruction

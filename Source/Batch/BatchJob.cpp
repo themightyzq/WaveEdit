@@ -16,6 +16,7 @@
 #include "../Plugins/PluginChain.h"
 #include "../Plugins/PluginChainRenderer.h"
 #include "../Plugins/PluginPresetManager.h"
+#include <cmath>
 
 namespace waveedit
 {
@@ -33,7 +34,14 @@ BatchJob::BatchJob(const juce::File& inputFile,
 
 juce::File BatchJob::getOutputFile() const
 {
-    juce::String outputName = m_settings.applyNamingPattern(m_inputFile, m_index, m_presetName);
+    // By the time this runs (from execute()/saveOutputFile(), after
+    // convertFormat()), m_sampleRate/m_numChannels are the FINAL post-conversion
+    // values. Mirror saveOutputFile()'s effective-bit-depth fallback (~line 546)
+    // so {samplerate}/{bitdepth}/{channels} reflect what is actually written.
+    int effectiveBitDepth = m_settings.outputFormat.bitDepth > 0
+        ? m_settings.outputFormat.bitDepth : 16;
+    juce::String outputName = m_settings.applyNamingPattern(m_inputFile, m_index, m_presetName,
+        static_cast<int>(std::lround(m_sampleRate)), effectiveBitDepth, m_numChannels);
 
     // If "Same as Source" is enabled, use input file's parent directory
     if (m_settings.sameAsSource)

@@ -507,7 +507,12 @@ void PluginManagerDialog::resized()
     auto bounds = getLocalBounds().reduced(10);
 
     // Title
-    m_titleLabel.setBounds(bounds.removeFromTop(30));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(30));
     bounds.removeFromTop(10);
 
     // Search and filters row

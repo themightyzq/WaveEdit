@@ -543,8 +543,14 @@ void ChannelConverterDialog::resized()
 {
     auto bounds = getLocalBounds().reduced(MARGIN);
 
-    // Title
-    m_titleLabel.setBounds(bounds.removeFromTop(35));
+    // Title: the native OS title bar already shows "Channel Converter", so when
+    // it's present, skip the in-content duplicate label and reclaim its space.
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(35));
     bounds.removeFromTop(5);
 
     // Current channels row

@@ -150,7 +150,12 @@ void NormalizeDialog::resized()
     auto bounds = getLocalBounds().reduced(waveedit::ui::kDialogPadding);
 
     // Title
-    m_titleLabel.setBounds(bounds.removeFromTop(30));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(30));
     bounds.removeFromTop(waveedit::ui::kSectionGap); // Spacing
 
     // Mode selector row

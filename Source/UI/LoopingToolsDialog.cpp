@@ -158,6 +158,10 @@ LoopingToolsDialog::LoopingToolsDialog(const juce::AudioBuffer<float>& buffer,
     , m_sourceFile(sourceFile)
     , m_outputDirectory(sourceFile.getParentDirectory())
 {
+    // Accessible name: preserved even when the native title bar hides the
+    // in-content header text drawn in paint().
+    setTitle("Looping Tools");
+
     //--------------------------------------------------------------------------
     // Section 1: Loop Settings
 
@@ -438,7 +442,8 @@ LoopingToolsDialog::LoopingToolsDialog(const juce::AudioBuffer<float>& buffer,
     updateShepardConstraint();
     updateFilePreview();
 
-    setSize(760, 800);
+    setSize(760, 764);  // Height reduced 36px reclaimed from the native-title-bar
+                         // header (useNativeTitleBar is always true for this dialog)
 
     // Keyboard-first: grab focus on the primary control after construction
     setWantsKeyboardFocus(true);
@@ -482,15 +487,19 @@ void LoopingToolsDialog::paint(juce::Graphics& g)
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     g.fillAll(theme.panel);
 
-    // Title
-    g.setColour(theme.text);
-    g.setFont(ui::sectionHeaderFont());
-    g.drawText("Looping Tools", getLocalBounds().removeFromTop(36),
-               juce::Justification::centred, true);
+    // Title: redundant when the native OS title bar already shows "Looping
+    // Tools", so skip drawing it and reclaim its space below.
+    if (!m_usingNativeTitleBar)
+    {
+        g.setColour(theme.text);
+        g.setFont(ui::sectionHeaderFont());
+        g.drawText("Looping Tools", getLocalBounds().removeFromTop(36),
+                   juce::Justification::centred, true);
+    }
 
     // Section header backgrounds
     const int kMargin    = ui::kDialogPadding;  // was a local literal (16); now shares the app constant
-    const int kHeaderH   = 36;
+    const int kHeaderH   = m_usingNativeTitleBar ? 0 : 36;
     const int kRowH      = 32;
     const int kGap       = 8;
     const int kSectionBandH = 20;
@@ -559,12 +568,15 @@ void LoopingToolsDialog::resized()
     const int kSliderW = 260;
     const int kValueW  = 72;
     const int kRowH    = 32;
-    const int kHeaderH = 36;
     const int kGap     = 8;
     const int kBandH   = 20;   // Section header band height
 
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        m_usingNativeTitleBar = topLevel->isUsingNativeTitleBar();
+    const int kHeaderH = m_usingNativeTitleBar ? 0 : 36;
+
     auto area = getLocalBounds().reduced(kMargin);
-    area.removeFromTop(kHeaderH);   // Title
+    area.removeFromTop(kHeaderH);   // Title (reclaimed when native title bar shows "Looping Tools")
 
     // Convenience lambda: lay out a standard slider row
     auto layoutRow = [&](juce::Label& lbl, juce::Slider& slider, juce::Label& val)

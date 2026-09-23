@@ -275,5 +275,10 @@ private:
     /** Update Shepard constraint label with calculated loop length. */
     void updateShepardConstraint();
 
+    // True when hosted in a DialogWindow using the native OS title bar, in which
+    // case the in-content "Looping Tools" header (drawn in paint()) is redundant
+    // and hidden, and the header space is reclaimed by the rest of the layout.
+    bool m_usingNativeTitleBar = false;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LoopingToolsDialog)
 };

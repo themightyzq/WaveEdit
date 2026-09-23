@@ -9,6 +9,8 @@
 */
 
 #include "BatchProcessorSettings.h"
+#include "../Utils/NamingTokens.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 namespace waveedit
 {
@@ -194,7 +196,10 @@ BatchProcessorSettings BatchProcessorSettings::loadFromFile(const juce::File& fi
 
 juce::String BatchProcessorSettings::applyNamingPattern(const juce::File& inputFile,
                                                          int index,
-                                                         const juce::String& presetName) const
+                                                         const juce::String& presetName,
+                                                         int sampleRate,
+                                                         int bitDepth,
+                                                         int numChannels) const
 {
     juce::String result = outputPattern;
 
@@ -202,20 +207,17 @@ juce::String BatchProcessorSettings::applyNamingPattern(const juce::File& inputF
     auto now = juce::Time::getCurrentTime();
 
     // Replace tokens
-    result = result.replace(BatchNamingTokens::FILENAME,
-                            inputFile.getFileNameWithoutExtension());
-    result = result.replace(BatchNamingTokens::EXT,
-                            inputFile.getFileExtension().trimCharactersAtStart("."));
-    result = result.replace(BatchNamingTokens::DATE,
-                            now.formatted("%Y-%m-%d"));
-    result = result.replace(BatchNamingTokens::TIME,
-                            now.formatted("%H-%M-%S"));
-    result = result.replace(BatchNamingTokens::INDEX_PADDED,
-                            juce::String(index).paddedLeft('0', 3));
-    result = result.replace(BatchNamingTokens::INDEX,
-                            juce::String(index));
-    result = result.replace(BatchNamingTokens::PRESET,
-                            presetName.isEmpty() ? "batch" : presetName);
+    std::vector<NamingTokens::Token> tokens = {
+        { BatchNamingTokens::FILENAME, inputFile.getFileNameWithoutExtension() },
+        { BatchNamingTokens::EXT, inputFile.getFileExtension().trimCharactersAtStart(".") },
+        { BatchNamingTokens::DATE, now.formatted("%Y-%m-%d") },
+        { BatchNamingTokens::TIME, now.formatted("%H-%M-%S") },
+        { BatchNamingTokens::INDEX_PADDED, juce::String(index).paddedLeft('0', 3) },
+        { BatchNamingTokens::INDEX, juce::String(index) },
+        { BatchNamingTokens::PRESET, presetName.isEmpty() ? "batch" : presetName },
+    };
+    NamingTokens::addAudioFormatTokens(tokens, sampleRate, bitDepth, numChannels);
+    result = NamingTokens::substitute(result, tokens);
 
     // Add output extension
     juce::String ext = outputFormat.format;
@@ -276,10 +278,35 @@ juce::StringArray BatchProcessorSettings::findSourceOverwriteCollisions(
 {
     juce::StringArray collisions;
 
+    // Read each input's header for the {samplerate}/{bitdepth}/{channels}
+    // tokens so this prediction matches what a real run's applyNamingPattern()
+    // call would expand. This runs before any file is loaded, so a file the
+    // run itself would fail to open just falls back to 0 here (the run will
+    // fail on it anyway, making this collision check approximate for that
+    // file only).
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
     for (int i = 0; i < inputFiles.size(); ++i)
     {
         const juce::File inputFile(inputFiles[i]);
-        const juce::String outputName = applyNamingPattern(inputFile, i, presetName);
+
+        double sourceSampleRate = 0.0;
+        int sourceBitsPerSample = 0;
+        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(inputFile));
+        if (reader != nullptr)
+        {
+            sourceSampleRate = reader->sampleRate;
+            sourceBitsPerSample = static_cast<int>(reader->bitsPerSample);
+        }
+
+        const int effSampleRate = outputFormat.sampleRate > 0
+            ? outputFormat.sampleRate : static_cast<int>(sourceSampleRate);
+        const int effBitDepth = outputFormat.bitDepth > 0
+            ? outputFormat.bitDepth : sourceBitsPerSample;
+
+        const juce::String outputName = applyNamingPattern(inputFile, i, presetName,
+            effSampleRate, effBitDepth, reader != nullptr ? static_cast<int>(reader->numChannels) : 0);
 
         // Mirror BatchJob::getOutputFile so the collision test matches what the
         // run will actually write.

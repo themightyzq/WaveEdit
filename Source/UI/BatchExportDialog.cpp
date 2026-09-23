@@ -18,6 +18,7 @@
 #include "UIConstants.h"
 #include "../Utils/Settings.h"
 #include "../Utils/RegionExporter.h"
+#include "../Audio/AudioFileManager.h"
 #include <optional>
 
 namespace
@@ -54,7 +55,7 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
       m_includeRegionNameToggle("Include region name"),
       m_includeIndexToggle("Include region index"),
       m_templateLabel("templateLabel", "Custom Template:"),
-      m_templateHelpLabel("templateHelpLabel", "Placeholders: {basename} {region} {index} {N}"),
+      m_templateHelpLabel("templateHelpLabel", "Placeholders: {basename} {region} {index} {N} {samplerate} {bitdepth} {channels}"),
       m_prefixLabel("prefixLabel", "Prefix:"),
       m_suffixLabel("suffixLabel", "Suffix:"),
       m_paddedIndexToggle("Use padded index (001, 002...)"),
@@ -64,6 +65,21 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
       m_sourceFile(sourceFile),
       m_regionManager(regionManager)
 {
+    // Populate the source's sample rate/channel count once for the
+    // {samplerate}/{channels} naming tokens. Left at 0 (rendered as "0") when
+    // the header can't be read -- this dialog only previews/exports regions
+    // it does not touch playback, so a read failure here just degrades the
+    // new tokens rather than blocking the dialog.
+    {
+        AudioFileManager afm;
+        AudioFileInfo info;
+        if (afm.getFileInfo(sourceFile, info))
+        {
+            m_sourceSampleRate = info.sampleRate;
+            m_sourceNumChannels = info.numChannels;
+        }
+    }
+
     // Title label
     m_titleLabel.setFont(ui::dialogTitleFont());
     m_titleLabel.setJustificationType(juce::Justification::centred);
@@ -162,7 +178,8 @@ BatchExportDialog::BatchExportDialog(const juce::File& sourceFile, const RegionM
     // Template editor
     m_templateEditor.setJustification(juce::Justification::centredLeft);
     m_templateEditor.onTextChange = [this]() { onTemplateTextChanged(); };
-    m_templateEditor.setTooltip("Use placeholders: {basename}, {region}, {index}, {N} for padded index");
+    m_templateEditor.setTooltip("Use placeholders: {basename}, {region}, {index}, {N} for padded index, "
+                                 "{samplerate}, {bitdepth}, {channels}");
     addAndMakeVisible(m_templateEditor);
 
     // Template help label (smaller font, muted color)
@@ -316,9 +333,19 @@ void BatchExportDialog::resized()
 {
     auto area = getLocalBounds().reduced(15);
 
-    // Title
-    m_titleLabel.setBounds(area.removeFromTop(30));
-    area.removeFromTop(10); // Spacing
+    // Title -- only reserve/show this when the enclosing window is NOT using a
+    // native title bar (which already shows "Batch Export Regions" in the OS
+    // chrome). The label's text is kept either way so its accessible name
+    // survives (Finding #30).
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+    {
+        m_titleLabel.setBounds(area.removeFromTop(30));
+        area.removeFromTop(10); // Spacing
+    }
 
     // Output directory row
     auto dirRow = area.removeFromTop(30);
@@ -478,7 +505,8 @@ void BatchExportDialog::updatePreviewList()
         auto* region = m_regionManager.getRegion(i);
         if (region != nullptr)
         {
-            lines += RegionExporter::generateFilename(m_sourceFile, *region, i, exporterSettings) + "\n";
+            lines += RegionExporter::generateFilename(m_sourceFile, *region, i, exporterSettings,
+                                                       m_sourceSampleRate, m_sourceNumChannels) + "\n";
             ++shown;
         }
     }
@@ -650,7 +678,8 @@ bool BatchExportDialog::validateExport()
         if (region != nullptr)
         {
             juce::String filename =
-                RegionExporter::generateFilename(m_sourceFile, *region, i, exporterSettings);
+                RegionExporter::generateFilename(m_sourceFile, *region, i, exporterSettings,
+                                                  m_sourceSampleRate, m_sourceNumChannels);
             auto outputFile = m_outputDirectory.getChildFile(filename);
 
             if (outputFile.existsAsFile())

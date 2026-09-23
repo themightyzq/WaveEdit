@@ -43,6 +43,10 @@ TimePitchDialog::TimePitchDialog(Mode mode,
 {
     const bool isStretch = (m_mode == Mode::TimeStretch);
 
+    // Accessible name: preserved even when the native title bar hides the
+    // in-content header text drawn in paint().
+    setTitle(isStretch ? "Time Stretch" : "Pitch Shift");
+
     m_hasSelection          = hasSelection;
     m_selectionStartSeconds = selectionStartSeconds;
     m_selectionEndSeconds   = selectionEndSeconds;
@@ -229,7 +233,9 @@ TimePitchDialog::TimePitchDialog(Mode mode,
 
     updateSummary();
     // TimeStretch adds a target-duration row; both modes add a scope line.
-    setSize(490, isStretch ? 288 : 248);
+    setSize(490, isStretch ? 252 : 212);  // Height reduced 36px reclaimed from the
+                                           // native-title-bar header (useNativeTitleBar
+                                           // is always true for this dialog)
 
     setWantsKeyboardFocus(true);
     juce::Component::SafePointer<juce::Slider> safeSlider(&m_paramSlider);
@@ -551,17 +557,26 @@ void TimePitchDialog::paint(juce::Graphics& g)
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     g.fillAll(theme.panel);
 
-    g.setColour(theme.text);
-    g.setFont(ui::sectionHeaderFont());
-    g.drawText(m_mode == Mode::TimeStretch ? "Time Stretch" : "Pitch Shift",
-               getLocalBounds().removeFromTop(36),
-               juce::Justification::centred, true);
+    // Title: redundant when the native OS title bar already shows "Time Stretch"/
+    // "Pitch Shift", so skip drawing it and reclaim its space below.
+    if (!m_usingNativeTitleBar)
+    {
+        g.setColour(theme.text);
+        g.setFont(ui::sectionHeaderFont());
+        g.drawText(m_mode == Mode::TimeStretch ? "Time Stretch" : "Pitch Shift",
+                   getLocalBounds().removeFromTop(36),
+                   juce::Justification::centred, true);
+    }
 }
 
 void TimePitchDialog::resized()
 {
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        m_usingNativeTitleBar = topLevel->isUsingNativeTitleBar();
+
     auto area = getLocalBounds().reduced(ui::kDialogPadding);
-    area.removeFromTop(36);   // Title space (painted in paint()).
+    if (!m_usingNativeTitleBar)
+        area.removeFromTop(36);   // Title space (painted in paint()).
 
     m_helpLabel.setBounds(area.removeFromTop(40));
     area.removeFromTop(ui::kSectionGap);

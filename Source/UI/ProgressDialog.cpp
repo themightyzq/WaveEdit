@@ -300,7 +300,12 @@ void ProgressDialog::resized()
     auto bounds = getLocalBounds().reduced(ui::kDialogPadding);
 
     // Title at top
-    m_titleLabel.setBounds(bounds.removeFromTop(25));
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(bounds.removeFromTop(25));
     bounds.removeFromTop(15);
 
     // Status text

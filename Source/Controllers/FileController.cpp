@@ -114,7 +114,7 @@ void FileController::openFile(juce::Component* /*parent*/)
                         // Add to recent files
                         Settings::getInstance().addRecentFile(file);
 
-                        DBG("FileController::openFile - Opened: " + file.getFileName());
+                        juce::Logger::writeToLog("FileController::openFile - Opened: " + file.getFullPathName());
 
                         // Crash recovery: offer to restore an unsaved auto-save.
                         offerCrashRecovery(newDoc, file);
@@ -207,7 +207,7 @@ void FileController::loadFile(const juce::File& file, juce::Component* /*parent*
         Settings::getInstance().addRecentFile(file);
 
         // Document is now active, UI will update via listener
-        DBG("FileController::loadFile - Opened: " + file.getFileName());
+        juce::Logger::writeToLog("FileController::loadFile - Opened: " + file.getFullPathName());
 
         // Crash recovery: offer to restore an unsaved auto-save.
         offerCrashRecovery(doc, file);
@@ -280,7 +280,7 @@ void FileController::saveFile(Document* doc, std::function<void()> onSaved)
         deleteAutoSavesFor(currentFile);
 
         requestUIRefresh();
-        DBG("FileController::saveFile - Saved: " + currentFile.getFullPathName());
+        juce::Logger::writeToLog("FileController::saveFile - Saved: " + currentFile.getFullPathName());
 
         if (onSaved)
             onSaved();
@@ -351,7 +351,7 @@ bool FileController::saveDocumentAs(Document* doc)
 
         requestUIRefresh();
 
-        DBG("FileController::saveDocumentAs - Saved: " + settings.targetFile.getFullPathName());
+        juce::Logger::writeToLog("FileController::saveDocumentAs - Saved: " + settings.targetFile.getFullPathName());
         return true;
     }
 
@@ -529,7 +529,7 @@ void FileController::handleFileDrop(const juce::StringArray& files, juce::Compon
                 // Add to recent files
                 Settings::getInstance().addRecentFile(file);
 
-                DBG("FileController::handleFileDrop - Opened: " + file.getFileName());
+                juce::Logger::writeToLog("FileController::handleFileDrop - Opened: " + file.getFullPathName());
             }
         }
     }

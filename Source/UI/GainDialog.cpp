@@ -140,7 +140,9 @@ GainDialog::GainDialog(AudioEngine* audioEngine, AudioBufferManager* bufferManag
     // Set initial focus to text input
     m_gainInput.setWantsKeyboardFocus(true);
 
-    setSize(450, 260);  // 450px width matches the standard Process-dialog footer layout
+    setSize(450, 230);  // 450px width matches the standard Process-dialog footer layout;
+                         // height reduced by 30px reclaimed from the native-title-bar dialog
+                         // header (useNativeTitleBar is always true for this dialog, see showDialog())
 
     // Grab keyboard focus on the primary input once the dialog is shown
     juce::Component::SafePointer<GainDialog> safeThis(this);
@@ -211,8 +213,14 @@ void GainDialog::resized()
 {
     auto area = getLocalBounds().reduced(waveedit::ui::kDialogPadding);
 
-    // Title
-    m_titleLabel.setBounds(area.removeFromTop(30));
+    // Title: the native OS title bar already shows "Apply Gain", so when it's
+    // present, skip the in-content duplicate label and reclaim its space.
+    bool nativeTitleBar = false;
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        nativeTitleBar = topLevel->isUsingNativeTitleBar();
+    m_titleLabel.setVisible(!nativeTitleBar);
+    if (!nativeTitleBar)
+        m_titleLabel.setBounds(area.removeFromTop(30));
     area.removeFromTop(waveedit::ui::kSectionGap); // Spacing
 
     // Gain input row (text field)

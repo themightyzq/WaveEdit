@@ -129,6 +129,9 @@ public:
      * - {region}: Region name (sanitized)
      * - {index}: Region index (1-based, non-padded)
      * - {N}: Region index (1-based, zero-padded to 3 digits)
+     * - {samplerate}: Sample rate in Hz
+     * - {bitdepth}: Bit depth in bits
+     * - {channels}: Channel count
      *
      * Also applies prefix, suffix, and padded index settings.
      *
@@ -136,12 +139,16 @@ public:
      * @param region The region
      * @param regionIndex Region index (0-based)
      * @param settings Export settings including template, prefix, suffix options
+     * @param sourceSampleRate Sample rate of the audio being exported, for {samplerate}
+     * @param numChannels Channel count of the audio being exported, for {channels}
      * @return Generated filename (without directory path)
      */
     static juce::String generateFilename(const juce::File& sourceFile,
                                           const Region& region,
                                           int regionIndex,
-                                          const ExportSettings& settings);
+                                          const ExportSettings& settings,
+                                          double sourceSampleRate,
+                                          int numChannels);
 
     /**
      * Exports a single region to a file.

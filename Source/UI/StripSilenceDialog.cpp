@@ -27,6 +27,10 @@ StripSilenceDialog::StripSilenceDialog(RegionManager& regionManager,
     , m_sampleRate(sampleRate)
     , m_isPreviewMode(false)
 {
+    // Accessible name: preserved even when the native title bar hides the
+    // in-content header text drawn in paint().
+    setTitle("Auto Region - Auto-Create Regions");
+
     // Threshold slider (dB) - default -40dB, range -80dB to 0dB
     m_thresholdLabel.setText("Threshold (dB):", juce::dontSendNotification);
     m_thresholdLabel.setJustificationType(juce::Justification::centredRight);
@@ -197,7 +201,9 @@ StripSilenceDialog::StripSilenceDialog(RegionManager& regionManager,
     m_regionCountLabel.setFont(ui::smallFont());
     addAndMakeVisible(m_regionCountLabel);
 
-    setSize(650, 580);  // Increased size for waveform preview
+    setSize(650, 540);  // Increased size for waveform preview; height reduced 40px
+                         // reclaimed from the native-title-bar header (useNativeTitleBar
+                         // is always true for this dialog)
 
     // Keyboard-first: grab focus on the primary control after construction
     setWantsKeyboardFocus(true);
@@ -236,18 +242,27 @@ void StripSilenceDialog::paint(juce::Graphics& g)
     const auto& theme = waveedit::ThemeManager::getInstance().getCurrent();
     g.fillAll(theme.panel);
 
-    g.setColour(theme.text);
-    g.setFont(ui::sectionHeaderFont());
-    g.drawText("Auto Region - Auto-Create Regions", getLocalBounds().removeFromTop(40),
-               juce::Justification::centred, true);
+    // Title: redundant when the native OS title bar already shows "Auto Region -
+    // Auto-Create Regions", so skip drawing it and reclaim its space below.
+    if (!m_usingNativeTitleBar)
+    {
+        g.setColour(theme.text);
+        g.setFont(ui::sectionHeaderFont());
+        g.drawText("Auto Region - Auto-Create Regions", getLocalBounds().removeFromTop(40),
+                   juce::Justification::centred, true);
+    }
 }
 
 void StripSilenceDialog::resized()
 {
+    if (auto* topLevel = findParentComponentOfClass<juce::TopLevelWindow>())
+        m_usingNativeTitleBar = topLevel->isUsingNativeTitleBar();
+
     auto area = getLocalBounds().reduced(ui::kDialogPadding);
 
-    // Title space
-    area.removeFromTop(40);
+    // Title space (reclaimed when native title bar shows the dialog's title)
+    if (!m_usingNativeTitleBar)
+        area.removeFromTop(40);
 
     const int labelWidth = 180;
     const int sliderWidth = 300;
