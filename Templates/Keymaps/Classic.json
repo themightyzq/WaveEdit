@@ -1,9 +1,9 @@
 {
-  "name": "Pro Tools",
-  "description": "Authentic Pro Tools keyboard shortcuts based on official Avid Pro Tools Shortcuts Guide - familiar for Pro Tools users",
-  "version": "2.0",
+  "name": "Classic Editor",
+  "description": "Comprehensive classic-editor-style keyboard shortcuts, mapped for all WaveEdit commands",
+  "version": "1.1",
   "shortcuts": {
-    "_comment_file": "=== FILE OPERATIONS (8 commands) ===",
+    "_comment_file": "=== FILE OPERATIONS ===",
     "fileNew": {
       "key": "N",
       "modifiers": [
@@ -30,10 +30,21 @@
       ]
     },
     "fileProperties": {
-      "key": "I",
+      "key": "Enter",
       "modifiers": [
-        "cmd",
         "alt"
+      ]
+    },
+    "fileExit": {
+      "key": "Q",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "filePreferences": {
+      "key": ",",
+      "modifiers": [
+        "cmd"
       ]
     },
     "fileEditiXMLMetadata": {
@@ -50,19 +61,7 @@
         "shift"
       ]
     },
-    "fileExit": {
-      "key": "Q",
-      "modifiers": [
-        "cmd"
-      ]
-    },
-    "filePreferences": {
-      "key": ",",
-      "modifiers": [
-        "cmd"
-      ]
-    },
-    "_comment_edit": "=== EDIT OPERATIONS (9 commands) - Manual Pages 40-44 ===",
+    "_comment_edit": "=== EDIT OPERATIONS ===",
     "editUndo": {
       "key": "Z",
       "modifiers": [
@@ -95,10 +94,8 @@
       ]
     },
     "editDelete": {
-      "key": "B",
-      "modifiers": [
-        "cmd"
-      ]
+      "key": "Delete",
+      "modifiers": []
     },
     "editSelectAll": {
       "key": "A",
@@ -107,17 +104,15 @@
       ]
     },
     "editSilence": {
-      "key": "E",
+      "key": "L",
       "modifiers": [
-        "cmd",
-        "shift"
+        "cmd"
       ]
     },
     "editTrim": {
       "key": "T",
       "modifiers": [
-        "cmd",
-        "alt"
+        "cmd"
       ]
     },
     "editMarkSelectionStart": {
@@ -128,7 +123,7 @@
       "key": "O",
       "modifiers": []
     },
-    "_comment_playback": "=== PLAYBACK OPERATIONS (5 commands) - Manual Pages 26-27 ===",
+    "_comment_playback": "=== PLAYBACK OPERATIONS ===",
     "playbackPlay": {
       "key": "Space",
       "modifiers": []
@@ -142,56 +137,46 @@
       "modifiers": []
     },
     "playbackLoop": {
-      "key": "L",
-      "modifiers": [
-        "cmd",
-        "shift"
-      ]
+      "key": "Q",
+      "modifiers": []
     },
     "playbackRecord": {
-      "key": "F12",
+      "key": "R",
       "modifiers": [
         "cmd"
       ]
     },
-    "_comment_view": "=== VIEW/ZOOM OPERATIONS (9 commands) - Manual Pages 38-39 ===",
+    "_comment_view": "=== VIEW/ZOOM OPERATIONS ===",
     "viewZoomIn": {
-      "key": "=",
-      "modifiers": [
-        "cmd"
-      ]
+      "key": "Up",
+      "modifiers": []
     },
     "viewZoomOut": {
-      "key": "T",
-      "modifiers": [
-        "cmd"
-      ]
+      "key": "Down",
+      "modifiers": []
     },
     "viewZoomFit": {
-      "key": "F",
+      "key": "Down",
       "modifiers": [
-        "cmd",
-        "alt"
+        "cmd"
       ]
     },
     "viewZoomSelection": {
-      "key": "E",
+      "key": "Up",
       "modifiers": [
-        "cmd",
-        "alt"
+        "cmd"
       ]
     },
     "viewZoomOneToOne": {
       "key": "0",
       "modifiers": [
-        "cmd",
-        "alt"
+        "cmd"
       ]
     },
     "viewCycleTimeFormat": {
       "key": "D",
       "modifiers": [
-        "cmd"
+        "shift"
       ]
     },
     "viewAutoScroll": {
@@ -202,17 +187,16 @@
       ]
     },
     "viewZoomToRegion": {
-      "key": "Z",
+      "key": "E",
       "modifiers": [
-        "cmd",
-        "alt"
+        "cmd"
       ]
     },
     "viewAutoPreviewRegions": {
       "key": "P",
       "modifiers": [
         "cmd",
-        "alt"
+        "shift"
       ]
     },
     "viewToggleRegions": {
@@ -222,33 +206,11 @@
         "shift"
       ]
     },
-    "_comment_process": "=== PROCESSING OPERATIONS (7 commands) - Manual Page 43 ===",
-    "processFadeIn": {
-      "key": "D",
-      "modifiers": []
-    },
-    "processFadeOut": {
-      "key": "G",
-      "modifiers": []
-    },
-    "processNormalize": {
-      "key": "N",
-      "modifiers": [
-        "cmd",
-        "alt"
-      ]
-    },
-    "processDCOffset": {
-      "key": "O",
-      "modifiers": [
-        "cmd",
-        "shift"
-      ]
-    },
+    "_comment_process": "=== PROCESSING OPERATIONS ===",
     "processGain": {
       "key": "G",
       "modifiers": [
-        "cmd"
+        "shift"
       ]
     },
     "processIncreaseGain": {
@@ -258,12 +220,40 @@
       ]
     },
     "processDecreaseGain": {
-      "key": "-",
+      "key": "Down",
       "modifiers": [
-        "cmd"
+        "shift"
       ]
     },
-    "_comment_navigation": "=== NAVIGATION OPERATIONS (10 commands) - Manual Pages 29-31 ===",
+    "processNormalize": {
+      "key": "N",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "processFadeIn": {
+      "key": "I",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
+    "processFadeOut": {
+      "key": "O",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "processDCOffset": {
+      "key": "D",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ]
+    },
+    "_comment_navigation": "=== NAVIGATION OPERATIONS ===",
     "navigateLeft": {
       "key": "Left",
       "modifiers": []
@@ -273,12 +263,16 @@
       "modifiers": []
     },
     "navigateStart": {
-      "key": "Home",
-      "modifiers": []
+      "key": "Left",
+      "modifiers": [
+        "cmd"
+      ]
     },
     "navigateEnd": {
-      "key": "End",
-      "modifiers": []
+      "key": "Right",
+      "modifiers": [
+        "cmd"
+      ]
     },
     "navigatePageLeft": {
       "key": "PageUp",
@@ -290,31 +284,23 @@
     },
     "navigateHomeVisible": {
       "key": "Home",
-      "modifiers": [
-        "shift"
-      ]
+      "modifiers": []
     },
     "navigateEndVisible": {
       "key": "End",
-      "modifiers": [
-        "shift"
-      ]
+      "modifiers": []
     },
     "navigateCenterView": {
-      "key": "C",
-      "modifiers": [
-        "cmd",
-        "alt"
-      ]
+      "key": ".",
+      "modifiers": []
     },
     "navigateGoToPosition": {
       "key": "G",
       "modifiers": [
-        "cmd",
-        "shift"
+        "cmd"
       ]
     },
-    "_comment_selection": "=== SELECTION OPERATIONS (6 commands) - Manual Pages 29-31 ===",
+    "_comment_selection": "=== SELECTION OPERATIONS ===",
     "selectExtendLeft": {
       "key": "Left",
       "modifiers": [
@@ -330,15 +316,13 @@
     "selectExtendStart": {
       "key": "Home",
       "modifiers": [
-        "shift",
-        "cmd"
+        "shift"
       ]
     },
     "selectExtendEnd": {
       "key": "End",
       "modifiers": [
-        "shift",
-        "cmd"
+        "shift"
       ]
     },
     "selectExtendPageLeft": {
@@ -353,43 +337,16 @@
         "shift"
       ]
     },
-    "_comment_snap": "=== SNAP OPERATIONS (3 commands) - Manual Page 62 ===",
+    "_comment_snap": "=== SNAP OPERATIONS ===",
     "snapCycleMode": {
-      "key": "F4",
-      "modifiers": [
-        "shift"
-      ]
+      "key": "T",
+      "modifiers": []
     },
     "snapToggleZeroCrossing": {
-      "key": "X",
-      "modifiers": [
-        "cmd",
-        "shift"
-      ]
+      "key": "Z",
+      "modifiers": []
     },
-    "_comment_help": "=== HELP OPERATIONS (2 commands) ===",
-    "helpAbout": {
-      "key": "A",
-      "modifiers": [
-        "cmd",
-        "shift",
-        "alt"
-      ]
-    },
-    "helpShortcuts": {
-      "key": "/",
-      "modifiers": [
-        "cmd"
-      ]
-    },
-    "helpCommandPalette": {
-      "key": "A",
-      "modifiers": [
-        "cmd",
-        "shift"
-      ]
-    },
-    "_comment_tabs": "=== TAB OPERATIONS (15 commands) - Standard macOS shortcuts ===",
+    "_comment_tabs": "=== TAB OPERATIONS (Multi-file support) ===",
     "tabClose": {
       "key": "W",
       "modifiers": [
@@ -470,12 +427,10 @@
         "cmd"
       ]
     },
-    "_comment_regions": "=== REGION OPERATIONS (20 commands) - Manual Pages 29-32, 53-54 ===",
+    "_comment_regions": "=== REGION OPERATIONS ===",
     "regionAdd": {
       "key": "R",
-      "modifiers": [
-        "cmd"
-      ]
+      "modifiers": []
     },
     "regionDelete": {
       "key": "Delete",
@@ -484,16 +439,12 @@
       ]
     },
     "regionNext": {
-      "key": "Down",
-      "modifiers": [
-        "cmd"
-      ]
+      "key": "]",
+      "modifiers": []
     },
     "regionPrevious": {
-      "key": "Up",
-      "modifiers": [
-        "cmd"
-      ]
+      "key": "[",
+      "modifiers": []
     },
     "regionSelectInverse": {
       "key": "I",
@@ -512,28 +463,28 @@
     "regionStripSilence": {
       "key": "U",
       "modifiers": [
-        "cmd"
+        "cmd",
+        "shift"
       ]
     },
     "regionExportAll": {
-      "key": "B",
+      "key": "E",
       "modifiers": [
         "cmd",
-        "alt"
+        "shift"
       ]
     },
     "regionShowList": {
       "key": "R",
       "modifiers": [
         "cmd",
-        "shift"
+        "alt"
       ]
     },
     "regionSnapToZeroCrossing": {
       "key": "Z",
       "modifiers": [
-        "shift",
-        "alt"
+        "shift"
       ]
     },
     "regionNudgeStartLeft": {
@@ -553,22 +504,23 @@
     "regionNudgeEndLeft": {
       "key": "Left",
       "modifiers": [
-        "cmd",
+        "shift",
         "alt"
       ]
     },
     "regionNudgeEndRight": {
       "key": "Right",
       "modifiers": [
-        "cmd",
+        "shift",
         "alt"
       ]
     },
     "regionBatchRename": {
-      "key": "R",
+      "key": "N",
       "modifiers": [
         "cmd",
-        "alt"
+        "alt",
+        "shift"
       ]
     },
     "regionMerge": {
@@ -578,11 +530,8 @@
       ]
     },
     "regionSplit": {
-      "key": "K",
-      "modifiers": [
-        "cmd",
-        "shift"
-      ]
+      "key": "S",
+      "modifiers": []
     },
     "regionCopy": {
       "key": "C",
@@ -598,12 +547,10 @@
         "shift"
       ]
     },
-    "_comment_markers": "=== MARKER OPERATIONS (5 commands) - Manual Page 39 ===",
+    "_comment_markers": "=== MARKER OPERATIONS ===",
     "markerAdd": {
       "key": "M",
-      "modifiers": [
-        "cmd"
-      ]
+      "modifiers": []
     },
     "markerDelete": {
       "key": "Delete",
@@ -613,16 +560,14 @@
       ]
     },
     "markerNext": {
-      "key": ".",
+      "key": "]",
       "modifiers": [
-        "cmd",
         "shift"
       ]
     },
     "markerPrevious": {
-      "key": ",",
+      "key": "[",
       "modifiers": [
-        "cmd",
         "shift"
       ]
     },
@@ -630,10 +575,29 @@
       "key": "M",
       "modifiers": [
         "cmd",
-        "shift"
+        "alt"
       ]
     },
     "_comment_plugins": "=== PLUGIN / AUTOMATION OPERATIONS ===",
+    "pluginShowChain": {
+      "key": "F11",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "pluginApplyChain": {
+      "key": "P",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "pluginOffline": {
+      "key": "P",
+      "modifiers": [
+        "cmd",
+        "alt"
+      ]
+    },
     "pluginBypassAll": {
       "key": "B",
       "modifiers": [
@@ -644,6 +608,20 @@
       "key": "A",
       "modifiers": [
         "ctrl",
+        "shift"
+      ]
+    },
+    "_comment_help": "=== HELP OPERATIONS ===",
+    "helpShortcuts": {
+      "key": "/",
+      "modifiers": [
+        "cmd"
+      ]
+    },
+    "helpCommandPalette": {
+      "key": "A",
+      "modifiers": [
+        "cmd",
         "shift"
       ]
     }

@@ -58,7 +58,7 @@ public:
     void loopRegion(Document* doc);
 
     /**
-     * Sound Forge in-point workflow: set the selection START to the current
+     * In-point workflow: set the selection START to the current
      * cursor position, preserving the existing selection end (or collapsing
      * to a zero-length selection at the cursor if none exists). No-op if no
      * file is loaded.
@@ -66,7 +66,7 @@ public:
     void markSelectionStart(Document* doc);
 
     /**
-     * Sound Forge out-point workflow: set the selection END to the current
+     * Out-point workflow: set the selection END to the current
      * cursor position, preserving the existing selection start (or collapsing
      * to a zero-length selection at the cursor if none exists). No-op if no
      * file is loaded.

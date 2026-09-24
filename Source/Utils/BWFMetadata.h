@@ -8,7 +8,7 @@
  *
  * Handles reading and writing BWF (Broadcast Wave Format) metadata chunks
  * to WAV files. BWF is the industry standard for professional audio metadata,
- * used by Pro Tools, Sound Forge, and other professional audio applications.
+ * used by many professional audio applications.
  *
  * Supported Chunks:
  * - bext: Broadcast Extension (description, originator, timestamp)

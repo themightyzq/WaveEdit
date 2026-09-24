@@ -212,15 +212,10 @@ public:
         int timeFormatInt = Settings::getInstance().getSetting("display.timeFormat", 2);  // Default to Seconds (2)
         m_timeFormat = static_cast<AudioUnits::TimeFormat>(timeFormatInt);
 
-        // Load keyboard shortcut template (Phase 3)
-        // Get active template name from settings (defaults to "Default")
-        juce::String activeTemplate = Settings::getInstance().getSetting("keyboard.activeTemplate", "Default").toString();
-        if (!m_keymapManager.loadTemplate(activeTemplate))
-        {
-            // If loading fails, fall back to Default template
-            juce::Logger::writeToLog("Failed to load keyboard template '" + activeTemplate + "', falling back to Default");
-            m_keymapManager.loadTemplate("Default");
-        }
+        // Load the keyboard shortcut template the user last chose. KeymapManager owns the
+        // settings key ("currentKeymap") and the fallback to Default; reading a different,
+        // never-written key here used to reset the keymap to Default on every start.
+        m_keymapManager.loadFromSettings();
 
         // Initialize customizable toolbar
         m_toolbar = std::make_unique<CustomizableToolbar>(m_commandManager, m_toolbarManager);

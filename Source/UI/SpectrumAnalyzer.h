@@ -36,7 +36,7 @@ class AudioEngine;
  * - Thread-safe audio data transfer (audio thread → UI thread)
  *
  * Design Philosophy:
- * - Inspired by professional tools (Sound Forge, Adobe Audition, iZotope RX)
+ * - Matches the behaviour of professional wave editors
  * - Clean, minimal design with clear frequency axis
  * - Real-time performance with configurable quality/CPU trade-off
  * - Color gradient visualization (low = blue, mid = green, high = yellow/red)

@@ -33,7 +33,7 @@ class AudioEngine;
  * - Professional visual design matching industry standards
  *
  * Design Philosophy:
- * - Inspired by professional tools (Sound Forge, Pro Tools, Reaper)
+ * - Matches the behaviour of professional wave editors
  * - Clean, minimal design with clear visual feedback
  * - Vertical meters (standard orientation for audio software)
  * - Color coding: Green (safe) → Yellow (approaching limit) → Red (clipping)

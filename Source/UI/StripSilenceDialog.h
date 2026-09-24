@@ -25,7 +25,7 @@
  *
  * This dialog provides a UI for the "Auto Region" algorithm, which analyzes
  * an audio buffer and automatically creates regions around sections that exceed
- * a threshold level. Similar to Pro Tools "Auto Region" feature.
+ * a threshold level. Similar to the auto-region feature in some DAWs.
  *
  * Algorithm Parameters:
  * - Threshold (dB): Audio below this level is considered silence

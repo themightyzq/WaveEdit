@@ -24,7 +24,7 @@
  * Features:
  * - Load/save toolbar layouts from JSON files
  * - Switch between layouts at runtime
- * - Built-in templates: Default, Compact, DSPFocused, SoundForge
+ * - Built-in templates: Default, Compact, DSPFocused, Classic Editor
  * - Import/export custom user layouts
  * - Settings persistence
  *
@@ -230,9 +230,9 @@ private:
     static ToolbarLayout createDSPFocusedLayout();
 
     /**
-     * Create the Sound Forge-style layout.
+     * Create the Classic Editor-style layout.
      */
-    static ToolbarLayout createSoundForgeLayout();
+    static ToolbarLayout createClassicLayout();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToolbarManager)
 };

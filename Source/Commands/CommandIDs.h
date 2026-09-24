@@ -122,7 +122,7 @@ namespace CommandIDs
         // NOTE (L7): snapPreferences is NOT registered in getAllCommands()/perform();
         // it is referenced by Source/UI/ShortcutEditorPanel.cpp, so the ID is retained
         // rather than removed. It is intentionally absent from any keypress binding in
-        // the shipped keymap templates (Default/ProTools/SoundForge).
+        // the shipped keymap templates (Default/Session/Classic).
         snapPreferences      = 0x8002,  // (unregistered) open snap preferences
 
         // Help Operations (0x9000 - 0x90FF)

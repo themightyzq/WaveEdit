@@ -28,7 +28,7 @@
  * - Switch between templates at runtime
  * - Validate templates for conflicts
  * - Import/export custom user templates
- * - Built-in templates: Default, Sound Forge, Pro Tools
+ * - Built-in templates: Default, Classic Editor, Session Style
  *
  * Template Format (JSON):
  * {
@@ -246,7 +246,7 @@ private:
     // Private methods
 
     /**
-     * Load all built-in templates (Default, Sound Forge, Pro Tools).
+     * Load all built-in templates (Default, Classic Editor, Session Style).
      */
     void loadBuiltInTemplates();
 
