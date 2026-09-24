@@ -30,7 +30,7 @@
  * - Visual playback state indicators
  * - Scrubbing support (click to jump to position)
  *
- * This component follows Sound Forge Pro's transport control design.
+ * This component follows the transport control design common to professional wave editors.
  */
 class TransportControls : public juce::Component,
                           public juce::Timer,

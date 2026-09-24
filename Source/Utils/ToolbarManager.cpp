@@ -254,6 +254,11 @@ void ToolbarManager::loadFromSettings()
 {
     juce::String savedLayout = Settings::getInstance().getSetting("currentToolbar", "Default").toString();
 
+    // Legacy layout id: a settings file written before the template rename may
+    // still name the old built-in layout. Resolve it to its current name.
+    if (savedLayout == "Sound Forge")
+        savedLayout = "Classic Editor";
+
     if (layoutExists(savedLayout))
         loadLayout(savedLayout);
     else
@@ -306,7 +311,7 @@ void ToolbarManager::createBuiltInLayouts()
     m_builtInLayouts["Default"] = createDefaultLayout();
     m_builtInLayouts["Compact"] = createCompactLayout();
     m_builtInLayouts["DSP Focused"] = createDSPFocusedLayout();
-    m_builtInLayouts["Sound Forge"] = createSoundForgeLayout();
+    m_builtInLayouts["Classic Editor"] = createClassicLayout();
 
     DBG("ToolbarManager: Created " +
                              juce::String(m_builtInLayouts.size()) + " built-in layouts");
@@ -453,11 +458,11 @@ ToolbarLayout ToolbarManager::createDSPFocusedLayout()
     return layout;
 }
 
-ToolbarLayout ToolbarManager::createSoundForgeLayout()
+ToolbarLayout ToolbarManager::createClassicLayout()
 {
     ToolbarLayout layout;
-    layout.name = "Sound Forge";
-    layout.description = "Familiar layout for Sound Forge users";
+    layout.name = "Classic Editor";
+    layout.description = "Familiar layout for classic wave editor users";
     layout.version = "1.0";
     layout.height = 36;
     layout.showLabels = false;
@@ -466,7 +471,7 @@ ToolbarLayout ToolbarManager::createSoundForgeLayout()
     layout.buttons.push_back(ToolbarButtonConfig::transport("transport", 200));
     layout.buttons.push_back(ToolbarButtonConfig::separator("sep1"));
 
-    // Edit operations (like Sound Forge toolbar)
+    // Edit operations (classic wave editor toolbar layout)
     layout.buttons.push_back(ToolbarButtonConfig::command("undo", "editUndo"));
     layout.buttons.push_back(ToolbarButtonConfig::command("redo", "editRedo"));
     layout.buttons.push_back(ToolbarButtonConfig::separator("sep2"));

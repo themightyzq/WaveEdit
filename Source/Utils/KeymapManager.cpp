@@ -521,6 +521,14 @@ void KeymapManager::loadFromSettings()
 {
     juce::String savedTemplate = Settings::getInstance().getSetting("currentKeymap", "Default").toString();
 
+    // Legacy template ids: a settings file written before the template rename
+    // may still name the old built-in templates. Resolve those to the current names.
+    static const std::map<juce::String, juce::String> legacyTemplateIds {
+        { "Sound Forge", "Classic Editor" }, { "Pro Tools", "Session Style" }
+    };
+    if (auto it = legacyTemplateIds.find(savedTemplate); it != legacyTemplateIds.end())
+        savedTemplate = it->second;
+
     if (templateExists(savedTemplate))
         loadTemplate(savedTemplate);
     else

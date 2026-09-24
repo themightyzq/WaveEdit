@@ -357,7 +357,7 @@ void ShortcutEditorPanel::buttonClicked(juce::Button* button)
         auto result = juce::AlertWindow::showOkCancelBox(
             juce::AlertWindow::QuestionIcon,
             "Reset to Defaults",
-            "Are you sure you want to reset all keyboard shortcuts to Sound Forge Pro defaults?\n\n"
+            "Are you sure you want to reset all keyboard shortcuts to the built-in defaults?\n\n"
             "This will discard any customizations you've made.",
             "Reset",
             "Cancel"
@@ -451,7 +451,7 @@ void ShortcutEditorPanel::resetToDefaults()
 
     m_hasUnsavedChanges = true;
 
-    DBG("Keyboard shortcuts reset to Sound Forge Pro defaults");
+    DBG("Keyboard shortcuts reset to built-in defaults");
 }
 
 bool ShortcutEditorPanel::exportKeybindings()

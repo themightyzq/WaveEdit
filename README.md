@@ -1,7 +1,7 @@
 # WaveEdit
 
-WaveEdit is a standalone audio file editor for macOS, Windows, and Linux, in the style of
-Sound Forge. It edits one file at a time: there is no project format, no timeline of clips,
+WaveEdit is a standalone audio file editor for macOS, Windows, and Linux, inspired by classic
+wave editors such as Sound Forge. It edits one file at a time: there is no project format, no timeline of clips,
 and no multi-track mixing. Editing is sample-accurate and keyboard-first, with every action
 bound to a shortcut. It opens WAV, AIFF, FLAC, MP3, OGG, and M4A. Built with JUCE.
 
@@ -71,7 +71,7 @@ What it does, beyond basic cut and paste:
 - Crash recovery: autosave runs every minute on a modified file, and is offered back the
   next time you open it
 - Three built-in themes: Dark, Light, and High Contrast
-- Sound Forge and Pro Tools keymap templates, and every shortcut can be remapped
+- Classic Editor and Session Style keymap templates, and every shortcut can be remapped
 
 Keyboard shortcuts you will use constantly (Windows and Linux use `Ctrl` where macOS uses
 `Cmd`):

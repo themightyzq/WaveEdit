@@ -247,7 +247,7 @@ public:
 
     /**
      * Embeds the given markers and regions into an existing WAV file as RIFF
-     * "cue " + LIST-adtl chunks (Sound Forge compatible: one cue point per
+     * "cue " + LIST-adtl chunks (compatible with common wave editors: one cue point per
      * marker, one cue point + ltxt of purpose 'rgn ' per region, labl for every
      * name). Any pre-existing cue/adtl chunks are REPLACED, never duplicated.
      * Odd-sized chunks are word-aligned and the RIFF size is fixed up. Writes

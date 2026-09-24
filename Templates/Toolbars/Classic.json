@@ -1,6 +1,6 @@
 {
-    "name": "Sound Forge",
-    "description": "Layout inspired by Sony Sound Forge Pro",
+    "name": "Classic Editor",
+    "description": "Classic wave-editor-style toolbar layout",
     "version": "1.0.0",
     "height": 36,
     "showLabels": false,

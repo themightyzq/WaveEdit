@@ -26,7 +26,7 @@
  * - Click to rebind any shortcut
  * - Conflict detection with visual warnings
  * - Export/Import keybindings to/from JSON
- * - Reset to Sound Forge defaults
+ * - Reset to default shortcuts
  *
  * Accessed via Preferences → Keyboard Shortcuts tab
  *
@@ -92,7 +92,7 @@ public:
     void revertChanges();
 
     /**
-     * Resets all shortcuts to Sound Forge Pro defaults.
+     * Resets all shortcuts to the built-in defaults.
      */
     void resetToDefaults();
 

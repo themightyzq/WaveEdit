@@ -870,7 +870,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // CRITICAL: Handle mono-to-stereo conversion for file playback
     // If the source is mono (1 channel) but output is stereo (2 channels),
     // duplicate the mono channel to both L and R for center-panned playback.
-    // This matches professional audio editor behavior (Sound Forge, Pro Tools, etc.)
+    // This matches the behaviour of professional wave editors.
     // (Skipped when folding down: mono can never trigger fold-down, but guard for clarity.)
     if (!foldDownActive && sourceChannels == 1 && numOutputChannels == 2)
     {

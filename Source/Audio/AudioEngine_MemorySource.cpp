@@ -153,7 +153,7 @@ void AudioEngine::MemoryAudioSource::getNextAudioBlock(const juce::AudioSourceCh
     if (sourceChannels == 1 && outputChannels == 2)
     {
         // Mono to stereo: duplicate mono channel to both L and R for center-panned playback
-        // This matches professional audio editor behavior (Sound Forge, Pro Tools, etc.)
+        // This matches the behaviour of professional wave editors.
         bufferToFill.buffer->copyFrom(0, bufferToFill.startSample,
                                       src, 0, static_cast<int>(startSample), numSamples);
         bufferToFill.buffer->copyFrom(1, bufferToFill.startSample,
