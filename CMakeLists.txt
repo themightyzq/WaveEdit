@@ -1165,6 +1165,7 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/PluginBlacklistTests.cpp                 # M21 exact blacklist match
             Tests/Unit/PluginChainTailTests.cpp                 # H25 batch tail
             Tests/Unit/KeymapCommandResolutionTests.cpp         # H27 command/keymap resolution
+            Tests/Unit/KeymapPersistenceTests.cpp               # chosen keymap survives restart
             Tests/Unit/RegionUndoIdentityTests.cpp              # H8-H11/H14, C3 region undo by id
             Tests/Unit/RegionExporterPass2Tests.cpp             # C17/H15/H16 export
             Tests/Unit/NamingTokensTests.cpp                    # Finding #24: shared naming-token substitution helper

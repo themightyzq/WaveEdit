@@ -20,6 +20,8 @@
 #include <juce_data_structures/juce_data_structures.h>
 #include "../Commands/CommandIDs.h"
 
+class Settings;
+
 /**
  * Manages keyboard shortcut templates (keymaps) for WaveEdit.
  *
@@ -123,6 +125,17 @@ public:
      * @param commandManager Reference to the application's command manager
      */
     KeymapManager(juce::ApplicationCommandManager& commandManager);
+
+    /**
+     * Test seam: explicit settings store and template folders, so a test can run the real
+     * persistence path in a temp directory without touching the user's settings or keymaps.
+     * The one-argument constructor uses Settings::getInstance(), the app bundle's
+     * Resources/Keymaps, and getTemplatesDirectory().
+     */
+    KeymapManager(juce::ApplicationCommandManager& commandManager,
+                  Settings& settings,
+                  const juce::File& bundledKeymapsDir,
+                  const juce::File& userTemplatesDir);
     ~KeymapManager();
 
     //==============================================================================
@@ -223,6 +236,9 @@ public:
      */
     static juce::File getTemplatesDirectory();
 
+    /** Where the app bundle keeps its built-in templates on this platform. */
+    static juce::File getBundledTemplatesDirectory();
+
     /**
      * Apply the current template's shortcuts to the ApplicationCommandManager.
      *
@@ -237,6 +253,9 @@ private:
     // Private members
 
     juce::ApplicationCommandManager& m_commandManager;  // Reference to command manager for applying shortcuts
+    Settings& m_settings;              // owns the "currentKeymap" key
+    juce::File m_bundledKeymapsDir;    // read-only built-in templates
+    juce::File m_userTemplatesDir;     // user copies, imports and customisations
     Template m_currentTemplate;
     juce::String m_currentTemplateName;
     std::map<juce::String, Template> m_builtInTemplates;

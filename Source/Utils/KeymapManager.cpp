@@ -292,8 +292,23 @@ bool KeymapManager::Template::validate(juce::StringArray& errors) const
 // KeymapManager Implementation
 
 KeymapManager::KeymapManager(juce::ApplicationCommandManager& commandManager)
-    : m_commandManager(commandManager)
+    : KeymapManager(commandManager, Settings::getInstance(),
+                    getBundledTemplatesDirectory(), getTemplatesDirectory())
 {
+}
+
+KeymapManager::KeymapManager(juce::ApplicationCommandManager& commandManager,
+                             Settings& settings,
+                             const juce::File& bundledKeymapsDir,
+                             const juce::File& userTemplatesDir)
+    : m_commandManager(commandManager),
+      m_settings(settings),
+      m_bundledKeymapsDir(bundledKeymapsDir),
+      m_userTemplatesDir(userTemplatesDir)
+{
+    if (!m_userTemplatesDir.exists())
+        m_userTemplatesDir.createDirectory();
+
     loadBuiltInTemplates();
     scanUserTemplates();
     loadFromSettings();
@@ -445,7 +460,7 @@ bool KeymapManager::importTemplate(const juce::File& file, bool makeActive)
     }
 
     // Copy to user templates directory
-    juce::File destFile = getTemplatesDirectory().getChildFile(file.getFileName());
+    juce::File destFile = m_userTemplatesDir.getChildFile(file.getFileName());
     if (!file.copyFileTo(destFile))
     {
         DBG("KeymapManager: Failed to copy template file");
@@ -514,12 +529,12 @@ juce::String KeymapManager::findCommandForShortcut(const Shortcut& shortcut) con
 
 void KeymapManager::saveToSettings()
 {
-    Settings::getInstance().setSetting("currentKeymap", m_currentTemplateName);
+    m_settings.setSetting("currentKeymap", m_currentTemplateName);
 }
 
 void KeymapManager::loadFromSettings()
 {
-    juce::String savedTemplate = Settings::getInstance().getSetting("currentKeymap", "Default").toString();
+    juce::String savedTemplate = m_settings.getSetting("currentKeymap", "Default").toString();
 
     // Legacy template ids: a settings file written before the template rename
     // may still name the old built-in templates. Resolve those to the current names.
@@ -533,6 +548,19 @@ void KeymapManager::loadFromSettings()
         loadTemplate(savedTemplate);
     else
         loadTemplate("Default");  // Fall back to default
+}
+
+juce::File KeymapManager::getBundledTemplatesDirectory()
+{
+#if JUCE_MAC
+    // On macOS, templates are in the app bundle's Resources/Keymaps directory
+    auto appFile = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
+    return appFile.getChildFile("Contents/Resources/Keymaps");
+#else
+    // On Windows/Linux, templates are next to the executable in Keymaps directory
+    auto exeFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+    return exeFile.getParentDirectory().getChildFile("Keymaps");
+#endif
 }
 
 juce::File KeymapManager::getTemplatesDirectory()
@@ -555,18 +583,7 @@ juce::File KeymapManager::getTemplatesDirectory()
 
 void KeymapManager::loadBuiltInTemplates()
 {
-    // Get the application's Resources directory where templates are bundled
-    juce::File bundledKeymapsDir;
-
-#if JUCE_MAC
-    // On macOS, templates are in the app bundle's Resources/Keymaps directory
-    auto appFile = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
-    bundledKeymapsDir = appFile.getChildFile("Contents/Resources/Keymaps");
-#elif JUCE_WINDOWS || JUCE_LINUX
-    // On Windows/Linux, templates are next to the executable in Keymaps directory
-    auto exeFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
-    bundledKeymapsDir = exeFile.getParentDirectory().getChildFile("Keymaps");
-#endif
+    const juce::File& bundledKeymapsDir = m_bundledKeymapsDir;
 
     if (!bundledKeymapsDir.exists())
     {
@@ -589,7 +606,7 @@ void KeymapManager::loadBuiltInTemplates()
             DBG("  Loaded built-in template: " + templ.name);
 
             // On first run, copy built-in templates to user directory so they can be customized
-            juce::File userTemplateFile = getTemplatesDirectory().getChildFile(file.getFileName());
+            juce::File userTemplateFile = m_userTemplatesDir.getChildFile(file.getFileName());
             if (!userTemplateFile.exists())
             {
                 if (file.copyFileTo(userTemplateFile))
@@ -613,7 +630,7 @@ void KeymapManager::loadBuiltInTemplates()
 
 void KeymapManager::scanUserTemplates()
 {
-    juce::File templatesDir = getTemplatesDirectory();
+    juce::File templatesDir = m_userTemplatesDir;
 
     auto files = templatesDir.findChildFiles(juce::File::findFiles, false, "*.json");
     for (const auto& file : files)
