@@ -4,7 +4,7 @@ Licensed under GPL v3
 
 ================================================================================
 
-This software is a professional audio editor built with JUCE framework.
+This software is an audio editor built with the JUCE framework.
 
 ================================================================================
 
@@ -27,17 +27,17 @@ bundled binary.
 
 --------------------------------------------------------------------------------
 LAME MP3 Encoder
-- Status: bundled but not currently used (MP3 encoding not yet wired)
-- License: LGPL-2.1-or-later
+- Used for: MP3 export
+- License: LGPL-2.0-or-later (full text: ThirdPartyLicenses/LAME-COPYING.txt)
 - Copyright: © 1998-2017 The LAME Project
 - Homepage: https://lame.sourceforge.io/
-- How we ship it: the Release builds bundle the LAME library alongside
-  the executable (libmp3lame.dylib in Contents/Frameworks/ on macOS,
-  lame_enc.dll next to WaveEdit.exe on Windows, libmp3lame.so next to
-  the executable on Linux). Currently the library is not dynamically
-  linked or loaded at runtime. MP3 decoding is supported via JUCE's
-  built-in decoder; MP3 encoding integration is planned.
-- LGPL note: LAME source can be obtained from the upstream URL above.
+- How we ship it: macOS builds compile LAME 3.100 from the upstream source
+  tarball (hash-pinned in cmake/ThirdPartyAudioLibs.cmake) and link it
+  statically. Windows and Linux Release builds bundle the LAME shared
+  library next to the executable.
+- LGPL note: WaveEdit's complete source, including the build scripts that
+  fetch and compile LAME, is available under the GPL, so users can rebuild
+  WaveEdit against a modified LAME. LAME source: upstream URL above.
 
 --------------------------------------------------------------------------------
 libFLAC (via JUCE's `juce_audio_formats` module)
@@ -59,17 +59,17 @@ libvorbis / libogg (via JUCE's `juce_audio_formats` module)
 SoundTouch
 - Used for: time-stretch and pitch-shift DSP (Process → Time Stretch...,
   Process → Pitch Shift...)
-- License: LGPL-2.1-or-later
+- License: LGPL-2.1-or-later (full text: ThirdPartyLicenses/SoundTouch-COPYING.txt)
 - Copyright: © Olli Parviainen
 - Homepage: https://www.surina.net/soundtouch/
-- How we ship it: dynamically linked. The macOS Release build bundles
-  libSoundTouch.dylib inside `WaveEdit.app/Contents/Frameworks/`; the
-  Windows / Linux Release builds bundle the corresponding shared
-  library next to the executable.
-- LGPL note: SoundTouch is dynamically linked and bundled unmodified.
-  Users who want to substitute a different SoundTouch build can
-  replace the bundled library file in place. SoundTouch source can be
-  obtained from the upstream URL above.
+- How we ship it: macOS builds compile SoundTouch 2.3.3 from the upstream
+  repository (tag-pinned in cmake/ThirdPartyAudioLibs.cmake) and link it
+  statically. Windows and Linux Release builds bundle the SoundTouch
+  shared library next to the executable.
+- LGPL note: WaveEdit's complete source, including the build scripts that
+  fetch and compile SoundTouch, is available under the GPL, so users can
+  rebuild WaveEdit against a modified SoundTouch. SoundTouch source:
+  upstream URL above.
 
 --------------------------------------------------------------------------------
 Steinberg VST3 SDK (via JUCE's `juce_audio_processors` plugin host)

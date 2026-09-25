@@ -16,9 +16,10 @@ The source in this repository has moved on since then and is currently at 0.9.0.
 the current version rather than v0.1.0, build from source (below).
 
 Despite its filename, the v0.1.0 macOS zip is an Apple Silicon (arm64) build only and will
-not run on an Intel Mac. Building from source produces a build for the Mac you build on;
-a universal build needs LAME and SoundTouch compiled for both architectures, which Homebrew
-does not provide.
+not run on an Intel Mac. Building from source now produces a universal (arm64 + x86_64) build
+targeting macOS 11.0+ automatically: CMake fetches LAME and SoundTouch from their upstream
+source and compiles both as static libraries for macOS, so no Homebrew install of either is
+needed there (see Build from source below).
 
 The binaries are unsigned on every platform:
 
@@ -284,7 +285,10 @@ Linux, read `Cmd` as `Ctrl`. Inside the app, `Cmd+/` opens the shortcut referenc
 ## Build from source
 
 Requirements: CMake 3.15 or newer, a C++17 compiler (Xcode command-line tools on macOS,
-Visual Studio 2017 or newer on Windows), the LAME library, and SoundTouch.
+Visual Studio 2017 or newer on Windows). Linux and Windows also need the LAME library and
+SoundTouch installed (see platform dependencies below); macOS needs neither installed --
+CMake fetches and builds both from source automatically (network access is required at
+first configure).
 
 JUCE is included as a submodule, so fetch it along with the clone:
 
@@ -303,16 +307,19 @@ cmake --build . --config Release
 ```
 
 The app is written to `build/WaveEdit_artefacts/Release/`. On macOS, `./build-and-run.command`
-runs the same steps and launches it; pass `clean` or `debug` for a clean or debug build.
+runs the same steps and launches it; pass `clean` or `debug` for a clean or debug build. macOS
+builds are always universal (arm64 + x86_64) targeting macOS 11.0 or newer, regardless of which
+Mac you build on.
 
 Platform dependencies:
 
 macOS:
 ```
 xcode-select --install
-brew install lame
-brew install sound-touch
 ```
+No Homebrew packages needed: CMake fetches LAME 3.100 and SoundTouch 2.3.3 from their
+upstream source (SourceForge and Codeberg) and compiles both as static libraries for the
+current build, universal across both architectures. See `cmake/ThirdPartyAudioLibs.cmake`.
 
 Linux (Ubuntu/Debian):
 ```
@@ -326,10 +333,17 @@ Windows:
 - LAME: download from https://lame.sourceforge.io/
 - SoundTouch: download from https://www.surina.net/soundtouch/
 
-LAME and SoundTouch are only needed to build from source. Release binaries bundle both.
+On Linux and Windows, LAME and SoundTouch are only needed to build from source, and Release
+builds bundle both as dynamic libraries alongside the executable. On macOS both are compiled
+in statically, so the app binary has no bundled third-party libraries at all.
 
 ## Licence
 
 GPL-3.0-or-later. Built with JUCE. See `LICENSE`.
+
+WaveEdit links two LGPL libraries, whose upstream licence texts are included verbatim in
+`ThirdPartyLicenses/` (GPL-3.0-or-later permits linking LGPL code):
+- SoundTouch -- LGPL-2.1-or-later -- `ThirdPartyLicenses/SoundTouch-COPYING.txt`
+- LAME -- LGPL-2.0-or-later -- `ThirdPartyLicenses/LAME-COPYING.txt`
 
 ZQ SFX, https://www.zq-sfx.com, connect@zq-sfx.com.

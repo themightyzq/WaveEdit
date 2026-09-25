@@ -1,14 +1,22 @@
 cmake_minimum_required(VERSION 3.15)
 
 # Project definition
-# macOS architectures. The workspace rule (JUCE/CLAUDE.md section 5) wants universal
-# binaries, but WaveEdit links LAME and SoundTouch from Homebrew, and Homebrew ships those
-# as thin dylibs for the host architecture only. Forcing "arm64;x86_64" here makes the
-# x86_64 slice fail to link (`ld: symbol(s) not found for architecture x86_64:
-# _lame_set_quality`, verified 2026-09-22), which would break build-from-source for
-# everyone. So the default stays the host architecture. To produce a universal build,
-# supply fat (or static, per-arch) builds of libmp3lame and libSoundTouch and configure
-# with -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64". Tracked as a backlog item.
+# macOS: universal (arm64 + x86_64) binary targeting macOS 11.0, mandatory per
+# the workspace rule (JUCE/CLAUDE.md section 5; Soundminer will not load
+# anything else). Must be set before project() so the initial compiler checks
+# pick it up. This used to be a backlog item: WaveEdit linked LAME and
+# SoundTouch from Homebrew, and Homebrew ships those as thin dylibs for the
+# host architecture only, so forcing "arm64;x86_64" made the x86_64 slice
+# fail to link (`ld: symbol(s) not found for architecture x86_64:
+# _lame_set_quality`, verified 2026-09-22). Fixed by building both libraries
+# from pinned upstream source as static libraries inside this file --
+# see cmake/ThirdPartyAudioLibs.cmake -- so there is no thin prebuilt dylib
+# to fail on either slice.
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment target")
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures for macOS")
+endif()
+
 project(WaveEdit VERSION 0.9.0 LANGUAGES C CXX)
 
 # Enable CTest for test registration
@@ -362,39 +370,44 @@ target_compile_definitions(WaveEdit
 # variables are populated when those calls evaluate ${SOUNDTOUCH_*} on a
 # fresh CMake configure (CI does no-cache builds). Bundle/install copy
 # steps live further down once the WaveEdit target exists.
+#
+# macOS builds SoundTouch from pinned upstream source as a static library
+# (cmake/ThirdPartyAudioLibs.cmake) so the app can be a universal
+# (arm64 + x86_64) binary targeting macOS 11.0 -- Homebrew's bottle is thin
+# (host-architecture only) and dynamic-only, which used to block universal
+# builds (see the top-of-file comment). Windows and Linux are unchanged: they
+# still find SoundTouch via vcpkg / distro packages as a dynamic library.
 # ----------------------------------------------------------------------------
-find_library(SOUNDTOUCH_LIBRARY
-    NAMES SoundTouch libSoundTouch
-    PATHS
-        /opt/homebrew/lib            # Apple Silicon Homebrew
-        /opt/homebrew/Cellar/sound-touch/*/lib
-        /usr/local/lib               # Intel Homebrew
-        /usr/local/Cellar/sound-touch/*/lib
-        /opt/local/lib               # MacPorts
-        /usr/lib
-        /usr/lib/x86_64-linux-gnu
-        /usr/lib/aarch64-linux-gnu
-)
+if(APPLE)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdPartyAudioLibs.cmake")
+else()
+    find_library(SOUNDTOUCH_LIBRARY
+        NAMES SoundTouch libSoundTouch
+        PATHS
+            /usr/local/lib
+            /opt/local/lib               # MacPorts
+            /usr/lib
+            /usr/lib/x86_64-linux-gnu
+            /usr/lib/aarch64-linux-gnu
+    )
 
-find_path(SOUNDTOUCH_INCLUDE_DIR
-    NAMES SoundTouch.h
-    PATHS
-        /opt/homebrew/include/soundtouch
-        /opt/homebrew/Cellar/sound-touch/*/include/soundtouch
-        /usr/local/include/soundtouch
-        /usr/local/Cellar/sound-touch/*/include/soundtouch
-        /opt/local/include/soundtouch
-        /usr/include/soundtouch
-    # vcpkg + other prefix-style installs put headers under <prefix>/include/soundtouch.
-    PATH_SUFFIXES soundtouch
-)
+    find_path(SOUNDTOUCH_INCLUDE_DIR
+        NAMES SoundTouch.h
+        PATHS
+            /usr/local/include/soundtouch
+            /opt/local/include/soundtouch
+            /usr/include/soundtouch
+        # vcpkg + other prefix-style installs put headers under <prefix>/include/soundtouch.
+        PATH_SUFFIXES soundtouch
+    )
 
-if(NOT (SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR))
-    message(FATAL_ERROR
-        "SoundTouch not found. Install via: brew install sound-touch (macOS), "
-        "apt-get install libsoundtouch-dev (Linux), or vcpkg install "
-        "soundtouch:x64-windows + pass -DCMAKE_TOOLCHAIN_FILE=...vcpkg.cmake "
-        "(Windows).")
+    if(NOT (SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR))
+        message(FATAL_ERROR
+            "SoundTouch not found. Install via: "
+            "apt-get install libsoundtouch-dev (Linux), or vcpkg install "
+            "soundtouch:x64-windows + pass -DCMAKE_TOOLCHAIN_FILE=...vcpkg.cmake "
+            "(Windows).")
+    endif()
 endif()
 
 message(STATUS "Found SoundTouch library: ${SOUNDTOUCH_LIBRARY}")
@@ -443,50 +456,14 @@ endif()
 # code available at https://lame.sourceforge.io/
 
 if(APPLE)
-    # Find LAME library - check both Homebrew locations
-    find_library(LAME_LIBRARY
-        NAMES mp3lame libmp3lame
-        PATHS
-            /opt/homebrew/lib          # Apple Silicon Homebrew
-            /usr/local/lib             # Intel Homebrew
-            /opt/local/lib             # MacPorts
-        NO_DEFAULT_PATH
-    )
-
-    if(LAME_LIBRARY)
-        message(STATUS "Found LAME library: ${LAME_LIBRARY}")
-
-        # For Release builds, bundle LAME into app Frameworks
-        if(CMAKE_BUILD_TYPE STREQUAL "Release")
-            add_custom_command(TARGET WaveEdit POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E make_directory
-                    "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks"
-                COMMAND ${CMAKE_COMMAND} -E copy
-                    "${LAME_LIBRARY}"
-                    "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libmp3lame.dylib"
-                COMMAND install_name_tool -id
-                    "@rpath/libmp3lame.dylib"
-                    "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libmp3lame.dylib"
-                # Rewrite the executable's load command to the bundled @rpath
-                # copy (reads the exe's actual reference; robust to versioning).
-                COMMAND bash "${CMAKE_SOURCE_DIR}/cmake/relink_bundled_dylib.sh"
-                    "$<TARGET_FILE:WaveEdit>" libmp3lame "@rpath/libmp3lame.dylib"
-                COMMENT "Bundling LAME MP3 encoder library and relinking executable"
-            )
-            message(STATUS "LAME will be bundled in Release builds")
-        else()
-            message(STATUS "Debug build - LAME not bundled (use system library)")
-        endif()
-    else()
-        message(WARNING "LAME library not found - MP3 encoding will require manual LAME installation")
-        message(WARNING "Install with: brew install lame")
-    endif()
-
-    # Set rpath to find bundled libraries
-    set_target_properties(WaveEdit PROPERTIES
-        BUILD_WITH_INSTALL_RPATH TRUE
-        INSTALL_RPATH "@executable_path/../Frameworks"
-    )
+    # Nothing to bundle: LAME is built from pinned source as a static
+    # library (cmake/ThirdPartyAudioLibs.cmake, LAME_LIBRARY is the
+    # "lame_enc" target) and linked directly into the WaveEdit binary, so
+    # there is no dylib to copy into Contents/Frameworks and no rpath to
+    # relink. This used to bundle a Homebrew dylib here; that only worked
+    # for the host architecture, which is exactly what blocked universal
+    # builds (see the top-of-file comment).
+    message(STATUS "LAME is statically linked (built from source) -- nothing to bundle")
 
 elseif(WIN32)
     # Windows: Look for LAME DLL
@@ -551,17 +528,17 @@ elseif(UNIX)
 endif()
 
 # ----------------------------------------------------------------------------
-# Bundled-library rpath for the app executable. Set unconditionally: LAME,
-# SoundTouch, and any future bundled dylib all rely on it, so it must not
-# depend on whether one specific optional library was found (M8 -- it was
+# Bundled-library rpath for the app executable. Set unconditionally on Linux:
+# LAME, SoundTouch, and any future bundled dylib all rely on it, so it must
+# not depend on whether one specific optional library was found (M8 -- it was
 # previously nested inside the LAME find-block, risking removal on edit).
-# Idempotent with the per-lib settings above (same values).
+# Idempotent with the per-lib setting above (same value).
+#
+# Not set on macOS any more: LAME and SoundTouch are both statically linked
+# there now (built from source, see cmake/ThirdPartyAudioLibs.cmake), so
+# nothing is ever copied into Contents/Frameworks and no rpath is needed.
 # ----------------------------------------------------------------------------
-if(APPLE)
-    set_target_properties(WaveEdit PROPERTIES
-        BUILD_WITH_INSTALL_RPATH TRUE
-        INSTALL_RPATH "@executable_path/../Frameworks")
-elseif(UNIX)
+if(UNIX AND NOT APPLE)
     set_target_properties(WaveEdit PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
         INSTALL_RPATH "$ORIGIN")
@@ -570,31 +547,33 @@ endif()
 # ----------------------------------------------------------------------------
 # Make LAME actually USED. JUCE's MP3AudioFormat is decode-only, so WaveEdit
 # ships its own LAME-backed encoder (Source/Audio/LameMP3AudioFormat.cpp).
-# The block above only bundles the dylib; here we find the header, add the
-# encoder source, and link+define WAVEEDIT_HAVE_LAME when lib AND header are
-# present. Without LAME the encoder TU compiles empty and MP3 export reports
-# unavailable at runtime (the build still succeeds). LGPL: dynamically linked.
+# On macOS, LAME_INCLUDE_DIR/LAME_LIBRARY are already set by
+# cmake/ThirdPartyAudioLibs.cmake (built from source, statically linked) --
+# skip re-finding them there. On Windows/Linux this finds the header, and
+# below we add the encoder source and link+define WAVEEDIT_HAVE_LAME when
+# lib AND header are present. Without LAME the encoder TU compiles empty and
+# MP3 export reports unavailable at runtime (the build still succeeds).
 # ----------------------------------------------------------------------------
-find_path(LAME_INCLUDE_DIR
-    NAMES lame/lame.h
-    PATHS
-        /opt/homebrew/opt/lame/include   /opt/homebrew/include
-        /usr/local/opt/lame/include      /usr/local/include
-        /opt/local/include               /usr/include
-        "${CMAKE_SOURCE_DIR}/ThirdParty/lame/include"
-)
-# Unconditional so EVERY platform (incl. Windows/vcpkg) can link LAME, not just
-# the macOS/Linux bundling branches above -- otherwise the gate below is never
-# true on Windows and MP3 silently ships disabled.
-find_library(LAME_LIBRARY
-    NAMES mp3lame libmp3lame
-    PATHS
-        /opt/homebrew/opt/lame/lib   /opt/homebrew/lib
-        /usr/local/opt/lame/lib      /usr/local/lib
-        /opt/local/lib               /usr/lib
-        /usr/lib/x86_64-linux-gnu    /usr/lib/aarch64-linux-gnu
-        "${CMAKE_SOURCE_DIR}/ThirdParty/lame/lib"
-)
+if(NOT APPLE)
+    find_path(LAME_INCLUDE_DIR
+        NAMES lame/lame.h
+        PATHS
+            /usr/local/opt/lame/include      /usr/local/include
+            /opt/local/include               /usr/include
+            "${CMAKE_SOURCE_DIR}/ThirdParty/lame/include"
+    )
+    # Unconditional so EVERY platform (incl. Windows/vcpkg) can link LAME, not
+    # just the Linux bundling branch above -- otherwise the gate below is
+    # never true on Windows and MP3 silently ships disabled.
+    find_library(LAME_LIBRARY
+        NAMES mp3lame libmp3lame
+        PATHS
+            /usr/local/opt/lame/lib      /usr/local/lib
+            /opt/local/lib               /usr/lib
+            /usr/lib/x86_64-linux-gnu    /usr/lib/aarch64-linux-gnu
+            "${CMAKE_SOURCE_DIR}/ThirdParty/lame/lib"
+    )
+endif()
 target_sources(WaveEdit PRIVATE
     Source/Audio/LameMP3AudioFormat.cpp
     Source/Audio/LameMP3AudioFormat.h)
@@ -612,31 +591,24 @@ endif()
 # ============================================================================
 # Bundle SoundTouch (LGPL-2.1) for time-stretch / pitch-shift DSP
 # ============================================================================
-# Same shape as the LAME integration: dynamically linked, source code
-# available at https://www.surina.net/soundtouch/. NOTICE has the full
-# attribution text. The find_library / find_path calls are higher up the
-# file (before target_include_directories) so SOUNDTOUCH_LIBRARY and
-# SOUNDTOUCH_INCLUDE_DIR are populated before they are consumed.
+# Source code available at https://www.surina.net/soundtouch/ (macOS:
+# https://codeberg.org/soundtouch/soundtouch, pinned tag -- see
+# cmake/ThirdPartyAudioLibs.cmake). NOTICE has the full attribution text.
+# The find_library / find_path calls (or, on macOS, the from-source build)
+# are higher up the file (before target_include_directories) so
+# SOUNDTOUCH_LIBRARY and SOUNDTOUCH_INCLUDE_DIR are populated before they are
+# consumed. macOS links it statically (nothing to bundle below); Windows and
+# Linux still link it dynamically and bundle the runtime library, unchanged.
 
 if(SOUNDTOUCH_LIBRARY AND SOUNDTOUCH_INCLUDE_DIR)
     if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
-        add_custom_command(TARGET WaveEdit POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory
-                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks"
-            COMMAND ${CMAKE_COMMAND} -E copy
-                "${SOUNDTOUCH_LIBRARY}"
-                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libSoundTouch.1.dylib"
-            COMMAND install_name_tool -id
-                "@rpath/libSoundTouch.1.dylib"
-                "$<TARGET_BUNDLE_DIR:WaveEdit>/Contents/Frameworks/libSoundTouch.1.dylib"
-            # Relink the executable to the bundled copy. Reads the exe's
-            # actual load command at build time (robust to which symlink
-            # find_library resolved); the app bundle already carries an
-            # @executable_path/../Frameworks rpath that resolves @rpath.
-            COMMAND bash "${CMAKE_SOURCE_DIR}/cmake/relink_bundled_dylib.sh"
-                "$<TARGET_FILE:WaveEdit>" libSoundTouch "@rpath/libSoundTouch.1.dylib"
-            COMMENT "Bundling SoundTouch library and relinking executable"
-        )
+        # Nothing to bundle: SoundTouch is built from pinned source as a
+        # static library (cmake/ThirdPartyAudioLibs.cmake, SOUNDTOUCH_LIBRARY
+        # is the "SoundTouch" target) and linked directly into the WaveEdit
+        # binary. This used to bundle a Homebrew dylib here, which only
+        # worked for the host architecture -- exactly what blocked universal
+        # builds (see the top-of-file comment).
+        message(STATUS "SoundTouch is statically linked (built from source) -- nothing to bundle")
     elseif(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Release")
         # On Windows, SOUNDTOUCH_LIBRARY is the import library (.lib); the
         # runtime needs the .dll alongside the .exe. Locate the DLL the same

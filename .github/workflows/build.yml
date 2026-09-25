@@ -28,15 +28,15 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install dependencies
-        run: brew install sound-touch lame
-
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: '3.22.x'
 
       - name: Configure CMake
+        # No Homebrew install step: LAME and SoundTouch are fetched from
+        # upstream source and built as static libraries for macOS (see
+        # cmake/ThirdPartyAudioLibs.cmake), universal across arm64+x86_64.
         run: cmake -B build -G "Xcode" -DCMAKE_BUILD_TYPE=Release
 
       - name: Verify MP3 encoder enabled
@@ -66,6 +66,45 @@ jobs:
             find build -type f -name "WaveEdit*"
             exit 1
           fi
+
+      - name: Verify universal binary and no bundled third-party dylibs
+        run: |
+          BIN="build/WaveEdit_artefacts/Release/WaveEdit.app/Contents/MacOS/WaveEdit"
+
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "Architectures: $ARCHS"
+          HAS_ARM64=0; HAS_X86_64=0
+          for a in $ARCHS; do
+            [ "$a" = "arm64" ] && HAS_ARM64=1
+            [ "$a" = "x86_64" ] && HAS_X86_64=1
+          done
+          if [ "$HAS_ARM64" -ne 1 ] || [ "$HAS_X86_64" -ne 1 ]; then
+            echo "::error::expected a universal (arm64 + x86_64) binary, got: $ARCHS"
+            exit 1
+          fi
+
+          MINOS="$(otool -l "$BIN" | grep minos | awk '{print $2}' | sort -u)"
+          echo "Deployment targets found: $MINOS"
+          if [ "$MINOS" != "11.0" ]; then
+            echo "::error::expected minos 11.0 for every slice, got: $MINOS"
+            exit 1
+          fi
+
+          echo "Linked libraries:"
+          otool -L "$BIN"
+          BAD="$(otool -L "$BIN" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/System/|/usr/lib/)' || true)"
+          if [ -n "$BAD" ]; then
+            echo "::error::non-system dylib(s) linked: $BAD"
+            exit 1
+          fi
+
+          FRAMEWORKS_DIR="build/WaveEdit_artefacts/Release/WaveEdit.app/Contents/Frameworks"
+          if [ -d "$FRAMEWORKS_DIR" ] && find "$FRAMEWORKS_DIR" -iname "*soundtouch*" -o -iname "*mp3lame*" | grep -q .; then
+            echo "::error::found a bundled SoundTouch/LAME dylib in Contents/Frameworks -- both must be statically linked"
+            exit 1
+          fi
+
+          echo "Verified: universal, minos 11.0, no bundled third-party dylibs."
 
       - name: Package macOS app
         run: |
