@@ -10,16 +10,11 @@ bound to a shortcut. It opens WAV, AIFF, FLAC, MP3, OGG, and M4A. Built with JUC
 Download a build from the Releases page:
 https://github.com/themightyzq/WaveEdit/releases
 
-The latest tagged release is v0.1.0 (2026-04-29), with archives for each platform:
+The latest tagged release is v0.9.0 (2026-09-28), with archives for each platform:
 `WaveEdit-macOS-universal.zip`, `WaveEdit-Windows-x64.zip`, `WaveEdit-Linux-x64.tar.gz`.
-The source in this repository has moved on since then and is currently at 0.9.0. If you want
-the current version rather than v0.1.0, build from source (below).
-
-Despite its filename, the v0.1.0 macOS zip is an Apple Silicon (arm64) build only and will
-not run on an Intel Mac. Building from source now produces a universal (arm64 + x86_64) build
-targeting macOS 11.0+ automatically: CMake fetches LAME and SoundTouch from their upstream
-source and compiles both as static libraries for macOS, so no Homebrew install of either is
-needed there (see Build from source below).
+The macOS build is universal (Apple Silicon and Intel) and needs macOS 11.0 or newer.
+The source in this repository is at 0.9.1, which fixes several ways v0.9.0 could lose or
+overwrite a file (see CHANGELOG); build from source (below) to get it before it is released.
 
 The binaries are unsigned on every platform:
 
@@ -48,7 +43,8 @@ in one folder, so removing that folder plus the app is a complete uninstall:
    OGG, or MP3. Each open file is its own tab in one window.
 2. Select audio by clicking and dragging on the waveform.
 3. Edit with `Delete`, `Cmd+X`/`Cmd+C`/`Cmd+V` for cut/copy/paste, and `Cmd+Z`/`Cmd+Shift+Z`
-   for undo/redo (100 levels per file).
+   for undo/redo (up to 100 levels per file, fewer on very long files: undo history is
+   capped at an eighth of your RAM, at most 2 GB).
 4. Play with `Space`, stop with `Escape`.
 5. Save with `Cmd+S`. There are no project files: WaveEdit edits the file itself, and
    nothing is written to disk until you save.
@@ -63,7 +59,9 @@ What it does, beyond basic cut and paste:
   and pitch independent)
 - Regions and markers, saved as embedded WAV cue and LIST-adtl chunks so they read back in
   Reaper, Wwise, and iZotope RX, plus a region list panel, batch rename, and batch export
-  (each region to its own WAV file)
+  (each region to its own WAV file). FLAC, AIFF, OGG, and MP3 files, and WAVs over 4 GB,
+  keep them in companion files next to the audio (`name.ext.regions.json` and
+  `name.ext.markers.json`); keep those with the audio when you move it.
 - BWF and iXML metadata editing, with UCS category suggestions
 - A batch processor: apply a DSP chain (gain, normalize, fades, EQ presets, a plugin chain)
   to many files at once, with output format and naming control

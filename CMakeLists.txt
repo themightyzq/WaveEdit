@@ -17,7 +17,7 @@ if(APPLE)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures for macOS")
 endif()
 
-project(WaveEdit VERSION 0.9.0 LANGUAGES C CXX)
+project(WaveEdit VERSION 0.9.1 LANGUAGES C CXX)
 
 # Enable CTest for test registration
 enable_testing()
