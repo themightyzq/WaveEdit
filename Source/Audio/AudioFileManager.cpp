@@ -379,25 +379,20 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
         return false;
     }
 
-    // Atomically swap the completed temp file onto the target.
-    if (!tempFile.overwriteTargetFileWithTemporary())
-    {
-        setError("Could not replace target file with completed temp file: " + file.getFullPathName());
-        return false;
-    }
-
-    // Verify 8-bit files are written correctly (unsigned PCM format validation)
+    // Verify 8-bit files are written correctly (unsigned PCM format validation).
+    // This reads the TEMP file, before the swap onto the target: a
+    // verification failure must leave the user's original file untouched
+    // rather than deleting it after a successful swap.
     if (bitDepth == 8)
     {
         DBG("Verifying 8-bit PCM format...");
 
-        // Read back the file to verify format
-        std::unique_ptr<juce::AudioFormatReader> verifyReader(m_formatManager.createReaderFor(file));
+        // Read back the temp file to verify format
+        std::unique_ptr<juce::AudioFormatReader> verifyReader(m_formatManager.createReaderFor(tempFile.getFile()));
 
         if (verifyReader == nullptr)
         {
             setError("8-bit file verification failed: Cannot read back file: " + file.getFullPathName());
-            file.deleteFile();  // Clean up corrupted file
             return false;
         }
 
@@ -406,7 +401,6 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
         {
             setError("8-bit file verification failed: Expected 8-bit but got " +
                     juce::String(verifyReader->bitsPerSample) + "-bit");
-            file.deleteFile();
             return false;
         }
 
@@ -417,7 +411,6 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
         if (!verifyReader->read(&verifyBuffer, 0, samplesToCheck, 0, true, true))
         {
             setError("8-bit file verification failed: Cannot read sample data");
-            file.deleteFile();
             return false;
         }
 
@@ -432,13 +425,24 @@ bool AudioFileManager::saveAsWav(const juce::File& file,
                 {
                     setError("8-bit file verification failed: Sample out of range at channel " +
                             juce::String(ch) + ", sample " + juce::String(i) + ": " + juce::String(sample));
-                    file.deleteFile();
                     return false;
                 }
             }
         }
 
+        // Release the reader's file handle before the swap below (Windows
+        // cannot rename/replace a file that is still open for reading).
+        verifyReader.reset();
+
         juce::Logger::writeToLog("8-bit PCM format verified successfully");
+    }
+
+    // Atomically swap the completed (and, for 8-bit, verified) temp file
+    // onto the target.
+    if (!tempFile.overwriteTargetFileWithTemporary())
+    {
+        setError("Could not replace target file with completed temp file: " + file.getFullPathName());
+        return false;
     }
 
     DBG("Saved WAV file: " + file.getFullPathName());
@@ -974,24 +978,18 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
         return false;
     }
 
-    // Delete existing file if present (JUCE won't overwrite)
-    if (file.existsAsFile())
-    {
-        if (!file.deleteFile())
-        {
-            setError("Could not delete existing file: " + file.getFullPathName());
-            return false;
-        }
-    }
+    // Atomic save: write to a sibling temp file, then swap it onto the
+    // target in a single step. A crash / disk-full mid-write, or a writer
+    // that fails to open or encode, leaves the original file untouched
+    // instead of deleted (mirrors the saveAsWav pattern above).
+    juce::TemporaryFile tempFile(file, juce::TemporaryFile::useHiddenFile);
 
-    // Create output stream
-    auto fileStream = std::make_unique<juce::FileOutputStream>(file);
-    if (!fileStream->openedOk())
+    std::unique_ptr<juce::OutputStream> outputStream(tempFile.getFile().createOutputStream());
+    if (outputStream == nullptr)
     {
         setError("Could not create output stream for file: " + file.getFullPathName());
         return false;
     }
-    std::unique_ptr<juce::OutputStream> outputStream = std::move(fileStream);
 
     // Create audio format writer
     // Note: For compressed formats, bitDepth is typically ignored, and qualityOptionIndex is used instead
@@ -1049,6 +1047,13 @@ bool AudioFileManager::saveAudioFile(const juce::File& file,
     if (!writeSuccess)
     {
         setError("Failed to write audio data to file: " + file.getFullPathName());
+        return false;
+    }
+
+    // Atomically swap the completed temp file onto the target.
+    if (!tempFile.overwriteTargetFileWithTemporary())
+    {
+        setError("Could not replace target file with completed temp file: " + file.getFullPathName());
         return false;
     }
 
