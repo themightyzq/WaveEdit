@@ -59,10 +59,16 @@ set(SOUNDTOUCH_INCLUDE_DIR "${soundtouch_src_SOURCE_DIR}/include")
 # compiles cleanly and portably under a plain add_library(), verified for
 # both arm64 and x86_64 with a standalone smoke test before wiring this in.)
 # ------------------------------------------------------------------------
+# DOWNLOAD_EXTRACT_TIMESTAMP only exists from CMake 3.24; older CMake (CI pins 3.22)
+# would read it as part of URL_HASH and fail, so pass it only where it is understood.
+set(_lame_extract_ts "")
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.24)
+    set(_lame_extract_ts DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+endif()
 FetchContent_Declare(lame_src
     URL https://sourceforge.net/projects/lame/files/lame/3.100/lame-3.100.tar.gz/download
     URL_HASH SHA256=ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    ${_lame_extract_ts}
 )
 FetchContent_MakeAvailable(lame_src)
 
