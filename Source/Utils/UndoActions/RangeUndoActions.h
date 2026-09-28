@@ -25,6 +25,7 @@
 #include "../../Audio/AudioBufferManager.h"
 #include "../../Audio/AudioEngine.h"
 #include "../../UI/WaveformDisplay.h"
+#include "UndoMemoryBudget.h"
 
 //==============================================================================
 /**
@@ -50,6 +51,9 @@ public:
         // Store only the affected region to save memory
         m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+
+        // Fixed once here, from the only buffer this action holds.
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_beforeBuffer);
     }
 
     bool perform() override
@@ -102,6 +106,8 @@ public:
         return true;
     }
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -109,6 +115,7 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     int m_startSample;
     int m_numSamples;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SilenceUndoAction)
 };
@@ -137,6 +144,9 @@ public:
         // Store entire buffer since trim changes the file length
         m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+
+        // Fixed once here, from the only buffer this action holds.
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_beforeBuffer);
     }
 
     bool perform() override
@@ -195,6 +205,8 @@ public:
         return true;
     }
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -202,6 +214,7 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     int m_startSample;
     int m_numSamples;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrimUndoAction)
 };

@@ -26,6 +26,7 @@
 #include "Region.h"
 #include "MarkerManager.h"
 #include "Marker.h"
+#include "UndoActions/UndoMemoryBudget.h"
 
 // UndoableEditBase + the generic Delete/Insert/Replace primitives live here.
 // Domain-specific actions live alongside their domain in Source/Utils/UndoActions/.
@@ -244,6 +245,11 @@ public:
         m_deletedAudio = m_bufferManager.getAudioRange(startSample, numSamples);
         m_sampleRate = m_bufferManager.getSampleRate();
 
+        // Fixed once here, from the buffer this action holds for its whole
+        // lifetime: JUCE calls getSizeInUnits() again after perform()/undo()
+        // and subtracts the same value later, so it must never change.
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_deletedAudio);
+
         // Save all region positions BEFORE the delete (for undo)
         if (m_regionManager)
         {
@@ -365,12 +371,7 @@ public:
         return success;
     }
 
-    int getSizeInUnits() override
-    {
-        // Return approximate memory usage in bytes
-        return static_cast<int>(static_cast<size_t>(m_deletedAudio.getNumSamples()) *
-                                static_cast<size_t>(m_deletedAudio.getNumChannels()) * sizeof(float));
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     int64_t m_startSample;
@@ -378,6 +379,7 @@ private:
     juce::AudioBuffer<float> m_deletedAudio;
     double m_sampleRate;
     juce::Array<Region> m_savedRegions;  // Saved region positions for undo
+    int m_sizeInUnits = 0;               // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeleteAction)
 };
@@ -417,6 +419,9 @@ public:
         {
             m_audioToInsert.copyFrom(ch, 0, audioToInsert, ch, 0, audioToInsert.getNumSamples());
         }
+
+        // Fixed once here, now that m_audioToInsert holds its final content.
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_audioToInsert);
 
         m_sampleRate = m_bufferManager.getSampleRate();
 
@@ -537,12 +542,7 @@ public:
         return success;
     }
 
-    int getSizeInUnits() override
-    {
-        // Return approximate memory usage in bytes
-        return static_cast<int>(static_cast<size_t>(m_audioToInsert.getNumSamples()) *
-                                static_cast<size_t>(m_audioToInsert.getNumChannels()) * sizeof(float));
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     int64_t m_insertPosition;
@@ -553,6 +553,7 @@ private:
     MarkerManager* m_markerManager;      // Optional - may be nullptr if no markers
     MarkerDisplay* m_markerDisplay;      // Optional - may be nullptr if no marker display
     juce::Array<Marker> m_savedMarkers;  // Saved marker positions for undo
+    int m_sizeInUnits = 0;               // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InsertAction)
 };
@@ -597,6 +598,14 @@ public:
         {
             m_newAudio.copyFrom(ch, 0, newAudio, ch, 0, newAudio.getNumSamples());
         }
+
+        // Fixed once here: this action holds BOTH buffers for its whole
+        // lifetime, so the size is their combined bytes, converted once.
+        const size_t originalBytes = static_cast<size_t>(m_originalAudio.getNumChannels()) *
+                                     static_cast<size_t>(m_originalAudio.getNumSamples()) * sizeof(float);
+        const size_t newBytes = static_cast<size_t>(m_newAudio.getNumChannels()) *
+                                static_cast<size_t>(m_newAudio.getNumSamples()) * sizeof(float);
+        m_sizeInUnits = UndoMemory::unitsForBytes(originalBytes + newBytes);
 
         m_sampleRate = m_bufferManager.getSampleRate();
 
@@ -669,15 +678,7 @@ public:
         return success;
     }
 
-    int getSizeInUnits() override
-    {
-        // Return approximate memory usage in bytes (both buffers)
-        size_t originalSize = static_cast<size_t>(m_originalAudio.getNumSamples()) *
-                              static_cast<size_t>(m_originalAudio.getNumChannels()) * sizeof(float);
-        size_t newSize = static_cast<size_t>(m_newAudio.getNumSamples()) *
-                         static_cast<size_t>(m_newAudio.getNumChannels()) * sizeof(float);
-        return static_cast<int>(originalSize + newSize);
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     /**
@@ -779,6 +780,7 @@ private:
     MarkerManager* m_markerManager;      // Optional - may be nullptr if no markers
     MarkerDisplay* m_markerDisplay;      // Optional - may be nullptr if no marker display
     juce::Array<Marker> m_savedMarkers;  // Saved marker positions for undo
+    int m_sizeInUnits = 0;               // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReplaceAction)
 };

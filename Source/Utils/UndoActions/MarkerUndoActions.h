@@ -19,6 +19,7 @@
 #include "../MarkerManager.h"
 #include "../Marker.h"
 #include "../../UI/MarkerDisplay.h"
+#include "UndoMemoryBudget.h"
 
 //==============================================================================
 /**
@@ -35,6 +36,9 @@ public:
           m_markerDisplay(markerDisplay),
           m_marker(marker)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + sizeof(Marker));
     }
 
     bool perform() override
@@ -71,12 +75,13 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + sizeof(Marker); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
     Marker m_marker;  // Carries the stable ID used to locate it on undo
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AddMarkerUndoAction)
 };
@@ -98,6 +103,9 @@ public:
           m_markerIndex(markerIndex),
           m_deletedMarker(marker)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + sizeof(Marker));
     }
 
     bool perform() override
@@ -136,13 +144,14 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + sizeof(Marker); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
     int m_markerIndex;
     Marker m_deletedMarker;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeleteMarkerUndoAction)
 };
@@ -164,6 +173,10 @@ public:
           m_audioFile(audioFile),
           m_markers(markersToCreate)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus its marker vector, which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(
+            sizeof(*this) + static_cast<size_t>(m_markers.size()) * sizeof(Marker));
     }
 
     bool perform() override
@@ -193,13 +206,14 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_markers.size()) * sizeof(Marker)); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
     juce::File m_audioFile;
     juce::Array<Marker> m_markers;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RegionsToMarkersUndoAction)
 };
@@ -228,6 +242,11 @@ public:
         // re-sort on add) cannot make undo rename the wrong marker (H9).
         if (const Marker* m = m_markerManager.getMarker(markerIndex))
             m_markerId = m->getId();
+
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus the two name strings, which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(
+            sizeof(*this) + static_cast<size_t>(m_oldName.length()) + static_cast<size_t>(m_newName.length()));
     }
 
     bool perform() override
@@ -254,10 +273,7 @@ public:
         return false;
     }
 
-    int getSizeInUnits() override
-    {
-        return static_cast<int>(sizeof(*this)) + m_oldName.length() + m_newName.length();
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     MarkerManager& m_markerManager;
@@ -266,6 +282,7 @@ private:
     int64_t m_markerId = -1;
     juce::String m_oldName;
     juce::String m_newName;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RenameMarkerUndoAction)
 };
@@ -293,6 +310,10 @@ public:
         // Bind to the marker's stable ID (H9).
         if (const Marker* m = m_markerManager.getMarker(markerIndex))
             m_markerId = m->getId();
+
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + sizeof(juce::Colour) * 2);
     }
 
     bool perform() override
@@ -319,7 +340,7 @@ public:
         return false;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + sizeof(juce::Colour) * 2; }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     MarkerManager& m_markerManager;
@@ -328,6 +349,7 @@ private:
     int64_t m_markerId = -1;
     juce::Colour m_oldColor;
     juce::Colour m_newColor;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChangeMarkerColorUndoAction)
 };
@@ -356,12 +378,15 @@ public:
           m_oldPosition(oldPosition),
           m_newPosition(newPosition)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this));
     }
 
     bool perform() override { return moveTo(m_newPosition); }
     bool undo() override    { return moveTo(m_oldPosition); }
 
-    int getSizeInUnits() override { return sizeof(*this); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     bool moveTo(int64_t position)
@@ -391,6 +416,7 @@ private:
     int64_t m_markerId;
     int64_t m_oldPosition;
     int64_t m_newPosition;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MoveMarkerUndoAction)
 };
@@ -414,6 +440,10 @@ public:
           m_audioFile(audioFile),
           m_markers(markersToAdd)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus its marker vector, which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(
+            sizeof(*this) + static_cast<size_t>(m_markers.size()) * sizeof(Marker));
     }
 
     bool perform() override
@@ -440,13 +470,14 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_markers.size()) * sizeof(Marker)); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
     juce::File m_audioFile;
     juce::Array<Marker> m_markers;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ImportMarkersUndoAction)
 };

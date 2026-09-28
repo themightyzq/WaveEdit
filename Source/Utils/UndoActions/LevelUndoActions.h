@@ -28,6 +28,7 @@
 #include "../../Audio/AudioEngine.h"
 #include "../../Audio/AudioProcessor.h"
 #include "../../UI/WaveformDisplay.h"
+#include "UndoMemoryBudget.h"
 
 //==============================================================================
 /**
@@ -57,6 +58,9 @@ public:
         // Store only the affected region to save memory
         m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+
+        // Fixed once here, from the only buffer this action holds.
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_beforeBuffer);
     }
 
     /**
@@ -129,6 +133,8 @@ public:
         return true;
     }
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -139,6 +145,7 @@ private:
     float m_gainDB;
     bool m_isSelection;
     bool m_alreadyPerformed = false;  // For progress dialog integration
+    int m_sizeInUnits = 0;            // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GainUndoAction)
 };
@@ -171,6 +178,9 @@ public:
         // Store only the affected region to save memory
         m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+
+        // Fixed once here, from the only buffer this action holds.
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_beforeBuffer);
     }
 
     bool perform() override
@@ -234,6 +244,8 @@ public:
         return true;
     }
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -243,6 +255,7 @@ private:
     int m_numSamples;
     bool m_isSelection;
     float m_targetDB;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NormalizeUndoAction)
 };
@@ -271,6 +284,9 @@ public:
         // Store the affected region
         m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+
+        // Fixed once here, from the only buffer this action holds.
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_beforeBuffer);
     }
 
     void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
@@ -347,6 +363,8 @@ public:
         return true;
     }
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -355,6 +373,7 @@ private:
     int m_startSample;
     int m_numSamples;
     bool m_alreadyPerformed = false;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DCOffsetRemovalUndoAction)
 };

@@ -51,6 +51,15 @@ public:
             m_convertedBuffer.copyFrom(ch, 0, convertedBuffer, ch, 0, convertedBuffer.getNumSamples());
 
         m_sampleRate = m_bufferManager.getSampleRate();
+
+        // Fixed once here: this action holds BOTH buffers for its whole
+        // lifetime, so the size is their combined bytes, converted once
+        // (avoids the previous overflow-prone static_cast<int> of raw bytes).
+        const size_t originalBytes = static_cast<size_t>(m_originalBuffer.getNumChannels()) *
+                                     static_cast<size_t>(m_originalBuffer.getNumSamples()) * sizeof(float);
+        const size_t convertedBytes = static_cast<size_t>(m_convertedBuffer.getNumChannels()) *
+                                      static_cast<size_t>(m_convertedBuffer.getNumSamples()) * sizeof(float);
+        m_sizeInUnits = UndoMemory::unitsForBytes(originalBytes + convertedBytes);
     }
 
     bool perform() override
@@ -71,19 +80,13 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override
-    {
-        const size_t originalSize = static_cast<size_t>(m_originalBuffer.getNumSamples()) *
-                                    static_cast<size_t>(m_originalBuffer.getNumChannels()) * sizeof(float);
-        const size_t convertedSize = static_cast<size_t>(m_convertedBuffer.getNumSamples()) *
-                                     static_cast<size_t>(m_convertedBuffer.getNumChannels()) * sizeof(float);
-        return static_cast<int>(originalSize + convertedSize);
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     juce::AudioBuffer<float> m_originalBuffer;
     juce::AudioBuffer<float> m_convertedBuffer;
     double m_sampleRate;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChannelConvertAction)
 };
@@ -108,6 +111,11 @@ public:
         m_originalMonoBuffer.setSize(originalBuffer.getNumChannels(),
                                      originalBuffer.getNumSamples());
         m_originalMonoBuffer.makeCopyOf(originalBuffer, true);
+
+        // Fixed once here, from the only buffer this action holds for its
+        // whole lifetime (the converted stereo buffer lives in
+        // AudioBufferManager, not in this action).
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_originalMonoBuffer);
     }
 
     void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
@@ -168,7 +176,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return 100; }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     AudioBufferManager& m_bufferManager;
@@ -176,6 +184,7 @@ private:
     AudioEngine& m_audioEngine;
     juce::AudioBuffer<float> m_originalMonoBuffer;
     bool m_alreadyPerformed = false;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ConvertToStereoAction)
 };
@@ -207,6 +216,9 @@ public:
         // Store only the affected region for the affected channels
         m_beforeBuffer.setSize(beforeBuffer.getNumChannels(), beforeBuffer.getNumSamples());
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+
+        // Fixed once here, from the only buffer this action holds.
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_beforeBuffer);
     }
 
     bool perform() override
@@ -264,6 +276,8 @@ public:
         return true;
     }
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -272,6 +286,7 @@ private:
     int m_startSample;
     int m_numSamples;
     int m_channelMask;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SilenceChannelsUndoAction)
 };
@@ -307,6 +322,14 @@ public:
         // Store the new audio for redo
         m_newAudio.setSize(newAudio.getNumChannels(), newAudio.getNumSamples());
         m_newAudio.makeCopyOf(newAudio, true);
+
+        // Fixed once here: this action holds BOTH buffers for its whole
+        // lifetime, so the size is their combined bytes, converted once.
+        const size_t beforeBytes = static_cast<size_t>(m_beforeBuffer.getNumChannels()) *
+                                   static_cast<size_t>(m_beforeBuffer.getNumSamples()) * sizeof(float);
+        const size_t newBytes = static_cast<size_t>(m_newAudio.getNumChannels()) *
+                                static_cast<size_t>(m_newAudio.getNumSamples()) * sizeof(float);
+        m_sizeInUnits = UndoMemory::unitsForBytes(beforeBytes + newBytes);
     }
 
     bool perform() override
@@ -358,6 +381,8 @@ public:
         return true;
     }
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -366,6 +391,7 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     juce::AudioBuffer<float> m_newAudio;
     int m_channelMask;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReplaceChannelsAction)
 };

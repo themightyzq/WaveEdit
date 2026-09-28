@@ -43,6 +43,11 @@ public:
 
         m_originalAudio = m_bufferManager.getAudioRange(startSample, numSamples);
         m_sampleRate = m_bufferManager.getSampleRate();
+
+        // Fixed once here, from the only buffer this action holds (the EQ'd
+        // audio is computed fresh from the live buffer on each perform(),
+        // never stored by this action).
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_originalAudio);
     }
 
     bool perform() override
@@ -71,12 +76,7 @@ public:
         return success;
     }
 
-    int getSizeInUnits() override
-    {
-        const size_t size = static_cast<size_t>(m_originalAudio.getNumSamples()) *
-                            static_cast<size_t>(m_originalAudio.getNumChannels()) * sizeof(float);
-        return static_cast<int>(size);
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     int64_t m_startSample;
@@ -84,6 +84,7 @@ private:
     DynamicParametricEQ::Parameters m_eqParams;
     juce::AudioBuffer<float> m_originalAudio;
     double m_sampleRate;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ApplyDynamicParametricEQAction)
 };
@@ -130,6 +131,15 @@ public:
             m_processedAudio.copyFrom(ch, 0, processedAudio, ch, 0, processedAudio.getNumSamples());
 
         m_sampleRate = m_bufferManager.getSampleRate();
+
+        // Fixed once here: this action holds BOTH buffers for its whole
+        // lifetime, so the size is their combined bytes, converted once
+        // (avoids the previous overflow-prone static_cast<int> of raw bytes).
+        const size_t originalBytes = static_cast<size_t>(m_originalAudio.getNumChannels()) *
+                                     static_cast<size_t>(m_originalAudio.getNumSamples()) * sizeof(float);
+        const size_t processedBytes = static_cast<size_t>(m_processedAudio.getNumChannels()) *
+                                      static_cast<size_t>(m_processedAudio.getNumSamples()) * sizeof(float);
+        m_sizeInUnits = UndoMemory::unitsForBytes(originalBytes + processedBytes);
     }
 
     void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
@@ -175,14 +185,7 @@ public:
         return success;
     }
 
-    int getSizeInUnits() override
-    {
-        const size_t originalSize = static_cast<size_t>(m_originalAudio.getNumSamples()) *
-                                    static_cast<size_t>(m_originalAudio.getNumChannels()) * sizeof(float);
-        const size_t processedSize = static_cast<size_t>(m_processedAudio.getNumSamples()) *
-                                     static_cast<size_t>(m_processedAudio.getNumChannels()) * sizeof(float);
-        return static_cast<int>(originalSize + processedSize);
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
     // NOTE: a getName() used to live here, but juce::UndoableAction has no
     // virtual getName() to override (only perform()/undo()/getSizeInUnits()/
@@ -219,6 +222,7 @@ private:
     juce::String m_chainDescription;
     double m_sampleRate;
     bool m_alreadyPerformed = false;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ApplyPluginChainAction)
 };

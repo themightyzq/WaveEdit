@@ -25,6 +25,7 @@
 #include "../Automation/AutomationRecorder.h"
 #include "../Plugins/PluginChain.h"
 #include "SidecarPolicy.h"
+#include "UndoActions/UndoMemoryBudget.h"
 #include <cmath>
 
 Document::Document(const juce::File& file)
@@ -36,9 +37,11 @@ Document::Document(const juce::File& file)
       m_markerDisplay(m_markerManager),  // Phase 3.4 - Marker system
       m_savedPlaybackPosition(0.0)
 {
-    // Configure undo manager with transaction limits (100 undo levels)
-    // minTransactions set to 90 to allow headroom for complex multi-unit transactions
-    m_undoManager.setMaxNumberOfStoredUnits(100, 90);
+    // Configure undo manager with transaction limits: up to 100 undo
+    // levels, bounded by a memory budget (UndoMemory::maxUnits(), a
+    // fraction of physical RAM) so large buffer snapshots can't retain
+    // ~100 full copies of a huge file. See UndoMemoryBudget.h.
+    m_undoManager.setMaxNumberOfStoredUnits(UndoMemory::maxUnits(), UndoMemory::kMinTransactionsKept);
 
     // Wire automation manager to audio engine for real-time parameter automation
     m_audioEngine.setAutomationManager(&m_automationManager);

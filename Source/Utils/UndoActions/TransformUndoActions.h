@@ -27,6 +27,7 @@
 #include "../../Audio/AudioFileManager.h"
 #include "../../Audio/AudioProcessor.h"
 #include "../../UI/WaveformDisplay.h"
+#include "UndoMemoryBudget.h"
 
 //==============================================================================
 /**
@@ -47,6 +48,10 @@ public:
           m_numSamples(numSamples),
           m_isSelection(isSelection)
     {
+        // Reverse modifies the buffer in place and stores no audio copy of
+        // its own -- report the (tiny, fixed) size of this object itself,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this));
     }
 
     bool perform() override
@@ -70,6 +75,8 @@ public:
 
     bool undo() override { return perform(); }  // Reverse is self-inverse
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -77,6 +84,7 @@ private:
     int m_startSample;
     int m_numSamples;
     bool m_isSelection;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverseUndoAction)
 };
@@ -100,6 +108,10 @@ public:
           m_numSamples(numSamples),
           m_isSelection(isSelection)
     {
+        // Invert modifies the buffer in place and stores no audio copy of
+        // its own -- report the (tiny, fixed) size of this object itself,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this));
     }
 
     bool perform() override
@@ -123,6 +135,8 @@ public:
 
     bool undo() override { return perform(); }  // Invert is self-inverse
 
+    int getSizeInUnits() override { return m_sizeInUnits; }
+
 private:
     AudioBufferManager& m_bufferManager;
     WaveformDisplay& m_waveformDisplay;
@@ -130,6 +144,7 @@ private:
     int m_startSample;
     int m_numSamples;
     bool m_isSelection;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InvertUndoAction)
 };
@@ -154,6 +169,11 @@ public:
           m_newSampleRate(newSampleRate)
     {
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
+
+        // Fixed once here, from the only buffer this action holds for its
+        // whole lifetime (the resampled "after" audio is computed fresh on
+        // each perform(), never stored).
+        m_sizeInUnits = UndoMemory::unitsForBuffer(m_beforeBuffer);
     }
 
     bool perform() override
@@ -191,7 +211,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return 100; }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     AudioBufferManager& m_bufferManager;
@@ -200,6 +220,7 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     double m_oldSampleRate;
     double m_newSampleRate;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ResampleUndoAction)
 };
@@ -225,6 +246,14 @@ public:
     {
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
         m_afterBuffer.makeCopyOf(afterBuffer, true);
+
+        // Fixed once here: this action holds BOTH buffers for its whole
+        // lifetime, so the size is their combined bytes, converted once.
+        const size_t beforeBytes = static_cast<size_t>(m_beforeBuffer.getNumChannels()) *
+                                   static_cast<size_t>(m_beforeBuffer.getNumSamples()) * sizeof(float);
+        const size_t afterBytes = static_cast<size_t>(m_afterBuffer.getNumChannels()) *
+                                  static_cast<size_t>(m_afterBuffer.getNumSamples()) * sizeof(float);
+        m_sizeInUnits = UndoMemory::unitsForBytes(beforeBytes + afterBytes);
     }
 
     bool perform() override
@@ -253,7 +282,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return 100; }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     AudioBufferManager& m_bufferManager;
@@ -262,6 +291,7 @@ private:
     juce::AudioBuffer<float> m_beforeBuffer;
     juce::AudioBuffer<float> m_afterBuffer;
     double m_sampleRate;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HeadTailUndoAction)
 };
@@ -290,6 +320,14 @@ public:
     {
         m_beforeBuffer.makeCopyOf(beforeBuffer, true);
         m_afterBuffer.makeCopyOf(afterBuffer, true);
+
+        // Fixed once here: this action holds BOTH buffers for its whole
+        // lifetime, so the size is their combined bytes, converted once.
+        const size_t beforeBytes = static_cast<size_t>(m_beforeBuffer.getNumChannels()) *
+                                   static_cast<size_t>(m_beforeBuffer.getNumSamples()) * sizeof(float);
+        const size_t afterBytes = static_cast<size_t>(m_afterBuffer.getNumChannels()) *
+                                  static_cast<size_t>(m_afterBuffer.getNumSamples()) * sizeof(float);
+        m_sizeInUnits = UndoMemory::unitsForBytes(beforeBytes + afterBytes);
     }
 
     bool perform() override
@@ -320,7 +358,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return 100; }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     AudioBufferManager& m_bufferManager;
@@ -330,6 +368,7 @@ private:
     juce::AudioBuffer<float> m_afterBuffer;
     double m_sampleRate;
     juce::String m_description;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimePitchUndoAction)
 };

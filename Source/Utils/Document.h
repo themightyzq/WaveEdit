@@ -156,7 +156,8 @@ public:
 
     /**
      * Gets the undo manager for this document.
-     * Each document has independent undo history (100 levels).
+     * Each document has independent undo history (up to 100 levels,
+     * bounded by a memory budget -- see UndoActions/UndoMemoryBudget.h).
      *
      * @return Reference to the document's UndoManager
      */

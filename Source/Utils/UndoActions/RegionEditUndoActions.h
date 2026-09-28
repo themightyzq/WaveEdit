@@ -25,6 +25,7 @@
 #include "../RegionManager.h"
 #include "../Region.h"
 #include "../../UI/RegionDisplay.h"
+#include "UndoMemoryBudget.h"
 
 //==============================================================================
 /**
@@ -53,6 +54,10 @@ public:
         // Bind to the region's stable ID (H8).
         if (const Region* region = m_regionManager.getRegion(regionIndex))
             m_regionId = region->getId();
+
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + sizeof(int64_t) * 4);
     }
 
     bool perform() override
@@ -100,7 +105,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + sizeof(int64_t) * 4; }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -111,6 +116,7 @@ private:
     int64_t m_oldEnd;
     int64_t m_newStart;
     int64_t m_newEnd;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ResizeRegionUndoAction)
 };
@@ -139,6 +145,10 @@ public:
         // Bind to the region's stable ID (H8).
         if (const Region* region = m_regionManager.getRegion(regionIndex))
             m_regionId = region->getId();
+
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this));
     }
 
     bool perform() override
@@ -165,7 +175,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -174,6 +184,7 @@ private:
     bool m_nudgeStart;
     int64_t m_oldPosition;
     int64_t m_newPosition;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NudgeRegionUndoAction)
 };
@@ -204,6 +215,11 @@ public:
             m_firstId = first->getId();
         if (const Region* second = m_regionManager.getRegion(secondIndex))
             m_secondId = second->getId();
+
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // (it holds two Region snapshots as members), which hits
+        // UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this));
     }
 
     bool perform() override
@@ -237,13 +253,14 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
     RegionDisplay* m_regionDisplay;
     int64_t m_firstId = -1, m_secondId = -1;
     Region m_originalFirst, m_originalSecond;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MergeRegionsUndoAction)
 };
@@ -267,6 +284,10 @@ public:
           m_originalIndices(originalIndices),
           m_originalRegions(originalRegions)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus its region vector, which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(
+            sizeof(*this) + static_cast<size_t>(m_originalRegions.size()) * sizeof(Region));
     }
 
     bool perform() override
@@ -330,10 +351,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override
-    {
-        return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_originalRegions.size()) * sizeof(Region));
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -342,6 +360,7 @@ private:
     juce::Array<int> m_originalIndices;  // Original indices of regions being merged
     juce::Array<Region> m_originalRegions;  // Original regions before merge
     int64_t m_mergedRegionId = -1;  // Stable ID of the merged region
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MultiMergeRegionsUndoAction)
 };
@@ -368,6 +387,10 @@ public:
         // half's identity and inserts the second half right after it.
         if (const Region* region = m_regionManager.getRegion(regionIndex))
             m_regionId = region->getId();
+
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this));
     }
 
     bool perform() override
@@ -412,7 +435,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -421,6 +444,7 @@ private:
     int64_t m_secondHalfId = -1;  // Stable ID of the second half (captured on perform)
     int64_t m_splitSample;
     Region m_originalRegion;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SplitRegionUndoAction)
 };

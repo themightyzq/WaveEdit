@@ -26,6 +26,7 @@
 #include "../RegionManager.h"
 #include "../Region.h"
 #include "../../UI/RegionDisplay.h"
+#include "UndoMemoryBudget.h"
 
 //==============================================================================
 /**
@@ -44,6 +45,9 @@ public:
           m_audioFile(audioFile),
           m_region(region)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + sizeof(Region));
     }
 
     bool perform() override
@@ -82,13 +86,14 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + sizeof(Region); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
     juce::File m_audioFile;
     Region m_region;  // Carries the stable ID used to locate it on undo
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AddRegionUndoAction)
 };
@@ -112,6 +117,10 @@ public:
           m_audioFile(audioFile),
           m_regions(regionsToPaste)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus its region vector, which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(
+            sizeof(*this) + static_cast<size_t>(m_regions.size()) * sizeof(Region));
     }
 
     bool perform() override
@@ -142,13 +151,14 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_regions.size()) * sizeof(Region)); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
     juce::File m_audioFile;
     juce::Array<Region> m_regions;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PasteRegionsUndoAction)
 };
@@ -176,6 +186,10 @@ public:
         // the list shifts before perform()/undo() (H8).
         if (const Region* region = m_regionManager.getRegion(m_regionIndex))
             m_deletedRegion = *region;
+
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + sizeof(Region));
     }
 
     bool perform() override
@@ -219,7 +233,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + sizeof(Region); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -227,6 +241,7 @@ private:
     juce::File m_audioFile;
     int m_regionIndex;
     Region m_deletedRegion;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeleteRegionUndoAction)
 };
@@ -255,6 +270,11 @@ public:
         // list cannot make this rename hit a different region (H8).
         if (const Region* region = m_regionManager.getRegion(regionIndex))
             m_regionId = region->getId();
+
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus the two name strings, which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(
+            sizeof(*this) + static_cast<size_t>(m_oldName.length()) + static_cast<size_t>(m_newName.length()));
     }
 
     bool perform() override
@@ -298,7 +318,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return static_cast<int>(sizeof(*this)) + m_oldName.length() + m_newName.length(); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -307,6 +327,7 @@ private:
     int64_t m_regionId = -1;
     juce::String m_oldName;
     juce::String m_newName;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RenameRegionUndoAction)
 };
@@ -334,6 +355,10 @@ public:
         // Bind to the region's stable ID (H8).
         if (const Region* region = m_regionManager.getRegion(regionIndex))
             m_regionId = region->getId();
+
+        // No audio storage -- report the (tiny, fixed) size of this object,
+        // which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + sizeof(juce::Colour) * 2);
     }
 
     bool perform() override
@@ -377,7 +402,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return sizeof(*this) + sizeof(juce::Colour) * 2; }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -386,6 +411,7 @@ private:
     int64_t m_regionId = -1;
     juce::Colour m_oldColor;
     juce::Colour m_newColor;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChangeRegionColorUndoAction)
 };
@@ -421,6 +447,13 @@ public:
             const Region* region = m_regionManager.getRegion(index);
             m_regionIds.push_back(region ? region->getId() : (int64_t) -1);
         }
+
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus its name vectors, which hits UndoMemory's floor.
+        size_t nameBytes = 0;
+        for (const auto& name : m_oldNames) nameBytes += static_cast<size_t>(name.length());
+        for (const auto& name : m_newNames) nameBytes += static_cast<size_t>(name.length());
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + nameBytes);
     }
 
     bool perform() override
@@ -449,13 +482,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override
-    {
-        int size = sizeof(*this);
-        for (const auto& name : m_oldNames) size += name.length();
-        for (const auto& name : m_newNames) size += name.length();
-        return size;
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -463,6 +490,7 @@ private:
     std::vector<int64_t> m_regionIds;
     std::vector<juce::String> m_oldNames;
     std::vector<juce::String> m_newNames;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BatchRenameRegionUndoAction)
 };

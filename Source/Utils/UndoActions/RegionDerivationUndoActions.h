@@ -26,6 +26,7 @@
 #include "../RegionManager.h"
 #include "../Region.h"
 #include "../../UI/RegionDisplay.h"
+#include "UndoMemoryBudget.h"
 
 //==============================================================================
 // NOTE (C13): The former `StripSilenceUndoAction` was removed. It stored a
@@ -56,6 +57,11 @@ public:
           m_oldRegions(oldRegions),
           m_newRegions(newRegions)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus its two region vectors, which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(
+            sizeof(*this) + static_cast<size_t>(m_oldRegions.size()) * sizeof(Region) +
+            static_cast<size_t>(m_newRegions.size()) * sizeof(Region));
     }
 
     bool perform() override
@@ -100,12 +106,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override
-    {
-        return static_cast<int>(sizeof(*this) +
-               static_cast<size_t>(m_oldRegions.size()) * sizeof(Region) +
-               static_cast<size_t>(m_newRegions.size()) * sizeof(Region));
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
@@ -113,6 +114,7 @@ private:
     juce::File m_audioFile;
     juce::Array<Region> m_oldRegions;  // Regions before Auto Region
     juce::Array<Region> m_newRegions;  // Regions created by Auto Region
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RetrospectiveStripSilenceUndoAction)
 };
@@ -134,6 +136,10 @@ public:
           m_audioFile(audioFile),
           m_regions(regionsToCreate)
     {
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus its region vector, which hits UndoMemory's floor.
+        m_sizeInUnits = UndoMemory::unitsForBytes(
+            sizeof(*this) + static_cast<size_t>(m_regions.size()) * sizeof(Region));
     }
 
     bool perform() override
@@ -163,13 +169,14 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return static_cast<int>(sizeof(*this) + static_cast<size_t>(m_regions.size()) * sizeof(Region)); }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
     juce::File m_audioFile;
     juce::Array<Region> m_regions;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MarkersToRegionsUndoAction)
 };

@@ -29,6 +29,7 @@
 
 #include "../../Automation/AutomationData.h"
 #include "../../Automation/AutomationManager.h"
+#include "UndoMemoryBudget.h"
 
 //==============================================================================
 /**
@@ -54,6 +55,11 @@ public:
           m_before(std::move(beforeSnapshot)),
           m_after(std::move(afterSnapshot))
     {
+        // No audio storage -- report the (tiny, fixed) size of this object
+        // plus its two point snapshots, which hits UndoMemory's floor for
+        // all but pathologically dense curves.
+        const size_t pointBytes = static_cast<size_t>(m_before.size() + m_after.size()) * sizeof(AutomationPoint);
+        m_sizeInUnits = UndoMemory::unitsForBytes(sizeof(*this) + pointBytes);
     }
 
     bool perform() override
@@ -73,13 +79,7 @@ public:
         return applySnapshot(m_before);
     }
 
-    int getSizeInUnits() override
-    {
-        const int pointSize = static_cast<int>(sizeof(AutomationPoint));
-        return static_cast<int>(sizeof(*this))
-             + static_cast<int>(m_before.size()) * pointSize
-             + static_cast<int>(m_after.size())  * pointSize;
-    }
+    int getSizeInUnits() override { return m_sizeInUnits; }
 
 private:
     bool applySnapshot(const std::vector<AutomationPoint>& snapshot)
@@ -100,6 +100,7 @@ private:
     std::vector<AutomationPoint> m_before;
     std::vector<AutomationPoint> m_after;
     bool m_skipFirstPerform = true;
+    int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AutomationCurveUndoAction)
 };
