@@ -259,7 +259,17 @@ public:
      * @param targetSampleRate Target sample rate (0 = preserve source, >0 = resample)
      * @return true if save successful, false on error
      */
-    bool saveFile(const juce::File& file, int bitDepth = 16, int quality = 10, double targetSampleRate = 0.0);
+    bool saveFile(const juce::File& file, int bitDepth, int quality, double targetSampleRate);
+
+    /**
+     * Format of the file on disk, for an in-place save (Cmd+S, close, quit).
+     * Seeded on load, updated by every successful save. The target rate is
+     * non-zero only when the last save converted the rate and the buffer is
+     * still at the rate it was converted from.
+     */
+    int getSaveBitDepth() const { return m_saveBitDepth; }
+    int getSaveQuality() const { return m_saveQuality; }
+    double getSaveTargetSampleRate() const;
 
     /**
      * Closes the current file and clears all state.
@@ -301,6 +311,10 @@ private:
     // File information
     juce::File m_file;
     bool m_isModified;
+    int m_saveBitDepth = 24;
+    int m_saveQuality = 10;
+    double m_saveRateOverride = 0.0;      // rate the last save converted to
+    double m_saveRateOverrideBase = 0.0;  // buffer rate it was converted from
 
     // Audio components (owned by document)
     AudioEngine m_audioEngine;

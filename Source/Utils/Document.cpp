@@ -161,6 +161,14 @@ bool Document::loadFile(const juce::File& file)
     m_file = file;
     m_isModified = false;
 
+    // An in-place save keeps the file's own format (see getSaveBitDepth).
+    const int loadedBitDepth = m_bufferManager.getBitDepth();
+    m_saveBitDepth = (loadedBitDepth == 8 || loadedBitDepth == 16 || loadedBitDepth == 24
+                      || loadedBitDepth == 32) ? loadedBitDepth : 24;
+    m_saveQuality = 10;
+    m_saveRateOverride = 0.0;
+    m_saveRateOverrideBase = 0.0;
+
     // Load waveform display
     if (!m_waveformDisplay.loadFile(file, m_audioEngine.getSampleRate(), m_audioEngine.getNumChannels()))
     {
@@ -271,6 +279,16 @@ void Document::closeFile()
     DBG("Document closed");
 }
 
+double Document::getSaveTargetSampleRate() const
+{
+    // A later Process > Resample changes the buffer rate; the old conversion
+    // target no longer describes the intent, so fall back to the buffer's rate.
+    if (m_saveRateOverride > 0.0
+        && std::abs(m_saveRateOverrideBase - m_bufferManager.getSampleRate()) < 0.01)
+        return m_saveRateOverride;
+    return 0.0;
+}
+
 bool Document::saveFile(const juce::File& file, int bitDepth, int quality, double targetSampleRate)
 {
     // Validate parameters
@@ -292,9 +310,10 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         return false;
     }
 
-    // Get audio buffer and sample rate from buffer manager
+    // Get audio buffer and sample rate from buffer manager. The engine's rate is
+    // not authoritative: preview and recording paths reload it with other rates.
     const juce::AudioBuffer<float>& buffer = m_bufferManager.getBuffer();
-    double sourceSampleRate = m_audioEngine.getSampleRate();
+    double sourceSampleRate = m_bufferManager.getSampleRate();
 
     if (buffer.getNumSamples() == 0)
     {
@@ -358,6 +377,13 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
 
     if (success)
     {
+        // Remember what is now on disk so Cmd+S / close / quit rewrite it in the
+        // same format instead of a default (tab-close used to force 16-bit).
+        m_saveBitDepth = bitDepth;
+        m_saveQuality = quality;
+        m_saveRateOverride = isRateConverting ? finalSampleRate : 0.0;
+        m_saveRateOverrideBase = sourceSampleRate;
+
         // Append iXML chunk if we have iXML metadata (WAV files only)
         // Note: FLAC/OGG don't support iXML chunks
         if (m_ixmlMetadata.hasMetadata() && file.hasFileExtension(".wav"))

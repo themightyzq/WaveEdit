@@ -145,10 +145,10 @@ public:
         // Listen to document manager events
         m_documentManager.addListener(this);
 
-        // Setup tab component. Tab-close "Save" on a read-only source format
-        // (e.g. m4a) routes to the Save As flow.
-        m_tabComponent.onSaveAsRequested =
-            [this](Document* doc) { m_fileController.saveFileAs(doc, this); };
+        // Setup tab component. Every tab close goes through the one prompting
+        // close path (Save uses Cmd+S's in-place / Save As routing).
+        m_tabComponent.onCloseRequested =
+            [this](Document* doc) { return m_fileController.closeDocumentWithPrompt(doc); };
         addAndMakeVisible(m_tabComponent);
 
         // Setup no-file label
@@ -753,7 +753,7 @@ public:
 
             auto leftSection = statusBar.reduced(10, 0);
 
-            juce::String fileDisplayName = doc->getAudioEngine().getCurrentFile().getFileName();
+            juce::String fileDisplayName = doc->getFile().getFileName();
             if (doc->isModified())
             {
                 fileDisplayName += " *";
@@ -1879,7 +1879,7 @@ private:
         if (doc && doc->getAudioEngine().isFileLoaded())
         {
             // Get filename
-            juce::String filename = doc->getAudioEngine().getCurrentFile().getFileName();
+            juce::String filename = doc->getFile().getFileName();
             if (filename.isEmpty())
                 filename = "Untitled";
 

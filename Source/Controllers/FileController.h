@@ -72,6 +72,25 @@ public:
                    std::function<void()> onClosed = nullptr);
 
     /**
+     * The one close path for every UI entry (Cmd+W, tab X, Close Others/All):
+     * prompts Save / Don't Save / Cancel for a modified document. Returns true
+     * if the document was closed.
+     */
+    bool closeDocumentWithPrompt(Document* doc);
+
+    /** Closes every document through closeDocumentWithPrompt; stops on Cancel. */
+    bool closeAllFiles();
+
+    /** How an in-place save (Cmd+S, close, quit) must proceed for @p doc. */
+    enum class SaveRoute { InPlace, NeedsSaveAs, NoWriteAccess };
+
+    /**
+     * Decides from the document's own file (Document::getFile, the canonical
+     * identity) whether it can be rewritten in place. UI-free for tests.
+     */
+    static SaveRoute resolveSaveRoute(const Document& doc);
+
+    /**
      * Check if any open document has unsaved changes.
      */
     bool hasUnsavedChanges() const;
@@ -172,6 +191,12 @@ public:
     void setSaveAsParent(juce::Component* parent) { m_saveAsParent = parent; }
 
 private:
+    /** Rewrites the document's own file in its on-disk format; clears its auto-saves. */
+    bool writeInPlace(Document* doc);
+
+    /** Auto-save key: the document's file, or a synthetic per-document path if untitled. */
+    static juce::File autoSaveIdentityFor(const Document& doc, const juce::File& autoSaveDir);
+
     /**
      * Validates that a file path is safe (no path traversal attacks).
      */

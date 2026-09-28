@@ -51,9 +51,10 @@ void FileController::createNewFile()
     juce::AudioBuffer<float> emptyBuffer(settings->numChannels, static_cast<int>(numSamples));
     emptyBuffer.clear();
 
+    // setBuffer also records the rate; writing through getMutableBuffer() left
+    // the buffer manager at its 44.1 kHz default for any other chosen rate.
+    newDoc->getBufferManager().setBuffer(emptyBuffer, settings->sampleRate);
     auto& buffer = newDoc->getBufferManager().getMutableBuffer();
-    buffer.setSize(settings->numChannels, static_cast<int>(numSamples));
-    buffer.clear();
 
     newDoc->getAudioEngine().loadFromBuffer(emptyBuffer, settings->sampleRate, settings->numChannels);
     newDoc->getWaveformDisplay().reloadFromBuffer(emptyBuffer, settings->sampleRate, false, false);
@@ -235,6 +236,44 @@ void FileController::loadFile(const juce::File& file, juce::Component* /*parent*
 }
 
 //==============================================================================
+FileController::SaveRoute FileController::resolveSaveRoute(const Document& doc)
+{
+    // The document's own file is the only identity. The engine's current file
+    // is where playback streamed from and is never updated by Save As, so
+    // saving to it after a Save As overwrote the ORIGINAL file.
+    const auto file = doc.getFile();
+
+    // Untitled, or deleted on disk since opening.
+    if (!file.existsAsFile())
+        return SaveRoute::NeedsSaveAs;
+
+    // Read-only source format (e.g. m4a -- decode-only).
+    if (!AudioFileManager::canWriteFormat(file.getFileExtension()))
+        return SaveRoute::NeedsSaveAs;
+
+    if (!file.hasWriteAccess())
+        return SaveRoute::NoWriteAccess;
+
+    return SaveRoute::InPlace;
+}
+
+bool FileController::writeInPlace(Document* doc)
+{
+    const auto file = doc->getFile();
+
+    // Save using Document::saveFile() which includes BWF and iXML metadata, in
+    // the format the file already has on disk.
+    if (!doc->saveFile(file, doc->getSaveBitDepth(), doc->getSaveQuality(),
+                       doc->getSaveTargetSampleRate()))
+        return false;
+
+    // The on-disk file is now the canonical version -- drop any crash-recovery
+    // auto-saves for this file (they're superseded).
+    deleteAutoSavesFor(file);
+    juce::Logger::writeToLog("FileController::saveFile - Saved: " + file.getFullPathName());
+    return true;
+}
+
 void FileController::saveFile(Document* doc, std::function<void()> onSaved)
 {
     if (!doc || !doc->getAudioEngine().isFileLoaded())
@@ -242,45 +281,28 @@ void FileController::saveFile(Document* doc, std::function<void()> onSaved)
         return;
     }
 
-    auto currentFile = doc->getAudioEngine().getCurrentFile();
-
-    // Check if file exists and is writable
-    if (!currentFile.existsAsFile())
+    switch (resolveSaveRoute(*doc))
     {
-        // File doesn't exist, do Save As instead
-        if (m_saveAsParent != nullptr)
-            saveFileAs(doc, m_saveAsParent);
-        return;
+        case SaveRoute::NeedsSaveAs:
+            if (m_saveAsParent != nullptr)
+                saveFileAs(doc, m_saveAsParent);
+            return;
+
+        case SaveRoute::NoWriteAccess:
+        {
+            juce::String message = "No write permission for this file.";
+            message += "\n\nUse 'Save As' to save to a different location.";
+            ErrorDialog::show("Permission Error", message, ErrorDialog::Severity::Error);
+            return;
+        }
+
+        case SaveRoute::InPlace:
+            break;
     }
 
-    // Read-only source format (e.g. m4a -- decode-only): redirect to Save As,
-    // mirroring the untitled-document redirect above.
-    if (!AudioFileManager::canWriteFormat(currentFile.getFileExtension()))
+    if (writeInPlace(doc))
     {
-        if (m_saveAsParent != nullptr)
-            saveFileAs(doc, m_saveAsParent);
-        return;
-    }
-
-    if (!currentFile.hasWriteAccess())
-    {
-        juce::String message = "No write permission for this file.";
-        message += "\n\nUse 'Save As' to save to a different location.";
-        ErrorDialog::show("Permission Error", message, ErrorDialog::Severity::Error);
-        return;
-    }
-
-    // Save using Document::saveFile() which includes BWF and iXML metadata
-    bool saveSuccess = doc->saveFile(currentFile, doc->getBufferManager().getBitDepth());
-
-    if (saveSuccess)
-    {
-        // The on-disk file is now the canonical version — drop any
-        // crash-recovery auto-saves for this file (they're superseded).
-        deleteAutoSavesFor(currentFile);
-
         requestUIRefresh();
-        juce::Logger::writeToLog("FileController::saveFile - Saved: " + currentFile.getFullPathName());
 
         if (onSaved)
             onSaved();
@@ -290,7 +312,7 @@ void FileController::saveFile(Document* doc, std::function<void()> onSaved)
         // Show error dialog
         ErrorDialog::showWithDetails(
             "Save Failed",
-            "Could not save file: " + currentFile.getFileName(),
+            "Could not save file: " + doc->getFile().getFileName(),
             "Failed to write file with metadata",
             ErrorDialog::Severity::Error
         );
@@ -309,7 +331,7 @@ bool FileController::saveDocumentAs(Document* doc)
     if (!doc) return false;
 
     // Get current file, or provide default for unsaved documents
-    juce::File currentFile = doc->getAudioEngine().getCurrentFile();
+    juce::File currentFile = doc->getFile();
     if (!currentFile.existsAsFile())
     {
         // Provide sensible default: Documents/Untitled.wav
@@ -318,7 +340,7 @@ bool FileController::saveDocumentAs(Document* doc)
     }
 
     // Show Save As dialog to get format and encoding settings
-    double sourceSampleRate = doc->getAudioEngine().getSampleRate();
+    double sourceSampleRate = doc->getBufferManager().getSampleRate();
     int sourceChannels = doc->getBufferManager().getBuffer().getNumChannels();
 
     auto result = SaveAsOptionsPanel::showDialog(sourceSampleRate, sourceChannels, currentFile);
@@ -334,6 +356,23 @@ bool FileController::saveDocumentAs(Document* doc)
                              ", Quality: " + juce::String(settings.quality) +
                              ", Sample rate: " + juce::String(settings.targetSampleRate > 0.0 ? settings.targetSampleRate : sourceSampleRate, 0) + " Hz");
 
+    // Two tabs sharing one file would silently overwrite each other on save.
+    for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
+    {
+        auto* other = m_documentManager.getDocument(i);
+        if (other != nullptr && other != doc && other->getFile() == settings.targetFile)
+        {
+            ErrorDialog::show("File Is Open",
+                              "\"" + settings.targetFile.getFileName() + "\" is open in another tab.\n\n"
+                              "Close that tab first, or choose a different name.",
+                              ErrorDialog::Severity::Error);
+            return false;
+        }
+    }
+
+    // Auto-saves are keyed on the identity the document had before this save.
+    const auto previousAutoSaveIdentity = autoSaveIdentityFor(*doc, getAutoSaveDirectory());
+
     // Save using Document::saveFile() with all settings
     bool saveSuccess = doc->saveFile(settings.targetFile, settings.bitDepth, settings.quality, settings.targetSampleRate);
 
@@ -346,8 +385,10 @@ bool FileController::saveDocumentAs(Document* doc)
         Settings::getInstance().addRecentFile(settings.targetFile);
 
         // The on-disk file is now the canonical version -- drop any auto-saves
-        // (including untitled recovery takes) now superseded by this save.
+        // now superseded by this save: the target's, and those of the
+        // document's previous identity (its old file, or its untitled token).
         deleteAutoSavesFor(settings.targetFile);
+        deleteAutoSavesFor(previousAutoSaveIdentity);
 
         requestUIRefresh();
 
@@ -396,22 +437,17 @@ bool FileController::saveAllModifiedDocuments()
         // prompted about.
         m_documentManager.setCurrentDocumentIndex(i);
 
-        auto currentFile = doc->getAudioEngine().getCurrentFile();
-        if (currentFile.existsAsFile()
-            && AudioFileManager::canWriteFormat(currentFile.getFileExtension()))
+        if (resolveSaveRoute(*doc) == SaveRoute::InPlace)
         {
             // Titled document in a writable format: save in place. Read-only
             // formats (m4a) fall through to the Save As prompt below.
-            bool success = doc->saveFile(currentFile, doc->getBufferManager().getBitDepth());
-            if (!success)
+            if (!writeInPlace(doc))
             {
-                juce::Logger::writeToLog("FileController::saveAllModifiedDocuments - Failed to save: "
-                                         + doc->getFilename());
+                ErrorDialog::show("Save Failed",
+                                  "Could not save \"" + doc->getFilename() + "\". Quit was cancelled.",
+                                  ErrorDialog::Severity::Error);
                 return false;  // Abort quit on first failure
             }
-
-            // On-disk file is canonical now -- clear any superseded auto-saves.
-            deleteAutoSavesFor(currentFile);
             continue;
         }
 
@@ -448,12 +484,27 @@ bool FileController::saveAllModifiedDocuments()
 void FileController::closeFile(Document* doc, juce::Component* /*parent*/,
                                std::function<void()> onClosed)
 {
-    if (!doc) return;
+    if (closeDocumentWithPrompt(doc) && onClosed)
+        onClosed();
+}
 
-    if (!doc->getAudioEngine().isFileLoaded())
-    {
-        return;
-    }
+bool FileController::closeAllFiles()
+{
+    // Snapshot first: closing mutates the document list.
+    juce::Array<Document*> docs;
+    for (int i = 0; i < m_documentManager.getNumDocuments(); ++i)
+        docs.add(m_documentManager.getDocument(i));
+
+    for (auto* doc : docs)
+        if (!closeDocumentWithPrompt(doc))
+            return false;
+
+    return true;
+}
+
+bool FileController::closeDocumentWithPrompt(Document* doc)
+{
+    if (!doc) return false;
 
     // Check if document has unsaved changes
     if (doc->isModified())
@@ -470,14 +521,16 @@ void FileController::closeFile(Document* doc, juce::Component* /*parent*/,
 
         if (result == 0) // Cancel
         {
-            return;
+            return false;
         }
         else if (result == 1) // Save
         {
-            saveFile(doc);  // Save before closing
+            // Same path as Cmd+S: in-place in the file's own format, or Save As
+            // for untitled / read-only documents.
+            saveFile(doc);
             if (doc->isModified())  // If save failed or was cancelled
             {
-                return;  // Don't close
+                return false;  // Don't close
             }
         }
         // result == 2 means "Don't Save" - proceed with close
@@ -486,9 +539,7 @@ void FileController::closeFile(Document* doc, juce::Component* /*parent*/,
     // Close the document (which removes the tab and cleans up)
     m_documentManager.closeDocument(doc);
     requestUIRefresh();
-
-    if (onClosed)
-        onClosed();
+    return true;
 }
 
 //==============================================================================
@@ -581,13 +632,7 @@ void FileController::performAutoSave()
         // untitled take is never re-opened by path on the next launch. These
         // takes are instead surfaced by offerUntitledCrashRecovery(), a
         // launch-time scan the app host calls once after the window exists.
-        juce::File originalFile = doc->getAudioEngine().getCurrentFile();
-        if (!originalFile.existsAsFile())
-        {
-            const auto token = juce::String::toHexString(
-                static_cast<juce::int64>(reinterpret_cast<juce::pointer_sized_int>(doc)));
-            originalFile = autoSaveDir.getChildFile("Untitled-" + token + ".wav");
-        }
+        const juce::File originalFile = autoSaveIdentityFor(*doc, autoSaveDir);
 
         // Create auto-save filename:
         //   autosave_[stem]_[pathHash]_[timestamp].wav
@@ -600,7 +645,7 @@ void FileController::performAutoSave()
         juce::File autoSaveFile = autoSaveDir.getChildFile(autoSaveFilename);
 
         // Get audio data (on message thread - safe)
-        double sampleRate = doc->getAudioEngine().getSampleRate();
+        double sampleRate = doc->getBufferManager().getSampleRate();
         int bitDepth = doc->getAudioEngine().getBitDepth();
 
         // Create auto-save job (makes buffer copy for thread safety)
@@ -612,6 +657,18 @@ void FileController::performAutoSave()
 
     // Clean up old auto-save files (fast operation, OK on message thread)
     cleanupOldAutoSaves(autoSaveDir);
+}
+
+//==============================================================================
+juce::File FileController::autoSaveIdentityFor(const Document& doc, const juce::File& autoSaveDir)
+{
+    if (doc.getFile().existsAsFile())
+        return doc.getFile();
+
+    // Untitled: a stable per-document token (see performAutoSave).
+    const auto token = juce::String::toHexString(
+        static_cast<juce::int64>(reinterpret_cast<juce::pointer_sized_int>(&doc)));
+    return autoSaveDir.getChildFile("Untitled-" + token + ".wav");
 }
 
 //==============================================================================
@@ -867,8 +924,8 @@ static bool recoverUntitledTakeInto(DocumentManager& docManager,
     const int    numChannels   = recovered.getNumChannels();
     const double durationSecs  = recovered.getNumSamples() / sampleRate;
 
+    newDoc->getBufferManager().setBuffer(recovered, sampleRate);
     auto& buffer = newDoc->getBufferManager().getMutableBuffer();
-    buffer = recovered;
 
     newDoc->getAudioEngine().loadFromBuffer(recovered, sampleRate, numChannels);
     newDoc->getWaveformDisplay().reloadFromBuffer(recovered, sampleRate, false, false);
@@ -1044,7 +1101,7 @@ void FileController::offerCrashRecovery(Document* doc, const juce::File& origina
             // Replace the document's buffer in place. Mark it modified
             // so the user must Save (or Save As) to commit, and reload
             // the audio engine so playback uses the recovered audio.
-            const double sr = docPtr->getAudioEngine().getSampleRate();
+            const double sr = docPtr->getBufferManager().getSampleRate();
             docPtr->getBufferManager().setBuffer(recovered, sr);
             docPtr->getAudioEngine().reloadBufferPreservingPlayback(
                 docPtr->getBufferManager().getBuffer(),

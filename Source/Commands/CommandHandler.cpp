@@ -239,11 +239,11 @@ bool CommandHandler::performCommand(MainComponent& mc,
         // Tab operations
         case CommandIDs::tabClose:
             if (!doc) return false;
-            mc.m_documentManager.closeDocument(doc);
+            mc.m_fileController.closeDocumentWithPrompt(doc);
             return true;
 
         case CommandIDs::tabCloseAll:
-            mc.m_documentManager.closeAllDocuments();
+            mc.m_fileController.closeAllFiles();
             return true;
 
         case CommandIDs::tabNext:

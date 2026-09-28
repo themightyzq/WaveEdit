@@ -367,74 +367,8 @@ void TabComponent::tabClicked(TabButton* tab)
 
 void TabComponent::tabCloseClicked(TabButton* tab)
 {
-    // Check if document is modified
-    Document* doc = tab->getDocument();
-    if (doc && doc->isModified())
-    {
-        juce::String filename = doc->getFilename();
-        if (filename.isEmpty())
-            filename = "Untitled";
-
-        int result = juce::AlertWindow::showYesNoCancelBox(
-            juce::AlertWindow::WarningIcon,
-            "Save Changes?",
-            "\"" + filename + "\" has unsaved changes.\nDo you want to save before closing?",
-            "Save",
-            "Don't Save",
-            "Cancel",
-            nullptr,  // Component* associatedComponent
-            nullptr); // ModalComponentManager::Callback* callback
-
-        if (result == 1) // Save
-        {
-            // Save the document
-            Document* saveDoc = m_documentManager.getDocument(tab->getIndex());
-
-            // Read-only source format (e.g. m4a -- decode-only): an in-place
-            // save would fail, so route to the host's Save As flow instead.
-            // The chooser is async; the tab stays open until the user saves
-            // and closes it again.
-            if (saveDoc && saveDoc->getFile().existsAsFile()
-                && !AudioFileManager::canWriteFormat(saveDoc->getFile().getFileExtension()))
-            {
-                if (onSaveAsRequested)
-                    onSaveAsRequested(saveDoc);
-                return;
-            }
-
-            if (saveDoc && saveDoc->getFile().existsAsFile())
-            {
-                if (saveDoc->saveFile(saveDoc->getFile()))
-                {
-                    saveDoc->setModified(false);
-                    m_documentManager.closeDocument(saveDoc);
-                }
-                else
-                {
-                    // Save failed - don't close
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::WarningIcon,
-                        "Save Failed",
-                        "Could not save file: " + saveDoc->getFile().getFullPathName());
-                }
-            }
-            else
-            {
-                // No file path - this shouldn't happen since we checked isModified(),
-                // but handle it gracefully
-                m_documentManager.closeDocument(saveDoc);
-            }
-        }
-        else if (result == 2) // Don't Save
-        {
-            m_documentManager.closeDocumentAt(tab->getIndex());
-        }
-        // result == 0 means Cancel, do nothing
-    }
-    else
-    {
-        m_documentManager.closeDocumentAt(tab->getIndex());
-    }
+    if (onCloseRequested)
+        onCloseRequested(tab->getDocument());
 }
 
 void TabComponent::tabRightClicked(TabButton* tab, const juce::MouseEvent& event)
@@ -527,20 +461,19 @@ void TabComponent::showTabContextMenu(TabButton* tab, juce::Point<int> screenPos
                           {
                               tabCloseClicked(tab);
                           }
-                          else if (result == 2) // Close Others
+                          else if (result == 2 || result == 3) // Close Others / Close All
                           {
-                              // Close all tabs except this one
-                              for (int i = m_tabs.size() - 1; i >= 0; --i)
-                              {
-                                  if (m_tabs[i] != tab)
-                                  {
-                                      m_documentManager.closeDocumentAt(i);
-                                  }
-                              }
-                          }
-                          else if (result == 3) // Close All
-                          {
-                              m_documentManager.closeAllDocuments();
+                              // Snapshot first (closing mutates m_tabs); a Cancel
+                              // at any prompt stops the rest.
+                              Document* keep = (result == 2) ? tab->getDocument() : nullptr;
+                              juce::Array<Document*> toClose;
+                              for (auto* t : m_tabs)
+                                  if (t->getDocument() != keep)
+                                      toClose.add(t->getDocument());
+
+                              for (auto* doc : toClose)
+                                  if (!onCloseRequested || !onCloseRequested(doc))
+                                      break;
                           }
                           else if (result == 4) // Reveal in file manager
                           {

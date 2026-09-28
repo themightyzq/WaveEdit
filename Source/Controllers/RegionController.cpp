@@ -373,7 +373,7 @@ void RegionController::showStripSilenceDialog(Document* doc, juce::Component* pa
     // Get audio buffer, sample rate, and current file from current document
     const auto& buffer = doc->getBufferManager().getBuffer();
     double sampleRate = doc->getBufferManager().getSampleRate();
-    juce::File currentFile = doc->getAudioEngine().getCurrentFile();
+    juce::File currentFile = doc->getFile();
 
     // CRITICAL: Capture old regions BEFORE showing dialog
     // This enables undo support since the dialog modifies regions directly

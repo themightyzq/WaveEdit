@@ -154,8 +154,13 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
 
     auto& bufferManager = doc->getBufferManager();
     const int currentChannels = bufferManager.getNumChannels();
-    const juce::File sourceFile = doc->getAudioEngine().getCurrentFile();
+    const juce::File sourceFile = doc->getFile();
     const juce::String sourceFileName = sourceFile.getFileName();
+
+    // Raw broadcast chunks come from the file playback streamed from: it keeps
+    // the recorder's full iXML, which WaveEdit's own save rewrites as a subset.
+    const juce::File engineFile = doc->getAudioEngine().getCurrentFile();
+    const juce::File chunkSource = engineFile.existsAsFile() ? engineFile : sourceFile;
 
     auto result = ChannelExtractorDialog::showDialog(currentChannels, sourceFileName);
     if (!result.has_value())
@@ -252,7 +257,7 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
                     if (result->exportFormat == ChannelExtractorDialog::ExportFormat::WAV)
                     {
                         juce::String metadataMessage;
-                        if (!BroadcastChunkPreserver::preserve(sourceFile, outFile, metadataMessage))
+                        if (!BroadcastChunkPreserver::preserve(chunkSource, outFile, metadataMessage))
                             juce::Logger::writeToLog("DSPController::showChannelExtractorDialog - "
                                                      "broadcast metadata not fully preserved for "
                                                      + outFile.getFileName() + ": " + metadataMessage);
@@ -310,7 +315,7 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
                 if (result->exportFormat == ChannelExtractorDialog::ExportFormat::WAV)
                 {
                     juce::String metadataMessage;
-                    if (!BroadcastChunkPreserver::preserve(sourceFile, outFile, metadataMessage))
+                    if (!BroadcastChunkPreserver::preserve(chunkSource, outFile, metadataMessage))
                         juce::Logger::writeToLog("DSPController::showChannelExtractorDialog - "
                                                  "broadcast metadata not fully preserved for "
                                                  + outFile.getFileName() + ": " + metadataMessage);
@@ -1264,7 +1269,7 @@ void DSPController::showLoopingToolsDialog(Document* doc, juce::Component* /*par
     int64_t selStart = static_cast<int64_t>(waveform.getSelectionStart() * sampleRate);
     int64_t selEnd   = static_cast<int64_t>(waveform.getSelectionEnd()   * sampleRate);
 
-    juce::File sourceFile = doc->getAudioEngine().getCurrentFile();
+    juce::File sourceFile = doc->getFile();
 
     auto* dialog = new LoopingToolsDialog(buffer, sampleRate, selStart, selEnd, sourceFile);
     dialog->onCancel = []() {};
