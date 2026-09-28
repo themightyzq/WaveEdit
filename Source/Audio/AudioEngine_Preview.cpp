@@ -29,6 +29,7 @@ void AudioEngine::setPreviewMode(PreviewMode mode)
     PreviewMode oldMode = m_previewMode.load();
 
     m_previewMode.store(mode);
+    m_oneShotStopPending.store(false);
 
     // CRITICAL FIX: Track which AudioEngine is in preview mode
     // This allows other engines to auto-mute themselves during preview
@@ -117,6 +118,7 @@ bool AudioEngine::loadPreviewBuffer(const juce::AudioBuffer<float>& previewBuffe
     {
         m_transportSource.stop();
     }
+    m_oneShotStopPending.store(false);
 
     // CRITICAL: Release resources before switching sources
     // This flushes any cached audio data from the old source

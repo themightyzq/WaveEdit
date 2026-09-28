@@ -40,9 +40,10 @@ void PlaybackController::togglePlayback(Document* doc)
         const double selEnd   = waveform.getSelectionEnd();
 
         engine.setPosition(selStart);
-        // looping=false means stop at selEnd (don't loop back).
+        // The engine owns the selection end, sample-exact: it loops when the
+        // transport Loop toggle is on, otherwise it stops at selEnd.
         engine.setLoopPoints(selStart, selEnd);
-        engine.setLooping(false);
+        engine.setLooping(doc->getTransportControls().isLoopEnabled());
     }
     else if (waveform.hasEditCursor())
     {

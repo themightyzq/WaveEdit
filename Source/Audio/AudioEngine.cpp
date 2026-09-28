@@ -66,6 +66,10 @@ AudioEngine::AudioEngine()
 
 AudioEngine::~AudioEngine()
 {
+    // Must come first: members below are destroyed before m_deviceManager (it is
+    // declared first), so the device callback has to be gone before they are.
+    shutdownAudio();
+
     // CRITICAL: Clear global preview pointer if it points to us
     // This prevents dangling pointer issues when an AudioEngine is destroyed
     // while in preview mode
@@ -89,6 +93,26 @@ AudioEngine::~AudioEngine()
 
 //==============================================================================
 // Device Management
+
+void AudioEngine::shutdownAudio()
+{
+    // Idempotent; called from ~AudioEngine and from Document::~Document (whose
+    // AutomationManager dies before this engine).
+    m_oneShotStopWatcher.stopTimer();
+
+    // removeAudioCallback is JUCE's barrier: it takes the device's callback lock,
+    // so no audio callback is running on this engine once it returns.
+    m_deviceManager.removeAudioCallback(this);
+
+    // setSource(nullptr) clears 'playing' under the transport lock. stop() would
+    // instead wait up to 1 s for a callback that can no longer arrive.
+    m_transportSource.setSource(nullptr);
+    m_oneShotStopPending.store(false);
+    updatePlaybackState(PlaybackState::STOPPED);
+
+    m_deviceManager.closeAudioDevice();
+    m_automationManager = nullptr;
+}
 
 bool AudioEngine::initializeAudioDevice()
 {
@@ -243,6 +267,7 @@ bool AudioEngine::loadFromBuffer(const juce::AudioBuffer<float>& buffer, double 
 
     // Stop playback before switching sources
     stop();
+    m_oneShotStopPending.store(false);
 
     // Release current sources (thread-safe as we're on message thread)
     m_transportSource.setSource(nullptr);
@@ -425,6 +450,8 @@ void AudioEngine::play()
     // Don't reset position here - caller should use setPosition() before play()
     // if they want to start from a specific position
 
+    m_oneShotStopPending.store(false);
+
     // Enable level monitoring for meters
     setLevelMonitoringEnabled(true);
 
@@ -440,6 +467,7 @@ void AudioEngine::pause()
     }
 
     m_transportSource.stop();
+    m_oneShotStopPending.store(false);
     updatePlaybackState(PlaybackState::PAUSED);
 }
 
@@ -450,7 +478,11 @@ void AudioEngine::stop()
         return;
     }
 
+    // The audio thread keeps a pending one-shot end silent until the transport
+    // has actually stopped (its final block is a fade of audio past loopEnd), so
+    // the flag is cleared only after stop() returns.
     m_transportSource.stop();
+    m_oneShotStopPending.store(false);
     m_transportSource.setPosition(0.0);
     updatePlaybackState(PlaybackState::STOPPED);
 
@@ -461,6 +493,14 @@ void AudioEngine::stop()
     // from affecting next playback session. This ensures clean state after stop.
     clearLoopPoints();
     setLooping(false);
+}
+
+void AudioEngine::serviceOneShotStop()
+{
+    // A pause or seek during the pending window clears the flag, so only a
+    // still-playing one-shot end is turned into a full stop.
+    if (m_oneShotStopPending.load() && isPlaying())
+        stop();
 }
 
 PlaybackState AudioEngine::getPlaybackState() const
@@ -501,6 +541,10 @@ void AudioEngine::setLoopPoints(double loopStart, double loopEnd)
 
     m_loopStartTime.store(loopStart);
     m_loopEndTime.store(loopEnd);
+
+    // Polls for a one-shot end flagged by the audio thread (serviceOneShotStop).
+    if (!m_oneShotStopWatcher.isTimerRunning())
+        m_oneShotStopWatcher.startTimer(20);
 }
 
 void AudioEngine::clearLoopPoints()
@@ -509,6 +553,7 @@ void AudioEngine::clearLoopPoints()
 
     m_loopStartTime.store(-1.0);
     m_loopEndTime.store(-1.0);
+    m_oneShotStopWatcher.stopTimer();
 }
 
 //==============================================================================
@@ -545,6 +590,7 @@ void AudioEngine::setPosition(double positionInSeconds)
     double length = getTotalLength();
     positionInSeconds = juce::jlimit(0.0, length, positionInSeconds);
 
+    m_oneShotStopPending.store(false);
     m_transportSource.setPosition(positionInSeconds);
 }
 
@@ -814,8 +860,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     double loopStart = m_loopStartTime.load();
     double loopEnd = m_loopEndTime.load();
 
+    // A one-shot end is pending: stay silent until the message thread stops the
+    // transport (serviceOneShotStop). Never call m_transportSource.stop() here:
+    // it sleeps until a later callback on this same thread, about 1 s.
+    if (m_oneShotStopPending.load())
+    {
+        buffer.clear();
+    }
     // Safety check: Only process loop points if both are valid and properly ordered
-    if (loopStart >= 0.0 && loopEnd >= 0.0 && loopEnd > loopStart)
+    else if (loopStart >= 0.0 && loopEnd >= 0.0 && loopEnd > loopStart)
     {
         // CRITICAL FIX: Calculate position based on preview mode
         // Loop points are always in FILE coordinates, but transport position varies:
@@ -834,6 +887,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             // Transport plays actual file, position is already in FILE coordinates
             currentPos = m_transportSource.getCurrentPosition();
         }
+
+        // The transport reports its source read position, which runs ahead of
+        // what has been output by the ResamplingAudioSource's fixed 3-sample
+        // look-ahead (juce_ResamplingAudioSource.cpp: sampsNeeded = n * ratio + 3).
+        currentPos -= 3.0 / juce::jmax(1.0, m_sampleRate.load());
 
         if (currentPos >= loopEnd)
         {
@@ -854,15 +912,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
             }
             else
             {
-                // One-shot playback mode (selection playback)
-                // Stop at end of selection, then auto-clear loop points
-                m_transportSource.stop();
-                updatePlaybackState(PlaybackState::STOPPED);
-
-                // Auto-clear loop points after one-shot playback completes
-                // This prevents stale loop points from affecting next playback
-                m_loopStartTime.store(-1.0);
-                m_loopEndTime.store(-1.0);
+                // One-shot playback (selection): silence the samples past
+                // loopEnd in this block (output runs at the device rate), then
+                // hand the stop to the message thread. stop() clears the loop points.
+                const double deviceRate = m_deviceSampleRate.load();
+                const double blockStart = currentPos - numSamples / juce::jmax(1.0, deviceRate);
+                const int firstSilent = juce::jlimit(0, numSamples,
+                    static_cast<int>(std::ceil((loopEnd - blockStart) * deviceRate - 1.0e-6)));
+                buffer.clear(firstSilent, numSamples - firstSilent);
+                m_oneShotStopPending.store(true);
             }
         }
     }

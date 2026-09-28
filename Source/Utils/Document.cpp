@@ -76,6 +76,11 @@ Document::Document(const juce::File& file)
 
 Document::~Document()
 {
+    // First: stop the device callback. The engine is destroyed after its sibling
+    // members (m_automationManager is declared after it), and the callback reads
+    // the plugin chain and automation lanes even while stopped.
+    m_audioEngine.shutdownAudio();
+
     // Detach plugin-chain listener before tearing down so the
     // AutomationRecorder doesn't see a final change-broadcast during
     // destruction with half-destroyed members.

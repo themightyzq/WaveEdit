@@ -217,8 +217,11 @@ void TransportControls::timerCallback()
     // Selection-bounded playback: stop at selection end or loop within selection
     // CRITICAL: Only handle loop logic for NORMAL playback (not preview mode)
     // In preview mode, AudioEngine handles loop points via setLoopPoints()
+    // When the engine has loop points (Space via PlaybackController) it ends the
+    // selection sample-exactly itself; this 50 ms-tolerance path would cut it short.
     if (m_audioEngine.isPlaying() && m_waveformDisplay.hasSelection() &&
-        m_audioEngine.getPreviewMode() == PreviewMode::DISABLED)
+        m_audioEngine.getPreviewMode() == PreviewMode::DISABLED &&
+        !m_audioEngine.hasLoopPoints())
     {
         double selectionStart = m_waveformDisplay.getSelectionStart();
         double selectionEnd = m_waveformDisplay.getSelectionEnd();

@@ -82,6 +82,9 @@ public:
      */
     bool initializeAudioDevice();
 
+    /** Detaches from the audio device (idempotent). See AudioEngine.cpp. */
+    void shutdownAudio();
+
     /**
      * Gets the audio device manager for configuration.
      *
@@ -176,6 +179,9 @@ public:
      */
     void stop();
 
+    /** Message thread: finishes a one-shot selection end flagged by the audio thread. */
+    void serviceOneShotStop();
+
     /**
      * Gets the current playback state.
      *
@@ -246,6 +252,8 @@ public:
      * Clears loop points, returning to full-file looping behavior.
      */
     void clearLoopPoints();
+
+    bool hasLoopPoints() const { return m_loopStartTime.load() >= 0.0 && m_loopEndTime.load() > m_loopStartTime.load(); }
 
     //==============================================================================
     // Level Monitoring
@@ -1045,6 +1053,10 @@ private:
 
     // Static member to track which AudioEngine is in preview mode (if any)
     static std::atomic<AudioEngine*> s_previewingEngine;
+
+    // One-shot selection end: set by the audio thread, serviced on the message thread.
+    std::atomic<bool> m_oneShotStopPending{false};
+    juce::TimedCallback m_oneShotStopWatcher{ [this] { serviceOneShotStop(); } };
 
     //==============================================================================
     // Private Methods
