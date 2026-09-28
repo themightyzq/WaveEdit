@@ -92,7 +92,9 @@ jobs:
 
           echo "Linked libraries:"
           otool -L "$BIN"
-          BAD="$(otool -L "$BIN" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/System/|/usr/lib/)' || true)"
+          # only the indented lines are libraries; a universal binary prints one
+          # "(architecture ...)" header line per slice, which must not count
+          BAD="$(otool -L "$BIN" | grep -E '^[[:space:]]' | awk '{print $1}' | sort -u | grep -v -E '^(/System/|/usr/lib/)' || true)"
           if [ -n "$BAD" ]; then
             echo "::error::non-system dylib(s) linked: $BAD"
             exit 1
