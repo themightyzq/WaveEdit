@@ -9,14 +9,20 @@
 
 #include "RecordingController.h"
 
+#include <cmath>
+
 #include "../Utils/Document.h"
 #include "../Utils/DocumentManager.h"
+#include "../Utils/UndoableEdits.h"
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
+#include "../Audio/AudioFileManager.h"
+#include "ClipboardController.h"
 #include "../UI/WaveformDisplay.h"
 #include "../UI/RegionDisplay.h"
 #include "../UI/MarkerDisplay.h"
 #include "../UI/RecordingDialog.h"
+#include "../UI/ErrorDialog.h"
 
 namespace
 {
@@ -63,52 +69,29 @@ namespace
         void appendToDocument(Document* targetDoc,
                               const juce::AudioBuffer<float>& audioBuffer,
                               double sampleRate,
-                              int /*numChannels*/)
+                              int numChannels)
         {
-            const double cursorSeconds = targetDoc->getWaveformDisplay().getPlaybackPosition();
-            auto& currentBuffer = targetDoc->getBufferManager().getMutableBuffer();
-            const double currentSampleRate = targetDoc->getAudioEngine().getSampleRate();
+            auto& waveform = targetDoc->getWaveformDisplay();
+            const double insertSeconds = waveform.hasEditCursor()
+                                             ? waveform.getEditCursorPosition()
+                                             : waveform.getPlaybackPosition();
 
-            int insertPositionSamples = static_cast<int>(cursorSeconds * currentSampleRate);
-            insertPositionSamples = juce::jlimit(0, currentBuffer.getNumSamples(), insertPositionSamples);
+            juce::String error;
+            if (RecordingController::insertTake(*targetDoc, audioBuffer, sampleRate,
+                                                insertSeconds, error))
+                return;
 
-            const int currentSamples = currentBuffer.getNumSamples();
-            const int newSamples     = audioBuffer.getNumSamples();
-            const int totalSamples   = currentSamples + newSamples;
-
-            juce::AudioBuffer<float> combined(
-                juce::jmax(currentBuffer.getNumChannels(), audioBuffer.getNumChannels()),
-                totalSamples);
-
-            for (int ch = 0; ch < currentBuffer.getNumChannels(); ++ch)
-                combined.copyFrom(ch, 0, currentBuffer, ch, 0, insertPositionSamples);
-
-            for (int ch = 0; ch < audioBuffer.getNumChannels(); ++ch)
-                combined.copyFrom(ch, insertPositionSamples, audioBuffer, ch, 0, newSamples);
-
-            const int remaining = currentSamples - insertPositionSamples;
-            if (remaining > 0)
-            {
-                for (int ch = 0; ch < currentBuffer.getNumChannels(); ++ch)
-                {
-                    combined.copyFrom(ch, insertPositionSamples + newSamples,
-                                      currentBuffer, ch,
-                                      insertPositionSamples, remaining);
-                }
-            }
-
-            currentBuffer.makeCopyOf(combined, true);
-            targetDoc->getAudioEngine().loadFromBuffer(combined, sampleRate,
-                                                       combined.getNumChannels());
-            targetDoc->getWaveformDisplay().reloadFromBuffer(combined, sampleRate, false, false);
-            targetDoc->getRegionDisplay().setTotalDuration(totalSamples / sampleRate);
-            targetDoc->getMarkerDisplay().setTotalDuration(totalSamples / sampleRate);
-            targetDoc->setModified(true);
+            // Insertion failed (e.g. an unreconcilable channel-count mismatch).
+            // The document was left untouched -- tell the user why, then make
+            // sure the take itself is never lost by dropping it into a new
+            // document instead.
+            ErrorDialog::show("Insert Recording", error, ErrorDialog::Severity::Error);
+            createNewDocument(audioBuffer, sampleRate, numChannels);
         }
 
         void createNewDocument(const juce::AudioBuffer<float>& audioBuffer,
                                double sampleRate,
-                               int numChannels)
+                               int /*numChannels*/)
         {
             auto* newDoc = m_documentManager->createDocument();
             if (newDoc == nullptr)
@@ -117,24 +100,7 @@ namespace
                 return;
             }
 
-            auto& buffer = newDoc->getBufferManager().getMutableBuffer();
-            buffer.setSize(audioBuffer.getNumChannels(), audioBuffer.getNumSamples());
-            buffer.makeCopyOf(audioBuffer, true);
-
-            newDoc->getAudioEngine().loadFromBuffer(audioBuffer, sampleRate, numChannels);
-            newDoc->getWaveformDisplay().reloadFromBuffer(audioBuffer, sampleRate, false, false);
-
-            const double durationSeconds = audioBuffer.getNumSamples() / sampleRate;
-
-            newDoc->getRegionDisplay().setSampleRate(sampleRate);
-            newDoc->getRegionDisplay().setTotalDuration(durationSeconds);
-            newDoc->getRegionDisplay().setVisibleRange(0.0, durationSeconds);
-            newDoc->getRegionDisplay().setAudioBuffer(&buffer);
-
-            newDoc->getMarkerDisplay().setSampleRate(sampleRate);
-            newDoc->getMarkerDisplay().setTotalDuration(durationSeconds);
-
-            newDoc->setModified(true);
+            RecordingController::populateNewDocument(*newDoc, audioBuffer, sampleRate);
         }
 
         DocumentManager* m_documentManager;
@@ -176,4 +142,88 @@ void RecordingController::handleRecordCommand(juce::Component* parent,
                                                            currentDoc,
                                                            appendToExisting),
                                 std::move(recordingStateCallback));
+}
+
+bool RecordingController::insertTake(Document& doc,
+                                     const juce::AudioBuffer<float>& take,
+                                     double takeSampleRate,
+                                     double insertSeconds,
+                                     juce::String& error)
+{
+    auto& bufferManager = doc.getBufferManager();
+    const double docRate = bufferManager.getSampleRate();
+
+    // An empty document isn't really an "insert" -- treat it the same way
+    // Record > New File does, so the take's own rate is recorded rather
+    // than silently keeping the buffer manager's 44.1kHz default.
+    if (bufferManager.getBuffer().getNumSamples() == 0)
+    {
+        populateNewDocument(doc, take, takeSampleRate);
+        return true;
+    }
+
+    // Resample the take to the DOCUMENT's rate (not the engine's) so the
+    // existing audio's playback speed is never affected by the insert.
+    juce::AudioBuffer<float> resampledStorage;
+    const juce::AudioBuffer<float>* takeAtDocRate = &take;
+    if (std::abs(takeSampleRate - docRate) > 0.01)
+    {
+        resampledStorage = AudioFileManager::resampleBuffer(take, takeSampleRate, docRate);
+        takeAtDocRate = &resampledStorage;
+    }
+
+    // Conform channel count. Only mono<->multichannel conversions are
+    // deterministic (see ClipboardController::conformChannels); anything
+    // else is rejected without touching the document.
+    juce::AudioBuffer<float> conformedTake;
+    if (!ClipboardController::conformChannels(*takeAtDocRate, bufferManager.getNumChannels(), conformedTake))
+    {
+        error = juce::String::formatted(
+            "Can't insert a %d-channel take into a %d-channel file.",
+            takeAtDocRate->getNumChannels(), bufferManager.getNumChannels());
+        return false;
+    }
+
+    const int64_t numSamples = bufferManager.getNumSamples();
+    int64_t insertSample = (int64_t) std::llround(insertSeconds * docRate);
+    insertSample = juce::jlimit((int64_t) 0, numSamples, insertSample);
+
+    // Applied as one undoable step, exactly like the Generate feature
+    // (DSPController_Advanced.cpp): InsertAction handles the buffer splice,
+    // region/marker shifting, and engine/waveform reload.
+    doc.getUndoManager().beginNewTransaction("Insert Recording");
+    doc.getUndoManager().perform(new InsertAction(
+        bufferManager, doc.getAudioEngine(), doc.getWaveformDisplay(),
+        insertSample, conformedTake,
+        &doc.getRegionManager(), &doc.getRegionDisplay(),
+        &doc.getMarkerManager(), &doc.getMarkerDisplay()));
+    doc.setModified(true);
+
+    return true;
+}
+
+void RecordingController::populateNewDocument(Document& doc,
+                                              const juce::AudioBuffer<float>& take,
+                                              double sampleRate)
+{
+    // setBuffer() (not getMutableBuffer()) records the take's own sample
+    // rate on the AudioBufferManager -- otherwise it silently keeps its
+    // 44.1kHz default and later edits/saves use the wrong rate.
+    doc.getBufferManager().setBuffer(take, sampleRate);
+    const auto& buffer = doc.getBufferManager().getBuffer();
+
+    doc.getAudioEngine().loadFromBuffer(buffer, sampleRate, buffer.getNumChannels());
+    doc.getWaveformDisplay().reloadFromBuffer(buffer, sampleRate, false, false);
+
+    const double durationSeconds = buffer.getNumSamples() / sampleRate;
+
+    doc.getRegionDisplay().setSampleRate(sampleRate);
+    doc.getRegionDisplay().setTotalDuration(durationSeconds);
+    doc.getRegionDisplay().setVisibleRange(0.0, durationSeconds);
+    doc.getRegionDisplay().setAudioBuffer(&buffer);
+
+    doc.getMarkerDisplay().setSampleRate(sampleRate);
+    doc.getMarkerDisplay().setTotalDuration(durationSeconds);
+
+    doc.setModified(true);
 }
