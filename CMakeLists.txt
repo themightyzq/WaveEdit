@@ -1155,6 +1155,12 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Unit/SettingsPersistenceTests.cpp             # UX finding 1: generic settings round-trip + old-format compat
             Tests/Unit/MonitorFoldDownTests.cpp                 # H7: surround monitoring fold-down matrix (ITU-R BS.775)
             Tests/Unit/AutomationCurveRealtimeReadTests.cpp     # H-H2: lock-free automation curve audio-thread read
+            Tests/Integration/AtomicSaveTests.cpp               # v0.9.1: non-WAV saves never delete the original first
+            Tests/Unit/UndoMemoryBudgetTests.cpp                # v0.9.1: undo history bounded by a memory budget
+            Tests/Integration/RecordingInsertTests.cpp          # v0.9.1: recording insert resamples, conforms, is undoable
+            Tests/Integration/SidecarSafetyNetTests.cpp         # v0.9.1: regions/markers survive non-WAV and RF64 saves
+            Tests/Integration/SaveIdentityTests.cpp             # v0.9.1: Save after Save As targets the new file
+            Tests/Unit/AudioEngineLifetimeTests.cpp             # v0.9.1: engine teardown + sample-exact selection end
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6
