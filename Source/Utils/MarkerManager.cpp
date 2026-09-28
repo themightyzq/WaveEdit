@@ -211,15 +211,25 @@ void MarkerManager::setSelectedMarkerIndex(int index)
         m_selectedMarkerIndex = -1;  // Clear selection on invalid index
 }
 
-bool MarkerManager::saveToFile(const juce::File& audioFile, double sampleRateScale) const
+bool MarkerManager::saveToFile(const juce::File& audioFile, double sampleRateScale,
+                               bool forceSidecar) const
 {
     juce::File markerFile = getMarkerFilePath(audioFile);
 
-    // Opt-in sidecar: markers embed into the WAV cue/adtl chunks, so only
-    // CREATE a new .markers.json when a marker has a custom color or non-ASCII
-    // name. An existing sidecar is always kept updated.
-    if (!markerFile.existsAsFile() && !SidecarPolicy::markersNeedSidecar(*this))
+    if (!forceSidecar)
+    {
+        // Opt-in sidecar: markers embed into the WAV cue/adtl chunks, so only
+        // CREATE a new .markers.json when a marker has a custom color or
+        // non-ASCII name. An existing sidecar is always kept updated.
+        if (!markerFile.existsAsFile() && !SidecarPolicy::markersNeedSidecar(*this))
+            return true;
+    }
+    else if (m_markers.isEmpty() && !markerFile.existsAsFile())
+    {
+        // Forced (the save could not embed losslessly) but there is nothing
+        // to preserve and no existing sidecar to keep in sync: no-op.
         return true;
+    }
 
     juce::ScopedLock lock(m_lock);
 

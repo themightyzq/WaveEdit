@@ -82,8 +82,11 @@ namespace
      * RIFF "cue " / "ltxt" fields are 32-bit (DWORD). A position or region
      * end beyond UINT32_MAX would silently truncate/wrap into a garbage
      * sample when cast to a 32-bit field on write. Reject those entries here
-     * rather than embedding a corrupt cue point; the caller falls back to
-     * the (int64-capable) JSON sidecar for anything dropped this way.
+     * rather than embedding a corrupt cue point. This is NOT a safety net on
+     * its own: writeCueChunks reports the skip via its allEntriesEmbedded
+     * out-parameter, and Document::saveFile forces a JSON sidecar whenever
+     * that comes back false (or embedding wasn't attempted at all, e.g. a
+     * non-WAV save) so the dropped entry is still preserved somewhere.
      */
     bool fitsIn32BitCueField(juce::int64 position, juce::int64 length)
     {
@@ -93,10 +96,11 @@ namespace
             && (position + length) <= static_cast<juce::int64>(std::numeric_limits<juce::uint32>::max());
     }
 
-    juce::Array<CueEntry> buildEntries(const WavCueData& data)
+    juce::Array<CueEntry> buildEntries(const WavCueData& data, bool& outAllFit)
     {
         juce::Array<CueEntry> entries;
         juce::uint32 nextId = 1;
+        outAllFit = true;
 
         for (const auto& m : data.markers)
         {
@@ -105,7 +109,8 @@ namespace
                 juce::Logger::writeToLog(
                     "AudioFileManager::buildEntries - marker '" + m.name
                     + "' position exceeds the 32-bit WAV cue-chunk range; skipped "
-                      "(preserved in the JSON sidecar only)");
+                      "(caller forces a JSON sidecar for this save)");
+                outAllFit = false;
                 continue;
             }
             entries.add({ nextId++, m.position, false, 0, m.name });
@@ -118,7 +123,8 @@ namespace
                 juce::Logger::writeToLog(
                     "AudioFileManager::buildEntries - region '" + r.name
                     + "' exceeds the 32-bit WAV cue-chunk range; skipped "
-                      "(preserved in the JSON sidecar only)");
+                      "(caller forces a JSON sidecar for this save)");
+                outAllFit = false;
                 continue;
             }
             entries.add({ nextId++, r.start, true, r.length, r.name });
@@ -128,9 +134,9 @@ namespace
     }
 
     /** Builds the "cue " and LIST-adtl chunk block. Empty when no entries. */
-    void buildCueChunks(const WavCueData& data, juce::MemoryOutputStream& out)
+    void buildCueChunks(const WavCueData& data, juce::MemoryOutputStream& out, bool& outAllFit)
     {
-        const auto entries = buildEntries(data);
+        const auto entries = buildEntries(data, outAllFit);
         if (entries.isEmpty())
             return;
 
@@ -192,9 +198,15 @@ namespace
 }  // namespace
 
 //==============================================================================
-bool AudioFileManager::writeCueChunks(const juce::File& file, const WavCueData& data)
+bool AudioFileManager::writeCueChunks(const juce::File& file, const WavCueData& data,
+                                      bool* allEntriesEmbedded)
 {
     clearError();
+
+    // Pessimistic default: only set true once every entry has actually been
+    // written below. Any early-return failure leaves this false.
+    if (allEntriesEmbedded != nullptr)
+        *allEntriesEmbedded = false;
 
     if (!file.existsAsFile())
     {
@@ -227,8 +239,9 @@ bool AudioFileManager::writeCueChunks(const juce::File& file, const WavCueData& 
     }
 
     // Build the fresh cue + adtl block (may be empty).
+    bool allFit = true;
     juce::MemoryOutputStream newChunks;
-    buildCueChunks(data, newChunks);
+    buildCueChunks(data, newChunks, allFit);
 
     // Rebuild the file, copying every chunk except a prior cue/adtl. Preserves
     // bext, LIST-INFO, iXML, etc. Use uint64 arithmetic so a corrupt near-
@@ -276,7 +289,11 @@ bool AudioFileManager::writeCueChunks(const juce::File& file, const WavCueData& 
 
     // Nothing to add and nothing to strip: leave the file untouched.
     if (newChunks.getDataSize() == 0 && !foundExisting)
+    {
+        if (allEntriesEmbedded != nullptr)
+            *allEntriesEmbedded = allFit;
         return true;
+    }
 
     cleanFile.write(newChunks.getData(), newChunks.getDataSize());
 
@@ -316,6 +333,9 @@ bool AudioFileManager::writeCueChunks(const juce::File& file, const WavCueData& 
 
     DBG("Cue/adtl chunks written (" + juce::String(data.markers.size()) + " markers, "
         + juce::String(data.regions.size()) + " regions)");
+
+    if (allEntriesEmbedded != nullptr)
+        *allEntriesEmbedded = allFit;
     return true;
 }
 

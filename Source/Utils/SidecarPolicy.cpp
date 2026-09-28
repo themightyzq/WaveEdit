@@ -115,6 +115,11 @@ namespace SidecarPolicy
         return false;
     }
 
+    bool mustForceSidecar(bool isWav, bool cueWriteOk, bool allEntriesEmbedded)
+    {
+        return !(isWav && cueWriteOk && allEntriesEmbedded);
+    }
+
     bool sidecarStaleAgainst(const juce::File& sidecarFile, const juce::File& audioFile)
     {
         if (!sidecarFile.existsAsFile() || !audioFile.existsAsFile())

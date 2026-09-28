@@ -258,9 +258,15 @@ public:
      *
      * @param wavFile The WAV file to embed into (must already exist).
      * @param data    Markers and regions to embed (names should be ASCII).
+     * @param allEntriesEmbedded Optional out-parameter. When non-null, set to
+     *        true only if every marker/region in @p data was embedded, and to
+     *        false if any entry was skipped (32-bit cue-field overflow) or if
+     *        this function returns false. Callers (Document::saveFile) use
+     *        this to decide whether a JSON sidecar must be forced.
      * @return true on success, false on error (see getLastError()).
      */
-    bool writeCueChunks(const juce::File& wavFile, const WavCueData& data);
+    bool writeCueChunks(const juce::File& wavFile, const WavCueData& data,
+                        bool* allEntriesEmbedded = nullptr);
 
     /**
      * Parses a WAV file's embedded cue + LIST-adtl chunks into markers and

@@ -72,6 +72,15 @@ namespace SidecarPolicy
     bool markersNeedSidecar(const MarkerManager& markers);
 
     /**
+     * Whether Document::saveFile must force a JSON sidecar write regardless
+     * of the per-entry embeddability check above. A sidecar can be skipped
+     * ONLY when the save embedded cues into a WAV and every entry made it in;
+     * any other outcome (non-WAV format, or a WAV whose cue write failed or
+     * dropped an entry) needs the sidecar as the sole surviving store.
+     */
+    bool mustForceSidecar(bool isWav, bool cueWriteOk, bool allEntriesEmbedded);
+
+    /**
      * Compares a sidecar's recorded audio fingerprint (see "audioLength" /
      * "audioModTime" written by RegionManager/MarkerManager::saveToFile)
      * against the audio file on disk.

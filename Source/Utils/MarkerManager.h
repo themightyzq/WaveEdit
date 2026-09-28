@@ -168,9 +168,17 @@ public:
      *        (default) for a normal save at the buffer's current rate. A
      *        Save-As that resamples must pass the actual ratio so markers
      *        stay aligned with the resampled audio on reopen.
+     * @param forceSidecar When true, always write the sidecar if there is at
+     *        least one marker (used when the save could not embed the data
+     *        losslessly -- non-WAV format, or a WAV cue write that failed or
+     *        dropped an entry; see SidecarPolicy::mustForceSidecar). If there
+     *        are no markers: an existing sidecar is still rewritten (to
+     *        reflect the now-empty set); if none exists, nothing is written.
+     *        When false, behavior is unchanged (opt-in on embeddability).
      * @return true if saved successfully
      */
-    bool saveToFile(const juce::File& audioFile, double sampleRateScale = 1.0) const;
+    bool saveToFile(const juce::File& audioFile, double sampleRateScale = 1.0,
+                    bool forceSidecar = false) const;
 
     /**
      * Load markers from JSON sidecar file

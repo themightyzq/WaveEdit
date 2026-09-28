@@ -410,11 +410,15 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         // embed so the file is self-describing. This must happen BEFORE the
         // sidecar writes below so their staleness fingerprint captures the
         // final on-disk file (cue embedding rewrites the file).
-        if (file.hasFileExtension(".wav"))
+        const bool isWav = file.hasFileExtension(".wav");
+        bool cueOk = false;
+        bool allEmbedded = false;
+        if (isWav)
         {
             WavCueData cues;
             buildCueDataForSave(cues, cueSampleRateScale);
-            if (!fileManager.writeCueChunks(file, cues))
+            cueOk = fileManager.writeCueChunks(file, cues, &allEmbedded);
+            if (!cueOk)
             {
                 juce::Logger::writeToLog("Document::saveFile - failed to embed cue chunks: "
                                          + fileManager.getLastError());
@@ -425,14 +429,20 @@ bool Document::saveFile(const juce::File& file, int bitDepth, int quality, doubl
         m_file = file;
         m_isModified = false;
 
-        // Save region data as sidecar JSON (opt-in: only written when the
-        // regions carry data the WAV cannot represent, or a sidecar already
-        // exists -- see RegionManager::saveToFile). Rescale for a
-        // rate-converting save, same reasoning as the cue embed above.
-        m_regionManager.saveToFile(file, cueSampleRateScale);
+        // A sidecar is the only lossless store unless this save embedded
+        // every marker/region into a WAV's cue/adtl chunks (see
+        // SidecarPolicy::mustForceSidecar): non-WAV formats never embed, and
+        // a WAV cue write that failed or dropped an oversized entry must not
+        // silently lose that data.
+        const bool forceSidecar = SidecarPolicy::mustForceSidecar(isWav, cueOk, allEmbedded);
+
+        // Save region data as sidecar JSON (opt-in unless forceSidecar --
+        // see RegionManager::saveToFile). Rescale for a rate-converting save,
+        // same reasoning as the cue embed above.
+        m_regionManager.saveToFile(file, cueSampleRateScale, forceSidecar);
 
         // Save marker data as sidecar JSON
-        m_markerManager.saveToFile(file, cueSampleRateScale);
+        m_markerManager.saveToFile(file, cueSampleRateScale, forceSidecar);
 
         // Save automation lanes as sidecar JSON (Phase 6)
         m_automationManager.saveToFile(file);

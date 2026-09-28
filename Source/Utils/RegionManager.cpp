@@ -542,16 +542,26 @@ juce::File RegionManager::getRegionFilePath(const juce::File& audioFile)
     return audioFile.withFileExtension(audioFile.getFileExtension() + ".regions.json");
 }
 
-bool RegionManager::saveToFile(const juce::File& audioFile, double sampleRateScale) const
+bool RegionManager::saveToFile(const juce::File& audioFile, double sampleRateScale,
+                               bool forceSidecar) const
 {
     juce::File regionFile = getRegionFilePath(audioFile);
 
-    // Opt-in sidecar: with regions embedded in the WAV cue/adtl chunks, only
-    // CREATE a new sidecar when the regions carry data the WAV cannot represent
-    // (custom color or non-ASCII name). An existing sidecar is always kept
-    // updated -- we never delete a user's file.
-    if (!regionFile.existsAsFile() && !SidecarPolicy::regionsNeedSidecar(*this))
+    if (!forceSidecar)
+    {
+        // Opt-in sidecar: with regions embedded in the WAV cue/adtl chunks,
+        // only CREATE a new sidecar when the regions carry data the WAV
+        // cannot represent (custom color or non-ASCII name). An existing
+        // sidecar is always kept updated -- we never delete a user's file.
+        if (!regionFile.existsAsFile() && !SidecarPolicy::regionsNeedSidecar(*this))
+            return true;
+    }
+    else if (m_regions.isEmpty() && !regionFile.existsAsFile())
+    {
+        // Forced (the save could not embed losslessly) but there is nothing
+        // to preserve and no existing sidecar to keep in sync: no-op.
         return true;
+    }
 
     juce::ScopedLock lock(m_lock);
 
