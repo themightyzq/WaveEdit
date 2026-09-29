@@ -4,7 +4,7 @@
     ErrorDialog.cpp
     Created: 2025-10-15
     Author:  ZQ SFX
-    Copyright (C) 2025 ZQ SFX - All Rights Reserved
+    Copyright (C) 2025 ZQ SFX
 
   ==============================================================================
 */
