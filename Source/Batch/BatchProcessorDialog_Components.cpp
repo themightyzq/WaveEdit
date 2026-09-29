@@ -47,7 +47,9 @@ DSPOperationComponent::DSPOperationComponent(int index)
     m_operationCombo.addItem("Fade Out", static_cast<int>(BatchDSPOperation::FADE_OUT) + 1);
     m_operationCombo.addItem("Reverse", static_cast<int>(BatchDSPOperation::REVERSE) + 1);
     m_operationCombo.addItem("Invert", static_cast<int>(BatchDSPOperation::INVERT) + 1);
-    m_operationCombo.setSelectedId(1);
+    // Item ids are enum + 1 (NONE = 0 is not offered), so id 1 matched no item
+    // and a new row silently did nothing until the user picked an operation.
+    m_operationCombo.setSelectedId(static_cast<int>(BatchDSPOperation::GAIN) + 1, juce::dontSendNotification);
     m_operationCombo.addListener(this);
     addAndMakeVisible(m_operationCombo);
 
