@@ -10,11 +10,9 @@ bound to a shortcut. It opens WAV, AIFF, FLAC, MP3, OGG, and M4A. Built with JUC
 Download a build from the Releases page:
 https://github.com/themightyzq/WaveEdit/releases
 
-The latest tagged release is v0.9.0 (2026-09-28), with archives for each platform:
+The latest release is v0.10.1 (2026-10-01), with archives for each platform:
 `WaveEdit-macOS-universal.zip`, `WaveEdit-Windows-x64.zip`, `WaveEdit-Linux-x64.tar.gz`.
 The macOS build is universal (Apple Silicon and Intel) and needs macOS 11.0 or newer.
-The source in this repository is at 0.9.1, which fixes several ways v0.9.0 could lose or
-overwrite a file (see CHANGELOG); build from source (below) to get it before it is released.
 
 The binaries are unsigned on every platform:
 

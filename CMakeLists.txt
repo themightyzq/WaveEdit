@@ -17,7 +17,11 @@ if(APPLE)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures for macOS")
 endif()
 
-project(WaveEdit VERSION 0.10.0 LANGUAGES C CXX)
+project(WaveEdit VERSION 0.10.1 LANGUAGES C CXX)
+
+# One version string for every target (app, core library, tests): the About box,
+# --version and crash reports read it, so they cannot drift from the bundle version.
+add_compile_definitions(WAVEEDIT_VERSION_STRING="${PROJECT_VERSION}")
 
 # Enable CTest for test registration
 enable_testing()
