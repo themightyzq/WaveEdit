@@ -26,6 +26,7 @@
 #include "Region.h"
 #include "MarkerManager.h"
 #include "Marker.h"
+#include "UndoActions/TimelineShift.h"
 #include "UndoActions/UndoMemoryBudget.h"
 
 // UndoableEditBase + the generic Delete/Insert/Replace primitives live here.
@@ -425,27 +426,8 @@ public:
 
         m_sampleRate = m_bufferManager.getSampleRate();
 
-        // Save all region positions BEFORE the insert (for undo), same
-        // convention as DeleteAction.
-        if (m_regionManager)
-        {
-            for (int i = 0; i < m_regionManager->getNumRegions(); ++i)
-            {
-                if (const auto* region = m_regionManager->getRegion(i))
-                    m_savedRegions.add(*region);
-            }
-        }
-
-        // Save all marker positions BEFORE the insert (for undo), mirroring the
-        // region snapshot above. Markers are points, not ranges (H3).
-        if (m_markerManager)
-        {
-            for (int i = 0; i < m_markerManager->getNumMarkers(); ++i)
-            {
-                if (const auto* marker = m_markerManager->getMarker(i))
-                    m_savedMarkers.add(*marker);
-            }
-        }
+        // Save all region and marker positions BEFORE the insert (for undo).
+        m_savedTimeline = TimelineShift::capture(m_regionManager, m_markerManager);
     }
 
     bool perform() override
@@ -455,55 +437,10 @@ public:
 
         if (success)
         {
-            // Region shift (mirrors DeleteAction's region handling): inserting
-            // audio must not leave regions pointing at the pre-edit timeline.
-            // - Region entirely before the insertion point: unaffected.
-            // - Region entirely at/after the insertion point: shift forward
-            //   by the inserted length.
-            // - Insertion point falls inside the region: the region grows to
-            //   include the newly inserted audio (its start doesn't move).
-            if (m_regionManager && m_regionManager->getNumRegions() > 0)
-            {
-                for (int i = 0; i < m_regionManager->getNumRegions(); ++i)
-                {
-                    Region* region = m_regionManager->getRegion(i);
-                    if (!region) continue;
-
-                    const int64_t regionStart = region->getStartSample();
-                    const int64_t regionEnd = region->getEndSample();
-
-                    if (regionEnd <= m_insertPosition)
-                    {
-                        continue;
-                    }
-                    else if (regionStart >= m_insertPosition)
-                    {
-                        region->setStartSample(regionStart + m_numSamples);
-                        region->setEndSample(regionEnd + m_numSamples);
-                    }
-                    else
-                    {
-                        region->setEndSample(regionEnd + m_numSamples);
-                    }
-                }
-            }
-
-            // Marker shift (points, not ranges): a marker AT or AFTER the insert
-            // point moves forward by the inserted length so it keeps pointing at
-            // the same audio; a marker strictly before it is unaffected. Mirrors
-            // the region rule (regionStart >= insertPosition shifts) for the
-            // zero-width case. (H3)
-            if (m_markerManager && m_markerManager->getNumMarkers() > 0)
-            {
-                for (int i = 0; i < m_markerManager->getNumMarkers(); ++i)
-                {
-                    if (Marker* marker = m_markerManager->getMarker(i))
-                    {
-                        if (marker->getPosition() >= m_insertPosition)
-                            marker->setPosition(marker->getPosition() + m_numSamples);
-                    }
-                }
-            }
+            // Inserting audio must not leave regions/markers pointing at the
+            // pre-edit timeline (rules in TimelineShift::shiftForInsert).
+            TimelineShift::shiftForInsert(m_regionManager, m_markerManager,
+                                          m_insertPosition, m_numSamples);
 
             updatePlaybackAndDisplay();
             refreshMarkerDisplay(m_markerDisplay);
@@ -519,21 +456,8 @@ public:
 
         if (success)
         {
-            // Restore all saved region positions (undoes the shift/grow above).
-            if (m_regionManager && !m_savedRegions.isEmpty())
-            {
-                m_regionManager->removeAllRegions();
-                for (const auto& region : m_savedRegions)
-                    m_regionManager->addRegion(region);
-            }
-
-            // Restore all saved marker positions (undoes the shift above).
-            if (m_markerManager && !m_savedMarkers.isEmpty())
-            {
-                m_markerManager->removeAllMarkers();
-                for (const auto& marker : m_savedMarkers)
-                    m_markerManager->addMarker(marker);
-            }
+            // Restore all saved region/marker positions (undoes the shift above).
+            TimelineShift::restore(m_savedTimeline, m_regionManager, m_markerManager);
 
             updatePlaybackAndDisplay();
             refreshMarkerDisplay(m_markerDisplay);
@@ -549,10 +473,9 @@ private:
     int64_t m_numSamples;
     juce::AudioBuffer<float> m_audioToInsert;
     double m_sampleRate;
-    juce::Array<Region> m_savedRegions;  // Saved region positions for undo
     MarkerManager* m_markerManager;      // Optional - may be nullptr if no markers
     MarkerDisplay* m_markerDisplay;      // Optional - may be nullptr if no marker display
-    juce::Array<Marker> m_savedMarkers;  // Saved marker positions for undo
+    TimelineShift::Snapshot m_savedTimeline;  // Region/marker positions for undo
     int m_sizeInUnits = 0;               // Fixed at construction; see ctor.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InsertAction)

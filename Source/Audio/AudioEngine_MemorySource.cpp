@@ -13,6 +13,7 @@
 */
 
 #include "AudioEngine.h"
+#include "AudioEngineMemorySource.h"
 
 //==============================================================================
 // MemoryAudioSource Implementation

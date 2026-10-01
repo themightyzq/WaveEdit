@@ -14,7 +14,40 @@
 */
 
 #include "PluginChainRenderer.h"
+#include "../Automation/AutomationManager.h"
 #include <iostream>
+
+namespace
+{
+    /** Push every captured lane's value at file time @p timeSeconds into its
+        offline plugin instance -- the offline twin of
+        AutomationManager::applyAutomation() (same skip rules: bypassed
+        plugins and out-of-range parameters are left alone). */
+    void applyOfflineAutomation(PluginChainRenderer::OfflineChain& chain, double timeSeconds)
+    {
+        for (const auto& lane : chain.automation)
+        {
+            if (lane.instanceIndex < 0
+                || lane.instanceIndex >= static_cast<int>(chain.instances.size()))
+                continue;
+
+            const auto idx = static_cast<size_t>(lane.instanceIndex);
+            if (idx < chain.bypassed.size() && chain.bypassed[idx])
+                continue;
+
+            auto* instance = chain.instances[idx].get();
+            if (instance == nullptr)
+                continue;
+
+            auto& params = instance->getParameters();
+            if (lane.parameterIndex < 0 || lane.parameterIndex >= params.size())
+                continue;
+
+            params[lane.parameterIndex]->setValue(
+                AutomationCurve::evaluatePoints(lane.points, timeSeconds));
+        }
+    }
+}
 
 //==============================================================================
 PluginChainRenderer::RenderResult PluginChainRenderer::renderSelection(
@@ -67,7 +100,6 @@ PluginChainRenderer::RenderResult PluginChainRenderer::renderWithOfflineChain(
     // Reset the per-render log throttle counter at the start of each render.
     m_blockCounter = 0;
 
-    (void)sampleRate;  // Sample rate was used during chain creation
     RenderResult result;
 
     // Validate inputs
@@ -160,15 +192,30 @@ PluginChainRenderer::RenderResult PluginChainRenderer::renderWithOfflineChain(
     // Build status string - simple since we don't have chain access here
     juce::String statusMessage = "Processing plugin chain...";
 
+    // Recorded automation is applied once per block, like the realtime path,
+    // so render in device-sized blocks when there is any. Without automation
+    // the block size (and so the output) is unchanged.
+    const bool hasAutomation = !offlineChain.automation.empty();
+    const int blockSize = hasAutomation ? juce::jmin(m_blockSize, kAutomationBlockSize)
+                                        : m_blockSize;
+
     // Pre-allocate chunk buffer with full block size - ensures consistent memory layout
     // Use processChannels (at least 2) for stereo plugin compatibility
-    juce::AudioBuffer<float> chunk(processChannels, m_blockSize);
+    juce::AudioBuffer<float> chunk(processChannels, blockSize);
 
     while (samplesProcessed < totalToProcess)
     {
         // Calculate chunk size
         const int64_t remaining = totalToProcess - samplesProcessed;
-        const int chunkSize = static_cast<int>(juce::jmin(static_cast<int64_t>(m_blockSize), remaining));
+        const int chunkSize = static_cast<int>(juce::jmin(static_cast<int64_t>(blockSize), remaining));
+
+        if (hasAutomation && sampleRate > 0.0)
+        {
+            // Input index i holds file sample (start + offset + i - latency).
+            const int64_t fileSample = offlineChain.automationFileOffset + startSample
+                                       + samplesProcessed - offlineChain.totalLatency;
+            applyOfflineAutomation(offlineChain, static_cast<double>(fileSample) / sampleRate);
+        }
 
         // Clear the chunk buffer and copy input data
         // This ensures any padding beyond chunkSize is zeroed (important for SIMD plugins)
@@ -385,6 +432,7 @@ PluginChainRenderer::OfflineChain PluginChainRenderer::createOfflineChain(
 
         offlineChain.instances.push_back(std::move(instance));
         offlineChain.bypassed.push_back(bypassed);
+        offlineChain.chainIndices.push_back(i);
         std::cerr << "[RENDERER] createOfflineChain: Plugin added to chain" << std::endl;
         std::cerr.flush();
     }
@@ -398,6 +446,47 @@ PluginChainRenderer::OfflineChain PluginChainRenderer::createOfflineChain(
         juce::String(offlineChain.totalLatency) + " samples");
 
     return offlineChain;
+}
+
+//==============================================================================
+void PluginChainRenderer::captureAutomation(OfflineChain& offlineChain,
+                                            const AutomationManager& automation)
+{
+    offlineChain.automation.clear();
+
+    for (const auto& lane : automation.getLanes())
+    {
+        if (!lane.enabled)
+            continue;
+
+        // Map the lane's chain slot to the offline instance built from it.
+        int instanceIndex = -1;
+        for (size_t i = 0; i < offlineChain.chainIndices.size(); ++i)
+        {
+            if (offlineChain.chainIndices[i] == lane.pluginIndex)
+            {
+                instanceIndex = static_cast<int>(i);
+                break;
+            }
+        }
+        if (instanceIndex < 0 || instanceIndex >= static_cast<int>(offlineChain.instances.size()))
+            continue;
+
+        auto* instance = offlineChain.instances[static_cast<size_t>(instanceIndex)].get();
+        if (instance == nullptr
+            || lane.parameterIndex < 0
+            || lane.parameterIndex >= instance->getParameters().size())
+            continue;
+
+        OfflineAutomationLane captured;
+        captured.instanceIndex = instanceIndex;
+        captured.parameterIndex = lane.parameterIndex;
+        captured.points = lane.curve.getPoints();
+        if (captured.points.empty())
+            continue;
+
+        offlineChain.automation.push_back(std::move(captured));
+    }
 }
 
 //==============================================================================

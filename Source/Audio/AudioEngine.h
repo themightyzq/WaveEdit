@@ -86,7 +86,28 @@ public:
     void shutdownAudio();
 
     /**
-     * Gets the audio device manager for configuration.
+     * Play through the application's one shared device manager instead of
+     * opening a device of this engine's own (one device per tab breaks
+     * exclusive-mode / ASIO drivers). Opens nothing and attaches no
+     * callback: the owner attaches the active tab's engine with
+     * setAudioCallbackActive(). Call once, before any playback.
+     */
+    void useSharedDevice(juce::AudioDeviceManager& sharedDeviceManager);
+
+    /**
+     * Attach (true) or detach (false) this engine as an audio callback of
+     * its device manager. Idempotent. Detaching is a barrier: no callback of
+     * this engine runs after it returns. Stop playback before detaching
+     * (AudioTransportSource::stop() waits for a callback).
+     */
+    void setAudioCallbackActive(bool active);
+
+    /** True while this engine is attached as an audio callback. */
+    bool isAudioCallbackActive() const { return m_callbackAttached; }
+
+    /**
+     * Gets the audio device manager for configuration: the shared one when
+     * useSharedDevice() was called, otherwise this engine's own.
      *
      * @return Reference to the audio device manager
      */
@@ -559,6 +580,11 @@ public:
      */
     void setPreviewBypassed(bool bypassed);
 
+    /** Realtime DSP preview changes only these source channels (channel
+        focus bitmask, -1 = all), matching what Apply will change. Ignored
+        while folding surround down to stereo. Thread-safe (atomic). */
+    void setPreviewChannelMask(int mask) { m_previewChannelMask.store(mask); }
+
     /**
      * Gets the current preview bypass state.
      * Thread-safe: Uses atomic read.
@@ -747,52 +773,16 @@ private:
     //==============================================================================
     // Private Helper Classes
 
-    /**
-     * Memory-based audio source that plays from an AudioBuffer.
-     * This is used for playback of edited audio.
-     */
-    class MemoryAudioSource : public juce::PositionableAudioSource
-    {
-    public:
-        MemoryAudioSource();
-        ~MemoryAudioSource() override;
-
-        void setBuffer(const juce::AudioBuffer<float>& buffer, double sampleRate, bool preservePosition = false);
-        void clear();
-
-        // PositionableAudioSource implementation
-        void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
-        void releaseResources() override;
-        void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
-        void setNextReadPosition(juce::int64 newPosition) override;
-        juce::int64 getNextReadPosition() const override;
-        juce::int64 getTotalLength() const override;
-        bool isLooping() const override;
-        void setLooping(bool shouldLoop) override;
-
-    private:
-        // H20/L1/M-H1 FIX: the playback buffer is held behind a shared_ptr that
-        // is swapped by the message thread. setBuffer()/clear() perform the
-        // expensive deep makeCopyOf and the old-buffer free OFF-lock, holding
-        // m_lock only for the pointer swap. The audio thread reads via a
-        // ScopedTryLock and dereferences the RAW pointer inside the locked scope
-        // -- no blocking (skips to silence on contention) and no shared_ptr
-        // refcount traffic on the audio thread (§6.4).
-        using BufferPtr = std::shared_ptr<const juce::AudioBuffer<float>>;
-        BufferPtr m_buffer;                      // guarded by m_lock (pointer swap only)
-        std::atomic<juce::int64> m_bufferLength{0};  // mirrors m_buffer length for lock-free reads
-        double m_sampleRate;
-        std::atomic<juce::int64> m_readPosition;
-        bool m_isLooping;
-        juce::CriticalSection m_lock;
-
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MemoryAudioSource)
-    };
+    /** Plays an AudioBuffer (edited or freshly decoded audio). Defined in
+        AudioEngineMemorySource.h, which only the engine's .cpp files need. */
+    class MemoryAudioSource;
 
     //==============================================================================
     // Private Members
 
-    juce::AudioDeviceManager m_deviceManager;
+    juce::AudioDeviceManager m_deviceManager;           // own device (tests, standalone use)
+    juce::AudioDeviceManager* m_sharedDeviceManager = nullptr;  // app device, when shared
+    bool m_callbackAttached = false;                     // message thread only
     juce::AudioFormatManager m_formatManager;
     juce::AudioTransportSource m_transportSource;
 
@@ -869,6 +859,11 @@ private:
     // Preview bypass state - when true, all preview DSP processing is bypassed
     // Allows A/B comparison between processed and unprocessed audio
     std::atomic<bool> m_previewBypassed{false};
+    std::atomic<int> m_previewChannelMask{-1};      // see setPreviewChannelMask()
+    juce::AudioBuffer<float> m_previewMaskScratch;  // preallocated in audioDeviceAboutToStart
+    /** Audio thread: copy unfocused channels to (restore=false) or back from the scratch. */
+    void holdDryPreviewChannels(juce::AudioBuffer<float>& buffer, int numSamples, int sourceChannels,
+                                bool foldDownActive, bool restore) noexcept;
 
     // Preview buffer for offline effects (Normalize, Time Stretch, etc.)
     std::unique_ptr<MemoryAudioSource> m_previewBufferSource;

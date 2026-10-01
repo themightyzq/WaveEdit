@@ -12,15 +12,16 @@
 
     Split out from DSPController.cpp under CLAUDE.md §7.5 (file size cap).
     Hosts the heavier "advanced" DSP operations: EQ dialogs, channel
-    converter / extractor, plugin chain + offline plugin application,
-    head & tail processing, looping tools, resample, and time-stretch /
-    pitch-shift. Simple level operations (gain, normalize, fade,
+    converter / extractor, head & tail processing, looping tools,
+    resample, and time-stretch / pitch-shift (plugin chain and offline
+    plugin application live in DSPController_Plugins.cpp). Simple level operations (gain, normalize, fade,
     DC offset, silence/reverse/invert/trim) stay in DSPController.cpp.
 
   ==============================================================================
 */
 
 #include "DSPController.h"
+#include "ChannelFocus.h"
 #include <limits>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -76,20 +77,26 @@ void DSPController::showGraphicalEQDialog(Document* doc, juce::Component* /*pare
     const int64_t numSamples = endSample - startSample;
 
     auto eqParams = DynamicParametricEQ::createDefaultPreset();
-    auto result = GraphicalEQEditor::showDialog(&engine, eqParams, startSample, endSample);
+    std::optional<DynamicParametricEQ::Parameters> result;
+    {
+        const ChannelFocus::ScopedPreviewMask previewMask(*doc);  // preview the focused channels
+        result = GraphicalEQEditor::showDialog(&engine, eqParams, startSample, endSample);
+    }
     if (!result.has_value())
         return;
 
     try
     {
+        // Unfocused channels are put back from this snapshot (channel focus).
+        const auto beforeRange = ChannelFocus::snapshotIfPartial(*doc, startSample, numSamples);
         doc->getUndoManager().beginNewTransaction("Graphical EQ");
-        doc->getUndoManager().perform(new ApplyDynamicParametricEQAction(
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, new ApplyDynamicParametricEQAction(
             doc->getBufferManager(),
             doc->getAudioEngine(),
             doc->getWaveformDisplay(),
             startSample,
             numSamples,
-            result.value()));
+            result.value()), beforeRange, startSample));
         doc->setModified(true);
     }
     catch (const std::exception& e)
@@ -341,441 +348,6 @@ void DSPController::showChannelExtractorDialog(Document* doc, juce::Component* /
                                  + juce::String(e.what()));
         ErrorDialog::show("Error",
                           "Channel extraction failed: " + juce::String(e.what()));
-    }
-}
-
-//==============================================================================
-// Plugin chain operations
-//==============================================================================
-
-void DSPController::applyPluginChainToSelectionWithOptions(Document* doc, bool convertToStereo, bool includeTail, double tailLengthSeconds)
-{
-    applyPluginChainToSelectionInternal(doc, convertToStereo, includeTail, tailLengthSeconds);
-}
-
-void DSPController::applyPluginChainToSelection(Document* doc)
-{
-    applyPluginChainToSelectionInternal(doc, false, false, 0.0);
-}
-
-void DSPController::applyPluginChainToSelectionInternal(Document* doc,
-                                                         bool convertToStereo,
-                                                         bool includeTail,
-                                                         double tailLengthSeconds)
-{
-    if (!doc || !doc->getAudioEngine().isFileLoaded())
-        return;
-
-    auto& engine = doc->getAudioEngine();
-    auto& chain  = engine.getPluginChain();
-
-    if (chain.isEmpty())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::MessageBoxIconType::InfoIcon,
-            "Apply Plugin Chain",
-            "The plugin chain is empty. Add plugins first.",
-            "OK");
-        return;
-    }
-
-    if (chain.areAllBypassed())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::MessageBoxIconType::InfoIcon,
-            "Apply Plugin Chain",
-            "All plugins are bypassed. Un-bypass at least one plugin to apply effects.",
-            "OK");
-        return;
-    }
-
-    auto& bufferManager = doc->getBufferManager();
-    auto& buffer = bufferManager.getMutableBuffer();
-    if (buffer.getNumSamples() == 0)
-        return;
-
-    int64_t startSample = 0;
-    int64_t numSamples  = buffer.getNumSamples();
-    const bool hasSelection = doc->getWaveformDisplay().hasSelection();
-
-    if (hasSelection)
-    {
-        startSample = bufferManager.timeToSample(doc->getWaveformDisplay().getSelectionStart());
-        const int64_t endSample = bufferManager.timeToSample(doc->getWaveformDisplay().getSelectionEnd());
-        numSamples = endSample - startSample;
-        if (numSamples <= 0)
-            return;
-    }
-
-    const juce::String chainDescription = PluginChainRenderer::buildChainDescription(chain);
-    const juce::String transactionName  = "Apply Plugin Chain: " + chainDescription;
-    const double sampleRate = bufferManager.getSampleRate();
-
-    int outputChannels = 0; // 0 = match source
-    if (convertToStereo && buffer.getNumChannels() == 1)
-    {
-        // Convert to stereo BEFORE processing so display + engine update properly.
-        doc->getUndoManager().beginNewTransaction("Convert to Stereo");
-        doc->getUndoManager().perform(new ConvertToStereoAction(
-            doc->getBufferManager(),
-            doc->getWaveformDisplay(),
-            doc->getAudioEngine()));
-        doc->setModified(true);
-        outputChannels = 2;
-    }
-
-    int64_t tailSamples = 0;
-    if (includeTail && tailLengthSeconds > 0.0)
-        tailSamples = static_cast<int64_t>(tailLengthSeconds * sampleRate);
-
-    auto renderer = std::make_shared<PluginChainRenderer>();
-    auto offlineChain = std::make_shared<PluginChainRenderer::OfflineChain>(
-        PluginChainRenderer::createOfflineChain(chain, sampleRate, renderer->getBlockSize()));
-
-    if (!offlineChain->isValid())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::MessageBoxIconType::WarningIcon,
-            "Apply Plugin Chain",
-            "Failed to create offline plugin instances. Some plugins may not "
-            "support offline rendering.",
-            "OK");
-        return;
-    }
-
-    // Apply the rendered buffer to the document (message thread).
-    auto applyProcessed = [doc, startSample, numSamples, transactionName, chainDescription]
-        (const juce::AudioBuffer<float>& processed)
-    {
-        if (processed.getNumSamples() <= 0)
-            return;
-
-        try
-        {
-            doc->getUndoManager().beginNewTransaction(transactionName);
-            auto* undoAction = new ApplyPluginChainAction(
-                doc->getBufferManager(),
-                doc->getAudioEngine(),
-                doc->getWaveformDisplay(),
-                startSample,
-                numSamples,
-                processed,
-                chainDescription);
-
-            const bool replaced = doc->getBufferManager().replaceRange(
-                startSample, numSamples, processed);
-            if (!replaced)
-            {
-                delete undoAction;
-                ErrorDialog::show("Apply Plugin Chain",
-                                  "Failed to replace audio range with processed buffer.");
-                return;
-            }
-
-            undoAction->markAsAlreadyPerformed();
-            doc->getUndoManager().perform(undoAction);
-            doc->setModified(true);
-
-            // H1: refresh via the action's own length classification. A
-            // tail-extending render (include-tail) grows the range and shifts
-            // subsequent content, so this STOPS playback (reset to 0) instead of
-            // unconditionally preserving a position that would resume on the
-            // shifted timeline. Handles both the waveform + engine reload.
-            undoAction->refreshAfterExternalReplace();
-        }
-        catch (const std::exception& e)
-        {
-            juce::Logger::writeToLog(
-                "DSPController::applyPluginChainToSelectionInternal apply - "
-                + juce::String(e.what()));
-            ErrorDialog::show("Error",
-                              "Plugin chain application failed: "
-                              + juce::String(e.what()));
-        }
-    };
-
-    if (numSamples > kProgressDialogThreshold)
-    {
-        // Async path with progress dialog. The dialog is NOT modal
-        // (launchAsync), so the tab can be closed mid-render. Copy the source
-        // range up front and re-check a lifeline before committing, so the
-        // worker never touches the (possibly-freed) live Document -- same
-        // pattern as the TimePitch path below (C1).
-        auto processedBuffer = std::make_shared<juce::AudioBuffer<float>>();
-
-        auto sourceSnapshot = std::make_shared<juce::AudioBuffer<float>>();
-        sourceSnapshot->setSize(buffer.getNumChannels(), (int) numSamples);
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            sourceSnapshot->copyFrom(ch, 0, buffer, ch, (int) startSample, (int) numSamples);
-
-        juce::Component::SafePointer<WaveformDisplay> docLifeline(&doc->getWaveformDisplay());
-
-        ProgressDialog::runWithProgress(
-            transactionName,
-            [sourceSnapshot, renderer, offlineChain, processedBuffer, numSamples,
-             sampleRate, outputChannels, tailSamples]
-            (std::function<bool(float, const juce::String&)> progress) -> bool
-            {
-                auto result = renderer->renderWithOfflineChain(
-                    *sourceSnapshot,
-                    *offlineChain,
-                    sampleRate,
-                    0,
-                    numSamples,
-                    progress,
-                    outputChannels,
-                    tailSamples);
-
-                if (!result.success)
-                    return false;
-
-                processedBuffer->setSize(result.processedBuffer.getNumChannels(),
-                                         result.processedBuffer.getNumSamples());
-                for (int ch = 0; ch < result.processedBuffer.getNumChannels(); ++ch)
-                {
-                    processedBuffer->copyFrom(ch, 0, result.processedBuffer,
-                                              ch, 0, result.processedBuffer.getNumSamples());
-                }
-                return true;
-            },
-            [processedBuffer, applyProcessed, docLifeline](bool success)
-            {
-                if (success && docLifeline.getComponent() != nullptr)
-                    applyProcessed(*processedBuffer);
-            });
-    }
-    else
-    {
-        // Synchronous small-selection path
-        auto result = renderer->renderWithOfflineChain(
-            buffer, *offlineChain, sampleRate,
-            startSample, numSamples, nullptr,
-            outputChannels, tailSamples);
-
-        if (result.success)
-        {
-            applyProcessed(result.processedBuffer);
-        }
-        else if (!result.cancelled)
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "Apply Plugin Chain",
-                "Failed to apply plugin chain:\n" + result.errorMessage,
-                "OK");
-        }
-    }
-}
-
-void DSPController::showOfflinePluginDialog(Document* doc, juce::Component* /*parent*/)
-{
-    if (!doc || !doc->getAudioEngine().isFileLoaded())
-        return;
-
-    auto& engine = doc->getAudioEngine();
-    auto& bufferManager = doc->getBufferManager();
-
-    int64_t selectionStart = 0;
-    int64_t selectionEnd   = bufferManager.getBuffer().getNumSamples();
-
-    if (doc->getWaveformDisplay().hasSelection())
-    {
-        selectionStart = bufferManager.timeToSample(doc->getWaveformDisplay().getSelectionStart());
-        selectionEnd   = bufferManager.timeToSample(doc->getWaveformDisplay().getSelectionEnd());
-    }
-
-    auto result = OfflinePluginDialog::showDialog(&engine, &bufferManager,
-                                                  selectionStart, selectionEnd);
-    if (!result || !result->applied)
-        return;
-
-    applyOfflinePluginToSelection(
-        doc,
-        result->pluginDescription,
-        result->pluginState,
-        selectionStart,
-        selectionEnd - selectionStart,
-        result->renderOptions.convertToStereo,
-        result->renderOptions.includeTail,
-        result->renderOptions.tailLengthSeconds);
-}
-
-void DSPController::applyOfflinePluginToSelection(Document* doc,
-                                                  const juce::PluginDescription& pluginDesc,
-                                                  const juce::MemoryBlock& pluginState,
-                                                  int64_t startSample,
-                                                  int64_t numSamples,
-                                                  bool convertToStereo,
-                                                  bool includeTail,
-                                                  double tailLengthSeconds)
-{
-    if (!doc || numSamples <= 0)
-        return;
-
-    auto& bufferManager = doc->getBufferManager();
-    auto& buffer = bufferManager.getMutableBuffer();
-    const double sampleRate = bufferManager.getSampleRate();
-
-    int outputChannels = 0;
-    if (convertToStereo && buffer.getNumChannels() == 1)
-    {
-        doc->getUndoManager().beginNewTransaction("Convert to Stereo");
-        doc->getUndoManager().perform(new ConvertToStereoAction(
-            doc->getBufferManager(),
-            doc->getWaveformDisplay(),
-            doc->getAudioEngine()));
-        doc->setModified(true);
-        outputChannels = 2;
-    }
-
-    int64_t tailSamples = 0;
-    if (includeTail && tailLengthSeconds > 0.0)
-        tailSamples = static_cast<int64_t>(tailLengthSeconds * sampleRate);
-
-    PluginChain tempChain;
-    // Stack-local chain (never audio-thread-visible), but use the configured
-    // add anyway so state is applied pre-publish, matching the C4 pattern.
-    const int nodeIndex = tempChain.addPluginConfigured(pluginDesc, pluginState,
-                                                        /*bypassed*/ false);
-    if (nodeIndex < 0)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::MessageBoxIconType::WarningIcon,
-            "Offline Plugin",
-            "Failed to load plugin: " + pluginDesc.name,
-            "OK");
-        return;
-    }
-
-    auto renderer = std::make_shared<PluginChainRenderer>();
-    auto offlineChain = std::make_shared<PluginChainRenderer::OfflineChain>(
-        PluginChainRenderer::createOfflineChain(tempChain, sampleRate, renderer->getBlockSize()));
-
-    if (!offlineChain->isValid())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::MessageBoxIconType::WarningIcon,
-            "Offline Plugin",
-            "Failed to create offline plugin instance.",
-            "OK");
-        return;
-    }
-
-    const juce::String transactionName = "Apply Plugin: " + pluginDesc.name;
-
-    auto applyProcessed = [doc, startSample, numSamples, transactionName, pluginDesc]
-        (const juce::AudioBuffer<float>& processed)
-    {
-        if (processed.getNumSamples() <= 0)
-            return;
-
-        try
-        {
-            doc->getUndoManager().beginNewTransaction(transactionName);
-            auto* undoAction = new ApplyPluginChainAction(
-                doc->getBufferManager(),
-                doc->getAudioEngine(),
-                doc->getWaveformDisplay(),
-                startSample,
-                numSamples,
-                processed,
-                pluginDesc.name);
-
-            const bool replaced = doc->getBufferManager().replaceRange(
-                startSample, numSamples, processed);
-            if (!replaced)
-            {
-                delete undoAction;
-                ErrorDialog::show("Offline Plugin",
-                                  "Failed to replace audio range with processed buffer.");
-                return;
-            }
-
-            undoAction->markAsAlreadyPerformed();
-            doc->getUndoManager().perform(undoAction);
-            doc->setModified(true);
-
-            // H1: same length-aware refresh as the plugin-chain path. An offline
-            // plugin rendered with include-tail extends the range, so this stops
-            // playback rather than resuming on shifted content.
-            undoAction->refreshAfterExternalReplace();
-        }
-        catch (const std::exception& e)
-        {
-            juce::Logger::writeToLog("DSPController::applyOfflinePluginToSelection - "
-                                     + juce::String(e.what()));
-            ErrorDialog::show("Error",
-                              "Offline plugin failed: " + juce::String(e.what()));
-        }
-    };
-
-    if (numSamples > kProgressDialogThreshold)
-    {
-        // Non-modal progress dialog: copy the source range and re-check a
-        // lifeline so a mid-render tab close cannot free the Document out from
-        // under the worker or the completion callback (C1).
-        auto processedBuffer = std::make_shared<juce::AudioBuffer<float>>();
-
-        auto sourceSnapshot = std::make_shared<juce::AudioBuffer<float>>();
-        sourceSnapshot->setSize(buffer.getNumChannels(), (int) numSamples);
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            sourceSnapshot->copyFrom(ch, 0, buffer, ch, (int) startSample, (int) numSamples);
-
-        juce::Component::SafePointer<WaveformDisplay> docLifeline(&doc->getWaveformDisplay());
-
-        ProgressDialog::runWithProgress(
-            transactionName,
-            [sourceSnapshot, renderer, offlineChain, processedBuffer, numSamples,
-             sampleRate, outputChannels, tailSamples]
-            (std::function<bool(float, const juce::String&)> progress) -> bool
-            {
-                auto result = renderer->renderWithOfflineChain(
-                    *sourceSnapshot,
-                    *offlineChain,
-                    sampleRate,
-                    0,
-                    numSamples,
-                    progress,
-                    outputChannels,
-                    tailSamples);
-
-                if (!result.success)
-                    return false;
-
-                processedBuffer->setSize(result.processedBuffer.getNumChannels(),
-                                         result.processedBuffer.getNumSamples());
-                for (int ch = 0; ch < result.processedBuffer.getNumChannels(); ++ch)
-                {
-                    processedBuffer->copyFrom(ch, 0, result.processedBuffer,
-                                              ch, 0, result.processedBuffer.getNumSamples());
-                }
-                return true;
-            },
-            [processedBuffer, applyProcessed, docLifeline](bool success)
-            {
-                if (success && docLifeline.getComponent() != nullptr)
-                    applyProcessed(*processedBuffer);
-            });
-    }
-    else
-    {
-        auto result = renderer->renderWithOfflineChain(
-            buffer, *offlineChain, sampleRate,
-            startSample, numSamples, nullptr,
-            outputChannels, tailSamples);
-
-        if (result.success)
-        {
-            applyProcessed(result.processedBuffer);
-        }
-        else if (!result.cancelled)
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "Offline Plugin",
-                "Failed to apply plugin:\n" + result.errorMessage,
-                "OK");
-        }
     }
 }
 
@@ -1112,6 +684,11 @@ namespace
         if (! doc || ! doc->getAudioEngine().isFileLoaded())
             return;
 
+        // Stretch/shift change the length: not on some channels only.
+        if (ChannelFocus::refuseIfPartial(*doc, mode == TimePitchDialog::Mode::TimeStretch
+                                                    ? "Time Stretch" : "Pitch Shift"))
+            return;
+
         auto& waveform = doc->getWaveformDisplay();
         const auto& buffer = doc->getBufferManager().getBuffer();
         const double sr = doc->getAudioEngine().getSampleRate();
@@ -1174,6 +751,9 @@ void DSPController::applyHeadTail(Document* doc, const HeadTailRecipe& recipe)
     if (!doc || !doc->getAudioEngine().isFileLoaded())
         return;
 
+    if (ChannelFocus::refuseIfPartial(*doc, "Head & Tail Processing"))
+        return;
+
     try
     {
         const auto& inputBuffer = doc->getBufferManager().getBuffer();
@@ -1213,6 +793,10 @@ void DSPController::applyHeadTail(Document* doc, const HeadTailRecipe& recipe)
 void DSPController::showHeadTailDialog(Document* doc, juce::Component* /*parent*/)
 {
     if (!doc || !doc->getAudioEngine().isFileLoaded())
+        return;
+
+    // Trims/pads change the length: not on some channels only.
+    if (ChannelFocus::refuseIfPartial(*doc, "Head & Tail Processing"))
         return;
 
     const auto& buffer  = doc->getBufferManager().getBuffer();
@@ -1361,6 +945,12 @@ void DSPController::generateAndPlace(Document* doc, double durationSeconds,
         if (numSamples <= 0 || numSamples > (int64_t) std::numeric_limits<int>::max())
             return;
 
+        // Inserting at the cursor lengthens every channel: refuse it under a
+        // partial channel focus. Over a selection only the focused channels
+        // are replaced.
+        if (!replaceSelection && ChannelFocus::refuseIfPartial(*doc, transactionName))
+            return;
+
         juce::AudioBuffer<float> generated(numChannels, (int) numSamples);
         generated.clear();
         if (fill)
@@ -1370,11 +960,12 @@ void DSPController::generateAndPlace(Document* doc, double durationSeconds,
 
         if (replaceSelection)
         {
-            doc->getUndoManager().perform(new ReplaceAction(
+            const auto beforeRange = ChannelFocus::snapshotIfPartial(*doc, startSample, numSamples);
+            doc->getUndoManager().perform(ChannelFocus::wrap(*doc, new ReplaceAction(
                 bufferManager, doc->getAudioEngine(), waveform,
                 startSample, numSamples, generated,
                 &doc->getRegionManager(), &doc->getRegionDisplay(),
-                &doc->getMarkerManager(), &doc->getMarkerDisplay()));
+                &doc->getMarkerManager(), &doc->getMarkerDisplay()), beforeRange, startSample));
         }
         else
         {

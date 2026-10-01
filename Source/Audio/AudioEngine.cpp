@@ -14,6 +14,7 @@
 */
 
 #include "AudioEngine.h"
+#include "AudioEngineMemorySource.h"
 #include "../Automation/AutomationManager.h"
 #include "../UI/SpectrumAnalyzer.h"
 #include "../UI/GraphicalEQEditor.h"
@@ -102,7 +103,8 @@ void AudioEngine::shutdownAudio()
 
     // removeAudioCallback is JUCE's barrier: it takes the device's callback lock,
     // so no audio callback is running on this engine once it returns.
-    m_deviceManager.removeAudioCallback(this);
+    setAudioCallbackActive(false);
+    m_deviceManager.removeAudioCallback(this);  // own manager; no-op if never attached
 
     // setSource(nullptr) clears 'playing' under the transport lock. stop() would
     // instead wait up to 1 s for a callback that can no longer arrive.
@@ -110,12 +112,39 @@ void AudioEngine::shutdownAudio()
     m_oneShotStopPending.store(false);
     updatePlaybackState(PlaybackState::STOPPED);
 
+    // Close only this engine's own device; a shared device belongs to the app.
     m_deviceManager.closeAudioDevice();
     m_automationManager = nullptr;
 }
 
+void AudioEngine::useSharedDevice(juce::AudioDeviceManager& sharedDeviceManager)
+{
+    jassert(!m_callbackAttached);
+    m_sharedDeviceManager = &sharedDeviceManager;
+}
+
+void AudioEngine::setAudioCallbackActive(bool active)
+{
+    if (active == m_callbackAttached)
+        return;
+
+    if (active)
+        getDeviceManager().addAudioCallback(this);     // calls audioDeviceAboutToStart if open
+    else
+        getDeviceManager().removeAudioCallback(this);  // barrier; calls audioDeviceStopped
+
+    m_callbackAttached = active;
+}
+
 bool AudioEngine::initializeAudioDevice()
 {
+    // Sharing the app's device: nothing to open, just attach.
+    if (m_sharedDeviceManager != nullptr)
+    {
+        setAudioCallbackActive(true);
+        return true;
+    }
+
     // Set up audio device with default settings
     // This will use the system's default audio output device
     juce::String audioError = m_deviceManager.initialise(
@@ -134,14 +163,14 @@ bool AudioEngine::initializeAudioDevice()
     }
 
     // Add this audio engine as the audio callback
-    m_deviceManager.addAudioCallback(this);
+    setAudioCallbackActive(true);
 
     return true;
 }
 
 juce::AudioDeviceManager& AudioEngine::getDeviceManager()
 {
-    return m_deviceManager;
+    return m_sharedDeviceManager != nullptr ? *m_sharedDeviceManager : m_deviceManager;
 }
 
 juce::AudioFormatManager& AudioEngine::getFormatManager()
@@ -772,6 +801,8 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
         // here (device-prepare thread), never in the audio callback (§6.4).
         const int deviceOutputs = device->getActiveOutputChannels().countNumberOfSetBits();
         m_deviceOutputChannels.store(juce::jmax(1, deviceOutputs));
+        m_previewMaskScratch.setSize(MAX_CHANNELS, device->getCurrentBufferSizeSamples(),
+                                     false, false, true);
         m_foldDownScratch.setSize(MAX_CHANNELS, device->getCurrentBufferSizeSamples(),
                                   false, false, true);
         rebuildFoldDownMatrix();
@@ -789,6 +820,29 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
         // Prepare the VST3/AU plugin chain for real-time processing
         m_pluginChain.prepareToPlay(device->getCurrentSampleRate(),
                                      device->getCurrentBufferSizeSamples());
+    }
+}
+
+void AudioEngine::holdDryPreviewChannels(juce::AudioBuffer<float>& buffer, int numSamples,
+                                         int sourceChannels, bool foldDownActive,
+                                         bool restore) noexcept
+{
+    // Audio thread: no allocation (scratch preallocated in audioDeviceAboutToStart).
+    const int mask = m_previewChannelMask.load();
+    if (mask == -1 || foldDownActive || numSamples > m_previewMaskScratch.getNumSamples())
+        return;
+
+    const int channels = juce::jmin(buffer.getNumChannels(), m_previewMaskScratch.getNumChannels());
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        const int sourceChannel = sourceChannels == 1 ? 0 : ch;  // mono feeds both outputs
+        if (sourceChannel < 31 && (mask & (1 << sourceChannel)) != 0)
+            continue;  // focused: keeps the preview DSP result
+
+        if (restore)
+            buffer.copyFrom(ch, 0, m_previewMaskScratch, ch, 0, numSamples);
+        else
+            m_previewMaskScratch.copyFrom(ch, 0, buffer, ch, 0, numSamples);
     }
 }
 
@@ -968,6 +1022,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
     // When bypassed, audio plays through without any preview processing (for A/B comparison)
     if (m_previewMode.load() == PreviewMode::REALTIME_DSP && !m_previewBypassed.load())
     {
+        // Channel focus: hold the unfocused channels' dry signal, so the
+        // preview changes the same channels Apply will (restored below).
+        holdDryPreviewChannels(buffer, numSamples, sourceChannels, foldDownActive, false);
+
         // Process chain - order matters for best results:
         // 1. DC Offset removal (clean up signal first)
         // 2. Gain/Normalize (amplitude adjustment)
@@ -1031,6 +1089,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
                     previewPlugin->processBlock(buffer, m_emptyMidiBuffer);
             }
         }
+
+        holdDryPreviewChannels(buffer, numSamples, sourceChannels, foldDownActive, true);
     }
 
     //==============================================================================

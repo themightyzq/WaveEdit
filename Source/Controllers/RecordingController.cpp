@@ -135,13 +135,23 @@ void RecordingController::handleRecordCommand(juce::Component* parent,
         appendToExisting = (choice == 1);     // Insert at Cursor; else New File
     }
 
+    // Track the live capture state ourselves (isRecording()), then forward
+    // it to the host's own indicator callback.
+    auto state = m_recordingState;
+    auto trackingCallback = [state, forward = std::move(recordingStateCallback)](bool isRecording)
+    {
+        state->store(isRecording);
+        if (forward)
+            forward(isRecording);
+    };
+
     // RecordingDialog takes ownership of the listener.
     RecordingDialog::showDialog(parent,
                                 audioDeviceManager,
                                 new RecordingApplyListener(&documentManager,
                                                            currentDoc,
                                                            appendToExisting),
-                                std::move(recordingStateCallback));
+                                std::move(trackingCallback));
 }
 
 bool RecordingController::insertTake(Document& doc,

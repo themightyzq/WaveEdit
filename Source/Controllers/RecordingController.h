@@ -17,7 +17,9 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <atomic>
 #include <functional>
+#include <memory>
 
 class DocumentManager;
 class Document;
@@ -99,4 +101,14 @@ public:
     static void populateNewDocument(Document& doc,
                                     const juce::AudioBuffer<float>& take,
                                     double sampleRate);
+
+    /** True while a take is being captured (between the dialog's record
+        start and stop/close). Editing commands are disabled meanwhile. */
+    bool isRecording() const { return m_recordingState->load(); }
+
+private:
+    // Shared with the dialog's state callback, which can outlive this
+    // controller if the main window closes while the dialog is still open.
+    std::shared_ptr<std::atomic<bool>> m_recordingState =
+        std::make_shared<std::atomic<bool>>(false);
 };

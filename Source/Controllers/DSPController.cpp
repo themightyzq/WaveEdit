@@ -28,6 +28,8 @@
 */
 
 #include "DSPController.h"
+#include "ChannelFocus.h"
+#include "../Audio/ChannelMask.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -139,7 +141,7 @@ void DSPController::applyGainAdjustment(Document* doc, float gainDB, int64_t sta
 
         // perform() calls GainUndoAction::perform() which applies gain and updates display
         // while preserving playback state (uses reloadBufferPreservingPlayback internally)
-        doc->getUndoManager().perform(undoAction);
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, beforeBuffer, startSampleInt));
 
         // Mark as modified
         doc->setModified(true);
@@ -186,7 +188,11 @@ void DSPController::showGainDialog(Document* doc, juce::Component* /*parent*/)
         static_cast<int64_t>(engine.getTotalLength() * sampleRate);
 
     // Show dialog with preview support and selection bounds
-    auto result = GainDialog::showDialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSampleInt, endSampleInt);
+    std::optional<float> result;
+    {
+        const ChannelFocus::ScopedPreviewMask previewMask(*doc);
+        result = GainDialog::showDialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSampleInt, endSampleInt);
+    }
 
     if (result.has_value())
     {
@@ -229,7 +235,8 @@ void DSPController::showNormalizeDialog(Document* doc, juce::Component* parent)
     DBG("  Sample rate: " + juce::String(sampleRate));
 
     // Create and configure dialog
-    NormalizeDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample);
+    NormalizeDialog dialog(&doc->getAudioEngine(), &doc->getBufferManager(), startSample, endSample,
+                           ChannelFocus::maskFor(*doc));  // levels of the focused channels
 
     // Set up callbacks
     dialog.onApply([doc, &dialog](float targetDB) {
@@ -317,7 +324,7 @@ void DSPController::showNormalizeDialog(Document* doc, juce::Component* parent)
                         );
                         // Mark as already performed so undo() will restore, but perform() is no-op
                         undoAction->markAsAlreadyPerformed();
-                        doc->getUndoManager().perform(undoAction);
+                        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, *beforeBuffer, startSampleInt));
                         doc->setModified(true);
 
                         // Update waveform display
@@ -359,7 +366,7 @@ void DSPController::showNormalizeDialog(Document* doc, juce::Component* parent)
                 isSelection      // bool isSelection
             );
 
-            doc->getUndoManager().perform(undoAction);
+            doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, *beforeBuffer, startSampleInt));
             doc->setModified(true);
         }
     });
@@ -379,7 +386,10 @@ void DSPController::showNormalizeDialog(Document* doc, juce::Component* parent)
     options.useNativeTitleBar = true;
     options.resizable = false;
 
-    options.runModal();
+    {
+        const ChannelFocus::ScopedPreviewMask previewMask(*doc);  // preview the focused channels
+        options.runModal();
+    }
 }
 
 /**
@@ -475,7 +485,7 @@ void DSPController::showFadeInDialog(Document* doc, juce::Component* parent)
                             curveType
                         );
                         undoAction->markAsAlreadyPerformed();
-                        doc->getUndoManager().perform(undoAction);
+                        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, *beforeBuffer, startSampleInt));
                         doc->setModified(true);
 
                         // Update waveform display
@@ -515,7 +525,7 @@ void DSPController::showFadeInDialog(Document* doc, juce::Component* parent)
                 curveType
             );
 
-            doc->getUndoManager().perform(undoAction);
+            doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, *beforeBuffer, startSampleInt));
             doc->setModified(true);
         }
     });
@@ -535,7 +545,10 @@ void DSPController::showFadeInDialog(Document* doc, juce::Component* parent)
     options.useNativeTitleBar = true;
     options.resizable = false;
 
-    options.runModal();
+    {
+        const ChannelFocus::ScopedPreviewMask previewMask(*doc);  // preview the focused channels
+        options.runModal();
+    }
 }
 
 /**
@@ -631,7 +644,7 @@ void DSPController::showFadeOutDialog(Document* doc, juce::Component* parent)
                             curveType
                         );
                         undoAction->markAsAlreadyPerformed();
-                        doc->getUndoManager().perform(undoAction);
+                        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, *beforeBuffer, startSampleInt));
                         doc->setModified(true);
 
                         // Update waveform display
@@ -671,7 +684,7 @@ void DSPController::showFadeOutDialog(Document* doc, juce::Component* parent)
                 curveType
             );
 
-            doc->getUndoManager().perform(undoAction);
+            doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, *beforeBuffer, startSampleInt));
             doc->setModified(true);
         }
     });
@@ -691,7 +704,10 @@ void DSPController::showFadeOutDialog(Document* doc, juce::Component* parent)
     options.useNativeTitleBar = true;
     options.resizable = false;
 
-    options.runModal();
+    {
+        const ChannelFocus::ScopedPreviewMask previewMask(*doc);  // preview the focused channels
+        options.runModal();
+    }
 }
 
 /**
@@ -777,7 +793,7 @@ void DSPController::applyDCOffset(Document* doc)
                             numSamples
                         );
                         undoAction->markAsAlreadyPerformed();
-                        doc->getUndoManager().perform(undoAction);
+                        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, *beforeBuffer, startSampleInt));
                         doc->setModified(true);
 
                         // Update waveform display
@@ -817,7 +833,7 @@ void DSPController::applyDCOffset(Document* doc)
                 numSamples
             );
 
-            doc->getUndoManager().perform(undoAction);
+            doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, *beforeBuffer, startSampleInt));
             doc->setModified(true);
         }
     }
@@ -869,10 +885,14 @@ void DSPController::applyNormalize(Document* doc)
             beforeBuffer.copyFrom(ch, 0, buffer, ch, startSample, numSamples);
         }
 
-        // Find peak level
+        // Find peak level (of the focused channels only: with a per-channel
+        // focus, only those are normalized)
+        const int focusMask = ChannelFocus::maskFor(*doc);
         float peakLevel = 0.0f;
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         {
+            if (!ChannelMask::includes(focusMask, ch))
+                continue;
             const auto* samples = buffer.getReadPointer(ch);
             for (int i = 0; i < numSamples; ++i)
             {
@@ -907,7 +927,7 @@ void DSPController::applyNormalize(Document* doc)
             isSelection
         );
 
-        doc->getUndoManager().perform(undoAction);
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, beforeBuffer, startSample));
         doc->setModified(true);
     }
     catch (const std::exception& e)
@@ -969,7 +989,7 @@ void DSPController::applyFadeIn(Document* doc)
             FadeCurveType::LINEAR
         );
 
-        doc->getUndoManager().perform(undoAction);
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, beforeBuffer, startSample));
         doc->setModified(true);
     }
     catch (const std::exception& e)
@@ -1031,7 +1051,7 @@ void DSPController::applyFadeOut(Document* doc)
             FadeCurveType::LINEAR
         );
 
-        doc->getUndoManager().perform(undoAction);
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, beforeBuffer, startSample));
         doc->setModified(true);
     }
     catch (const std::exception& e)
@@ -1092,7 +1112,7 @@ void DSPController::silenceSelection(Document* doc)
             numSamples
         );
 
-        doc->getUndoManager().perform(undoAction);
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, beforeBuffer, startSample));
         doc->setModified(true);
     }
     catch (const std::exception& e)
@@ -1140,14 +1160,16 @@ void DSPController::reverseSelection(Document* doc)
         // Create undo action (no before buffer needed -- reverse is self-inverse)
         juce::String transactionName = isSelection ? "Reverse Selection" : "Reverse";
         doc->getUndoManager().beginNewTransaction(transactionName);
-        doc->getUndoManager().perform(new ReverseUndoAction(
+        // Unfocused channels are put back from this snapshot (channel focus).
+        const auto beforeRange = ChannelFocus::snapshotIfPartial(*doc, startSample, numSamples);
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, new ReverseUndoAction(
             doc->getBufferManager(),
             doc->getWaveformDisplay(),
             doc->getAudioEngine(),
             startSample,
             numSamples,
             isSelection
-        ));
+        ), beforeRange, startSample));
 
         doc->setModified(true);
     }
@@ -1196,14 +1218,16 @@ void DSPController::invertSelection(Document* doc)
         // Create undo action (no before buffer needed -- invert is self-inverse)
         juce::String transactionName = isSelection ? "Invert Selection" : "Invert";
         doc->getUndoManager().beginNewTransaction(transactionName);
-        doc->getUndoManager().perform(new InvertUndoAction(
+        // Unfocused channels are put back from this snapshot (channel focus).
+        const auto beforeRange = ChannelFocus::snapshotIfPartial(*doc, startSample, numSamples);
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, new InvertUndoAction(
             doc->getBufferManager(),
             doc->getWaveformDisplay(),
             doc->getAudioEngine(),
             startSample,
             numSamples,
             isSelection
-        ));
+        ), beforeRange, startSample));
 
         doc->setModified(true);
     }
@@ -1226,6 +1250,10 @@ void DSPController::trimToSelection(Document* doc)
 
     try
     {
+        // Trim changes the file length: it cannot apply to some channels only.
+        if (ChannelFocus::refuseIfPartial(*doc, "Trim to Selection"))
+            return;
+
         // Require selection
         if (!doc->getWaveformDisplay().hasSelection())
         {
@@ -1319,7 +1347,7 @@ void DSPController::applyDCOffsetRemoval(Document* doc)
         );
 
         // perform() calls DCOffsetRemovalUndoAction::perform() which removes DC offset and updates display
-        doc->getUndoManager().perform(undoAction);
+        doc->getUndoManager().perform(ChannelFocus::wrap(*doc, undoAction, beforeBuffer, 0));
 
         // Mark as modified
         doc->setModified(true);

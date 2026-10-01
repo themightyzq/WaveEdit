@@ -27,6 +27,8 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <functional>
 
 namespace AutoSaveRecovery
 {
@@ -75,4 +77,31 @@ namespace AutoSaveRecovery
 
     /** Convenience: scans the production auto-save directory. */
     void deleteAutoSavesFor(const juce::File& originalFile);
+
+    /**
+     * Write one auto-save: a 32-bit float WAV, so the recovered audio is
+     * exactly the in-memory float buffer (no truncation to the document's
+     * 16/24-bit save depth, no clipping of samples beyond full scale).
+     * Background-thread safe (touches only its arguments).
+     *
+     * @return false (and @p error set) if the file could not be written.
+     */
+    bool writeAutoSave(const juce::File& target,
+                       const juce::AudioBuffer<float>& buffer,
+                       double sampleRate,
+                       juce::String& error);
+
+    /** Loads one auto-save into a buffer; false if it cannot be read. */
+    using AutoSaveLoader = std::function<bool(const juce::File&, juce::AudioBuffer<float>&)>;
+
+    /**
+     * Recovery source selection: try @p newestFirst in order and return the
+     * index of the first file that @p loader reads into a non-empty buffer
+     * (stored in @p recovered), or -1 if none can be read. A crash during an
+     * auto-save write leaves the newest file truncated; this falls back to
+     * the previous auto-save instead of giving up.
+     */
+    int loadFirstReadable(const juce::Array<juce::File>& newestFirst,
+                          const AutoSaveLoader& loader,
+                          juce::AudioBuffer<float>& recovered);
 }

@@ -17,6 +17,7 @@
 */
 
 #include "AudioEngine.h"
+#include "AudioEngineMemorySource.h"
 #include <cmath>
 
 //==============================================================================
@@ -136,7 +137,7 @@ bool AudioEngine::loadPreviewBuffer(const juce::AudioBuffer<float>& previewBuffe
     // CRITICAL: Call prepareToPlay() after changing the source
     // This is REQUIRED by JUCE's AudioTransportSource - without it, the transport
     // continues reading from the old source despite the setSource() call!
-    auto* device = m_deviceManager.getCurrentAudioDevice();
+    auto* device = getDeviceManager().getCurrentAudioDevice();
     if (device != nullptr)
     {
         m_transportSource.prepareToPlay(device->getCurrentBufferSizeSamples(),

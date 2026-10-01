@@ -14,6 +14,7 @@
 */
 
 #include "NormalizeDialog.h"
+#include "../Audio/ChannelMask.h"
 #include "../Audio/AudioEngine.h"
 #include "../Audio/AudioBufferManager.h"
 #include "../Audio/AudioProcessor.h"
@@ -30,11 +31,13 @@ static bool s_lastLoopState = true;  // Default ON per CLAUDE.md Protocol
 NormalizeDialog::NormalizeDialog(AudioEngine* audioEngine,
                                  AudioBufferManager* bufferManager,
                                  int64_t selectionStart,
-                                 int64_t selectionEnd)
+                                 int64_t selectionEnd,
+                                 int channelMask)
     : m_audioEngine(audioEngine)
     , m_bufferManager(bufferManager)
     , m_selectionStart(selectionStart)
     , m_selectionEnd(selectionEnd)
+    , m_channelMask(channelMask)
     , m_currentPeakDB(0.0f)
 {
     // Title
@@ -257,7 +260,8 @@ void NormalizeDialog::analyzePeakLevel()
     int64_t numSamples = m_selectionEnd - m_selectionStart;
 
     // Extract audio range
-    auto workBuffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
+    auto workBuffer = ChannelMask::selectChannels(
+        m_bufferManager->getAudioRange(m_selectionStart, numSamples), m_channelMask);
 
     // Find peak magnitude across all channels
     float peakMagnitude = 0.0f;
@@ -292,7 +296,8 @@ void NormalizeDialog::updateCurrentLevels()
     if (numSamples <= 0)
         return;
 
-    auto buffer = m_bufferManager->getAudioRange(m_selectionStart, numSamples);
+    auto buffer = ChannelMask::selectChannels(
+        m_bufferManager->getAudioRange(m_selectionStart, numSamples), m_channelMask);
 
     // Calculate peak level
     m_currentPeakDB = AudioProcessor::getPeakLevelDB(buffer);

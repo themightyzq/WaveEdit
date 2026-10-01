@@ -37,7 +37,6 @@ class ResizeRegionUndoAction : public juce::UndoableAction
 public:
     ResizeRegionUndoAction(RegionManager& regionManager,
                           RegionDisplay& regionDisplay,
-                          const juce::File& audioFile,
                           int regionIndex,
                           int64_t oldStart,
                           int64_t oldEnd,
@@ -45,7 +44,6 @@ public:
                           int64_t newEnd)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_oldStart(oldStart),
           m_oldEnd(oldEnd),
           m_newStart(newStart),
@@ -73,9 +71,6 @@ public:
         region->setStartSample(m_newStart);
         region->setEndSample(m_newEnd);
 
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
         // Update display
         m_regionDisplay.repaint();
 
@@ -94,9 +89,6 @@ public:
             region->setStartSample(m_oldStart);
             region->setEndSample(m_oldEnd);
 
-            // Save to sidecar JSON file
-            m_regionManager.saveToFile(m_audioFile);
-
             // Update display
             m_regionDisplay.repaint();
 
@@ -110,7 +102,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     int64_t m_regionId = -1;
     int64_t m_oldStart;
     int64_t m_oldEnd;
@@ -275,12 +266,10 @@ class MultiMergeRegionsUndoAction : public juce::UndoableAction
 public:
     MultiMergeRegionsUndoAction(RegionManager& regionManager,
                                 RegionDisplay& regionDisplay,
-                                const juce::File& audioFile,
                                 const juce::Array<int>& originalIndices,
                                 const juce::Array<Region>& originalRegions)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_originalIndices(originalIndices),
           m_originalRegions(originalRegions)
     {
@@ -304,9 +293,6 @@ public:
         int mergedIndex = m_regionManager.getPrimarySelectionIndex();
         if (const Region* merged = m_regionManager.getRegion(mergedIndex))
             m_mergedRegionId = merged->getId();
-
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
 
         // Update display
         m_regionDisplay.repaint();
@@ -341,9 +327,6 @@ public:
             m_regionManager.insertRegionAt(target, m_originalRegions[slot]);
         }
 
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
         // Update display
         m_regionDisplay.repaint();
 
@@ -356,7 +339,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     juce::Array<int> m_originalIndices;  // Original indices of regions being merged
     juce::Array<Region> m_originalRegions;  // Original regions before merge
     int64_t m_mergedRegionId = -1;  // Stable ID of the merged region

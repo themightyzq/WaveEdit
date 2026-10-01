@@ -19,7 +19,10 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginChain.h"
 #include "PluginManager.h"
+#include "../Automation/AutomationData.h"
 #include "../Utils/ProgressCallback.h"
+
+class AutomationManager;
 
 /**
  * Offline renderer for processing audio through a plugin chain.
@@ -146,14 +149,50 @@ public:
      * Structure holding offline plugin instances.
      * Made public so caller can create chain on message thread and pass to background.
      */
+    /**
+     * One automation lane frozen for an offline render: the curve's points
+     * are copied on the message thread, so the render thread never touches
+     * the live AutomationManager.
+     */
+    struct OfflineAutomationLane
+    {
+        int instanceIndex = -1;                  ///< Index into OfflineChain::instances
+        int parameterIndex = -1;                 ///< Index into that instance's getParameters()
+        std::vector<AutomationPoint> points;     ///< Sorted, non-empty
+    };
+
     struct OfflineChain
     {
         std::vector<std::unique_ptr<juce::AudioPluginInstance>> instances;
         std::vector<bool> bypassed;  ///< Bypass state per plugin
+        std::vector<int> chainIndices;  ///< Source chain slot of each instance (a failed
+                                        ///< instantiation is skipped, so slot != index)
         int totalLatency = 0;
+
+        /** Recorded parameter automation to render (see captureAutomation()). */
+        std::vector<OfflineAutomationLane> automation;
+
+        /** File position (in samples) of index 0 of the source buffer passed to
+            renderWithOfflineChain(). Automation is evaluated at file time, so a
+            caller rendering a copied-out selection sets this to the selection
+            start. */
+        int64_t automationFileOffset = 0;
 
         bool isValid() const { return !instances.empty(); }
     };
+
+    /**
+     * Snapshot the enabled, non-empty lanes of @p automation that target a
+     * plugin present in @p offlineChain (matched through chainIndices) into
+     * offlineChain.automation. Message thread only.
+     */
+    static void captureAutomation(OfflineChain& offlineChain,
+                                  const AutomationManager& automation);
+
+    /** Block size used while automation is rendered: the realtime path
+        applies automation once per device block, so render in blocks of
+        about that size rather than the 8192-sample default. */
+    static constexpr int kAutomationBlockSize = 512;
 
     /**
      * Creates offline plugin instances from chain descriptions.

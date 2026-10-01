@@ -166,11 +166,9 @@ class RegionsToMarkersUndoAction : public juce::UndoableAction
 public:
     RegionsToMarkersUndoAction(MarkerManager& markerManager,
                                MarkerDisplay* markerDisplay,
-                               const juce::File& audioFile,
                                const juce::Array<Marker>& markersToCreate)
         : m_markerManager(markerManager),
           m_markerDisplay(markerDisplay),
-          m_audioFile(audioFile),
           m_markers(markersToCreate)
     {
         // No audio storage -- report the (tiny, fixed) size of this object
@@ -187,7 +185,6 @@ public:
         for (const auto& marker : m_markers)
             m_markerManager.addMarker(marker);
 
-        m_markerManager.saveToFile(m_audioFile);
         if (m_markerDisplay) m_markerDisplay->repaint();
         return true;
     }
@@ -201,7 +198,6 @@ public:
             if (idx >= 0)
                 m_markerManager.removeMarker(idx);
         }
-        m_markerManager.saveToFile(m_audioFile);
         if (m_markerDisplay) m_markerDisplay->repaint();
         return true;
     }
@@ -211,7 +207,6 @@ public:
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
-    juce::File m_audioFile;
     juce::Array<Marker> m_markers;
     int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
@@ -228,13 +223,11 @@ class RenameMarkerUndoAction : public juce::UndoableAction
 public:
     RenameMarkerUndoAction(MarkerManager& markerManager,
                            MarkerDisplay* markerDisplay,
-                           const juce::File& audioFile,
                            int markerIndex,
                            const juce::String& oldName,
                            const juce::String& newName)
         : m_markerManager(markerManager),
           m_markerDisplay(markerDisplay),
-          m_audioFile(audioFile),
           m_oldName(oldName),
           m_newName(newName)
     {
@@ -254,7 +247,6 @@ public:
         if (auto* m = m_markerManager.getMarkerById(m_markerId))
         {
             m->setName(m_newName);
-            m_markerManager.saveToFile(m_audioFile);
             if (m_markerDisplay) m_markerDisplay->repaint();
             return true;
         }
@@ -266,7 +258,6 @@ public:
         if (auto* m = m_markerManager.getMarkerById(m_markerId))
         {
             m->setName(m_oldName);
-            m_markerManager.saveToFile(m_audioFile);
             if (m_markerDisplay) m_markerDisplay->repaint();
             return true;
         }
@@ -278,7 +269,6 @@ public:
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
-    juce::File m_audioFile;
     int64_t m_markerId = -1;
     juce::String m_oldName;
     juce::String m_newName;
@@ -297,13 +287,11 @@ class ChangeMarkerColorUndoAction : public juce::UndoableAction
 public:
     ChangeMarkerColorUndoAction(MarkerManager& markerManager,
                                 MarkerDisplay* markerDisplay,
-                                const juce::File& audioFile,
                                 int markerIndex,
                                 juce::Colour oldColor,
                                 juce::Colour newColor)
         : m_markerManager(markerManager),
           m_markerDisplay(markerDisplay),
-          m_audioFile(audioFile),
           m_oldColor(oldColor),
           m_newColor(newColor)
     {
@@ -321,7 +309,6 @@ public:
         if (auto* m = m_markerManager.getMarkerById(m_markerId))
         {
             m->setColor(m_newColor);
-            m_markerManager.saveToFile(m_audioFile);
             if (m_markerDisplay) m_markerDisplay->repaint();
             return true;
         }
@@ -333,7 +320,6 @@ public:
         if (auto* m = m_markerManager.getMarkerById(m_markerId))
         {
             m->setColor(m_oldColor);
-            m_markerManager.saveToFile(m_audioFile);
             if (m_markerDisplay) m_markerDisplay->repaint();
             return true;
         }
@@ -345,7 +331,6 @@ public:
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
-    juce::File m_audioFile;
     int64_t m_markerId = -1;
     juce::Colour m_oldColor;
     juce::Colour m_newColor;
@@ -367,13 +352,11 @@ class MoveMarkerUndoAction : public juce::UndoableAction
 public:
     MoveMarkerUndoAction(MarkerManager& markerManager,
                          MarkerDisplay* markerDisplay,
-                         const juce::File& audioFile,
                          int64_t markerId,
                          int64_t oldPosition,
                          int64_t newPosition)
         : m_markerManager(markerManager),
           m_markerDisplay(markerDisplay),
-          m_audioFile(audioFile),
           m_markerId(markerId),
           m_oldPosition(oldPosition),
           m_newPosition(newPosition)
@@ -405,14 +388,12 @@ private:
         m_markerManager.removeMarker(index);
         m_markerManager.addMarker(moved);
 
-        m_markerManager.saveToFile(m_audioFile);
         if (m_markerDisplay) m_markerDisplay->repaint();
         return true;
     }
 
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
-    juce::File m_audioFile;
     int64_t m_markerId;
     int64_t m_oldPosition;
     int64_t m_newPosition;
@@ -433,11 +414,9 @@ class ImportMarkersUndoAction : public juce::UndoableAction
 public:
     ImportMarkersUndoAction(MarkerManager& markerManager,
                             MarkerDisplay* markerDisplay,
-                            const juce::File& audioFile,
                             const juce::Array<Marker>& markersToAdd)
         : m_markerManager(markerManager),
           m_markerDisplay(markerDisplay),
-          m_audioFile(audioFile),
           m_markers(markersToAdd)
     {
         // No audio storage -- report the (tiny, fixed) size of this object
@@ -451,7 +430,6 @@ public:
         for (const auto& marker : m_markers)
             m_markerManager.addMarker(marker);
 
-        m_markerManager.saveToFile(m_audioFile);
         if (m_markerDisplay) m_markerDisplay->repaint();
         return true;
     }
@@ -465,7 +443,6 @@ public:
             if (idx >= 0)
                 m_markerManager.removeMarker(idx);
         }
-        m_markerManager.saveToFile(m_audioFile);
         if (m_markerDisplay) m_markerDisplay->repaint();
         return true;
     }
@@ -475,7 +452,6 @@ public:
 private:
     MarkerManager& m_markerManager;
     MarkerDisplay* m_markerDisplay;
-    juce::File m_audioFile;
     juce::Array<Marker> m_markers;
     int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 

@@ -644,12 +644,13 @@ void FileController::performAutoSave()
                                             + timestamp + ".wav";
         juce::File autoSaveFile = autoSaveDir.getChildFile(autoSaveFilename);
 
-        // Get audio data (on message thread - safe)
+        // Get audio data (on message thread - safe). Auto-saves are always
+        // 32-bit float (lossless for the float edit buffer), whatever depth
+        // the document itself is saved at.
         double sampleRate = doc->getBufferManager().getSampleRate();
-        int bitDepth = doc->getAudioEngine().getBitDepth();
 
         // Create auto-save job (makes buffer copy for thread safety)
-        auto* job = new AutoSaveJob(buffer, autoSaveFile, originalFile, sampleRate, bitDepth);
+        auto* job = new AutoSaveJob(buffer, autoSaveFile, originalFile, sampleRate);
 
         // Add job to thread pool (will run on background thread)
         m_autoSaveThreadPool.addJob(job, true);  // deleteJobWhenFinished = true
@@ -750,13 +751,11 @@ void FileController::requestUIRefresh()
 FileController::AutoSaveJob::AutoSaveJob(const juce::AudioBuffer<float>& buffer,
                                          const juce::File& target,
                                          const juce::File& original,
-                                         double rate,
-                                         int depth)
+                                         double rate)
     : juce::ThreadPoolJob("AutoSave"),
       targetFile(target),
       originalFile(original),
-      sampleRate(rate),
-      bitDepth(depth)
+      sampleRate(rate)
 {
     // Make a copy of the buffer for thread safety
     bufferCopy.makeCopyOf(buffer);
@@ -766,40 +765,8 @@ juce::ThreadPoolJob::JobStatus FileController::AutoSaveJob::runJob()
 {
     try
     {
-        // Create output stream
-        std::unique_ptr<juce::OutputStream> outputStream = targetFile.createOutputStream();
-        if (!outputStream)
-        {
-            logFailure("Could not create output stream");
-            return jobHasFinished;
-        }
-
-        // Ensure valid bit depth (WAV supports 8, 16, 24, 32)
-        int safeBitDepth = bitDepth;
-        if (safeBitDepth <= 0) safeBitDepth = 16;
-        else if (safeBitDepth > 32) safeBitDepth = 32;
-
-        // Create WAV writer (JUCE 8 API: takes the unique_ptr by reference
-        // and only assumes ownership of the stream on success)
-        juce::WavAudioFormat wavFormat;
-        auto writer = wavFormat.createWriterFor(
-            outputStream,
-            juce::AudioFormatWriterOptions()
-                .withSampleRate(sampleRate)
-                .withNumChannels(bufferCopy.getNumChannels())
-                .withBitsPerSample(safeBitDepth));
-
-        if (!writer)
-        {
-            logFailure("Could not create audio writer");
-            return jobHasFinished;
-        }
-
-        // Write buffer to file
-        bool success = writer->writeFromAudioSampleBuffer(bufferCopy, 0, bufferCopy.getNumSamples());
-        writer.reset();  // Flush and close
-
-        if (success)
+        juce::String error;
+        if (AutoSaveRecovery::writeAutoSave(targetFile, bufferCopy, sampleRate, error))
         {
             // Log success on message thread
             juce::MessageManager::callAsync([file = targetFile]()
@@ -809,7 +776,7 @@ juce::ThreadPoolJob::JobStatus FileController::AutoSaveJob::runJob()
         }
         else
         {
-            logFailure("Write operation failed");
+            logFailure(error);
         }
     }
     catch (const std::exception& e)
@@ -1061,42 +1028,40 @@ void FileController::offerCrashRecovery(Document* doc, const juce::File& origina
             if (! stillOpen)
                 return;
 
-            const auto& newestAS = orphanList.getReference(0);
-
-            // Load the auto-save's audio into a fresh buffer. Use the
-            // unchecked loader so a nonstandard-sample-rate auto-save the
-            // app itself wrote isn't rejected by the open-validation
-            // whitelist (M6).
+            // Load the newest auto-save that can actually be read. A crash
+            // mid-write leaves the newest one truncated, so fall back to the
+            // older ones instead of giving up. The unchecked loader keeps a
+            // nonstandard-sample-rate auto-save the app itself wrote from
+            // being rejected by the open-validation whitelist (M6); an empty
+            // (0-sample) file counts as unreadable, so it can never replace
+            // the user's audio with silence.
             juce::AudioBuffer<float> recovered;
-            if (! fileMgr->loadIntoBufferUnchecked(newestAS, recovered))
+            const int usedIndex = AutoSaveRecovery::loadFirstReadable(
+                orphanList,
+                [fileMgr](const juce::File& f, juce::AudioBuffer<float>& out)
+                {
+                    return fileMgr->loadIntoBufferUnchecked(f, out);
+                },
+                recovered);
+
+            if (usedIndex < 0)
             {
                 // Keep the backups: the user may still want to recover by
                 // other means, and we have not yet replaced anything.
                 juce::Logger::writeToLog(
-                    "Crash recovery: failed to load " + newestAS.getFullPathName()
-                    + " -- keeping auto-saves.");
+                    "FileController::offerCrashRecovery - no readable auto-save among "
+                    + juce::String(orphanList.size()) + " -- keeping auto-saves.");
                 ErrorDialog::show(
                     "Recovery Failed",
-                    "Could not read the auto-saved file. Your backups have been kept.",
+                    "Could not read any auto-saved file. Your backups have been kept.",
                     ErrorDialog::Severity::Error);
                 return;
             }
 
-            // Guard against a truncated / zero-sample recovery: loading can
-            // "succeed" on a 0-sample file, which would silently replace the
-            // user's audio with silence AND delete the backups (M6). Validate
-            // before touching anything.
-            if (recovered.getNumSamples() <= 0)
-            {
+            if (usedIndex > 0)
                 juce::Logger::writeToLog(
-                    "Crash recovery: recovered buffer is empty for "
-                    + newestAS.getFullPathName() + " -- keeping auto-saves.");
-                ErrorDialog::show(
-                    "Recovery Failed",
-                    "The auto-saved file contained no audio. Your backups have been kept.",
-                    ErrorDialog::Severity::Error);
-                return;
-            }
+                    "FileController::offerCrashRecovery - newest auto-save unreadable, recovered "
+                    + orphanList.getReference(usedIndex).getFullPathName());
 
             // Replace the document's buffer in place. Mark it modified
             // so the user must Save (or Save As) to commit, and reload

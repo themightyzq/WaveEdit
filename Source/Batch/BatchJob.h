@@ -110,17 +110,6 @@ private:
     bool saveOutputFile(std::function<bool(float, const juce::String&)>& progress);
 
     // =========================================================================
-    // DSP Operations
-    // =========================================================================
-
-    void applyGain(float gainDb);
-    void applyNormalize(float targetDb);
-    void applyDCOffset();
-    void applyFadeIn(float durationMs, int curveType);
-    void applyFadeOut(float durationMs, int curveType);
-    void applyEQPreset(const juce::String& presetName);
-
-    // =========================================================================
     // Member variables
     // =========================================================================
 

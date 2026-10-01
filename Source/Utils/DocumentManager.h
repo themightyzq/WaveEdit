@@ -97,6 +97,20 @@ public:
     ~DocumentManager();
 
     //==============================================================================
+    // Audio device
+
+    /**
+     * Make every document created from now on play through @p deviceManager
+     * (the application's one audio device) instead of opening its own. Only
+     * the current document is attached to it; switching tabs stops the
+     * outgoing document and moves the device to the new one. Exclusive-mode
+     * and ASIO drivers allow a single open device, so per-tab devices failed
+     * there. Call before creating any document. Null restores per-document
+     * devices.
+     */
+    void setSharedDeviceManager(juce::AudioDeviceManager* deviceManager);
+
+    //==============================================================================
     // Document Lifecycle
 
     /**
@@ -295,6 +309,7 @@ private:
     // Document storage
     juce::OwnedArray<Document> m_documents;
     int m_currentDocumentIndex;
+    juce::AudioDeviceManager* m_sharedDeviceManager = nullptr;
 
     // Inter-file clipboard
     juce::AudioBuffer<float> m_interFileClipboard;
@@ -305,6 +320,10 @@ private:
     juce::ListenerList<Listener> m_listeners;
 
     // Helper methods
+    /** Shared device only: attach the current document's engine, detach
+        (after stopping) every other. Idempotent; run after any change of
+        the current document or the document list. */
+    void routeSharedDeviceToCurrent();
     void notifyCurrentDocumentChanged();
     void notifyDocumentAdded(Document* document, int index);
     void notifyDocumentRemoved(Document* document, int index);

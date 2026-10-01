@@ -48,12 +48,10 @@ class RetrospectiveStripSilenceUndoAction : public juce::UndoableAction
 public:
     RetrospectiveStripSilenceUndoAction(RegionManager& regionManager,
                                         RegionDisplay& regionDisplay,
-                                        const juce::File& audioFile,
                                         const juce::Array<Region>& oldRegions,
                                         const juce::Array<Region>& newRegions)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_oldRegions(oldRegions),
           m_newRegions(newRegions)
     {
@@ -75,9 +73,6 @@ public:
             m_regionManager.addRegion(region);
         }
 
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
         // Update display
         m_regionDisplay.repaint();
 
@@ -96,9 +91,6 @@ public:
             m_regionManager.addRegion(region);
         }
 
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
         // Update display
         m_regionDisplay.repaint();
 
@@ -111,7 +103,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     juce::Array<Region> m_oldRegions;  // Regions before Auto Region
     juce::Array<Region> m_newRegions;  // Regions created by Auto Region
     int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
@@ -129,11 +120,9 @@ class MarkersToRegionsUndoAction : public juce::UndoableAction
 public:
     MarkersToRegionsUndoAction(RegionManager& regionManager,
                                RegionDisplay& regionDisplay,
-                               const juce::File& audioFile,
                                const juce::Array<Region>& regionsToCreate)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_regions(regionsToCreate)
     {
         // No audio storage -- report the (tiny, fixed) size of this object
@@ -150,7 +139,6 @@ public:
         for (const auto& region : m_regions)
             m_regionManager.addRegion(region);
 
-        m_regionManager.saveToFile(m_audioFile);
         m_regionDisplay.repaint();
         return true;
     }
@@ -164,7 +152,6 @@ public:
             if (idx >= 0)
                 m_regionManager.removeRegion(idx);
         }
-        m_regionManager.saveToFile(m_audioFile);
         m_regionDisplay.repaint();
         return true;
     }
@@ -174,7 +161,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     juce::Array<Region> m_regions;
     int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 

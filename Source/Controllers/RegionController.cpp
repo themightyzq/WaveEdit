@@ -122,12 +122,13 @@ void RegionController::addRegionFromSelection(Document* doc)
     auto* undoAction = new AddRegionUndoAction(
         doc->getRegionManager(),
         doc->getRegionDisplay(),
-        doc->getFile(),
         newRegion
     );
 
     // perform() calls AddRegionUndoAction::perform() which adds the region
     doc->getUndoManager().perform(undoAction);
+
+    doc->setModified(true);
 
     DBG("Added region: " + regionName);
 }
@@ -163,12 +164,13 @@ void RegionController::deleteSelectedRegion(Document* doc)
     auto* undoAction = new DeleteRegionUndoAction(
         doc->getRegionManager(),
         doc->getRegionDisplay(),
-        doc->getFile(),
         regionIndex
     );
 
     // perform() calls DeleteRegionUndoAction::perform() which deletes the region
     doc->getUndoManager().perform(undoAction);
+
+    doc->setModified(true);
 
     DBG("Deleted region: " + regionName);
 }
@@ -370,10 +372,9 @@ void RegionController::showStripSilenceDialog(Document* doc, juce::Component* pa
     if (!doc)
         return;
 
-    // Get audio buffer, sample rate, and current file from current document
+    // Get audio buffer and sample rate from current document
     const auto& buffer = doc->getBufferManager().getBuffer();
     double sampleRate = doc->getBufferManager().getSampleRate();
-    juce::File currentFile = doc->getFile();
 
     // CRITICAL: Capture old regions BEFORE showing dialog
     // This enables undo support since the dialog modifies regions directly
@@ -388,7 +389,7 @@ void RegionController::showStripSilenceDialog(Document* doc, juce::Component* pa
     auto* dialog = new StripSilenceDialog(doc->getRegionManager(), buffer, sampleRate);
 
     // Set up Apply callback with retrospective undo support
-    dialog->onApply = [doc, currentFile, oldRegions](int /*numRegionsCreated*/) mutable
+    dialog->onApply = [doc, oldRegions](int /*numRegionsCreated*/) mutable
     {
         // Get current region display from document
         auto& regionDisplay = doc->getRegionDisplay();
@@ -409,7 +410,6 @@ void RegionController::showStripSilenceDialog(Document* doc, juce::Component* pa
         auto* undoAction = new RetrospectiveStripSilenceUndoAction(
             doc->getRegionManager(),
             regionDisplay,
-            currentFile,
             oldRegions,
             newRegions
         );
@@ -417,8 +417,7 @@ void RegionController::showStripSilenceDialog(Document* doc, juce::Component* pa
         // Add to undo manager (don't call perform() since changes already applied)
         doc->getUndoManager().perform(undoAction, "Auto Region");
 
-        // Save regions to JSON file
-        doc->getRegionManager().saveToFile(currentFile);
+        doc->setModified(true);
 
         // Request repaint to show created regions
         regionDisplay.repaint();
@@ -527,12 +526,13 @@ void RegionController::mergeSelectedRegions(Document* doc)
     auto* undoAction = new MultiMergeRegionsUndoAction(
         regionManager,
         doc->getRegionDisplay(),
-        doc->getFile(),
         originalIndices,
         originalRegions
     );
 
     doc->getUndoManager().perform(undoAction);
+
+    doc->setModified(true);
 
     // Repaint displays
     doc->getWaveformDisplay().repaint();
@@ -572,6 +572,8 @@ void RegionController::splitRegionAtCursor(Document* doc)
     );
 
     doc->getUndoManager().perform(undoAction);
+
+    doc->setModified(true);
 
     DBG("Split region: " + originalRegion.getName());
 }
@@ -649,8 +651,9 @@ void RegionController::pasteRegionsFromClipboard(Document* doc)
     doc->getUndoManager().perform(new PasteRegionsUndoAction(
         regionManager,
         doc->getRegionDisplay(),
-        doc->getFile(),
         pasted));
+
+    doc->setModified(true);
 
     DBG(juce::String::formatted(
         "Pasted %d region%s at sample %lld",
@@ -742,6 +745,8 @@ void RegionController::nudgeRegionBoundary(Document* doc, bool nudgeStart, bool 
 
     // perform() calls NudgeRegionUndoAction::perform() which updates the boundary
     doc->getUndoManager().perform(undoAction);
+
+    doc->setModified(true);
 
     // Log the nudge
     DBG(juce::String::formatted(
@@ -844,7 +849,6 @@ void RegionController::setupRegionCallbacks(Document* doc)
         auto* undoAction = new RenameRegionUndoAction(
             doc->getRegionManager(),
             doc->getRegionDisplay(),
-            doc->getFile(),
             regionIndex,
             oldName,
             newName
@@ -852,6 +856,8 @@ void RegionController::setupRegionCallbacks(Document* doc)
 
         // perform() calls RenameRegionUndoAction::perform() which renames the region
         doc->getUndoManager().perform(undoAction);
+
+        doc->setModified(true);
 
         DBG("Renamed region from '" + oldName + "' to '" + newName + "'");
 
@@ -883,7 +889,6 @@ void RegionController::setupRegionCallbacks(Document* doc)
         auto* undoAction = new ChangeRegionColorUndoAction(
             doc->getRegionManager(),
             doc->getRegionDisplay(),
-            doc->getFile(),
             regionIndex,
             oldColor,
             newColor
@@ -891,6 +896,8 @@ void RegionController::setupRegionCallbacks(Document* doc)
 
         // perform() calls ChangeRegionColorUndoAction::perform() which changes the color
         doc->getUndoManager().perform(undoAction);
+
+        doc->setModified(true);
 
         DBG("Changed region color");
 
@@ -922,12 +929,13 @@ void RegionController::setupRegionCallbacks(Document* doc)
         auto* undoAction = new DeleteRegionUndoAction(
             doc->getRegionManager(),
             doc->getRegionDisplay(),
-            doc->getFile(),
             regionIndex
         );
 
         // perform() calls DeleteRegionUndoAction::perform() which deletes the region
         doc->getUndoManager().perform(undoAction);
+
+        doc->setModified(true);
 
         DBG("Deleted region: " + regionName);
     };
@@ -957,7 +965,6 @@ void RegionController::setupRegionCallbacks(Document* doc)
         auto* undoAction = new ResizeRegionUndoAction(
             doc->getRegionManager(),
             doc->getRegionDisplay(),
-            doc->getFile(),
             regionIndex,
             oldStart,
             oldEnd,
@@ -967,6 +974,8 @@ void RegionController::setupRegionCallbacks(Document* doc)
 
         // perform() calls ResizeRegionUndoAction::perform() which resizes the region
         doc->getUndoManager().perform(undoAction);
+
+        doc->setModified(true);
 
         DBG(juce::String::formatted(
             "Resized region '%s': %lld-%lld → %lld-%lld samples",
@@ -1057,7 +1066,6 @@ void RegionController::setupRegionCallbacks(Document* doc)
                 auto* undoAction = new ResizeRegionUndoAction(
                     doc->getRegionManager(),
                     doc->getRegionDisplay(),
-                    doc->getFile(),
                     regionIndex,
                     oldStart,
                     oldEnd,
@@ -1221,6 +1229,8 @@ void RegionController::handleRegionListBatchRenameApply(Document* doc, const std
 
     // Add to undo manager and perform
     doc->getUndoManager().perform(undoAction);
+
+    doc->setModified(true);
 
     // Debug: Log undo/redo state
     DBG("Batch rename action added to undo manager. Can undo: " +

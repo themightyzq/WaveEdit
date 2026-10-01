@@ -28,7 +28,7 @@
 #include "UndoActions/UndoMemoryBudget.h"
 #include <cmath>
 
-Document::Document(const juce::File& file)
+Document::Document(const juce::File& file, juce::AudioDeviceManager* sharedDevice)
     : m_file(file),
       m_isModified(false),
       m_waveformDisplay(m_audioEngine.getFormatManager()),
@@ -70,8 +70,14 @@ Document::Document(const juce::File& file)
         m_markerDisplay.repaint();
     };
 
-    // Initialize audio engine
-    if (!m_audioEngine.initializeAudioDevice())
+    // Initialize audio engine. With a shared device the DocumentManager
+    // attaches the engine while this is the active tab; otherwise open a
+    // device of our own (tests, standalone use).
+    if (sharedDevice != nullptr)
+    {
+        m_audioEngine.useSharedDevice(*sharedDevice);
+    }
+    else if (!m_audioEngine.initializeAudioDevice())
     {
         juce::Logger::writeToLog("Warning: Failed to initialize audio device for document");
     }
@@ -158,6 +164,22 @@ bool Document::loadFile(const juce::File& file)
         juce::Logger::writeToLog("Error: Failed to load audio buffer for editing: " + file.getFullPathName());
         m_audioEngine.closeAudioFile();
         return false;
+    }
+
+    // Play from the decoded buffer, not the file. loadAudioFile() above wires
+    // the transport to an AudioFormatReaderSource with no read-ahead, so
+    // until the first edit every playback block was read and decoded from
+    // disk on the audio thread. The buffer manager has just decoded the same
+    // reader output into memory, so playback output is unchanged. (Costs one
+    // buffer copy, the same footprint every document has after its first
+    // edit.) If the buffer is refused (loadFromBuffer's NaN/rate probe), keep
+    // file playback rather than fail the open.
+    if (!m_audioEngine.loadFromBuffer(m_bufferManager.getBuffer(),
+                                      m_bufferManager.getSampleRate(),
+                                      m_bufferManager.getNumChannels()))
+    {
+        juce::Logger::writeToLog("Document::loadFile - playing from file (buffer refused): "
+                                 + file.getFullPathName());
     }
 
     // Update file path

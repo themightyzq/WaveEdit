@@ -138,6 +138,9 @@ public:
     {
         setSize(1200, 750);
 
+        // Every tab plays through the app's one audio device (only the active tab).
+        m_documentManager.setSharedDeviceManager(&m_audioDeviceManager);
+
         // Wire up FileController callbacks
         m_fileController.setOnUIRefreshNeeded([this]() { repaint(); });
         m_fileController.setSaveAsParent(this);
@@ -1062,6 +1065,7 @@ public:
         context.spectrumWindow = m_spectrumAnalyzerWindow.get();
         context.canMergeRegions = [this](Document* doc) { return canMergeRegions(doc); };
         context.canSplitRegion = [this](Document* doc) { return canSplitRegion(doc); };
+        context.isRecording = m_recordingController.isRecording();
         m_commandHandler.getCommandInfo(commandID, result, context);
     }
 
@@ -1094,6 +1098,7 @@ public:
                     return;
                 if (auto* transport = safeThis->m_toolbar->getCompactTransport())
                     transport->setRecording(isRecording);
+                safeThis->m_commandManager.commandStatusChanged();  // editing on/off
             });
     }
 

@@ -9,10 +9,10 @@
 */
 
 #include "BatchJob.h"
+#include "BatchDSPOps.h"
 #include "../Audio/AudioProcessor.h"
 #include "../Audio/LameMP3AudioFormat.h"
-#include "../DSP/DynamicParametricEQ.h"
-#include "../DSP/EQPresetManager.h"
+#include "../Automation/AutomationManager.h"
 #include "../Plugins/PluginChain.h"
 #include "../Plugins/PluginChainRenderer.h"
 #include "../Plugins/PluginPresetManager.h"
@@ -214,70 +214,34 @@ bool BatchJob::applyDSPChain(std::function<bool(float, const juce::String&)>& pr
         if (!dsp.enabled)
             continue;
 
+        // The operations themselves live in BatchDSPOps, shared with the
+        // batch dialog's Preview so it plays exactly what is written here.
+        juce::String status;
         switch (dsp.operation)
         {
-            case BatchDSPOperation::GAIN:
-                if (!progress(currentProgress, "Applying gain..."))
-                    return false;
-                applyGain(dsp.gainDb);
-                break;
-
-            case BatchDSPOperation::NORMALIZE:
-                if (!progress(currentProgress, "Normalizing..."))
-                    return false;
-                applyNormalize(dsp.normalizeTargetDb);
-                break;
-
-            case BatchDSPOperation::DC_OFFSET:
-                if (!progress(currentProgress, "Removing DC offset..."))
-                    return false;
-                applyDCOffset();
-                break;
-
-            case BatchDSPOperation::FADE_IN:
-                if (!progress(currentProgress, "Applying fade in..."))
-                    return false;
-                applyFadeIn(dsp.fadeDurationMs, dsp.fadeType);
-                break;
-
-            case BatchDSPOperation::FADE_OUT:
-                if (!progress(currentProgress, "Applying fade out..."))
-                    return false;
-                applyFadeOut(dsp.fadeDurationMs, dsp.fadeType);
-                break;
-
-            case BatchDSPOperation::PARAMETRIC_EQ:
-                // DEPRECATED op: the 3-band Parametric EQ was removed from
-                // WaveEdit (superseded by the 20-band Graphical EQ). Old batch
-                // presets can still carry this operation, so skip it with a
-                // visible notice rather than silently doing nothing. See the
-                // BatchDSPOperation enum comment in BatchProcessorSettings.h.
-                if (!progress(currentProgress, "Parametric EQ was removed - skipping"))
-                    return false;
-                break;
-
-            case BatchDSPOperation::GRAPHICAL_EQ:
-                if (!progress(currentProgress, "Applying EQ..."))
-                    return false;
-                applyEQPreset(dsp.eqPresetName);
-                break;
-
-            case BatchDSPOperation::REVERSE:
-                if (!progress(currentProgress, "Reversing..."))
-                    return false;
-                AudioProcessor::reverse(m_buffer);
-                break;
-
-            case BatchDSPOperation::INVERT:
-                if (!progress(currentProgress, "Inverting..."))
-                    return false;
-                AudioProcessor::invert(m_buffer);
-                break;
-
+            case BatchDSPOperation::GAIN:         status = "Applying gain..."; break;
+            case BatchDSPOperation::NORMALIZE:    status = "Normalizing..."; break;
+            case BatchDSPOperation::DC_OFFSET:    status = "Removing DC offset..."; break;
+            case BatchDSPOperation::FADE_IN:      status = "Applying fade in..."; break;
+            case BatchDSPOperation::FADE_OUT:     status = "Applying fade out..."; break;
+            // DEPRECATED op: the 3-band Parametric EQ was removed from
+            // WaveEdit (superseded by the 20-band Graphical EQ). Old batch
+            // presets can still carry this operation, so skip it with a
+            // visible notice rather than silently doing nothing. See the
+            // BatchDSPOperation enum comment in BatchProcessorSettings.h.
+            case BatchDSPOperation::PARAMETRIC_EQ: status = "Parametric EQ was removed - skipping"; break;
+            case BatchDSPOperation::GRAPHICAL_EQ: status = "Applying EQ..."; break;
+            case BatchDSPOperation::REVERSE:      status = "Reversing..."; break;
+            case BatchDSPOperation::INVERT:       status = "Inverting..."; break;
             case BatchDSPOperation::NONE:
             default:
                 break;
         }
+
+        if (status.isNotEmpty() && !progress(currentProgress, status))
+            return false;
+
+        BatchDSPOps::apply(m_buffer, m_sampleRate, dsp);
 
         currentProgress += progressPerOp;
     }
@@ -306,17 +270,20 @@ bool BatchJob::applyPluginChain(std::function<bool(float, const juce::String&)>&
     // stay alive until the (possibly still-queued) lambda runs, otherwise it
     // would dereference a destroyed stack object.
     auto chain = std::make_shared<PluginChain>();
+    // The preset's recorded parameter automation is rendered too (the
+    // automation-aware overloads replace the lanes with the preset's own).
+    auto automation = std::make_shared<AutomationManager>();
     juce::File presetFile(m_settings.pluginChainPresetPath);
 
     bool loaded = false;
     if (presetFile.existsAsFile())
     {
-        loaded = PluginPresetManager::importPreset(*chain, presetFile);
+        loaded = PluginPresetManager::importPreset(*chain, *automation, presetFile);
     }
     else
     {
         // Try loading as a preset name
-        loaded = PluginPresetManager::loadPreset(*chain, m_settings.pluginChainPresetPath);
+        loaded = PluginPresetManager::loadPreset(*chain, *automation, m_settings.pluginChainPresetPath);
     }
 
     if (!loaded || chain->isEmpty())
@@ -346,12 +313,14 @@ bool BatchJob::applyPluginChain(std::function<bool(float, const juce::String&)>&
     // worker block efficiently and wake the instant the chain is ready.
     auto chainReady = std::make_shared<juce::WaitableEvent>();
 
-    juce::MessageManager::callAsync([chain, chainReady, chainFailed, offlineChain,
+    juce::MessageManager::callAsync([chain, automation, chainReady, chainFailed, offlineChain,
                                       sampleRate = m_sampleRate, blockSize = renderer.getBlockSize()]()
     {
         *offlineChain = PluginChainRenderer::createOfflineChain(*chain, sampleRate, blockSize);
         if (!offlineChain->isValid())
             chainFailed->store(true);
+        else
+            PluginChainRenderer::captureAutomation(*offlineChain, *automation);
         chainReady->signal();
     });
 
@@ -642,162 +611,5 @@ bool BatchJob::saveOutputFile(std::function<bool(float, const juce::String&)>& p
 // =============================================================================
 // DSP Operations
 // =============================================================================
-
-void BatchJob::applyGain(float gainDb)
-{
-    float gainLinear = juce::Decibels::decibelsToGain(gainDb);
-    m_buffer.applyGain(gainLinear);
-}
-
-void BatchJob::applyNormalize(float targetDb)
-{
-    float targetLinear = juce::Decibels::decibelsToGain(targetDb);
-
-    // Find peak
-    float peak = 0.0f;
-    for (int channel = 0; channel < m_numChannels; ++channel)
-    {
-        auto range = m_buffer.findMinMax(channel, 0, m_buffer.getNumSamples());
-        peak = std::max(peak, std::max(std::abs(range.getStart()), std::abs(range.getEnd())));
-    }
-
-    // Apply normalization
-    if (peak > 0.0f)
-    {
-        float gainToApply = targetLinear / peak;
-        m_buffer.applyGain(gainToApply);
-    }
-}
-
-void BatchJob::applyDCOffset()
-{
-    for (int channel = 0; channel < m_numChannels; ++channel)
-    {
-        // Calculate DC offset
-        float sum = 0.0f;
-        const float* data = m_buffer.getReadPointer(channel);
-        int numSamples = m_buffer.getNumSamples();
-
-        for (int i = 0; i < numSamples; ++i)
-            sum += data[i];
-
-        float dcOffset = sum / static_cast<float>(numSamples);
-
-        // Remove DC offset
-        float* writeData = m_buffer.getWritePointer(channel);
-        for (int i = 0; i < numSamples; ++i)
-            writeData[i] -= dcOffset;
-    }
-}
-
-void BatchJob::applyFadeIn(float durationMs, int curveType)
-{
-    int fadeSamples = static_cast<int>((durationMs / 1000.0) * m_sampleRate);
-    fadeSamples = std::min(fadeSamples, m_buffer.getNumSamples());
-
-    for (int channel = 0; channel < m_numChannels; ++channel)
-    {
-        float* data = m_buffer.getWritePointer(channel);
-
-        for (int i = 0; i < fadeSamples; ++i)
-        {
-            float t = static_cast<float>(i) / static_cast<float>(fadeSamples);
-            float gain;
-
-            switch (curveType)
-            {
-                case 1: // Exponential
-                    gain = t * t;
-                    break;
-                case 2: // Logarithmic
-                    gain = std::sqrt(t);
-                    break;
-                case 3: // S-Curve
-                    gain = 0.5f * (1.0f - std::cos(t * juce::MathConstants<float>::pi));
-                    break;
-                case 0: // Linear
-                default:
-                    gain = t;
-                    break;
-            }
-
-            data[i] *= gain;
-        }
-    }
-}
-
-void BatchJob::applyFadeOut(float durationMs, int curveType)
-{
-    int fadeSamples = static_cast<int>((durationMs / 1000.0) * m_sampleRate);
-    fadeSamples = std::min(fadeSamples, m_buffer.getNumSamples());
-
-    int startSample = m_buffer.getNumSamples() - fadeSamples;
-
-    for (int channel = 0; channel < m_numChannels; ++channel)
-    {
-        float* data = m_buffer.getWritePointer(channel);
-
-        for (int i = 0; i < fadeSamples; ++i)
-        {
-            float t = static_cast<float>(i) / static_cast<float>(fadeSamples);
-            float gain;
-
-            switch (curveType)
-            {
-                case 1: // Exponential
-                    gain = (1.0f - t) * (1.0f - t);
-                    break;
-                case 2: // Logarithmic
-                    gain = std::sqrt(1.0f - t);
-                    break;
-                case 3: // S-Curve
-                    gain = 0.5f * (1.0f + std::cos(t * juce::MathConstants<float>::pi));
-                    break;
-                case 0: // Linear
-                default:
-                    gain = 1.0f - t;
-                    break;
-            }
-
-            data[startSample + i] *= gain;
-        }
-    }
-}
-
-void BatchJob::applyEQPreset(const juce::String& presetName)
-{
-    if (presetName.isEmpty())
-        return;
-
-    // Load EQ parameters from preset
-    DynamicParametricEQ::Parameters params;
-
-    // Try loading as user preset first, then as factory preset
-    if (!EQPresetManager::loadPreset(params, presetName))
-    {
-        // Try factory preset
-        if (EQPresetManager::isFactoryPreset(presetName))
-        {
-            params = EQPresetManager::getFactoryPreset(presetName);
-        }
-        else
-        {
-            DBG("BatchJob: Failed to load EQ preset: " + presetName);
-            return;
-        }
-    }
-
-    // Skip if no bands to apply
-    if (params.bands.empty() && params.outputGain == 0.0f)
-        return;
-
-    // Create and prepare EQ processor
-    DynamicParametricEQ eq;
-    eq.prepare(m_sampleRate, m_buffer.getNumSamples());
-    eq.setParameters(params);
-
-    // Apply EQ to the buffer
-    eq.applyEQ(m_buffer);
-}
 
 } // namespace waveedit

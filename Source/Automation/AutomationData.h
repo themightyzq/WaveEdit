@@ -274,6 +274,16 @@ public:
         return getPointsCopy();
     }
 
+    /** Interpolated value of a point snapshot (from getPoints()) at a time.
+        Same interpolation as the realtime path, so an offline render of a
+        snapshot matches playback. Returns 0.5f for an empty snapshot. Pure,
+        allocation-free, any thread. */
+    static float evaluatePoints(const std::vector<AutomationPoint>& points,
+                                double timeInSeconds) noexcept
+    {
+        return points.empty() ? 0.5f : evaluate(points, timeInSeconds);
+    }
+
     /** Get number of points. */
     int getNumPoints() const
     {

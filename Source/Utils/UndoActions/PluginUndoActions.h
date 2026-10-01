@@ -113,12 +113,18 @@ public:
                           int64_t startSample,
                           int64_t numSamples,
                           const juce::AudioBuffer<float>& processedAudio,
-                          const juce::String& chainDescription)
-        : UndoableEditBase(bufferManager, audioEngine, waveformDisplay),
+                          const juce::String& chainDescription,
+                          RegionManager* regionManager = nullptr,
+                          RegionDisplay* regionDisplay = nullptr,
+                          MarkerManager* markerManager = nullptr,
+                          MarkerDisplay* markerDisplay = nullptr)
+        : UndoableEditBase(bufferManager, audioEngine, waveformDisplay, regionManager, regionDisplay),
           m_startSample(startSample),
           m_numSamples(numSamples),
           m_processedAudio(processedAudio.getNumChannels(), processedAudio.getNumSamples()),
-          m_chainDescription(chainDescription)
+          m_chainDescription(chainDescription),
+          m_markerManager(markerManager),
+          m_markerDisplay(markerDisplay)
     {
         jassert(m_bufferManager.hasAudioData());
         jassert(startSample >= 0 && startSample < m_bufferManager.getNumSamples());
@@ -140,6 +146,10 @@ public:
         const size_t processedBytes = static_cast<size_t>(m_processedAudio.getNumChannels()) *
                                       static_cast<size_t>(m_processedAudio.getNumSamples()) * sizeof(float);
         m_sizeInUnits = UndoMemory::unitsForBytes(originalBytes + processedBytes);
+
+        // Region/marker positions BEFORE the edit, so undo can put back what
+        // the tail shift below moves.
+        m_savedTimeline = TimelineShift::capture(m_regionManager, m_markerManager);
     }
 
     void markAsAlreadyPerformed() { m_alreadyPerformed = true; }
@@ -158,19 +168,27 @@ public:
     void refreshAfterExternalReplace()
     {
         updatePlaybackForLengthChange(m_numSamples, m_processedAudio.getNumSamples());
+        refreshMarkerDisplay(m_markerDisplay);
     }
 
     bool perform() override
     {
         if (m_alreadyPerformed)
         {
+            // The caller already replaced the buffer; the timeline shift is
+            // still ours to do, in the same undo step.
             m_alreadyPerformed = false;  // reset so redo re-applies
+            shiftTimelineForTail();
             return true;
         }
 
         const bool success = m_bufferManager.replaceRange(m_startSample, m_numSamples, m_processedAudio);
         if (success)
+        {
+            shiftTimelineForTail();
             updatePlaybackForLengthChange(m_numSamples, m_processedAudio.getNumSamples());
+            refreshMarkerDisplay(m_markerDisplay);
+        }
         return success;
     }
 
@@ -181,7 +199,12 @@ public:
         const int64_t samplesToReplace = m_processedAudio.getNumSamples();
         const bool success = m_bufferManager.replaceRange(m_startSample, samplesToReplace, m_originalAudio);
         if (success)
+        {
+            if (samplesToReplace != m_numSamples)
+                TimelineShift::restore(m_savedTimeline, m_regionManager, m_markerManager);
             updatePlaybackForLengthChange(samplesToReplace, m_originalAudio.getNumSamples());
+            refreshMarkerDisplay(m_markerDisplay);
+        }
         return success;
     }
 
@@ -207,6 +230,20 @@ private:
      * the genuinely safe case; otherwise fall back to the deterministic
      * stop-on-length-change behavior those actions use.
      */
+    /**
+     * An effect tail is audio inserted at the end of the processed range:
+     * everything after the selection moves later by the tail length, so
+     * regions and markers there must move with it (same rules as
+     * InsertAction). No-op without a tail.
+     */
+    void shiftTimelineForTail()
+    {
+        const int64_t tailSamples = m_processedAudio.getNumSamples() - m_numSamples;
+        if (tailSamples > 0)
+            TimelineShift::shiftForInsert(m_regionManager, m_markerManager,
+                                          m_startSample + m_numSamples, tailSamples);
+    }
+
     void updatePlaybackForLengthChange(int64_t oldLength, int64_t newLength)
     {
         if (oldLength == newLength)
@@ -220,6 +257,9 @@ private:
     juce::AudioBuffer<float> m_originalAudio;
     juce::AudioBuffer<float> m_processedAudio;
     juce::String m_chainDescription;
+    MarkerManager* m_markerManager;      // Optional - may be nullptr
+    MarkerDisplay* m_markerDisplay;      // Optional - may be nullptr
+    TimelineShift::Snapshot m_savedTimeline;  // Region/marker positions for undo
     double m_sampleRate;
     bool m_alreadyPerformed = false;
     int m_sizeInUnits = 0;  // Fixed at construction; see ctor.

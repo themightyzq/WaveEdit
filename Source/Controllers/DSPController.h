@@ -95,6 +95,22 @@ public:
     void applyPluginChainToSelection(Document* doc);
     void applyPluginChainToSelectionWithOptions(Document* doc, bool convertToStereo, bool includeTail, double tailLengthSeconds);
 
+    /**
+     * Commit a rendered plugin output (selection [startSample, startSample +
+     * numSamples) replaced by `processed`, which is longer when an effect
+     * tail was rendered) as one undo step. Regions and markers after the
+     * selection move by the tail length in the same step. Shared by the
+     * plugin chain and offline plugin paths; also the testable seam.
+     * Returns false (document untouched) if the range could not be
+     * replaced. May throw; callers own the error UI.
+     */
+    static bool commitPluginRender(Document* doc,
+                                   int64_t startSample,
+                                   int64_t numSamples,
+                                   const juce::AudioBuffer<float>& processed,
+                                   const juce::String& transactionName,
+                                   const juce::String& description);
+
 private:
     void applyPluginChainToSelectionInternal(Document* doc, bool convertToStereo, bool includeTail, double tailLengthSeconds);
     void applyOfflinePluginToSelection(Document* doc,

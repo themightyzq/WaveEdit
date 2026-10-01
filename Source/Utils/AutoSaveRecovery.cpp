@@ -9,6 +9,7 @@
 
 #include "AutoSaveRecovery.h"
 #include "Settings.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 namespace AutoSaveRecovery
 {
@@ -128,6 +129,61 @@ void deleteAutoSavesFor(const juce::File& autoSaveDir,
 void deleteAutoSavesFor(const juce::File& originalFile)
 {
     deleteAutoSavesFor(getAutoSaveDirectory(), originalFile);
+}
+
+bool writeAutoSave(const juce::File& target,
+                   const juce::AudioBuffer<float>& buffer,
+                   double sampleRate,
+                   juce::String& error)
+{
+    std::unique_ptr<juce::OutputStream> outputStream = target.createOutputStream();
+    if (outputStream == nullptr)
+    {
+        error = "Could not create output stream";
+        return false;
+    }
+
+    // JUCE 8 API: takes the unique_ptr by reference and assumes ownership of
+    // the stream only on success. 32-bit IEEE float (see
+    // AudioFileManager::saveAsWav, H1, for why the format must be explicit).
+    juce::WavAudioFormat wavFormat;
+    auto writer = wavFormat.createWriterFor(
+        outputStream,
+        juce::AudioFormatWriterOptions()
+            .withSampleRate(sampleRate)
+            .withNumChannels(buffer.getNumChannels())
+            .withBitsPerSample(32)
+            .withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::floatingPoint));
+
+    if (writer == nullptr)
+    {
+        error = "Could not create audio writer";
+        return false;
+    }
+
+    const bool written = writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
+    writer.reset();  // flush and close
+
+    if (!written)
+        error = "Write operation failed";
+    return written;
+}
+
+int loadFirstReadable(const juce::Array<juce::File>& newestFirst,
+                      const AutoSaveLoader& loader,
+                      juce::AudioBuffer<float>& recovered)
+{
+    for (int i = 0; i < newestFirst.size(); ++i)
+    {
+        juce::AudioBuffer<float> candidate;
+        if (loader && loader(newestFirst.getReference(i), candidate)
+            && candidate.getNumSamples() > 0 && candidate.getNumChannels() > 0)
+        {
+            recovered = std::move(candidate);
+            return i;
+        }
+    }
+    return -1;
 }
 
 }  // namespace AutoSaveRecovery

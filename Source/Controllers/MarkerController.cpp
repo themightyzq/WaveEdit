@@ -105,6 +105,8 @@ void MarkerController::addMarkerAtCursor(Document* doc, double lastClickTimeInSe
     );
     doc->getUndoManager().perform(undoAction);
 
+    doc->setModified(true);
+
     DBG(juce::String::formatted(
         "Added marker '%s' at %.3fs (sample %lld)",
         markerName.toRawUTF8(),
@@ -144,6 +146,8 @@ void MarkerController::deleteSelectedMarker(Document* doc)
         *marker
     );
     doc->getUndoManager().perform(undoAction);
+
+    doc->setModified(true);
 
     DBG(juce::String::formatted(
         "Deleted marker '%s'",
@@ -288,7 +292,6 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
         doc->getUndoManager().perform(new RenameMarkerUndoAction(
             doc->getMarkerManager(),
             &doc->getMarkerDisplay(),
-            doc->getFile(),
             markerIndex,
             oldName,
             newName));
@@ -322,7 +325,6 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
         doc->getUndoManager().perform(new ChangeMarkerColorUndoAction(
             doc->getMarkerManager(),
             &doc->getMarkerDisplay(),
-            doc->getFile(),
             markerIndex,
             oldColor,
             newColor));
@@ -363,6 +365,8 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
         // perform() calls DeleteMarkerUndoAction::perform() which removes the marker
         doc->getUndoManager().perform(undoAction);
 
+        doc->setModified(true);
+
         DBG("Deleted marker: " + markerName);
     };
 
@@ -390,7 +394,6 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
         doc->getUndoManager().perform(new MoveMarkerUndoAction(
             doc->getMarkerManager(),
             &doc->getMarkerDisplay(),
-            doc->getFile(),
             markerId,
             oldPos,
             newPos));
@@ -444,7 +447,6 @@ void MarkerController::setupMarkerCallbacks(Document* doc)
                         doc->getUndoManager().perform(new RenameMarkerUndoAction(
                             doc->getMarkerManager(),
                             &doc->getMarkerDisplay(),
-                            doc->getFile(),
                             markerIndex,
                             oldName,
                             newName));
@@ -559,7 +561,7 @@ void MarkerController::convertMarkersToRegions(Document* doc)
         // Register undo action
         doc->getUndoManager().beginNewTransaction("Markers to Regions");
         doc->getUndoManager().perform(new MarkersToRegionsUndoAction(
-            regionManager, doc->getRegionDisplay(), doc->getFile(), newRegions));
+            regionManager, doc->getRegionDisplay(), newRegions));
 
         doc->setModified(true);
 
@@ -634,7 +636,7 @@ void MarkerController::convertRegionsToMarkers(Document* doc)
         // Register undo action
         doc->getUndoManager().beginNewTransaction("Regions to Markers");
         doc->getUndoManager().perform(new RegionsToMarkersUndoAction(
-            markerManager, &doc->getMarkerDisplay(), doc->getFile(), newMarkers));
+            markerManager, &doc->getMarkerDisplay(), newMarkers));
 
         doc->setModified(true);
 
@@ -699,7 +701,6 @@ void MarkerController::handleMarkerListMarkerRenamed(Document* doc, int markerIn
     doc->getUndoManager().perform(new RenameMarkerUndoAction(
         doc->getMarkerManager(),
         &doc->getMarkerDisplay(),
-        doc->getFile(),
         markerIndex,
         oldName,
         newName));
@@ -720,7 +721,6 @@ void MarkerController::handleMarkerListMarkerColorChanged(Document* doc, int mar
     doc->getUndoManager().perform(new ChangeMarkerColorUndoAction(
         doc->getMarkerManager(),
         &doc->getMarkerDisplay(),
-        doc->getFile(),
         markerIndex,
         oldColor,
         newColor));
@@ -849,7 +849,6 @@ void MarkerController::importMarkers(Document* doc, juce::Component* /*parent*/)
             docCapture->getUndoManager().perform(new ImportMarkersUndoAction(
                 docCapture->getMarkerManager(),
                 &docCapture->getMarkerDisplay(),
-                docCapture->getFile(),
                 imported));
 
             docCapture->setModified(true);

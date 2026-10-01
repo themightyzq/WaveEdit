@@ -61,8 +61,13 @@ public:
      * Creates a new document.
      *
      * @param file The audio file to load (may be invalid for new/empty documents)
+     * @param sharedDevice The application's audio device manager. When given,
+     *        the document plays through it (attached only while it is the
+     *        active tab, see DocumentManager) instead of opening a device of
+     *        its own. Null (tests, standalone use) opens its own device.
      */
-    explicit Document(const juce::File& file = juce::File());
+    explicit Document(const juce::File& file = juce::File(),
+                      juce::AudioDeviceManager* sharedDevice = nullptr);
 
     /**
      * Destructor. Ensures audio engine is properly closed.

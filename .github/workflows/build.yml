@@ -53,7 +53,8 @@ jobs:
           fi
 
       - name: Build
-        run: cmake --build build --config Release --parallel 2
+        # App target only: the test suite builds and runs in the test job below.
+        run: cmake --build build --config Release --target WaveEdit --parallel 2
 
       - name: Verify build output
         run: |
@@ -180,7 +181,8 @@ jobs:
           fi
 
       - name: Build
-        run: cmake --build build --config Release --parallel 2
+        # App target only: the test suite builds and runs in the test job below.
+        run: cmake --build build --config Release --target WaveEdit --parallel 2
 
       - name: Verify build output
         shell: bash
@@ -266,7 +268,8 @@ jobs:
           fi
 
       - name: Build
-        run: cmake --build build --config Release --parallel 2
+        # App target only: the test suite builds and runs in the test job below.
+        run: cmake --build build --config Release --target WaveEdit --parallel 2
 
       - name: Verify build output
         run: |
@@ -293,12 +296,103 @@ jobs:
           retention-days: 30
 
   # ============================================================================
+  # Test suite (macOS + Linux). WAVEEDIT_CI=1 skips the groups that need a
+  # real audio device (see Tests/TestRunner.cpp).
+  # ============================================================================
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-latest, ubuntu-latest ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            ladspa-sdk \
+            libcurl4-openssl-dev \
+            libfreetype6-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libwebkit2gtk-4.1-dev \
+            libglu1-mesa-dev \
+            mesa-common-dev \
+            libsoundtouch-dev \
+            libmp3lame-dev \
+            xvfb
+
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.22.x'
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          # Single-arch on macOS: the tests do not need the universal slices.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+          else
+            cmake -B build -DCMAKE_BUILD_TYPE=Release
+          fi
+
+      - name: Build tests
+        run: cmake --build build --config Release --target WaveEditTests --parallel 2
+
+      - name: Run tests
+        shell: bash
+        env:
+          WAVEEDIT_CI: '1'
+        run: |
+          RUNNER="build/WaveEditTests_artefacts/Release/WaveEditTests"
+          if [ ! -x "$RUNNER" ]; then
+            echo "::error::test runner not found at $RUNNER"
+            find build -type f -name "WaveEditTests*"
+            exit 1
+          fi
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a "$RUNNER"
+          else
+            "$RUNNER"
+          fi
+
+  # ============================================================================
+  # Documentation checks
+  # ============================================================================
+  doc-checks:
+    name: Doc checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: README shortcut table matches the default keymap
+        run: python3 .github/scripts/check_readme_keymap.py
+
+  # ============================================================================
   # Build Summary
   # ============================================================================
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [build-macos, build-windows, build-linux]
+    needs: [build-macos, build-windows, build-linux, test, doc-checks]
     if: always()
 
     steps:
@@ -311,6 +405,8 @@ jobs:
           echo "| macOS Universal | ${{ needs.build-macos.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Windows x64 | ${{ needs.build-windows.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Linux x64 | ${{ needs.build-linux.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.test.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Doc checks | ${{ needs['doc-checks'].result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
 
   # ============================================================================
   # Publish GitHub Release  (only on v* tags)
@@ -318,7 +414,7 @@ jobs:
   release:
     name: Publish Release
     runs-on: ubuntu-latest
-    needs: [build-macos, build-windows, build-linux]
+    needs: [build-macos, build-windows, build-linux, test, doc-checks]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write

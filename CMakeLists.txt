@@ -65,6 +65,9 @@ target_sources(WaveEdit
         Source/Controllers/FileController.h
         Source/Controllers/DSPController.cpp
         Source/Controllers/DSPController_Advanced.cpp
+        Source/Controllers/DSPController_Plugins.cpp
+        Source/Controllers/ChannelFocus.cpp
+        Source/Controllers/ChannelFocus.h
         Source/Controllers/DSPController.h
         Source/Controllers/RegionController.cpp
         Source/Controllers/RegionController_Export.cpp
@@ -85,6 +88,8 @@ target_sources(WaveEdit
         Source/Audio/AudioEngine_Preview.cpp
         Source/Audio/AudioEngine_MemorySource.cpp
         Source/Audio/AudioEngine.h
+        Source/Audio/AudioEngineMemorySource.h
+        Source/Audio/ChannelMask.h
         Source/Audio/AudioBufferManager.cpp
         Source/Audio/AudioBufferManager.h
         Source/Audio/ChannelLayout.h
@@ -248,6 +253,8 @@ target_sources(WaveEdit
         Source/Utils/UndoActions/RegionDerivationUndoActions.h
         Source/Utils/UndoActions/MarkerUndoActions.h
         Source/Utils/UndoActions/PluginUndoActions.h
+        Source/Utils/UndoActions/TimelineShift.h
+        Source/Utils/UndoActions/ChannelFocusUndoActions.h
         Source/Utils/UndoActions/ChannelUndoActions.h
         Source/Utils/UndoActions/AutomationUndoActions.h
         Source/UI/RegionDisplay.cpp
@@ -311,6 +318,8 @@ target_sources(WaveEdit
         Source/Batch/BatchProcessorSettings.cpp
         Source/Batch/BatchProcessorSettings.h
         Source/Batch/BatchJob.cpp
+        Source/Batch/BatchDSPOps.cpp
+        Source/Batch/BatchDSPOps.h
         Source/Batch/BatchJob.h
         Source/Batch/BatchProcessorEngine.cpp
         Source/Batch/BatchProcessorEngine.h
@@ -749,11 +758,16 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Controllers/FileController.h
         Source/Controllers/DSPController.cpp
         Source/Controllers/DSPController_Advanced.cpp
+        Source/Controllers/DSPController_Plugins.cpp
+        Source/Controllers/ChannelFocus.cpp
+        Source/Controllers/ChannelFocus.h
         Source/Controllers/DSPController.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioEngine_Preview.cpp
         Source/Audio/AudioEngine_MemorySource.cpp
         Source/Audio/AudioEngine.h
+        Source/Audio/AudioEngineMemorySource.h
+        Source/Audio/ChannelMask.h
         Source/Audio/AudioBufferManager.cpp
         Source/Audio/AudioBufferManager.h
         Source/Audio/ChannelLayout.h
@@ -903,6 +917,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Utils/UndoActions/RegionDerivationUndoActions.h
         Source/Utils/UndoActions/MarkerUndoActions.h
         Source/Utils/UndoActions/PluginUndoActions.h
+        Source/Utils/UndoActions/TimelineShift.h
+        Source/Utils/UndoActions/ChannelFocusUndoActions.h
         Source/Utils/UndoActions/ChannelUndoActions.h
         Source/Utils/UndoActions/AutomationUndoActions.h
         Source/UI/MarkerDisplay.cpp
@@ -957,6 +973,8 @@ if(WAVEEDIT_BUILD_TESTS)
         Source/Batch/BatchProcessorSettings.cpp
         Source/Batch/BatchProcessorSettings.h
         Source/Batch/BatchJob.cpp
+        Source/Batch/BatchDSPOps.cpp
+        Source/Batch/BatchDSPOps.h
         Source/Batch/BatchJob.h
         Source/Batch/BatchProcessorEngine.cpp
         Source/Batch/BatchProcessorEngine.h
@@ -1161,6 +1179,14 @@ if(WAVEEDIT_BUILD_TESTS)
             Tests/Integration/SidecarSafetyNetTests.cpp         # v0.9.1: regions/markers survive non-WAV and RF64 saves
             Tests/Integration/SaveIdentityTests.cpp             # v0.9.1: Save after Save As targets the new file
             Tests/Unit/AudioEngineLifetimeTests.cpp             # v0.9.1: engine teardown + sample-exact selection end
+            Tests/Unit/PluginRenderCorrectnessTests.cpp         # Phase 1: automation rendered offline; tail shifts regions/markers
+            Tests/Integration/SidecarOnSaveTests.cpp            # v0.9.1 follow-up: sidecars written on Save only, rescaled
+            Tests/Unit/AutoSaveLosslessTests.cpp                # v0.9.1 follow-up: float auto-saves, recovery fallback
+            Tests/Unit/RecordingEditLockTests.cpp               # Phase 1: editing commands disabled while recording
+            Tests/Unit/PlaybackFromMemoryTests.cpp              # Phase 1: no file reads on the audio thread after open
+            Tests/Unit/BatchPreviewMatchTests.cpp               # Phase 1: batch preview equals batch output
+            Tests/Integration/SharedAudioDeviceTests.cpp        # v0.9.1 follow-up: tabs share one audio device
+            Tests/Integration/ChannelFocusDSPTests.cpp          # Phase 1: DSP respects per-channel focus
             # Tests/EndToEnd/CompleteWorkflowTests.cpp          # Week 5
             # Tests/EndToEnd/StressTests.cpp                    # Week 5
             # Tests/Performance/WaveformRenderingBenchmarks.cpp # Week 6

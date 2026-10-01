@@ -237,13 +237,11 @@ private:
         juce::File targetFile;
         juce::File originalFile;
         double sampleRate;
-        int bitDepth;
 
         AutoSaveJob(const juce::AudioBuffer<float>& buffer,
                     const juce::File& target,
                     const juce::File& original,
-                    double rate,
-                    int depth);
+                    double rate);
 
         JobStatus runJob() override;
 

@@ -44,7 +44,10 @@ in one folder, so removing that folder plus the app is a complete uninstall:
 2. Select audio by clicking and dragging on the waveform.
 3. Edit with `Delete`, `Cmd+X`/`Cmd+C`/`Cmd+V` for cut/copy/paste, and `Cmd+Z`/`Cmd+Shift+Z`
    for undo/redo (up to 100 levels per file, fewer on very long files: undo history is
-   capped at an eighth of your RAM, at most 2 GB).
+   capped at an eighth of your RAM, at most 2 GB). To work on one channel of a stereo or
+   multichannel file, double-click that channel (or its label): editing and processing then
+   change only that channel. Double-click it again to work on all channels. Operations that
+   change the length of the file, such as Trim or Time Stretch, need all channels.
 4. Play with `Space`, stop with `Escape`.
 5. Save with `Cmd+S`. There are no project files: WaveEdit edits the file itself, and
    nothing is written to disk until you save.
@@ -67,8 +70,9 @@ What it does, beyond basic cut and paste:
   to many files at once, with output format and naming control
 - Hosts VST3 and AU effect plugins in a chain, with parameter automation recording and a
   lane editor
-- Crash recovery: autosave runs every minute on a modified file, and is offered back the
-  next time you open it
+- Crash recovery: autosave writes a lossless copy of a modified file every minute, and it is
+  offered back the next time you open the file (the previous autosave is used if the newest
+  one is damaged)
 - Three built-in themes: Dark, Light, and High Contrast
 - Classic Editor and Session Style keymap templates, and every shortcut can be remapped
 
@@ -334,6 +338,16 @@ Windows:
 On Linux and Windows, LAME and SoundTouch are only needed to build from source, and Release
 builds bundle both as dynamic libraries alongside the executable. On macOS both are compiled
 in statically, so the app binary has no bundled third-party libraries at all.
+
+To build and run the automated tests (from the `build` directory):
+
+```
+cmake --build . --config Release --target WaveEditTests
+WAVEEDIT_CI=1 ./WaveEditTests_artefacts/Release/WaveEditTests
+```
+
+`WAVEEDIT_CI=1` skips the tests that need an audio device; leave it unset to run them all.
+The runner exits non-zero if any test fails.
 
 ## Licence
 

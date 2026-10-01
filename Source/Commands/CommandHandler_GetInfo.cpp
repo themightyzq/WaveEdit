@@ -15,6 +15,8 @@
 */
 
 #include "CommandHandler.h"
+#include <algorithm>
+#include <iterator>
 #include "CommandIDs.h"
 #include "../MainComponent.h"
 #include "../Utils/Document.h"
@@ -1058,4 +1060,61 @@ void CommandHandler::getCommandInfo(juce::CommandID commandID,
             default:
                 break;
         }
+
+    // While a take is being captured, nothing may edit the documents: the
+    // take is inserted at the edit cursor when recording stops.
+    if (context.isRecording && isEditingCommand(commandID))
+        result.setActive(false);
     }
+
+bool CommandHandler::isEditingCommand(juce::CommandID commandID)
+{
+    static const juce::CommandID editingCommands[] = {
+        CommandIDs::editUndo,
+        CommandIDs::editRedo,
+        CommandIDs::editCut,
+        CommandIDs::editPaste,
+        CommandIDs::editDelete,
+        CommandIDs::editSilence,
+        CommandIDs::editTrim,
+        CommandIDs::processFadeIn,
+        CommandIDs::processFadeOut,
+        CommandIDs::processNormalize,
+        CommandIDs::processDCOffset,
+        CommandIDs::processGain,
+        CommandIDs::processIncreaseGain,
+        CommandIDs::processDecreaseGain,
+        CommandIDs::processGraphicalEQ,
+        CommandIDs::processChannelConverter,
+        CommandIDs::processReverse,
+        CommandIDs::processInvert,
+        CommandIDs::processResample,
+        CommandIDs::processTimeStretch,
+        CommandIDs::processPitchShift,
+        CommandIDs::regionAdd,
+        CommandIDs::regionDelete,
+        CommandIDs::regionStripSilence,
+        CommandIDs::regionNudgeStartLeft,
+        CommandIDs::regionNudgeStartRight,
+        CommandIDs::regionNudgeEndLeft,
+        CommandIDs::regionNudgeEndRight,
+        CommandIDs::regionBatchRename,
+        CommandIDs::regionMerge,
+        CommandIDs::regionSplit,
+        CommandIDs::regionPaste,
+        CommandIDs::markerAdd,
+        CommandIDs::markerDelete,
+        CommandIDs::markerConvertToRegions,
+        CommandIDs::regionConvertToMarkers,
+        CommandIDs::pluginApplyChain,
+        CommandIDs::pluginOffline,
+        CommandIDs::toolsChannelConverter,
+        CommandIDs::toolsHeadTail,
+        CommandIDs::generateInsertSilence,
+        CommandIDs::generateTone,
+        CommandIDs::generateNoise,
+    };
+
+    return std::find(std::begin(editingCommands), std::end(editingCommands), commandID)
+           != std::end(editingCommands);
+}

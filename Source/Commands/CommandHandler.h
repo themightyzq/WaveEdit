@@ -40,6 +40,7 @@ struct CommandContext
     juce::DocumentWindow* spectrumWindow = nullptr;
     std::function<bool(Document*)> canMergeRegions;   // Function to check if regions can be merged
     std::function<bool(Document*)> canSplitRegion;    // Function to check if a region can be split
+    bool isRecording = false;                         // A recording is being captured
 };
 
 /**
@@ -60,6 +61,15 @@ public:
      * Called by ApplicationCommandTarget to populate the command manager.
      */
     void getAllCommands(juce::Array<juce::CommandID>& commands);
+
+    /**
+     * True for commands that change a document's audio, regions or markers
+     * (Edit, Process, Generate, Tools, region/marker edits, plugin apply,
+     * Undo/Redo). getCommandInfo() disables these while a recording is being
+     * captured, so the audio a take will be inserted into cannot change
+     * under it.
+     */
+    static bool isEditingCommand(juce::CommandID commandID);
 
     /**
      * Provides metadata (name, description, category, shortcut) for a command.

@@ -54,7 +54,8 @@ public:
     NormalizeDialog(AudioEngine* audioEngine,
                    AudioBufferManager* bufferManager,
                    int64_t selectionStart,
-                   int64_t selectionEnd);
+                   int64_t selectionEnd,
+                   int channelMask = -1);  // levels measured on these channels (-1 = all)
     ~NormalizeDialog() override;
 
     /**
@@ -177,6 +178,7 @@ private:
     // Selection bounds
     int64_t m_selectionStart;
     int64_t m_selectionEnd;
+    int m_channelMask = -1;  // per-channel focus: analyse only these channels
 
     // State
     NormalizeMode m_mode {NormalizeMode::PEAK};  // Default to Peak for backward compatibility

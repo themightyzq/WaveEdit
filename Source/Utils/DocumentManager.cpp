@@ -37,9 +37,37 @@ DocumentManager::~DocumentManager()
 //==============================================================================
 // Document Lifecycle
 
+void DocumentManager::setSharedDeviceManager(juce::AudioDeviceManager* deviceManager)
+{
+    jassert(m_documents.isEmpty());  // documents choose their device at construction
+    m_sharedDeviceManager = deviceManager;
+}
+
+void DocumentManager::routeSharedDeviceToCurrent()
+{
+    if (m_sharedDeviceManager == nullptr)
+        return;
+
+    auto* current = getCurrentDocument();
+
+    // Detach first so at most one engine is ever attached. Stop before
+    // detaching: AudioTransportSource::stop() waits for a callback.
+    for (auto* doc : m_documents)
+    {
+        if (doc != current && doc->getAudioEngine().isAudioCallbackActive())
+        {
+            doc->getAudioEngine().stop();
+            doc->getAudioEngine().setAudioCallbackActive(false);
+        }
+    }
+
+    if (current != nullptr)
+        current->getAudioEngine().setAudioCallbackActive(true);
+}
+
 Document* DocumentManager::createDocument()
 {
-    auto* document = new Document();
+    auto* document = new Document(juce::File(), m_sharedDeviceManager);
     m_documents.add(document);
 
     int newIndex = m_documents.size() - 1;
@@ -76,7 +104,7 @@ Document* DocumentManager::openDocument(const juce::File& file)
     }
 
     // Create new document and load file
-    auto* document = new Document(file);
+    auto* document = new Document(file, m_sharedDeviceManager);
     if (!document->loadFile(file))
     {
         // Load failed - don't add to manager
@@ -149,6 +177,10 @@ bool DocumentManager::closeDocumentAt(int index)
         m_currentDocumentIndex--;
     }
 
+    // The current index may now name a different document (closing the
+    // current tab keeps the index), so re-route the device explicitly.
+    routeSharedDeviceToCurrent();
+
     DBG("Closed document at index " + juce::String(index));
     return true;
 }
@@ -200,6 +232,7 @@ bool DocumentManager::setCurrentDocumentIndex(int index)
     }
 
     m_currentDocumentIndex = index;
+    routeSharedDeviceToCurrent();
     notifyCurrentDocumentChanged();
 
     DBG("Switched to document at index " + juce::String(index));

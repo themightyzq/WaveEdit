@@ -38,11 +38,9 @@ class AddRegionUndoAction : public juce::UndoableAction
 public:
     AddRegionUndoAction(RegionManager& regionManager,
                        RegionDisplay& regionDisplay,
-                       const juce::File& audioFile,
                        const Region& region)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_region(region)
     {
         // No audio storage -- report the (tiny, fixed) size of this object,
@@ -56,9 +54,6 @@ public:
         // re-adds the same identity and undo can find it regardless of
         // any other regions added/removed in between (H8).
         m_regionManager.addRegion(m_region);
-
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
 
         // Update display
         m_regionDisplay.repaint();
@@ -75,9 +70,6 @@ public:
         {
             m_regionManager.removeRegion(index);
 
-            // Save to sidecar JSON file
-            m_regionManager.saveToFile(m_audioFile);
-
             // Update display
             m_regionDisplay.repaint();
 
@@ -91,7 +83,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     Region m_region;  // Carries the stable ID used to locate it on undo
     int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
@@ -110,11 +101,9 @@ class PasteRegionsUndoAction : public juce::UndoableAction
 public:
     PasteRegionsUndoAction(RegionManager& regionManager,
                            RegionDisplay& regionDisplay,
-                           const juce::File& audioFile,
                            const juce::Array<Region>& regionsToPaste)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_regions(regionsToPaste)
     {
         // No audio storage -- report the (tiny, fixed) size of this object
@@ -128,7 +117,6 @@ public:
         for (const auto& region : m_regions)
             m_regionManager.addRegion(region);
 
-        m_regionManager.saveToFile(m_audioFile);
         m_regionDisplay.repaint();
 
         DBG("Pasted " + juce::String(m_regions.size()) + " region(s)");
@@ -144,7 +132,6 @@ public:
             if (idx >= 0)
                 m_regionManager.removeRegion(idx);
         }
-        m_regionManager.saveToFile(m_audioFile);
         m_regionDisplay.repaint();
 
         DBG("Undid paste of " + juce::String(m_regions.size()) + " region(s)");
@@ -156,7 +143,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     juce::Array<Region> m_regions;
     int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
 
@@ -173,11 +159,9 @@ class DeleteRegionUndoAction : public juce::UndoableAction
 public:
     DeleteRegionUndoAction(RegionManager& regionManager,
                           RegionDisplay& regionDisplay,
-                          const juce::File& audioFile,
                           int regionIndex)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_regionIndex(regionIndex),
           m_deletedRegion("", 0, 0)  // Filled from the index below
     {
@@ -206,9 +190,6 @@ public:
         m_regionIndex = index;  // Remember where it was for a faithful undo
         m_regionManager.removeRegion(index);
 
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
         // Update display
         m_regionDisplay.repaint();
 
@@ -223,9 +204,6 @@ public:
         int insertIndex = juce::jlimit(0, m_regionManager.getNumRegions(), m_regionIndex);
         m_regionManager.insertRegionAt(insertIndex, m_deletedRegion);
 
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
         // Update display
         m_regionDisplay.repaint();
 
@@ -238,7 +216,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     int m_regionIndex;
     Region m_deletedRegion;
     int m_sizeInUnits = 0;  // Fixed at construction; see ctor.
@@ -256,13 +233,11 @@ class RenameRegionUndoAction : public juce::UndoableAction
 public:
     RenameRegionUndoAction(RegionManager& regionManager,
                           RegionDisplay& regionDisplay,
-                          const juce::File& audioFile,
                           int regionIndex,
                           const juce::String& oldName,
                           const juce::String& newName)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_oldName(oldName),
           m_newName(newName)
     {
@@ -289,9 +264,6 @@ public:
 
         region->setName(m_newName);
 
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
         // Update display
         m_regionDisplay.repaint();
 
@@ -307,9 +279,6 @@ public:
         {
             region->setName(m_oldName);
 
-            // Save to sidecar JSON file
-            m_regionManager.saveToFile(m_audioFile);
-
             // Update display
             m_regionDisplay.repaint();
 
@@ -323,7 +292,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     int64_t m_regionId = -1;
     juce::String m_oldName;
     juce::String m_newName;
@@ -342,13 +310,11 @@ class ChangeRegionColorUndoAction : public juce::UndoableAction
 public:
     ChangeRegionColorUndoAction(RegionManager& regionManager,
                                RegionDisplay& regionDisplay,
-                               const juce::File& audioFile,
                                int regionIndex,
                                const juce::Colour& oldColor,
                                const juce::Colour& newColor)
         : m_regionManager(regionManager),
           m_regionDisplay(regionDisplay),
-          m_audioFile(audioFile),
           m_oldColor(oldColor),
           m_newColor(newColor)
     {
@@ -373,9 +339,6 @@ public:
 
         region->setColor(m_newColor);
 
-        // Save to sidecar JSON file
-        m_regionManager.saveToFile(m_audioFile);
-
         // Update display
         m_regionDisplay.repaint();
 
@@ -391,9 +354,6 @@ public:
         {
             region->setColor(m_oldColor);
 
-            // Save to sidecar JSON file
-            m_regionManager.saveToFile(m_audioFile);
-
             // Update display
             m_regionDisplay.repaint();
 
@@ -407,7 +367,6 @@ public:
 private:
     RegionManager& m_regionManager;
     RegionDisplay& m_regionDisplay;
-    juce::File m_audioFile;
     int64_t m_regionId = -1;
     juce::Colour m_oldColor;
     juce::Colour m_newColor;
